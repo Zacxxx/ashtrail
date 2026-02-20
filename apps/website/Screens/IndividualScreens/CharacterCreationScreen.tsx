@@ -12,6 +12,7 @@ import {
 
 interface CharacterCreationScreenProps {
   onComplete: (player: Player) => void;
+  onBack: () => void;
 }
 
 type CreationTab = 'IDENTITY' | 'TRAITS' | 'STATS';
@@ -87,7 +88,7 @@ const GENDER_OPTIONS = [
   { value: 'Undetermined', label: 'Undetermined' }
 ];
 
-export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = ({ onComplete }) => {
+export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = ({ onComplete, onBack }) => {
   const [activeTab, setActiveTab] = useState<CreationTab>('IDENTITY');
   const [name, setName] = useState('');
   const [age, setAge] = useState(25);
@@ -237,8 +238,8 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
       <button
         onClick={() => toggleTrait(trait)}
         className={`w-full p-2 text-left border rounded-sm transition-all group flex items-center justify-between ${active
-            ? 'bg-orange-600/20 border-orange-500 shadow-[inset_0_0_10px_rgba(249,115,22,0.1)]'
-            : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
+          ? 'bg-orange-600/20 border-orange-500 shadow-[inset_0_0_10px_rgba(249,115,22,0.1)]'
+          : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
           }`}
       >
         <span className={`font-bold text-[10px] uppercase mono ${active ? 'text-orange-400' : 'text-zinc-300'} truncate mr-2`}>
@@ -263,8 +264,8 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`px-3 py-1 text-[9px] mono uppercase font-bold tracking-widest border-b-2 transition-all ${activeTab === tab
-                    ? 'text-orange-500 border-orange-500 bg-orange-500/5'
-                    : 'text-zinc-600 border-transparent hover:text-zinc-400'
+                  ? 'text-orange-500 border-orange-500 bg-orange-500/5'
+                  : 'text-zinc-600 border-transparent hover:text-zinc-400'
                   }`}
               >
                 {tab}
@@ -483,10 +484,15 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
             <div className="flex gap-2">
               <Button
                 variant="ghost"
-                onClick={() => setActiveTab(activeTab === 'STATS' ? 'TRAITS' : 'IDENTITY')}
-                disabled={activeTab === 'IDENTITY'}
+                onClick={() => {
+                  if (activeTab === 'IDENTITY') {
+                    onBack();
+                  } else {
+                    setActiveTab(activeTab === 'STATS' ? 'TRAITS' : 'IDENTITY');
+                  }
+                }}
               >
-                Prev Tab
+                {activeTab === 'IDENTITY' ? 'Back to Homescreen' : 'Prev Tab'}
               </Button>
             </div>
 
