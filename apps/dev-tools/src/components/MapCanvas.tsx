@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SimulationConfig, LODLevel, VisualizationMode, TerrainCell } from "../modules/geo/types";
 import { LOD_LEVELS } from "../modules/geo/types";
-import type { WorkerRequest, WorkerResponse } from "../geo.worker";
+import { GeoEngine } from "../modules/geo/engine";
 
 interface MapCanvasProps {
   config: SimulationConfig;
@@ -11,7 +11,21 @@ interface MapCanvasProps {
   onGenerating?: (isGenerating: boolean) => void;
 }
 
-// ── Parse "#rrggbb" to [r, g, b] ───────────────────────────
+interface GenerateTerrainRequest {
+  config: SimulationConfig;
+  cols: number;
+  rows: number;
+  kmPerCell: number;
+  octaves: number;
+}
+
+interface GenerateTerrainResponse {
+  cols: number;
+  rows: number;
+  cellData: any[];
+  cellColors: string[];
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const v = parseInt(hex.slice(1), 16);
   return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
@@ -20,79 +34,17 @@ function hexToRgb(hex: string): [number, number, number] {
 export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, onGenerating }: MapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const workerRef = useRef<Worker | null>(null);
-  const cellDataRef = useRef<WorkerResponse["cellData"] | null>(null);
+  const cellDataRef = useRef<any[] | null>(null);
+  const rawCellDataRef = useRef<any[] | null>(null);
   const worldDims = useRef({ cols: 0, rows: 0 });
+  const requestAbortRef = useRef<AbortController | null>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 800 });
   const [isGenerating, setIsGenerating] = useState(true);
 
-  // Pan state
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
 
-  // ── Initialize Web Worker ──
-  useEffect(() => {
-    const worker = new Worker(
-      new URL("../geo.worker.ts", import.meta.url),
-      { type: "module" }
-    );
-
-    worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
-      const result = e.data;
-      cellDataRef.current = result.cellData;
-      worldDims.current = { cols: result.cols, rows: result.rows };
-
-      // Render from worker results
-      renderFromColors(result.cellColors, result.cols, result.rows);
-      setIsGenerating(false);
-      onGenerating?.(false);
-    };
-
-    workerRef.current = worker;
-    return () => worker.terminate();
-  }, []);
-
-  // ── Resize observer ──
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const observer = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        setCanvasSize({ width: Math.floor(width), height: Math.floor(height) });
-      }
-    });
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, []);
-
-  // ── Dispatch generation to worker ──
-  useEffect(() => {
-    const worker = workerRef.current;
-    if (!worker) return;
-
-    const lod = LOD_LEVELS[lodLevel];
-    const ppc = lod.pixelsPerCell;
-    const cols = Math.ceil(canvasSize.width / ppc) + 2;
-    const rows = Math.ceil(canvasSize.height / ppc) + 2;
-
-    setIsGenerating(true);
-    onGenerating?.(true);
-
-    const request: WorkerRequest = {
-      type: "generate",
-      config,
-      cols,
-      rows,
-      lodLevel,
-      visualizationMode,
-    };
-
-    worker.postMessage(request);
-  }, [config, lodLevel, visualizationMode, canvasSize.width, canvasSize.height]);
-
-  // ── Render pixel map from color array ──
   const renderFromColors = useCallback((
     cellColors: string[], cols: number, rows: number,
   ) => {
@@ -111,7 +63,6 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
     const ox = offset.x % ppc;
     const oy = offset.y % ppc;
 
-    // Pre-parse all colors to avoid repeated hex parsing
     const rgbCache: [number, number, number][] = new Array(cellColors.length);
     for (let i = 0; i < cellColors.length; i++) {
       rgbCache[i] = hexToRgb(cellColors[i]);
@@ -141,7 +92,6 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
 
     ctx.putImageData(imageData, 0, 0);
 
-    // ── River / lake overlay ──
     const cellData = cellDataRef.current;
     if (cellData && (visualizationMode === "BIOME" || visualizationMode === "RIVERS")) {
       for (const cell of cellData) {
@@ -164,14 +114,99 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
     }
   }, [lodLevel, canvasSize, offset, visualizationMode, config.world.oceanCoverage]);
 
-  // ── Re-render on pan (without re-generating) ──
+  const applyVisualizationAndRender = useCallback((rawCells: any[], cols: number, rows: number) => {
+    const cells = visualizationMode === "BIOME"
+      ? rawCells
+      : GeoEngine.recolorCells(rawCells as unknown as TerrainCell[], visualizationMode);
+
+    cellDataRef.current = cells as any[];
+    const cellColors = cells.map((c: any) => c.color);
+    renderFromColors(cellColors, cols, rows);
+  }, [renderFromColors, visualizationMode]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setCanvasSize({ width: Math.floor(width), height: Math.floor(height) });
+      }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    requestAbortRef.current?.abort();
+    const abortController = new AbortController();
+    requestAbortRef.current = abortController;
+
+    const run = async () => {
+      const lod = LOD_LEVELS[lodLevel];
+      const ppc = lod.pixelsPerCell;
+      const cols = Math.ceil(canvasSize.width / ppc) + 2;
+      const rows = Math.ceil(canvasSize.height / ppc) + 2;
+
+      setIsGenerating(true);
+      onGenerating?.(true);
+
+      const requestBody: GenerateTerrainRequest = {
+        config,
+        cols,
+        rows,
+        kmPerCell: lod.kmPerCell,
+        octaves: lod.octaves,
+      };
+
+      try {
+        const response = await fetch("/api/terrain/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+          signal: abortController.signal,
+        });
+
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || `Backend error (${response.status})`);
+        }
+
+        const result: GenerateTerrainResponse = await response.json();
+        rawCellDataRef.current = result.cellData;
+        worldDims.current = { cols: result.cols, rows: result.rows };
+
+        applyVisualizationAndRender(result.cellData, result.cols, result.rows);
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          return;
+        }
+        console.error("Terrain generation request failed:", error);
+      } finally {
+        if (!abortController.signal.aborted) {
+          setIsGenerating(false);
+          onGenerating?.(false);
+        }
+      }
+    };
+
+    void run();
+
+    return () => abortController.abort();
+  }, [config, lodLevel, canvasSize.width, canvasSize.height, onGenerating, applyVisualizationAndRender]);
+
+  useEffect(() => {
+    const rawCells = rawCellDataRef.current;
+    if (!rawCells) return;
+    applyVisualizationAndRender(rawCells, worldDims.current.cols, worldDims.current.rows);
+  }, [visualizationMode, applyVisualizationAndRender]);
+
   useEffect(() => {
     if (!cellDataRef.current) return;
     const colors = cellDataRef.current.map(c => c.color);
     renderFromColors(colors, worldDims.current.cols, worldDims.current.rows);
-  }, [offset]);
+  }, [offset, renderFromColors]);
 
-  // ── Pan handlers ──
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     isPanning.current = true;
     lastMouse.current = { x: e.clientX, y: e.clientY };
@@ -185,7 +220,6 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
       lastMouse.current = { x: e.clientX, y: e.clientY };
     }
 
-    // Cell hover detection
     if (cellDataRef.current && onCellHover) {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -203,7 +237,6 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
       const dims = worldDims.current;
       if (col >= 0 && col < dims.cols && row >= 0 && row < dims.rows) {
         const cd = cellDataRef.current[row * dims.cols + col];
-        // Cast serialized cell data back to TerrainCell shape for the inspector
         onCellHover(cd as unknown as TerrainCell);
       } else {
         onCellHover(null);
@@ -232,7 +265,6 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
         style={{ imageRendering: "pixelated" }}
       />
 
-      {/* Loading overlay */}
       {isGenerating && (
         <div className="absolute inset-0 flex items-center justify-center bg-[#0a0f1c]/80 backdrop-blur-sm z-10">
           <div className="flex flex-col items-center gap-4">

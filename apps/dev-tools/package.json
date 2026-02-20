@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:backend": "cargo run --manifest-path backend/Cargo.toml",
     "build": "vite build",
     "preview": "vite preview"
   },
