@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { Button } from "@ashtrail/ui";
-import { MapCanvas } from "./components/MapCanvas";
+import { PlanetGlobe } from "./components/PlanetGlobe";
+import { PlanetMap2D } from "./components/PlanetMap2D";
 import type {
   SimulationConfig,
   LODLevel,
@@ -45,6 +46,13 @@ const VIZ_MODES: { key: VisualizationMode; label: string; icon: string }[] = [
 // ── Inspector Panel Types ──
 
 type InspectorTab = "world" | "geology" | "climate" | "layers" | "cell";
+type ViewMode = "map" | "globe";
+
+interface PlanetWorld {
+  cols: number;
+  rows: number;
+  cellData: TerrainCell[];
+}
 
 export function App() {
   const [activeStep, setActiveStep] = useState<WorkflowStep>("GEO");
@@ -54,6 +62,12 @@ export function App() {
   const [lodLevel, setLodLevel] = useState<LODLevel>(2);
   const [vizMode, setVizMode] = useState<VisualizationMode>("BIOME");
   const [hoveredCell, setHoveredCell] = useState<TerrainCell | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("map");
+  const [isGeneratingGlobe, setIsGeneratingGlobe] = useState(false);
+  const [isGeneratingFullPlanet, setIsGeneratingFullPlanet] = useState(false);
+  const [fullPlanetStatus, setFullPlanetStatus] = useState<string>("");
+  const [globeStatus, setGlobeStatus] = useState<string>("");
+  const [globeWorld, setGlobeWorld] = useState<PlanetWorld | null>(null);
 
   // Config update helpers
   const updateWorld = useCallback((patch: Partial<SimulationConfig["world"]>) => {
@@ -74,6 +88,70 @@ export function App() {
     updateWorld({ seed: Math.floor(Math.random() * 1_000_000) });
   }, [updateWorld]);
 
+  const generateFullPlanet = useCallback(async () => {
+    setIsGeneratingFullPlanet(true);
+    setFullPlanetStatus("Generating full planet hierarchy (LOD 0→5)...");
+
+    try {
+      const response = await fetch("/api/planet/generate-full", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config,
+          rootCols: 240,
+          rootRows: 140,
+          maxLod: 5,
+          maxNodes: 1200,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Planet generation failed (${response.status})`);
+      }
+
+      const payload = await response.json();
+      setFullPlanetStatus(
+        `Done: ${payload.manifest.totalNodes} nodes generated. Manifest: ${payload.runPath}`
+      );
+    } catch (error) {
+      setFullPlanetStatus(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIsGeneratingFullPlanet(false);
+    }
+  }, [config]);
+
+  const generatePlanet = useCallback(async () => {
+    setIsGeneratingGlobe(true);
+    setGlobeStatus("Generating shared planet dataset for 2D + 3D...");
+
+    try {
+      const response = await fetch("/api/planet/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config,
+          cols: 512,
+          rows: 256,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Planet preview failed (${response.status})`);
+      }
+
+      const payload = await response.json();
+      setGlobeWorld(payload);
+      setViewMode("globe");
+      setGlobeStatus(`Ready: ${payload.cols}×${payload.rows} shared planet generated.`);
+    } catch (error) {
+      setGlobeStatus(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIsGeneratingGlobe(false);
+    }
+  }, [config]);
+
   return (
     <div className="flex flex-col h-screen bg-[#0a0f14] text-gray-300 font-sans tracking-wide overflow-hidden">
 
@@ -91,7 +169,7 @@ export function App() {
           {/* LOD Selector */}
           <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest text-gray-500">
             <span>LOD</span>
-            {([0, 1, 2, 3, 4] as LODLevel[]).map((l) => (
+            {([0, 1, 2, 3, 4, 5] as LODLevel[]).map((l) => (
               <button
                 key={l}
                 onClick={() => setLodLevel(l)}
@@ -107,6 +185,29 @@ export function App() {
           </div>
 
           <div className="w-px h-6 bg-[#1f2937]" />
+
+          <div className="flex items-center gap-1 text-[10px] font-bold tracking-widest text-gray-500">
+            <button
+              onClick={() => setViewMode("map")}
+              className={`px-2 py-1 rounded border transition-colors ${
+                viewMode === "map"
+                  ? "border-teal-500/50 text-teal-400 bg-teal-500/10"
+                  : "border-transparent text-gray-500 hover:text-gray-300 hover:bg-[#1f2937]"
+              }`}
+            >
+              2D
+            </button>
+            <button
+              onClick={() => setViewMode("globe")}
+              className={`px-2 py-1 rounded border transition-colors ${
+                viewMode === "globe"
+                  ? "border-teal-500/50 text-teal-400 bg-teal-500/10"
+                  : "border-transparent text-gray-500 hover:text-gray-300 hover:bg-[#1f2937]"
+              }`}
+            >
+              3D
+            </button>
+          </div>
 
           <div className="flex gap-4 text-xs font-semibold tracking-widest">
             <button className="text-teal-500 hover:text-teal-400 transition-colors">GENERATION</button>
@@ -156,6 +257,36 @@ export function App() {
                 >
                   🎲 REGENERATE SEED
                 </Button>
+                <Button
+                  variant="primary"
+                  onClick={generatePlanet}
+                  disabled={isGeneratingGlobe}
+                  className="w-full text-[10px] tracking-widest py-2"
+                >
+                  {isGeneratingGlobe ? "GENERATING…" : "GENERATE PLANET (2D + 3D)"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={generatePlanet}
+                  disabled={isGeneratingGlobe}
+                  className="w-full text-[10px] tracking-widest py-2 bg-[#151f2e] hover:bg-[#233148] border border-[#355070]"
+                >
+                  {isGeneratingGlobe ? "GENERATING GLOBE…" : "REGENERATE PLANET GLOBE"}
+                </Button>
+                {globeStatus && (
+                  <p className="text-[9px] text-gray-500 leading-relaxed">{globeStatus}</p>
+                )}
+                <Button
+                  variant="secondary"
+                  onClick={generateFullPlanet}
+                  disabled={isGeneratingFullPlanet}
+                  className="w-full text-[10px] tracking-widest py-2 bg-[#1a2433] hover:bg-[#26364d] border border-[#355070]"
+                >
+                  {isGeneratingFullPlanet ? "GENERATING PLANET…" : "GENERATE FULL PLANET (LOD 0→5)"}
+                </Button>
+                {fullPlanetStatus && (
+                  <p className="text-[9px] text-gray-500 leading-relaxed">{fullPlanetStatus}</p>
+                )}
 
                 <Slider
                   label="OCEAN COVERAGE" value={config.world.oceanCoverage}
@@ -302,12 +433,21 @@ export function App() {
           <div className="absolute inset-0 opacity-80 mix-blend-screen pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at center, transparent 0%, #0a0f14 100%)' }} />
 
           <div className="w-full h-full p-4">
-            <MapCanvas
-              config={config}
-              lodLevel={lodLevel}
-              visualizationMode={vizMode}
-              onCellHover={handleCellHover}
-            />
+            {viewMode === "map" ? (
+              globeWorld ? (
+                <PlanetMap2D world={globeWorld} onCellHover={handleCellHover} />
+              ) : (
+                <div className="w-full h-full rounded-lg border border-[#1f2937] bg-[#070b12] grid place-items-center text-[11px] tracking-wider text-gray-500">
+                  Generate a planet to view the flattened map.
+                </div>
+              )
+            ) : globeWorld ? (
+              <PlanetGlobe world={globeWorld} onCellHover={handleCellHover} />
+            ) : (
+              <div className="w-full h-full rounded-lg border border-[#1f2937] bg-[#070b12] grid place-items-center text-[11px] tracking-wider text-gray-500">
+                Generate a planet globe preview to view the 3D planet.
+              </div>
+            )}
           </div>
 
           {/* ── Bottom Workflow Bar ── */}

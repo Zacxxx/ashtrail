@@ -7,6 +7,7 @@ interface MapCanvasProps {
   config: SimulationConfig;
   lodLevel: LODLevel;
   visualizationMode: VisualizationMode;
+  generationNonce: number;
   onCellHover?: (cell: TerrainCell | null) => void;
   onGenerating?: (isGenerating: boolean) => void;
 }
@@ -26,20 +27,54 @@ interface GenerateTerrainResponse {
   cellColors: string[];
 }
 
+interface StartJobResponse {
+  jobId: string;
+}
+
+interface JobStatusResponse {
+  jobId: string;
+  status: "queued" | "running" | "completed" | "cancelled" | "failed";
+  progress: number;
+  currentStage: string;
+  result?: GenerateTerrainResponse;
+  error?: string;
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const v = parseInt(hex.slice(1), 16);
   return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
 }
 
-export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, onGenerating }: MapCanvasProps) {
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function cancelJob(jobId: string | null): Promise<void> {
+  if (!jobId) return;
+  try {
+    await fetch(`/api/terrain/jobs/${jobId}`, { method: "DELETE" });
+  } catch {
+    // Best-effort cancellation only.
+  }
+}
+
+export function MapCanvas({ config, lodLevel, visualizationMode, generationNonce, onCellHover, onGenerating }: MapCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const cellDataRef = useRef<any[] | null>(null);
   const rawCellDataRef = useRef<any[] | null>(null);
   const worldDims = useRef({ cols: 0, rows: 0 });
   const requestAbortRef = useRef<AbortController | null>(null);
+  const requestDebounceRef = useRef<number | null>(null);
+  const currentJobIdRef = useRef<string | null>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 800 });
-  const [isGenerating, setIsGenerating] = useState(true);
+  const latestConfigRef = useRef(config);
+  const latestLodLevelRef = useRef(lodLevel);
+  const latestCanvasSizeRef = useRef(canvasSize);
+  const latestOnGeneratingRef = useRef(onGenerating);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStage, setGenerationStage] = useState("Queued");
 
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const isPanning = useRef(false);
@@ -123,6 +158,27 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
     const cellColors = cells.map((c: any) => c.color);
     renderFromColors(cellColors, cols, rows);
   }, [renderFromColors, visualizationMode]);
+  const latestApplyVisualizationAndRenderRef = useRef(applyVisualizationAndRender);
+
+  useEffect(() => {
+    latestCanvasSizeRef.current = canvasSize;
+  }, [canvasSize]);
+
+  useEffect(() => {
+    latestConfigRef.current = config;
+  }, [config]);
+
+  useEffect(() => {
+    latestLodLevelRef.current = lodLevel;
+  }, [lodLevel]);
+
+  useEffect(() => {
+    latestOnGeneratingRef.current = onGenerating;
+  }, [onGenerating]);
+
+  useEffect(() => {
+    latestApplyVisualizationAndRenderRef.current = applyVisualizationAndRender;
+  }, [applyVisualizationAndRender]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -130,7 +186,10 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
     const observer = new ResizeObserver(entries => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        setCanvasSize({ width: Math.floor(width), height: Math.floor(height) });
+        const next = { width: Math.floor(width), height: Math.floor(height) };
+        setCanvasSize(prev =>
+          prev.width === next.width && prev.height === next.height ? prev : next
+        );
       }
     });
     observer.observe(container);
@@ -138,21 +197,37 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
   }, []);
 
   useEffect(() => {
-    requestAbortRef.current?.abort();
-    const abortController = new AbortController();
-    requestAbortRef.current = abortController;
+    if (generationNonce <= 0) {
+      return;
+    }
+
+    if (requestDebounceRef.current !== null) {
+      window.clearTimeout(requestDebounceRef.current);
+      requestDebounceRef.current = null;
+    }
 
     const run = async () => {
-      const lod = LOD_LEVELS[lodLevel];
+      const liveConfig = latestConfigRef.current;
+      const liveLodLevel = latestLodLevelRef.current;
+      const liveCanvasSize = latestCanvasSizeRef.current;
+      const lod = LOD_LEVELS[liveLodLevel];
       const ppc = lod.pixelsPerCell;
-      const cols = Math.ceil(canvasSize.width / ppc) + 2;
-      const rows = Math.ceil(canvasSize.height / ppc) + 2;
+      const cols = Math.ceil(liveCanvasSize.width / ppc) + 2;
+      const rows = Math.ceil(liveCanvasSize.height / ppc) + 2;
+
+      await cancelJob(currentJobIdRef.current);
+      currentJobIdRef.current = null;
+      requestAbortRef.current?.abort();
+      const abortController = new AbortController();
+      requestAbortRef.current = abortController;
 
       setIsGenerating(true);
-      onGenerating?.(true);
+      setGenerationProgress(0);
+      setGenerationStage("Queued");
+      latestOnGeneratingRef.current?.(true);
 
       const requestBody: GenerateTerrainRequest = {
-        config,
+        config: liveConfig,
         cols,
         rows,
         kmPerCell: lod.kmPerCell,
@@ -160,40 +235,92 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
       };
 
       try {
-        const response = await fetch("/api/terrain/generate", {
+        const startResponse = await fetch("/api/terrain/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody),
           signal: abortController.signal,
         });
 
-        if (!response.ok) {
-          const message = await response.text();
-          throw new Error(message || `Backend error (${response.status})`);
+        if (!startResponse.ok) {
+          const message = await startResponse.text();
+          throw new Error(message || `Backend error (${startResponse.status})`);
         }
 
-        const result: GenerateTerrainResponse = await response.json();
-        rawCellDataRef.current = result.cellData;
-        worldDims.current = { cols: result.cols, rows: result.rows };
+        const { jobId }: StartJobResponse = await startResponse.json();
+        currentJobIdRef.current = jobId;
 
-        applyVisualizationAndRender(result.cellData, result.cols, result.rows);
+        while (!abortController.signal.aborted) {
+          const statusResponse = await fetch(`/api/terrain/jobs/${jobId}`, {
+            signal: abortController.signal,
+          });
+
+          if (!statusResponse.ok) {
+            const message = await statusResponse.text();
+            throw new Error(message || `Status error (${statusResponse.status})`);
+          }
+
+          const status: JobStatusResponse = await statusResponse.json();
+          setGenerationProgress(Math.max(0, Math.min(100, status.progress || 0)));
+          setGenerationStage(status.currentStage || "Running");
+
+          if (status.status === "failed") {
+            throw new Error(status.error || "Terrain generation failed");
+          }
+
+          if (status.status === "cancelled") {
+            throw new Error("Terrain generation was cancelled");
+          }
+
+          if (status.status === "completed") {
+            if (!status.result) {
+              throw new Error("Terrain generation completed without a result payload");
+            }
+
+            rawCellDataRef.current = status.result.cellData;
+            worldDims.current = { cols: status.result.cols, rows: status.result.rows };
+            latestApplyVisualizationAndRenderRef.current(
+              status.result.cellData,
+              status.result.cols,
+              status.result.rows
+            );
+            currentJobIdRef.current = null;
+            break;
+          }
+
+          await sleep(120);
+        }
       } catch (error) {
         if (abortController.signal.aborted) {
+          await cancelJob(currentJobIdRef.current);
+          currentJobIdRef.current = null;
           return;
         }
         console.error("Terrain generation request failed:", error);
+        currentJobIdRef.current = null;
       } finally {
         if (!abortController.signal.aborted) {
           setIsGenerating(false);
-          onGenerating?.(false);
+          latestOnGeneratingRef.current?.(false);
         }
       }
     };
 
-    void run();
+    requestDebounceRef.current = window.setTimeout(() => {
+      requestDebounceRef.current = null;
+      void run();
+    }, 150);
 
-    return () => abortController.abort();
-  }, [config, lodLevel, canvasSize.width, canvasSize.height, onGenerating, applyVisualizationAndRender]);
+    return () => {
+      if (requestDebounceRef.current !== null) {
+        window.clearTimeout(requestDebounceRef.current);
+        requestDebounceRef.current = null;
+      }
+      requestAbortRef.current?.abort();
+      void cancelJob(currentJobIdRef.current);
+      currentJobIdRef.current = null;
+    };
+  }, [generationNonce]);
 
   useEffect(() => {
     const rawCells = rawCellDataRef.current;
@@ -267,13 +394,20 @@ export function MapCanvas({ config, lodLevel, visualizationMode, onCellHover, on
 
       {isGenerating && (
         <div className="absolute inset-0 flex items-center justify-center bg-[#0a0f1c]/80 backdrop-blur-sm z-10">
-          <div className="flex flex-col items-center gap-4">
+          <div className="flex flex-col items-center gap-3 w-72">
             <div className="w-10 h-10 border-2 border-teal-500/30 border-t-teal-500 rounded-full animate-spin" />
             <div className="text-sm font-bold tracking-[0.2em] text-teal-500/80">
               GENERATING TERRAIN
             </div>
-            <div className="text-[10px] text-gray-600 tracking-wider">
-              Simulating geology, climate, hydrology…
+            <div className="w-full h-2 bg-[#1f2937] rounded-full overflow-hidden border border-[#253342]">
+              <div
+                className="h-full bg-teal-500 transition-all duration-150"
+                style={{ width: `${generationProgress}%` }}
+              />
+            </div>
+            <div className="w-full flex items-center justify-between text-[10px] tracking-wider">
+              <span className="text-gray-400">{generationStage}</span>
+              <span className="text-teal-400 font-mono">{Math.round(generationProgress)}%</span>
             </div>
           </div>
         </div>

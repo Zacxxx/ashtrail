@@ -1,10 +1,27 @@
 use crate::geo_noise::NoiseManager;
 use crate::types::ClimateConfig;
-use noise::NoiseFn;
 
 pub struct ClimateSimulator<'a> {
     config: &'a ClimateConfig,
     noise: &'a NoiseManager,
+}
+
+fn eval_curve(x: f64, points: &[(f64, f64)]) -> f64 {
+    if points.is_empty() {
+        return 0.0;
+    }
+    if x <= points[0].0 {
+        return points[0].1;
+    }
+    for w in points.windows(2) {
+        let (x0, y0) = w[0];
+        let (x1, y1) = w[1];
+        if x <= x1 {
+            let t = ((x - x0) / (x1 - x0)).clamp(0.0, 1.0);
+            return y0 + (y1 - y0) * t;
+        }
+    }
+    points[points.len() - 1].1
 }
 
 impl<'a> ClimateSimulator<'a> {
@@ -17,19 +34,24 @@ impl<'a> ClimateSimulator<'a> {
         normalized_y: f64,
         elevation: f64,
         ocean_proximity: f64,
-        wx: f64,
-        wy: f64,
+        nx: f64,
+        ny: f64,
     ) -> f64 {
-        let latitude_factor = 1.0 - 2.0 * (normalized_y - 0.5).abs();
-        let base_temp =
-            self.config.global_mean_temp + self.config.latitude_gradient * (latitude_factor - 0.5);
+        let lat_abs = (2.0 * normalized_y - 1.0).abs();
+        let base_curve = eval_curve(
+            lat_abs,
+            &[(0.0, 30.0), (0.1, 29.0), (0.5, 7.0), (1.0, -37.0)],
+        );
+        let gradient_scale = (self.config.latitude_gradient / 60.0).clamp(0.35, 1.85);
+        let global_shift = self.config.global_mean_temp - 15.0;
+        let base_temp = base_curve * gradient_scale + global_shift;
 
-        let elevation_above_sea = (elevation - 0.35).max(0.0) / 0.65;
+        let elevation_above_sea = (elevation - 0.34).max(0.0) / 0.66;
         let elevation_meters = elevation_above_sea * 8848.0;
-        let lapse_rate = -6.5 * (elevation_meters / 1000.0);
+        let lapse_rate = -6.0 * (elevation_meters / 1000.0);
 
-        let ocean_moderation = ocean_proximity * self.config.ocean_warmth_factor * 3.0;
-        let local_variation = self.noise.climate_noise.get([wx / 500.0, wy / 500.0]) * 3.0;
+        let ocean_moderation = ocean_proximity * self.config.ocean_warmth_factor * 2.2;
+        let local_variation = self.noise.sample_climate(nx, ny, 0.8) * 4.0;
 
         base_temp + lapse_rate + ocean_moderation + local_variation
     }
@@ -39,32 +61,43 @@ impl<'a> ClimateSimulator<'a> {
         elevation: f64,
         ocean_proximity: f64,
         windward: bool,
-        wx: f64,
-        wy: f64,
+        normalized_y: f64,
+        nx: f64,
+        ny: f64,
     ) -> f64 {
-        let base_moisture = (self.noise.climate_noise.get([wx / 300.0, wy / 300.0]) + 1.0) / 2.0;
-        let ocean_effect = ocean_proximity * 0.4;
+        let base_noise = ((self.noise.sample_climate(nx, ny, 1.35) + 1.0) / 2.0).powf(1.2);
+        let lat_abs_deg = ((2.0 * normalized_y - 1.0).abs() * 90.0).clamp(0.0, 90.0);
+        let lat_factor = eval_curve(
+            lat_abs_deg,
+            &[
+                (0.0, 1.12),
+                (25.0, 0.94),
+                (45.0, 0.70),
+                (70.0, 0.30),
+                (80.0, 0.05),
+                (90.0, 0.05),
+            ],
+        );
+        let ocean_effect = ocean_proximity * 0.34;
 
         let orographic_effect = if windward {
-            (elevation * 0.5).min(0.3)
+            (elevation * 0.42).min(0.26)
         } else {
-            -(elevation * 0.4).min(0.3)
+            -(elevation * 0.34).min(0.24)
         };
 
-        let altitude_reduction = if elevation > 0.7 {
-            -(elevation - 0.7) * 1.5
-        } else {
-            0.0
-        };
+        let altitude_reduction = if elevation > 0.62 { -(elevation - 0.62) * 1.2 } else { 0.0 };
 
-        let result = (base_moisture + ocean_effect + orographic_effect + altitude_reduction)
+        let result = ((base_noise * lat_factor) + ocean_effect + orographic_effect + altitude_reduction)
+            .max(0.0)
+            .powf(1.15)
             * self.config.precipitation_multiplier;
 
         result.max(0.0).min(1.0)
     }
 
-    pub fn get_wind_exposure(&self, elevation: f64, slope_angle: f64, wx: f64, wy: f64) -> f64 {
-        let base_wind = (self.noise.climate_noise.get([wx / 400.0, wy / 400.0]) + 1.0) / 2.0;
+    pub fn get_wind_exposure(&self, elevation: f64, slope_angle: f64, nx: f64, ny: f64) -> f64 {
+        let base_wind = (self.noise.sample_climate(nx, ny, 1.0) + 1.0) / 2.0;
         let elevation_boost = elevation * 0.4;
         let slope_boost = slope_angle * 0.3;
 
