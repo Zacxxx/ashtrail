@@ -148,7 +148,12 @@ const App: React.FC = () => {
           />
         );
       case 'CHARACTER_CREATION':
-        return <CharacterCreationScreen onComplete={handleCharCreation} />;
+        return (
+          <CharacterCreationScreen
+            onComplete={handleCharCreation}
+            onBack={() => setState(s => ({ ...s, screen: 'MENU' }))}
+          />
+        );
       case 'LORE_INTRO':
         return <LoreIntroScreen architectedContent={architectedLore} onContinue={() => setState(s => ({ ...s, screen: 'LOCATION_MAP' }))} />;
       case 'SETTINGS':

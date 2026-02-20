@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button, ScreenShell, Stack, Container } from '../../UI/Primitives';
 import { calculateClockState, ClockState } from '@ashtrail/core';
 
@@ -20,11 +20,29 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
 }) => {
   const [clock, setClock] = useState<ClockState>(calculateClockState(serverStartTime));
 
+  const audioRef = useRef<HTMLAudioElement>(null);
+
   useEffect(() => {
     const timer = setInterval(() => {
       setClock(calculateClockState(serverStartTime));
     }, 1000);
-    return () => clearInterval(timer);
+
+    const startAudio = () => {
+      if (audioRef.current) {
+        audioRef.current.play().catch(() => { });
+        window.removeEventListener('click', startAudio);
+        window.removeEventListener('keydown', startAudio);
+      }
+    };
+
+    window.addEventListener('click', startAudio);
+    window.addEventListener('keydown', startAudio);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('click', startAudio);
+      window.removeEventListener('keydown', startAudio);
+    };
   }, [serverStartTime]);
 
   // Game starts on Oct 12, 2031.
@@ -42,7 +60,24 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({
 
   return (
     <ScreenShell>
-      <Container centered className="flex flex-col items-center gap-16 text-center">
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="absolute inset-0 w-full h-full object-cover opacity-60 pointer-events-none"
+      >
+        <source
+          src="https://twvtzbxhfibsvoesteek.supabase.co/storage/v1/object/public/public-assets/homescreen.mp4"
+          type="video/mp4"
+        />
+      </video>
+      <audio
+        ref={audioRef}
+        src="https://twvtzbxhfibsvoesteek.supabase.co/storage/v1/object/public/public-assets/theme.mp3"
+        loop
+      />
+      <Container centered className="flex flex-col items-center gap-16 text-center relative z-10">
         <Stack gap={4} className="animate-in fade-in slide-in-from-top-4 duration-1000">
           <h1 className="text-9xl font-black italic tracking-tighter text-white mono uppercase scale-y-110 leading-none">
             ASHTRAIL
