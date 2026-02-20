@@ -5,13 +5,18 @@
   "type": "module",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/core",
+    "packages/ui",
+    "packages/geo-wasm/pkg"
   ],
   "scripts": {
     "dev:website": "bun run --cwd apps/website dev",
-    "dev:dev-tools": "bun run --cwd apps/dev-tools dev",
+    "dev:dev-tools": "bun run dev:dev-tools:backend & bun run dev:dev-tools:frontend",
+    "dev:dev-tools:frontend": "bun run --cwd apps/dev-tools dev",
+    "dev:dev-tools:backend": "bun run --cwd apps/dev-tools dev:backend",
     "build:website": "bun run --cwd apps/website build",
-    "build:dev-tools": "bun run --cwd apps/dev-tools build"
+    "build:dev-tools": "bun run --cwd apps/dev-tools build",
+    "build:wasm": "cd packages/geo-wasm && wasm-pack build --target web --out-dir pkg"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.0",

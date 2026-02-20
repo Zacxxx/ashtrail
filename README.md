@@ -71,7 +71,10 @@ graph TD
 
 ## ⚡ Quickstart
 
-Ashtrail requires [Bun](https://bun.sh) to be installed.
+Ashtrail requires:
+
+- [Bun](https://bun.sh) for the monorepo/frontend tooling
+- [Rust](https://www.rust-lang.org/tools/install) (stable toolchain) for the `dev-tools` terrain backend
 
 ### 1. Installation
 
@@ -94,8 +97,14 @@ GOOGLE_GENAI_API_KEY=your_gemini_api_key_here
 # Run the main game client
 bun run dev:website
 
-# Run the development tools
+# Run dev-tools frontend + Rust backend together
 bun run dev:dev-tools
+
+# Run only the dev-tools Rust backend (http://127.0.0.1:8787)
+bun run dev:dev-tools:backend
+
+# Run only the dev-tools frontend (http://127.0.0.1:3000)
+bun run dev:dev-tools:frontend
 ```
 
 ---

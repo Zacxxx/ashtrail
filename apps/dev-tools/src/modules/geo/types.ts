@@ -158,7 +158,7 @@ export interface TerrainCell {
 
 // ── Level of Detail ─────────────────────────────────────────
 
-export type LODLevel = 0 | 1 | 2 | 3 | 4;
+export type LODLevel = 0 | 1 | 2 | 3 | 4 | 5;
 
 export interface LODConfig {
   level: LODLevel;
@@ -172,11 +172,12 @@ export interface LODConfig {
 }
 
 export const LOD_LEVELS: Record<LODLevel, LODConfig> = {
-  0: { level: 0, name: "Planetary", kmPerCell: 100, octaves: 2, pixelsPerCell: 3 },
-  1: { level: 1, name: "Continental", kmPerCell: 25, octaves: 3, pixelsPerCell: 4 },
-  2: { level: 2, name: "Regional", kmPerCell: 5, octaves: 4, pixelsPerCell: 5 },
-  3: { level: 3, name: "Local", kmPerCell: 1, octaves: 5, pixelsPerCell: 7 },
-  4: { level: 4, name: "Micro", kmPerCell: 0.2, octaves: 6, pixelsPerCell: 10 },
+  0: { level: 0, name: "Whole planet", kmPerCell: 100, octaves: 2, pixelsPerCell: 3 },
+  1: { level: 1, name: "Continents", kmPerCell: 25, octaves: 3, pixelsPerCell: 4 },
+  2: { level: 2, name: "Countries", kmPerCell: 8, octaves: 4, pixelsPerCell: 5 },
+  3: { level: 3, name: "Regions", kmPerCell: 2, octaves: 5, pixelsPerCell: 7 },
+  4: { level: 4, name: "Area", kmPerCell: 0.5, octaves: 6, pixelsPerCell: 10 },
+  5: { level: 5, name: "Local", kmPerCell: 0.12, octaves: 7, pixelsPerCell: 12 },
 };
 
 // ── Visualization Modes ─────────────────────────────────────
