@@ -6,7 +6,7 @@ Inspired by the Gemini "Sprawl" project, the generation of Olaas will not rely o
 
 The generation is broken down into specific, visually verifiable steps.
 
-## 2. The Sprawl Pipeline for Ash Caravan
+## 2. The Sprawl Pipeline for Ash Trail
 
 1. **Module Registry (The Code Arsenal)**
    - Before generating terrain, we define atomic logic modules: Vector Math, Hex Grid traversals, A\* Pathfinding for rivers and roads, Label Relaxation (so node names don't overlap), and Flow Fields.

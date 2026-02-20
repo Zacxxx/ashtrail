@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '../../UI/Primitives';
-import { WORLD_LORE } from '../../mockData';
+import { WORLD_LORE } from '@ashtrail/core';
 
 interface LoreIntroScreenProps {
   architectedContent?: string | null;

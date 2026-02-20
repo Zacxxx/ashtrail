@@ -1,16 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
-import { 
-  GameState, 
-  Player, 
-  Node, 
-  ResourceType 
-} from './types';
-import { 
-  INITIAL_RESOURCES, 
+import {
+  GameState,
+  Player,
+  Node,
+  ResourceType,
+  INITIAL_RESOURCES,
   MAP_NODES,
   INITIAL_CREW
-} from './mockData';
+} from '@ashtrail/core';
 
 // Screens
 import { MenuScreen } from './Screens/IndividualScreens/MenuScreen';
@@ -28,9 +26,12 @@ import { SettingsScreen } from './Screens/IndividualScreens/SettingsScreen';
 import { GameClock } from './UI/GameClock';
 
 // Engine & Logic
-import { consumeResources, updateCrewTension } from './game-engine/gameplay/engine';
-import { iterateNarrative } from './game-master/worldbuilder/iteration';
-import { architectInitialLore } from './game-master/worldarchitect/story';
+import {
+  consumeResources,
+  updateCrewTension,
+  iterateNarrative,
+  architectInitialLore
+} from '@ashtrail/core';
 
 const SERVER_START_TIME = Date.now() - (45 * 60 * 1000);
 
@@ -138,8 +139,8 @@ const App: React.FC = () => {
     switch (state.screen) {
       case 'MENU':
         return (
-          <MenuScreen 
-            onStart={() => setState(s => ({ ...s, screen: 'CHARACTER_CREATION' }))} 
+          <MenuScreen
+            onStart={() => setState(s => ({ ...s, screen: 'CHARACTER_CREATION' }))}
             onSettings={() => setState(s => ({ ...s, screen: 'SETTINGS' }))}
             onManageCharacters={() => setState(s => ({ ...s, screen: 'CHARACTER_SHEET' }))}
             hasCharacter={state.player.name !== 'UNKNOWN'}
@@ -154,33 +155,33 @@ const App: React.FC = () => {
         return <SettingsScreen onBack={() => setState(s => ({ ...s, screen: 'MENU' }))} />;
       case 'COMBAT':
         return (
-          <CombatScreen 
-            state={state} 
+          <CombatScreen
+            state={state}
             onAttack={() => {
-               setState(prev => {
-                 if (!prev.combat) return prev;
-                 const dmg = 5 + prev.player.stats.strength;
-                 const enemyDmg = 4;
-                 const newEnemyHp = Math.max(0, prev.combat.enemyHp - dmg);
-                 if (newEnemyHp === 0) {
-                    return {
-                      ...prev,
-                      screen: 'LOCATION_MAP',
-                      combat: undefined,
-                      player: { ...prev.player, xp: prev.player.xp + 100 },
-                      history: [...prev.history, { type: 'system', content: 'COMBAT_RESOLVED: Target neutralized.', timestamp: Date.now() }]
-                    };
-                 }
-                 return {
-                   ...prev,
-                   player: { ...prev.player, hp: Math.max(0, prev.player.hp - enemyDmg) },
-                   combat: {
-                     ...prev.combat,
-                     enemyHp: newEnemyHp,
-                     log: [...prev.combat.log, `LOG: Hit for ${dmg}.`, `LOG: Received ${enemyDmg}.`]
-                   }
-                 };
-               });
+              setState(prev => {
+                if (!prev.combat) return prev;
+                const dmg = 5 + prev.player.stats.strength;
+                const enemyDmg = 4;
+                const newEnemyHp = Math.max(0, prev.combat.enemyHp - dmg);
+                if (newEnemyHp === 0) {
+                  return {
+                    ...prev,
+                    screen: 'LOCATION_MAP',
+                    combat: undefined,
+                    player: { ...prev.player, xp: prev.player.xp + 100 },
+                    history: [...prev.history, { type: 'system', content: 'COMBAT_RESOLVED: Target neutralized.', timestamp: Date.now() }]
+                  };
+                }
+                return {
+                  ...prev,
+                  player: { ...prev.player, hp: Math.max(0, prev.player.hp - enemyDmg) },
+                  combat: {
+                    ...prev.combat,
+                    enemyHp: newEnemyHp,
+                    log: [...prev.combat.log, `LOG: Hit for ${dmg}.`, `LOG: Received ${enemyDmg}.`]
+                  }
+                };
+              });
             }}
             onFlee={() => setState(s => ({ ...s, screen: 'LOCATION_MAP', combat: undefined }))}
           />
@@ -223,11 +224,11 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex gap-6 items-center">
-          <GameClock 
-            serverStartTime={SERVER_START_TIME} 
+          <GameClock
+            serverStartTime={SERVER_START_TIME}
             onNightfall={() => addLog("EMERGENCY: Nightfall protocols initialized. Secure sector immediately.", "system")}
           />
-          
+
           <div className="h-8 w-px bg-zinc-800" />
 
           <div className="flex flex-col items-end">
@@ -250,10 +251,10 @@ const App: React.FC = () => {
       </header>
 
       <main className="flex-1 overflow-hidden p-6 relative">
-         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/asfalt-dark.png')] opacity-10 pointer-events-none" />
-         <div className="relative h-full z-10 animate-in fade-in duration-500">
-            {renderScreen()}
-         </div>
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/asfalt-dark.png')] opacity-10 pointer-events-none" />
+        <div className="relative h-full z-10 animate-in fade-in duration-500">
+          {renderScreen()}
+        </div>
       </main>
 
       <footer className="h-8 bg-zinc-950 border-t border-zinc-800 flex items-center px-6 justify-between text-[9px] text-zinc-600 mono uppercase tracking-[0.2em] shrink-0">
@@ -266,8 +267,8 @@ const App: React.FC = () => {
         </div>
         <div className="flex gap-6 items-center">
           <div className="flex gap-2 items-center">
-             <div className="w-1 h-1 rounded-full bg-orange-500 animate-ping" />
-             <span className="text-orange-900">PERSISTENT_SHARD_01</span>
+            <div className="w-1 h-1 rounded-full bg-orange-500 animate-ping" />
+            <span className="text-orange-900">PERSISTENT_SHARD_01</span>
           </div>
           <span>v0.6.5-DENSE-PROFILE</span>
         </div>

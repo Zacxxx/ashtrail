@@ -1,11 +1,11 @@
 
 import React from 'react';
-import { GameState } from '../../types';
+import { GameState } from '@ashtrail/core';
 import { Card, ProgressBar, Badge, Stack } from '../../UI/Primitives';
 
 export const CharacterSheet: React.FC<{ state: GameState }> = ({ state }) => {
   const { player } = state;
-  
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-full overflow-y-auto pr-2 custom-scrollbar">
       <Card title="Vitals & Neural Profile">
@@ -29,7 +29,7 @@ export const CharacterSheet: React.FC<{ state: GameState }> = ({ state }) => {
 
         <Stack gap={4}>
           <ProgressBar label="Integrity (Health)" value={player.hp} max={player.maxHp} color="bg-red-500" />
-          
+
           <div className="grid grid-cols-2 gap-4 mt-6">
             {(Object.entries(player.stats) as [string, number][]).map(([stat, val]) => (
               <div key={stat} className="p-3 bg-zinc-900 border border-zinc-800 rounded-sm">
@@ -38,7 +38,7 @@ export const CharacterSheet: React.FC<{ state: GameState }> = ({ state }) => {
                   <span className="text-white font-black">{val}</span>
                 </div>
                 <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
-                   <div className="h-full bg-orange-500" style={{ width: `${(val / 10) * 100}%` }} />
+                  <div className="h-full bg-orange-500" style={{ width: `${(val / 10) * 100}%` }} />
                 </div>
               </div>
             ))}
@@ -46,62 +46,62 @@ export const CharacterSheet: React.FC<{ state: GameState }> = ({ state }) => {
         </Stack>
 
         <div className="mt-8">
-           <label className="text-[10px] uppercase text-zinc-500 mono mb-3 block">Neural Traits</label>
-           <div className="flex flex-wrap gap-2">
-              {player.traits.map(t => (
-                <div key={t.id} className="group relative">
-                  <Badge color={t.type === 'positive' ? 'blue' : t.type === 'negative' ? 'red' : 'zinc'}>
-                    {t.name}
-                  </Badge>
-                  <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-black border border-zinc-800 text-[8px] mono uppercase z-50 hidden group-hover:block pointer-events-none">
-                    {t.description}
-                  </div>
+          <label className="text-[10px] uppercase text-zinc-500 mono mb-3 block">Neural Traits</label>
+          <div className="flex flex-wrap gap-2">
+            {player.traits.map(t => (
+              <div key={t.id} className="group relative">
+                <Badge color={t.type === 'positive' ? 'blue' : t.type === 'negative' ? 'red' : 'zinc'}>
+                  {t.name}
+                </Badge>
+                <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-black border border-zinc-800 text-[8px] mono uppercase z-50 hidden group-hover:block pointer-events-none">
+                  {t.description}
                 </div>
-              ))}
-           </div>
+              </div>
+            ))}
+          </div>
         </div>
       </Card>
 
       <Stack gap={6}>
         <Card title="Background & Archives">
-           <div className="max-h-48 overflow-y-auto custom-scrollbar">
-              <p className="text-xs text-zinc-400 leading-relaxed italic border-l border-zinc-800 pl-4 whitespace-pre-wrap">
-                "{player.history}"
-              </p>
-           </div>
+          <div className="max-h-48 overflow-y-auto custom-scrollbar">
+            <p className="text-xs text-zinc-400 leading-relaxed italic border-l border-zinc-800 pl-4 whitespace-pre-wrap">
+              "{player.history}"
+            </p>
+          </div>
         </Card>
 
         <Card title="Logistics & Gear">
           <div className="space-y-6">
-             <div>
-                <label className="text-[10px] uppercase text-zinc-500 mono mb-3 block">Personal Inventory</label>
-                {player.inventory.length === 0 ? (
-                  <div className="h-24 border border-dashed border-zinc-800 flex items-center justify-center text-[10px] text-zinc-600 mono uppercase">
-                    No equipment recorded
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-2">
-                     {player.inventory.map(item => (
-                       <div key={item.id} className="p-2 bg-zinc-900 border border-zinc-800 rounded-sm flex justify-between items-center">
-                          <span className="text-xs text-zinc-300 mono">{item.name}</span>
-                          <Badge>{item.type}</Badge>
-                       </div>
-                     ))}
-                  </div>
-                )}
-             </div>
-
-             <div>
-                <label className="text-[10px] uppercase text-zinc-500 mono mb-3 block">Caravan Resources (Shared)</label>
-                <div className="grid grid-cols-3 gap-2">
-                   {Object.entries(state.resources).map(([res, val]) => (
-                      <div key={res} className="p-2 bg-zinc-800/50 flex flex-col items-center text-[9px] mono">
-                         <span className="text-zinc-500 uppercase">{res}</span>
-                         <span className="text-white font-bold">{val}</span>
-                      </div>
-                   ))}
+            <div>
+              <label className="text-[10px] uppercase text-zinc-500 mono mb-3 block">Personal Inventory</label>
+              {player.inventory.length === 0 ? (
+                <div className="h-24 border border-dashed border-zinc-800 flex items-center justify-center text-[10px] text-zinc-600 mono uppercase">
+                  No equipment recorded
                 </div>
-             </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-2">
+                  {player.inventory.map(item => (
+                    <div key={item.id} className="p-2 bg-zinc-900 border border-zinc-800 rounded-sm flex justify-between items-center">
+                      <span className="text-xs text-zinc-300 mono">{item.name}</span>
+                      <Badge>{item.type}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-[10px] uppercase text-zinc-500 mono mb-3 block">Caravan Resources (Shared)</label>
+              <div className="grid grid-cols-3 gap-2">
+                {Object.entries(state.resources).map(([res, val]) => (
+                  <div key={res} className="p-2 bg-zinc-800/50 flex flex-col items-center text-[9px] mono">
+                    <span className="text-zinc-500 uppercase">{res}</span>
+                    <span className="text-white font-bold">{val}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </Card>
       </Stack>

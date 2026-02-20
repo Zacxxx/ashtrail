@@ -1,8 +1,7 @@
 
 import React from 'react';
-import { GameState } from '../../types';
+import { GameState, MOCK_NEARBY_PLAYERS, MOCK_ACTIVITY_FEED } from '@ashtrail/core';
 import { Card, Badge, Button } from '../../UI/Primitives';
-import { MOCK_NEARBY_PLAYERS, MOCK_ACTIVITY_FEED } from '../../mockData';
 
 interface LocationMapScreenProps {
   state: GameState;
@@ -18,7 +17,7 @@ export const LocationMapScreen: React.FC<LocationMapScreenProps> = ({ state, onS
       <div className="md:col-span-3 flex flex-col gap-6">
         <Card title={`Local Area: ${location.name}`} className="flex-1 relative overflow-hidden bg-zinc-950">
           <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: `url('https://www.transparenttextures.com/patterns/carbon-fibre.png')` }} />
-          
+
           <div className="relative z-10 p-8 space-y-8">
             <div className="max-w-xl">
               <h2 className="text-3xl font-black italic mono uppercase text-white mb-2">{location.name}</h2>
@@ -33,7 +32,7 @@ export const LocationMapScreen: React.FC<LocationMapScreenProps> = ({ state, onS
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <h3 className="col-span-full text-[10px] mono uppercase text-zinc-500 tracking-[0.3em] mb-2">Points of Interest</h3>
               {location.pois?.map(poi => (
-                <button 
+                <button
                   key={poi.id}
                   onClick={() => onSelectPOI(poi.name)}
                   className="p-4 bg-zinc-900/60 border border-zinc-800 rounded-sm text-left hover:border-orange-500 group transition-all"
