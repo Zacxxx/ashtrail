@@ -1,7 +1,7 @@
 # Ashtrail
 
 <p align="center">
-  <img src="[assets/hero.png](https://i.imgur.com/Pfznj2R.jpeg)" alt="Ashtrail hero image" width="920" />
+  <img src="[https://i.imgur.com/Pfznj2R.jpeg]" alt="Ashtrail hero image" width="920" />
 </p>
 
 <p align="center">
