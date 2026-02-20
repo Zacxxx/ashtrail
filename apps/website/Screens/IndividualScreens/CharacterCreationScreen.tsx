@@ -318,25 +318,35 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                       <div className="grid grid-cols-2 gap-2">
                         <div className="flex flex-col">
                           <label className="text-[8px] mono text-zinc-600 uppercase">Age</label>
-                          <input
-                            type="number"
-                            min="18"
-                            value={age}
-                            onChange={(e) => handleAgeChange(parseInt(e.target.value))}
-                            className={`bg-transparent text-[10px] mono outline-none ${age < 18 ? 'text-red-500' : 'text-zinc-300'}`}
-                          />
+                          <div className="flex items-center gap-2 mt-2">
+                            <button
+                              onClick={() => handleAgeChange(age - 1)}
+                              className="w-5 h-6 flex items-center justify-center bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 rounded-sm text-[10px] mono transition-colors"
+                            >
+                              -
+                            </button>
+                            <span className="text-xs mono font-black text-white w-6 text-center">{age}</span>
+                            <button
+                              onClick={() => handleAgeChange(age + 1)}
+                              className="w-5 h-6 flex items-center justify-center bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 rounded-sm text-[10px] mono transition-colors"
+                            >
+                              +
+                            </button>
+                          </div>
                         </div>
                         <div className="flex flex-col">
                           <label className="text-[8px] mono text-zinc-600 uppercase">Gender</label>
-                          <select
-                            value={gender}
-                            onChange={(e) => setGender(e.target.value)}
-                            className="bg-transparent text-[10px] mono text-zinc-300 outline-none cursor-pointer"
-                          >
-                            {GENDER_OPTIONS.map(opt => (
-                              <option key={opt.value} value={opt.value} className="bg-zinc-950">{opt.label}</option>
-                            ))}
-                          </select>
+                          <div className="flex items-center mt-2 h-6">
+                            <select
+                              value={gender}
+                              onChange={(e) => setGender(e.target.value)}
+                              className="bg-transparent text-xs mono font-black text-white outline-none cursor-pointer w-full h-full"
+                            >
+                              {GENDER_OPTIONS.map(opt => (
+                                <option key={opt.value} value={opt.value} className="bg-zinc-950 font-sans text-sm">{opt.label}</option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                       </div>
                     </div>
