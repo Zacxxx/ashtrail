@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Button, Card, ProgressBar, Stack, Badge, Container, Input, Select, Tooltip } from '../../UI/Primitives';
 import {
   Player,
@@ -81,12 +81,60 @@ const APPEARANCE_SELECTORS = {
   ]
 };
 
-const GENDER_OPTIONS = [
-  { value: 'Male', label: 'Male' },
-  { value: 'Female', label: 'Female' },
-  { value: 'Non-Binary', label: 'Non-Binary' },
-  { value: 'Undetermined', label: 'Undetermined' }
-];
+const CustomDropdown: React.FC<{
+  value: string;
+  options: string[];
+  onChange: (val: string) => void;
+  align?: 'left' | 'right';
+}> = ({ value, options, onChange, align = 'right' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-2 text-xs mono font-black text-white hover:text-orange-500 transition-colors py-1 group w-full ${align === 'right' ? 'justify-end' : 'justify-start'}`}
+      >
+        <span className="truncate">{value}</span>
+        <span className={`text-[8px] text-zinc-600 group-hover:text-orange-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>▼</span>
+      </button>
+
+      {isOpen && (
+        <div className={`absolute top-full mt-1 z-[100] min-w-[160px] max-h-64 overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-sm shadow-[0_0_30px_rgba(0,0,0,0.8)] custom-scrollbar animate-in fade-in zoom-in-95 duration-200 ${align === 'right' ? 'right-0' : 'left-0'}`}>
+          <div className="py-1">
+            {options.map((opt) => (
+              <button
+                key={opt}
+                onClick={() => {
+                  onChange(opt);
+                  setIsOpen(false);
+                }}
+                className={`w-full px-4 py-2 text-[10px] mono uppercase transition-all duration-150 flex items-center justify-between border-b border-zinc-800/20 last:border-0 ${opt === value
+                  ? 'bg-orange-600/10 text-orange-500 font-black'
+                  : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-200'
+                  }`}
+              >
+                <span>{opt}</span>
+                {opt === value && <span className="text-[8px]">●</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = ({ onComplete, onBack }) => {
   const [activeTab, setActiveTab] = useState<CreationTab>('IDENTITY');
@@ -342,16 +390,13 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         </div>
                         <div className="flex flex-col">
                           <label className="text-[8px] mono text-zinc-600 uppercase">Gender</label>
-                          <div className="flex items-center mt-2 h-6">
-                            <select
+                          <div className="mt-2 h-6">
+                            <CustomDropdown
                               value={gender}
-                              onChange={(e) => setGender(e.target.value)}
-                              className="bg-transparent text-xs mono font-black text-white outline-none cursor-pointer w-full h-full"
-                            >
-                              {GENDER_OPTIONS.map(opt => (
-                                <option key={opt.value} value={opt.value} className="bg-zinc-950 font-sans text-sm">{opt.label}</option>
-                              ))}
-                            </select>
+                              options={['Male', 'Female', 'Non-Binary', 'Undetermined']}
+                              onChange={setGender}
+                              align="left"
+                            />
                           </div>
                         </div>
                       </div>
@@ -359,23 +404,21 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                   </div>
 
                   <div className="flex-1 flex flex-col overflow-hidden">
-                    <label className="text-[9px] uppercase text-zinc-500 mono font-bold mb-3 tracking-[0.2em] flex justify-between items-center border-b border-zinc-800 pb-1">
-                      <span>Appearance</span>
-                      <Button variant="ghost" size="sm" onClick={handleGenerateProfileText} isLoading={isSyncing} className="h-5 px-2 text-[8px] text-orange-500 hover:text-orange-400">
-                        {isSyncing ? 'Generating...' : 'Generate Profile'}
+                    <label className="text-[11px] uppercase text-zinc-500 mono font-bold mb-4 tracking-[0.2em] flex justify-between items-center border-b border-zinc-800 pb-2">
+                      <span>Appearance Profile</span>
+                      <Button variant="ghost" size="sm" onClick={handleGenerateProfileText} isLoading={isSyncing} className="h-6 px-3 text-[10px] text-orange-500 hover:text-orange-400">
+                        {isSyncing ? 'Generating...' : 'Synthesize Profile'}
                       </Button>
                     </label>
                     <div className="flex-1 overflow-y-auto space-y-1 pr-2 custom-scrollbar">
                       {Object.entries(APPEARANCE_SELECTORS).map(([key, options]) => (
-                        <div key={key} className="flex items-center justify-between gap-2 py-1 px-2 hover:bg-zinc-900 transition-colors group">
-                          <span className="text-[9px] mono uppercase text-zinc-500 group-hover:text-zinc-400 shrink-0">{key.replace(/([A-Z])/g, ' $1')}</span>
-                          <select
-                            className="bg-transparent text-[10px] mono text-zinc-400 outline-none focus:text-orange-500 transition-colors text-right cursor-pointer"
+                        <div key={key} className="flex items-center justify-between gap-2 py-1 px-2 hover:bg-zinc-900/30 transition-colors group">
+                          <span className="text-[11px] mono uppercase text-zinc-500 group-hover:text-zinc-400 shrink-0">{key.replace(/([A-Z])/g, ' $1')}</span>
+                          <CustomDropdown
                             value={appearanceSelectors[key]}
-                            onChange={(e) => setAppearanceSelectors(prev => ({ ...prev, [key]: e.target.value }))}
-                          >
-                            {options.map(o => <option key={o} value={o} className="bg-zinc-950">{o}</option>)}
-                          </select>
+                            options={options}
+                            onChange={(val) => setAppearanceSelectors(prev => ({ ...prev, [key]: val }))}
+                          />
                         </div>
                       ))}
                     </div>
@@ -384,25 +427,25 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
                 <div className="flex-1 pl-6 flex flex-col overflow-hidden">
                   <div className="flex-1 flex flex-col overflow-hidden mb-6">
-                    <label className="text-[9px] uppercase text-zinc-500 mono font-bold mb-3 tracking-[0.2em] border-b border-zinc-800 pb-1">Backstory</label>
+                    <label className="text-[11px] uppercase text-zinc-500 mono font-bold mb-4 tracking-[0.2em] border-b border-zinc-800 pb-2">Backstory Dossier</label>
                     <textarea
                       value={history}
                       onChange={(e) => setHistory(e.target.value)}
                       placeholder="Document your origin. Every entry influences your starting disposition..."
-                      className="flex-1 bg-zinc-950/20 border border-zinc-900 p-4 text-zinc-300 mono text-xs focus:border-orange-900/50 outline-none rounded-sm resize-none custom-scrollbar leading-relaxed"
+                      className="flex-1 bg-zinc-950/20 border border-zinc-900 p-4 text-zinc-300 mono text-sm focus:border-orange-900/50 outline-none rounded-sm resize-none custom-scrollbar leading-relaxed"
                     />
                   </div>
 
                   <div className="flex-1 flex flex-col overflow-hidden relative">
-                    <label className="text-[9px] uppercase text-zinc-600 mono font-bold mb-3 tracking-[0.2em] border-b border-zinc-800 pb-1 flex justify-between">
-                      <span>Physical Description</span>
-                      {!appearancePrompt && <span className="text-red-900 animate-pulse text-[8px] uppercase">Generation Required</span>}
+                    <label className="text-[11px] uppercase text-zinc-600 mono font-bold mb-4 tracking-[0.2em] border-b border-zinc-800 pb-2 flex justify-between">
+                      <span>Physical Manifestation</span>
+                      {!appearancePrompt && <span className="text-red-900 animate-pulse text-[10px] uppercase">Analysis Required</span>}
                     </label>
                     <textarea
                       value={appearancePrompt}
                       onChange={(e) => setAppearancePrompt(e.target.value)}
-                      placeholder="Click 'Generate Profile' to synthesize physical data..."
-                      className="flex-1 bg-zinc-900/20 p-4 rounded-sm border border-zinc-900 overflow-y-auto custom-scrollbar italic text-zinc-400 text-[11px] leading-relaxed resize-none outline-none focus:border-orange-900/40"
+                      placeholder="Click 'Synthesize' to manifest physical data..."
+                      className="flex-1 bg-zinc-900/20 p-4 rounded-sm border border-zinc-900 overflow-y-auto custom-scrollbar italic text-zinc-400 text-xs leading-relaxed resize-none outline-none focus:border-orange-900/40"
                     />
                   </div>
                 </div>
@@ -508,7 +551,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                   }
                 }}
               >
-                {activeTab === 'IDENTITY' ? 'Back to Homescreen' : 'Prev Tab'}
+                {activeTab === 'IDENTITY' ? 'Back to Homescreen' : 'Previous Tab'}
               </Button>
             </div>
 
@@ -519,7 +562,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                 </Button>
               ) : (
                 <Button
-                  variant="primary"
+                  variant="accent"
                   size="lg"
                   onClick={() => setActiveTab(activeTab === 'IDENTITY' ? 'TRAITS' : 'STATS')}
                   disabled={activeTab === 'IDENTITY' && !isIdentityComplete}
