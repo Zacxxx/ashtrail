@@ -303,16 +303,22 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                       </Button>
                     </div>
 
-                    <div className="flex-1 flex flex-col justify-between">
-                      <div className="space-y-2">
-                        <input
-                          type="text"
+                    <div className="flex-1 flex flex-col justify-start gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[8px] mono text-zinc-600 uppercase">Wastelander Designation</label>
+                        <textarea
                           value={name}
-                          onChange={(e) => setName(e.target.value)}
-                          placeholder="Name..."
-                          className="bg-transparent text-lg font-black italic mono text-white uppercase outline-none placeholder:text-zinc-800 w-full"
+                          onChange={(e) => setName(e.target.value.replace(/\n/g, ''))}
+                          placeholder="NAME"
+                          rows={1}
+                          className="bg-transparent text-2xl font-black italic mono text-white uppercase outline-none placeholder:text-zinc-800 w-full tracking-wider pr-4 resize-none overflow-hidden leading-[1.1]"
+                          onInput={(e) => {
+                            const target = e.target as HTMLTextAreaElement;
+                            target.style.height = 'auto';
+                            target.style.height = target.scrollHeight + 'px';
+                          }}
                         />
-                        <div className="h-px bg-zinc-800 w-full" />
+                        <div className="h-px bg-zinc-800 w-full opacity-50" />
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
