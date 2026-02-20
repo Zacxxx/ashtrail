@@ -25,3 +25,17 @@ dist-ssr
 .env
 target/
 pkg/
+
+apps/dev-tools/target/*
+apps/dev-tools/backend/target/*
+apps/dev-tools/backend/cache/*
+apps/dev-tools/backend/world_cache/*
+apps/dev-tools/backend/world_cache/*
+
+# Dev-tools generated terrain/planet artifacts (can be very large)
+apps/dev-tools/generated/world-cache/*
+apps/dev-tools/generated/planet/*
+apps/dev-tools/generated/planet/.runs/*
+!apps/dev-tools/generated/world-cache/.gitkeep
+!apps/dev-tools/generated/planet/.gitkeep
+!apps/dev-tools/generated/planet/.runs/.gitkeep
