@@ -131,8 +131,8 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           config,
-          cols: 512,
-          rows: 256,
+          cols: 960,
+          rows: 480,
         }),
       });
 

@@ -371,8 +371,8 @@ async fn generate_planet_preview(
     State(state): State<AppState>,
     Json(request): Json<PlanetPreviewRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let cols = request.cols.unwrap_or(360).clamp(128, 1024);
-    let rows = request.rows.unwrap_or(180).clamp(64, 512);
+    let cols = request.cols.unwrap_or(480).clamp(128, 2048);
+    let rows = request.rows.unwrap_or(240).clamp(64, 1024);
 
     let terrain_request = GenerateTerrainRequest {
         config: request.config,

@@ -26,9 +26,11 @@ pub struct GenerateTerrainResponse {
 }
 
 pub fn request_cache_key(request: &GenerateTerrainRequest) -> Result<String, String> {
+    const GENERATOR_VERSION: &str = "planet-gen-v3";
     let payload =
         serde_json::to_vec(request).map_err(|e| format!("failed to serialize request: {e}"))?;
     let mut hasher = Sha256::new();
+    hasher.update(GENERATOR_VERSION.as_bytes());
     hasher.update(payload);
     let digest = hasher.finalize();
     Ok(format!("{digest:x}"))

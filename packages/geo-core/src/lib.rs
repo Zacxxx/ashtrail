@@ -120,36 +120,32 @@ where
             let nx = x as f64 / cols as f64;
             let ny = y as f64 / rows as f64;
 
-            let (plate_idx, _d1, boundary_proximity) = noise_manager.get_plate_info(nx, ny);
-            let plate = &noise_manager.plate_seeds[plate_idx];
+            let (_plate_idx, _d1, boundary_proximity) = noise_manager.get_plate_info(nx, ny);
+            let freq_mul = (420.0 / config.geo.continental_scale.max(120.0)).clamp(0.45, 2.25);
 
-            // RimWorld-style blend: micro perlin + macro ridged, modulated by
-            // macro factor and continental mask, then biased for desired ocean ratio.
-            let micro = noise_manager.get_fbm(
-                &noise_manager.continental_noise,
-                nx,
-                ny,
-                config.geo.continental_scale,
-                3.min(octaves),
-                config.geo.persistence,
-                config.geo.lacunarity,
-            );
+            // RimWorld-like terrain basis:
+            // - broad perlin continents
+            // - ridged macro forms
+            // - continental mask blend
+            let micro =
+                noise_manager.sample_noise3d(&noise_manager.continental_noise, nx, ny, 0.88 * freq_mul);
             let macro_factor =
-                (noise_manager.sample_noise3d(&noise_manager.warp_noise, nx, ny, 1.35) + 1.0) * 0.5;
+                (noise_manager.sample_noise3d(&noise_manager.warp_noise, nx, ny, 1.18 * freq_mul) + 1.0)
+                    * 0.5;
             let macro_ridged = noise_manager.get_ridged_fbm(
                 &noise_manager.mountain_noise,
                 nx,
                 ny,
-                config.geo.continental_scale * 1.5,
-                4.min(octaves),
+                960.0 / freq_mul,
+                5.min(octaves),
                 0.55,
                 2.05,
-            ) * macro_factor;
-            let blend_factor = 0.52;
+            ) * (0.75 + 0.5 * macro_factor);
+            let blend_factor = 0.56;
             let mut elev = micro * (1.0 - blend_factor) + macro_ridged * blend_factor;
 
             let mut continents =
-                noise_manager.get_fbm(&noise_manager.detail_noise, nx, ny, config.geo.continental_scale * 2.2, 5, 0.5, 2.0);
+                noise_manager.sample_noise3d(&noise_manager.detail_noise, nx, ny, 0.34 * freq_mul);
             if config.world.ocean_coverage < 0.55 {
                 continents = continents * 0.86 - 0.12;
             } else {
@@ -158,14 +154,9 @@ where
             elev = elev * 0.76 + continents * 0.24;
             elev = ((elev + 1.0) * 0.5).clamp(0.0, 1.0).powf(3.0);
 
-            if plate.is_continental && boundary_proximity > 0.6 {
-                let shelf_drop = (boundary_proximity - 0.6) / 0.4;
-                elev -= shelf_drop * 0.15;
-            }
-
             elev = elev.clamp(0.0, 1.0);
 
-            let stress = (boundary_proximity.max(0.0).powi(2) * config.geo.tectonic_intensity).min(1.0);
+            let stress = (boundary_proximity.max(0.0).powi(2) * config.geo.tectonic_intensity * 0.55).min(1.0);
             tectonic_stress[idx] = stress;
 
             let mut ridges = 0.0;
@@ -181,12 +172,12 @@ where
                     2.2,
                 ) + 1.0)
                     / 2.0;
-                ridges = ridge_height * stress * 0.45;
+                ridges = ridge_height * stress * 0.26;
             }
 
             let mountain_lines = 1.0 - noise_manager.sample_noise3d(&noise_manager.warp_noise, nx, ny, 2.2).abs();
             let mountain_mask = (mountain_lines - 0.2).clamp(0.0, 1.0);
-            ridges += mountain_mask.powf(2.2) * stress * 0.42;
+            ridges += mountain_mask.powf(2.2) * stress * 0.22;
 
             let detail = (noise_manager.get_fbm(
                 &noise_manager.detail_noise,
@@ -232,6 +223,52 @@ where
 
     // Match desired ocean coverage by deriving sea level from elevation distribution.
     water_level = percentile(&elevations, config.world.ocean_coverage);
+
+    // Morphological coastline cleanup (RimWorld-like landmass coherence).
+    for _ in 0..2 {
+        let mut next = elevations.clone();
+        for y in 0..rows {
+            for x in 0..cols {
+                let idx = (y * cols + x) as usize;
+                let mut land_neighbors = 0i32;
+                for dy in -1i32..=1 {
+                    for dx in -1i32..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        let nx = (x as i32 + dx).rem_euclid(cols as i32);
+                        let ny = y as i32 + dy;
+                        if ny < 0 || ny >= rows as i32 {
+                            continue;
+                        }
+                        let nidx = (ny * cols as i32 + nx) as usize;
+                        if elevations[nidx] >= water_level {
+                            land_neighbors += 1;
+                        }
+                    }
+                }
+                let is_land = elevations[idx] >= water_level;
+                let delta = if is_land {
+                    if land_neighbors <= 2 {
+                        -0.032
+                    } else if land_neighbors >= 7 {
+                        0.016
+                    } else {
+                        0.0
+                    }
+                } else if land_neighbors >= 6 {
+                    0.028
+                } else if land_neighbors <= 1 {
+                    -0.006
+                } else {
+                    0.0
+                };
+                next[idx] = (elevations[idx] + delta).clamp(0.0, 1.0);
+            }
+        }
+        elevations = next;
+        water_level = percentile(&elevations, config.world.ocean_coverage);
+    }
 
     emit_progress(&mut on_progress, 56.0, "Preparing hydrology inputs");
 
