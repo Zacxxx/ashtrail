@@ -1,6 +1,6 @@
 
 import React, { useRef, useEffect } from 'react';
-import { GameState } from '../../types';
+import { GameState } from '@ashtrail/core';
 import { Button } from '../../UI/Primitives';
 
 interface InteractionScreenProps {
@@ -29,31 +29,30 @@ export const InteractionScreen: React.FC<InteractionScreenProps> = ({ state, onA
           </span>
         </div>
         <div className="flex gap-4">
-           <div className="flex flex-col items-end">
-             <span className="text-[7px] text-zinc-600 uppercase mono">Logic_Core</span>
-             <span className="text-[9px] text-zinc-400 mono italic">Gemini 3 Flash</span>
-           </div>
-           <div className="flex flex-col items-end">
-             <span className="text-[7px] text-zinc-600 uppercase mono">Visual_Core</span>
-             <span className="text-[9px] text-zinc-400 mono italic">Gemini 2.5 Image</span>
-           </div>
+          <div className="flex flex-col items-end">
+            <span className="text-[7px] text-zinc-600 uppercase mono">Logic_Core</span>
+            <span className="text-[9px] text-zinc-400 mono italic">Gemini 3 Flash</span>
+          </div>
+          <div className="flex flex-col items-end">
+            <span className="text-[7px] text-zinc-600 uppercase mono">Visual_Core</span>
+            <span className="text-[9px] text-zinc-400 mono italic">Gemini 2.5 Image</span>
+          </div>
         </div>
       </div>
 
-      <div 
+      <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto space-y-4 pr-2 bg-zinc-950/50 p-6 rounded-sm border border-zinc-900 shadow-inner relative custom-scrollbar"
       >
         <div className="absolute top-0 right-0 p-4 pointer-events-none opacity-5">
-           <span className="text-[60px] font-black mono text-zinc-800 uppercase leading-none select-none">UPLINK</span>
+          <span className="text-[60px] font-black mono text-zinc-800 uppercase leading-none select-none">UPLINK</span>
         </div>
 
         {state.history.map((log, i) => (
-          <div key={i} className={`animate-in fade-in slide-in-from-bottom-2 duration-500 leading-relaxed ${
-            log.type === 'narrative' ? 'text-zinc-300 font-medium' : 
-            log.type === 'system' ? 'text-orange-400 font-bold italic border-l-2 border-orange-500/30 pl-3 py-1 bg-orange-950/5' : 
-            'text-zinc-600 mono text-[9px] opacity-60 uppercase border-b border-zinc-900/30 pb-1 mt-4'
-          }`}>
+          <div key={i} className={`animate-in fade-in slide-in-from-bottom-2 duration-500 leading-relaxed ${log.type === 'narrative' ? 'text-zinc-300 font-medium' :
+              log.type === 'system' ? 'text-orange-400 font-bold italic border-l-2 border-orange-500/30 pl-3 py-1 bg-orange-950/5' :
+                'text-zinc-600 mono text-[9px] opacity-60 uppercase border-b border-zinc-900/30 pb-1 mt-4'
+            }`}>
             {log.type === 'action' && <span className="mr-2 text-orange-500 font-black">❯ EXECUTED:</span>}
             {log.content}
           </div>
@@ -66,7 +65,7 @@ export const InteractionScreen: React.FC<InteractionScreenProps> = ({ state, onA
               <span className="text-[9px] text-orange-900 mono uppercase animate-pulse">Consulting Neural Shards...</span>
             </div>
             <div className="h-1.5 w-full bg-zinc-900 rounded-full overflow-hidden">
-               <div className="h-full bg-orange-600/30 animate-[shimmer_1.5s_infinite]" />
+              <div className="h-full bg-orange-600/30 animate-[shimmer_1.5s_infinite]" />
             </div>
           </div>
         )}

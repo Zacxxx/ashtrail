@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { calculateClockState, ClockState } from '../game-engine/gameplay/clock';
+import { calculateClockState, ClockState } from '@ashtrail/core';
 
 interface GameClockProps {
   serverStartTime: number;
@@ -32,9 +32,9 @@ export const GameClock: React.FC<GameClockProps> = ({ serverStartTime, onNightfa
       <div className="flex flex-col">
         <span className="text-[8px] text-zinc-500 uppercase mono tracking-widest">Cycle Progress</span>
         <div className="flex gap-1 items-center">
-           <span className="text-xs font-black text-orange-500 mono">C{clock.currentCycle.toString().padStart(3, '0')}</span>
-           <span className="text-zinc-700 font-bold">/</span>
-           <span className="text-xs font-bold text-zinc-300 mono">{clock.gameHour.toString().padStart(2, '0')}:00 HRS</span>
+          <span className="text-xs font-black text-orange-500 mono">C{clock.currentCycle.toString().padStart(3, '0')}</span>
+          <span className="text-zinc-700 font-bold">/</span>
+          <span className="text-xs font-bold text-zinc-300 mono">{clock.gameHour.toString().padStart(2, '0')}:00 HRS</span>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { GameState } from '../../types';
+import { GameState } from '@ashtrail/core';
 import { Card, ProgressBar, Button, Badge } from '../../UI/Primitives';
 
 interface CombatScreenProps {
@@ -19,12 +19,12 @@ export const CombatScreen: React.FC<CombatScreenProps> = ({ state, onAttack, onF
         {/* Player Side */}
         <div className="flex-1 space-y-4">
           <div className="text-center space-y-2">
-             <h3 className="text-xl font-black italic text-white mono uppercase">{player.name}</h3>
-             {/* Fix: Replaced player.role with player.level as role does not exist on Player type */}
-             <Badge color="blue">Level {player.level}</Badge>
+            <h3 className="text-xl font-black italic text-white mono uppercase">{player.name}</h3>
+            {/* Fix: Replaced player.role with player.level as role does not exist on Player type */}
+            <Badge color="blue">Level {player.level}</Badge>
           </div>
           <Card className="border-blue-900/50 bg-blue-950/10">
-             <ProgressBar label="Integrity (HP)" value={player.hp} max={player.maxHp} color="bg-blue-500" />
+            <ProgressBar label="Integrity (HP)" value={player.hp} max={player.maxHp} color="bg-blue-500" />
           </Card>
         </div>
 
@@ -33,11 +33,11 @@ export const CombatScreen: React.FC<CombatScreenProps> = ({ state, onAttack, onF
         {/* Enemy Side */}
         <div className="flex-1 space-y-4">
           <div className="text-center space-y-2">
-             <h3 className="text-xl font-black italic text-red-500 mono uppercase">{combat.enemyName}</h3>
-             <Badge color="red">Hostile</Badge>
+            <h3 className="text-xl font-black italic text-red-500 mono uppercase">{combat.enemyName}</h3>
+            <Badge color="red">Hostile</Badge>
           </div>
           <Card className="border-red-900/50 bg-red-950/10">
-             <ProgressBar label="Enemy Strength" value={combat.enemyHp} max={combat.enemyMaxHp} color="bg-red-500" />
+            <ProgressBar label="Enemy Strength" value={combat.enemyHp} max={combat.enemyMaxHp} color="bg-red-500" />
           </Card>
         </div>
       </div>
@@ -51,8 +51,8 @@ export const CombatScreen: React.FC<CombatScreenProps> = ({ state, onAttack, onF
       </div>
 
       <div className="flex gap-4">
-         <Button size="lg" variant="danger" onClick={onAttack}>Brutal Attack</Button>
-         <Button size="lg" variant="secondary" onClick={onFlee}>Tactical Retreat</Button>
+        <Button size="lg" variant="danger" onClick={onAttack}>Brutal Attack</Button>
+        <Button size="lg" variant="secondary" onClick={onFlee}>Tactical Retreat</Button>
       </div>
     </div>
   );
