@@ -39,3 +39,4 @@ apps/dev-tools/generated/planet/.runs/*
 !apps/dev-tools/generated/world-cache/.gitkeep
 !apps/dev-tools/generated/planet/.gitkeep
 !apps/dev-tools/generated/planet/.runs/.gitkeep
+generated/

@@ -8,6 +8,7 @@ export interface PlanetWorldData {
   cols: number;
   rows: number;
   cellData: PlanetCellLike[];
+  textureUrl?: string;
 }
 
 export interface PlanetTile {
@@ -25,6 +26,7 @@ export interface PlanetTile {
 export interface PlanetTiling {
   tiles: PlanetTile[];
   tileById: Record<string, PlanetTile>;
+  spatialGrid: Record<string, PlanetTile[]>;
 }
 
 interface Vec3 {
@@ -202,10 +204,10 @@ function geodesicDual(frequency: number) {
 }
 
 function chooseFrequency(world: PlanetWorldData): number {
-  const targetTiles = clamp(Math.round((world.cols * world.rows) / 340), 300, 2400);
+  const targetTiles = clamp(Math.round((world.cols * world.rows) / 120), 1500, 6000);
   // Number of vertices in geodesic grid: 10*f^2 + 2
   const f = Math.sqrt((targetTiles - 2) / 10);
-  return clamp(Math.round(f), 5, 16);
+  return clamp(Math.round(f), 8, 24);
 }
 
 export function buildPlanetTiling(world: PlanetWorldData): PlanetTiling {
@@ -225,6 +227,14 @@ export function buildPlanetTiling(world: PlanetWorldData): PlanetTiling {
 
   const tiles: PlanetTile[] = [];
   const tileById: Record<string, PlanetTile> = {};
+  const spatialGrid: Record<string, PlanetTile[]> = {};
+
+  // Use a 10x10 degree grid buckets for O(1) picking lookup
+  const getGridKey = (lon: number, lat: number) => {
+    const glon = Math.floor((lon + Math.PI) / (Math.PI / 18));
+    const glat = Math.floor((lat + Math.PI / 2) / (Math.PI / 18));
+    return `${glon}:${glat}`;
+  };
 
   for (let vi = 0; vi < mesh.vertices.length; vi++) {
     const center = mesh.vertices[vi];
@@ -267,22 +277,48 @@ export function buildPlanetTiling(world: PlanetWorldData): PlanetTiling {
     };
     tiles.push(tile);
     tileById[tile.id] = tile;
+
+    // Spread into adjacent grid buckets to account for overlap
+    const key = getGridKey(centerLonLat.lon, centerLonLat.lat);
+    if (!spatialGrid[key]) spatialGrid[key] = [];
+    spatialGrid[key].push(tile);
   }
 
-  return { tiles, tileById };
+  return { tiles, tileById, spatialGrid };
 }
 
 export function pickTile(tiling: PlanetTiling, lon: number, lat: number): PlanetTile | null {
   if (tiling.tiles.length === 0) return null;
+
+  const glon = Math.floor((lon + Math.PI) / (Math.PI / 18));
+  const glat = Math.floor((lat + Math.PI / 2) / (Math.PI / 18));
+
   let best: PlanetTile | null = null;
   let bestDist = Number.POSITIVE_INFINITY;
-  for (const tile of tiling.tiles) {
-    const d = angularDistanceSq(lon, lat, tile.centerLon, tile.centerLat);
-    if (d < bestDist) {
-      bestDist = d;
-      best = tile;
+
+  // Search 3x3 grid neighborhood for boundary safety
+  for (let dlon = -1; dlon <= 1; dlon++) {
+    for (let dlat = -1; dlat <= 1; dlat++) {
+      let clat = glat + dlat;
+      let clon = glon + dlon;
+      if (clat < 0 || clat > 18) continue;
+      if (clon < 0) clon += 36;
+      if (clon >= 36) clon -= 36;
+
+      const key = `${clon}:${clat}`;
+      const bucket = tiling.spatialGrid[key];
+      if (!bucket) continue;
+
+      for (const tile of bucket) {
+        const d = angularDistanceSq(lon, lat, tile.centerLon, tile.centerLat);
+        if (d < bestDist) {
+          bestDist = d;
+          best = tile;
+        }
+      }
     }
   }
+
   return best;
 }
 

@@ -16,6 +16,13 @@ function hexToRgb(hex: string): [number, number, number] {
   const value = parseInt(hex.slice(1), 16);
   return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
 }
+// Extend canvas type for our memoized cache
+declare global {
+  interface HTMLCanvasElement {
+    __hexCache?: HTMLCanvasElement | null;
+    __moveTimeout?: any;
+  }
+}
 
 export function PlanetMap2D({ world, onCellHover }: PlanetMap2DProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -118,38 +125,72 @@ export function PlanetMap2D({ world, onCellHover }: PlanetMap2DProps) {
     ctx.fillStyle = "#080d15";
     ctx.fillRect(0, 0, size.width, size.height);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(texture, mapRect.x, mapRect.y, mapRect.w, mapRect.h);
 
-    ctx.strokeStyle = "rgba(220, 234, 255, 0.25)";
-    ctx.lineWidth = 1;
-    for (const tile of tiling.tiles) {
-      ctx.beginPath();
-      for (let i = 0; i < tile.vertices.length; i++) {
-        const a = tile.vertices[i];
-        const b = tile.vertices[(i + 1) % tile.vertices.length];
-        drawWrappedEdge(ctx, a, b);
-      }
-      ctx.stroke();
-    }
+    // Fast render loop for interactive hover without redrawing all 6000 hexes
+    let animFrame: number;
+    const render = () => {
+      // 1. Draw base texture
+      ctx.drawImage(texture, mapRect.x, mapRect.y, mapRect.w, mapRect.h);
 
-    if (hoveredTileId) {
-      const hovered = tiling.tileById[hoveredTileId];
-      if (hovered) {
-        ctx.strokeStyle = "rgba(16, 214, 210, 0.95)";
-        ctx.fillStyle = "rgba(16, 214, 210, 0.0)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        for (let i = 0; i < hovered.vertices.length; i++) {
-          const a = hovered.vertices[i];
-          const b = hovered.vertices[(i + 1) % hovered.vertices.length];
-          drawWrappedEdge(ctx, a, b);
+      // 2. Draw static hex grid (cached on offscreen canvas for O(1) draw)
+      // We lazily create the static hex grid overlay once
+      if (!ctx.canvas.__hexCache) {
+        const hexCanvas = document.createElement("canvas");
+        hexCanvas.width = size.width;
+        hexCanvas.height = size.height;
+        const hCtx = hexCanvas.getContext("2d");
+        if (hCtx) {
+          hCtx.strokeStyle = "rgba(220, 234, 255, 0.25)";
+          hCtx.lineWidth = 1;
+          for (const tile of tiling.tiles) {
+            hCtx.beginPath();
+            for (let i = 0; i < tile.vertices.length; i++) {
+              const a = tile.vertices[i];
+              const b = tile.vertices[(i + 1) % tile.vertices.length];
+              drawWrappedEdge(hCtx, a, b);
+            }
+            hCtx.stroke();
+          }
         }
-        ctx.stroke();
+        ctx.canvas.__hexCache = hexCanvas;
       }
-    }
+      ctx.drawImage(ctx.canvas.__hexCache, 0, 0);
+
+      // 3. Draw dynamic highlight if hovered
+      if (hoveredTileId) {
+        const hovered = tiling.tileById[hoveredTileId];
+        if (hovered) {
+          ctx.strokeStyle = "rgba(16, 214, 210, 0.95)";
+          ctx.fillStyle = "rgba(16, 214, 210, 0.0)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          for (let i = 0; i < hovered.vertices.length; i++) {
+            const a = hovered.vertices[i];
+            const b = hovered.vertices[(i + 1) % hovered.vertices.length];
+            drawWrappedEdge(ctx, a, b);
+          }
+          ctx.stroke();
+        }
+      }
+      animFrame = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => {
+      cancelAnimationFrame(animFrame);
+      if (ctx.canvas.__hexCache) {
+        ctx.canvas.__hexCache = null;
+      }
+    };
   }, [size, tiling, hoveredTileId, mapRect]);
 
   const onPointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
+    // Throttle pointer move to prevent event flooding
+    if (e.currentTarget.__moveTimeout) return;
+    e.currentTarget.__moveTimeout = setTimeout(() => {
+      (e.target as HTMLCanvasElement).__moveTimeout = null;
+    }, 16); // ~60fps throttle
     const rect = e.currentTarget.getBoundingClientRect();
     const cx = ((e.clientX - rect.left) / rect.width) * size.width;
     const cy = ((e.clientY - rect.top) / rect.height) * size.height;

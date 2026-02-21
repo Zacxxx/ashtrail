@@ -1,4 +1,5 @@
 use geo_core::{
+    generate_world_from_image,
     generate_world_with_progress_and_cancel as generate_world_with_progress_and_cancel_core,
     GenerationProgress, SimulationConfig, TerrainCell,
 };
@@ -23,6 +24,7 @@ pub struct GenerateTerrainResponse {
     pub rows: u32,
     pub cell_data: Vec<TerrainCell>,
     pub cell_colors: Vec<String>,
+    pub texture_url: Option<String>,
 }
 
 pub fn request_cache_key(request: &GenerateTerrainRequest) -> Result<String, String> {
@@ -45,9 +47,10 @@ pub fn load_cached_response(
         return Ok(None);
     }
 
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read cache file {}: {e}", path.display()))?;
-    let response: GenerateTerrainResponse = serde_json::from_str(&text)
+    let file = fs::File::open(&path)
+        .map_err(|e| format!("failed to open cache file {}: {e}", path.display()))?;
+    let reader = std::io::BufReader::new(file);
+    let response: GenerateTerrainResponse = serde_json::from_reader(reader)
         .map_err(|e| format!("failed to parse cache file {}: {e}", path.display()))?;
     Ok(Some(response))
 }
@@ -64,10 +67,11 @@ pub fn save_cached_response(
         )
     })?;
     let path = cache_root.join(format!("{key}.json"));
-    let serialized = serde_json::to_string(response)
+    let file = fs::File::create(&path)
+        .map_err(|e| format!("failed to create cache file {}: {e}", path.display()))?;
+    let writer = std::io::BufWriter::new(file);
+    serde_json::to_writer(writer, response)
         .map_err(|e| format!("failed to serialize cached response: {e}"))?;
-    fs::write(&path, serialized)
-        .map_err(|e| format!("failed to write cache file {}: {e}", path.display()))?;
     Ok(())
 }
 
@@ -97,5 +101,46 @@ where
         rows: world.rows,
         cell_data: world.cells,
         cell_colors,
+        texture_url: None, // Used in hybrid
+    })
+}
+
+pub fn generate_hybrid_with_progress_and_cancel<F, C>(
+    request: GenerateTerrainRequest,
+    image_bytes: &[u8],
+    image_width: u32,
+    image_height: u32,
+    on_progress: F,
+    should_cancel: C,
+) -> Result<GenerateTerrainResponse, String>
+where
+    F: FnMut(GenerationProgress),
+    C: FnMut() -> bool,
+{
+    let world = generate_world_from_image(
+        image_bytes,
+        image_width,
+        image_height,
+        request.config,
+        request.cols,
+        request.rows,
+        request.km_per_cell,
+        on_progress,
+        should_cancel,
+    )?;
+
+    let cell_colors = world.cells.iter().map(|c| c.color.clone()).collect();
+
+    // Store image base64 locally so frontend doesn't need to re-fetch
+    use base64::{engine::general_purpose, Engine as _};
+    let b64 = general_purpose::STANDARD.encode(image_bytes);
+    let data_url = format!("data:image/jpeg;base64,{}", b64);
+
+    Ok(GenerateTerrainResponse {
+        cols: world.cols,
+        rows: world.rows,
+        cell_data: world.cells,
+        cell_colors,
+        texture_url: Some(data_url),
     })
 }
