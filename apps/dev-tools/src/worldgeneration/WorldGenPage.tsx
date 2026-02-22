@@ -58,6 +58,7 @@ export function WorldGenPage() {
 
     // ── History ──
     const { history, saveToHistory, deleteFromHistory } = useGenerationHistory();
+    const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
 
     // ── Config Helpers ──
     const updateWorld = useCallback((patch: Partial<SimulationConfig["world"]>) => {
@@ -82,11 +83,12 @@ export function WorldGenPage() {
         generateHumanity,
         handleAutoGenerateContinents,
         fetchRegionLore,
+        generateUpscale,
     } = useWorldGeneration({
         prompt, config, aiResolution, aiTemperature, continents,
         ecoPrompt, ecoVegetation, ecoFauna,
         humPrompt, humSettlements, humTech,
-        globeWorld, saveToHistory, setGlobeWorld, setContinents,
+        globeWorld, saveToHistory, setGlobeWorld, setContinents, setActiveHistoryId
     });
 
     // ── Cell Handlers ──
@@ -190,6 +192,8 @@ export function WorldGenPage() {
                             onDeleteRegion={geography.deleteRegion}
                             onClearRegions={geography.clearRegions}
                             globeWorld={globeWorld}
+                            generateUpscale={generateUpscale}
+                            activeHistoryId={activeHistoryId}
                         />
                     )}
                     {activeStep === "ECO" && (
@@ -239,6 +243,7 @@ export function WorldGenPage() {
                             setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
                             setConfig(item.config);
                             setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
+                            setActiveHistoryId(item.id);
                             setShowHistory(false);
                         }}
                     />

@@ -15,6 +15,8 @@ interface GeographyPanelProps {
     onDeleteRegion: (id: string) => void;
     onClearRegions: () => void;
     globeWorld: PlanetWorld | null;
+    generateUpscale: (historyId: string) => Promise<void>;
+    activeHistoryId: string | null;
 }
 
 export function GeographyPanel({
@@ -29,6 +31,8 @@ export function GeographyPanel({
     onDeleteRegion,
     onClearRegions,
     globeWorld,
+    generateUpscale,
+    activeHistoryId,
 }: GeographyPanelProps) {
     const selectedRegion = regions.find(r => r.id === selectedRegionId);
     const [showTypePicker, setShowTypePicker] = useState(false);
@@ -45,8 +49,8 @@ export function GeographyPanel({
                 <div
                     onClick={() => setSelectedRegionId(isSelected ? null : region.id)}
                     className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition-all group my-1 ${isSelected
-                            ? "bg-cyan-500/10 border-cyan-500/30"
-                            : "bg-black/20 border-white/5 hover:border-white/10"
+                        ? "bg-cyan-500/10 border-cyan-500/30"
+                        : "bg-black/20 border-white/5 hover:border-white/10"
                         }`}
                     style={{ marginLeft: `${depth * 12}px` }}
                 >
@@ -99,8 +103,8 @@ export function GeographyPanel({
                                         key={tool.id}
                                         onClick={() => setActiveTool(tool.id)}
                                         className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border text-[9px] font-bold tracking-widest transition-all ${activeTool === tool.id
-                                                ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-300"
-                                                : "bg-transparent border-white/5 text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                                            ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-300"
+                                            : "bg-transparent border-white/5 text-gray-500 hover:text-gray-300 hover:bg-white/5"
                                             }`}
                                     >
                                         <span className="text-sm">{tool.icon}</span>
@@ -135,8 +139,8 @@ export function GeographyPanel({
                                                         key={rt}
                                                         onClick={() => { setActiveRegionType(rt); setShowTypePicker(false); }}
                                                         className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[8px] font-bold tracking-widest transition-all ${activeRegionType === rt
-                                                                ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-300"
-                                                                : "bg-transparent border-white/5 text-gray-400 hover:text-gray-200 hover:border-white/20"
+                                                            ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-300"
+                                                            : "bg-transparent border-white/5 text-gray-400 hover:text-gray-200 hover:border-white/20"
                                                             }`}
                                                     >
                                                         <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: REGION_TYPE_COLORS[rt] }} />
@@ -150,7 +154,7 @@ export function GeographyPanel({
                             )}
                         </div>
 
-                        {/* ── Two-Pass AI Buttons ── */}
+                        {/* ── Upscale Button ── */}
                         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
                             <Button
                                 variant="primary"
@@ -163,12 +167,16 @@ export function GeographyPanel({
                             </Button>
                             <Button
                                 variant="primary"
-                                disabled
-                                className="w-full text-[8px] tracking-[0.1em] font-black py-3 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/30 rounded-xl opacity-50 flex flex-col items-center gap-1"
-                                title="AI Vision: Pass 2"
+                                onClick={() => activeHistoryId && generateUpscale(activeHistoryId)}
+                                disabled={!activeHistoryId}
+                                className={`w-full text-[8px] tracking-[0.1em] font-black py-3 flex flex-col items-center gap-1 transition-all rounded-xl ${activeHistoryId
+                                        ? "bg-fuchsia-600/30 hover:bg-fuchsia-600/50 border border-fuchsia-500/30 text-white shadow-[0_0_15px_rgba(192,38,211,0.2)]"
+                                        : "bg-fuchsia-900/10 border-fuchsia-900/20 text-gray-500 opacity-50"
+                                    }`}
+                                title={activeHistoryId ? "Upscale to 4x Resolution" : "Generate or select a planet first"}
                             >
-                                <span>🔍 Pass 2</span>
-                                <span className="text-cyan-200/70">Deep Features</span>
+                                <span className="flex items-center gap-1">✨ Enhance Texture</span>
+                                <span className={activeHistoryId ? "text-fuchsia-200/90" : "text-fuchsia-900/50"}>ESRGAN 4x Upscale</span>
                             </Button>
                         </div>
 

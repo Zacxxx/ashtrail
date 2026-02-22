@@ -26,7 +26,13 @@ export function HistoryGallery({
                         onClick={() => onSelect(item)}
                     >
                         <img src={item.textureUrl} alt="History thumbnail" className="absolute inset-0 w-full h-full object-cover object-center opacity-60 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500" />
-                        <div className="absolute top-0 inset-x-0 p-3 bg-gradient-to-b from-black/90 via-black/40 to-transparent">
+                        {item.isUpscaled && (
+                            <div className="absolute top-3 right-3 bg-fuchsia-600/80 text-white text-[8px] font-black tracking-widest px-2 py-1 rounded-md shadow-lg border border-fuchsia-400/50 backdrop-blur-sm z-10 flex items-center gap-1">
+                                <span>✨</span>
+                                4x HD
+                            </div>
+                        )}
+                        <div className="absolute top-0 inset-x-0 p-3 bg-gradient-to-b from-black/90 via-black/40 to-transparent pointer-events-none">
                             <p className="text-[10px] text-gray-200 line-clamp-2 font-medium leading-relaxed drop-shadow-md">{item.prompt}</p>
                             <p className="text-[8px] font-bold tracking-widest text-[#E6E6FA] mt-2">{new Date(item.timestamp).toLocaleDateString()}</p>
                         </div>

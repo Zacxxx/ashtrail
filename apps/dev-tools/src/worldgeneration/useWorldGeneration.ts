@@ -20,6 +20,7 @@ interface UseWorldGenerationParams {
     saveToHistory: (item: GenerationHistoryItem) => Promise<void>;
     setGlobeWorld: (world: PlanetWorld | null) => void;
     setContinents: (continents: ContinentConfig[]) => void;
+    setActiveHistoryId: (id: string | null) => void;
 }
 
 export function useWorldGeneration({
@@ -38,6 +39,7 @@ export function useWorldGeneration({
     saveToHistory,
     setGlobeWorld,
     setContinents,
+    setActiveHistoryId,
 }: UseWorldGenerationParams) {
     const [genProgress, setGenProgress] = useState<GenerationProgress>({
         isActive: false,
@@ -61,12 +63,12 @@ export function useWorldGeneration({
     }, []);
 
     // Poll job status
-    const pollJobProgress = useCallback((jobId: string) => {
+    const pollJobProgress = useCallback((jobId: string, endpointBase: string = "http://127.0.0.1:8787/api/planet/hybrid") => {
         if (pollRef.current) clearInterval(pollRef.current);
 
         pollRef.current = setInterval(async () => {
             try {
-                const res = await fetch(`/api/planet/hybrid/${jobId}`);
+                const res = await fetch(`${endpointBase}/${jobId}`);
                 if (!res.ok) return;
                 const data = await res.json();
 
@@ -97,6 +99,7 @@ export function useWorldGeneration({
                             ...data.result,
                             textureUrl: data.result.textureUrl
                         });
+                        setActiveHistoryId(jobId);
 
                         setGenProgress({
                             isActive: false,
@@ -341,6 +344,26 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}${regio
         }
     }, [prompt]);
 
+    const generateUpscale = useCallback(async (historyId: string) => {
+        setGenProgress({ isActive: true, progress: 0, stage: "Queuing ESRGAN upscaler...", jobId: null });
+        try {
+            const response = await fetch("http://127.0.0.1:8787/api/planet/upscale", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ historyId }),
+            });
+            if (!response.ok) throw new Error(await response.text());
+            const { jobId } = await response.json();
+            setGenProgress(prev => ({ ...prev, jobId }));
+            pollJobProgress(jobId, "http://127.0.0.1:8787/api/planet/upscale");
+        } catch (error) {
+            console.error(error);
+            setGenProgress({
+                isActive: false, progress: 0, stage: `Error: ${error instanceof Error ? error.message : "Unknown error"}`, jobId: null,
+            });
+        }
+    }, [pollJobProgress]);
+
     return {
         genProgress,
         isGeneratingText,
@@ -352,5 +375,6 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}${regio
         generateHumanity,
         handleAutoGenerateContinents,
         fetchRegionLore,
+        generateUpscale,
     };
 }
