@@ -44,3 +44,8 @@ apps/dev-tools/generated/world-cache/hybrid-19f482d1-9f9e-4c66-9152-33429ebbdada
 apps/dev-tools/generated/world-cache/hybrid-b535fec3-d7a0-4cc5-9708-0eeed678afd8.json
 apps/dev-tools/generated/textures/hybrid-280ed717-4118-4287-9002-69fad4f9e334.jpg
 apps/dev-tools/generated/world-cache/hybrid-280ed717-4118-4287-9002-69fad4f9e334.json
+apps/dev-tools/generated/textures/hybrid-a74bcbf8-0074-433d-a81f-8a9f86ac4deb.jpg
+apps/dev-tools/generated/world-cache/hybrid-a74bcbf8-0074-433d-a81f-8a9f86ac4deb.json
+
+apps/dev-tools/generated/textures/*
+apps/dev-tools/generated/world-cache/*
