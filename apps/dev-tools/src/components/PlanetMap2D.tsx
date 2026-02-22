@@ -1,227 +1,217 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import type { TerrainCell } from "../modules/geo/types";
-import {
-  buildPlanetTiling,
-  pickTile,
-  tileCell,
-  type PlanetWorldData,
-} from "../modules/planet/tiles";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
+import type { PlanetWorldData } from "../modules/planet/tiles";
+
+export interface MapTransform {
+  x: number;
+  y: number;
+  scale: number;
+}
 
 interface PlanetMap2DProps {
   world: PlanetWorldData;
-  onCellHover?: (cell: TerrainCell | null) => void;
+  onTransformChange?: (transform: MapTransform) => void;
 }
 
-function hexToRgb(hex: string): [number, number, number] {
-  const value = parseInt(hex.slice(1), 16);
-  return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
-}
-// Extend canvas type for our memoized cache
-declare global {
-  interface HTMLCanvasElement {
-    __hexCache?: HTMLCanvasElement | null;
-    __moveTimeout?: any;
-  }
-}
-
-export function PlanetMap2D({ world, onCellHover }: PlanetMap2DProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+export function PlanetMap2D({ world, onTransformChange }: PlanetMap2DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 1200, height: 700 });
-  const [hoveredTileId, setHoveredTileId] = useState<string | null>(null);
-  const textureRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
 
-  const tiling = useMemo(() => buildPlanetTiling(world), [world]);
-  const worldAspect = world.cols / world.rows;
+  const [size, setSize] = useState({ width: 0, height: 0 });
 
-  const mapRect = (() => {
-    const canvasAspect = size.width / size.height;
-    if (canvasAspect >= worldAspect) {
-      const h = size.height;
-      const w = h * worldAspect;
-      return { x: (size.width - w) * 0.5, y: 0, w, h };
-    }
-    const w = size.width;
-    const h = w / worldAspect;
-    return { x: 0, y: (size.height - h) * 0.5, w, h };
-  })();
+  // Transform state: represents translation (x, y) and zoom (scale)
+  const transformRef = useRef<MapTransform>({ x: 0, y: 0, scale: 1 });
+  const isDraggingRef = useRef(false);
+  const lastPosRef = useRef({ x: 0, y: 0 });
 
-  const project = (lon: number, lat: number) => ({
-    x: mapRect.x + ((lon + Math.PI) / (Math.PI * 2)) * mapRect.w,
-    y: mapRect.y + ((lat + Math.PI / 2) / Math.PI) * mapRect.h,
-  });
+  // We use a React ref for animation frames
+  const rafRef = useRef<number>(0);
 
-  const drawWrappedEdge = (
-    ctx: CanvasRenderingContext2D,
-    a: { lon: number; lat: number },
-    b: { lon: number; lat: number }
-  ) => {
-    const pa = project(a.lon, a.lat);
-    const pb = project(b.lon, b.lat);
-    const w = mapRect.w;
-    let x1 = pa.x;
-    let x2 = pb.x;
+  // ── 0. Boundary Logic ──
+  const clampTransform = (x: number, y: number, scale: number, w: number, h: number, imgWidth: number, imgHeight: number) => {
+    // 1. Min Scale Constraint (Fit to screen)
+    // The scale shouldn't be smaller than what fits the entire image in the canvas.
+    const minScaleX = w / imgWidth;
+    const minScaleY = h / imgHeight;
+    const minScale = Math.min(minScaleX, minScaleY);
 
-    if (Math.abs(x2 - x1) > w * 0.5) {
-      if (x1 < x2) x1 += w;
-      else x2 += w;
-    }
+    scale = Math.max(minScale, scale);
+    scale = Math.min(scale, 50); // Max zoom
 
-    ctx.moveTo(x1, pa.y);
-    ctx.lineTo(x2, pb.y);
-    ctx.moveTo(x1 - w, pa.y);
-    ctx.lineTo(x2 - w, pb.y);
-    ctx.moveTo(x1 + w, pa.y);
-    ctx.lineTo(x2 + w, pb.y);
+    // 2. Pan Constraints
+    // The image bounds should never enter the canvas area if the image is larger than the canvas.
+    // Width boundaries
+    const scaledWidth = imgWidth * scale;
+    const minX = Math.min(0, w - scaledWidth);
+    const maxX = Math.max(0, (w - scaledWidth) / 2); // Center if smaller than canvas
+
+    // Height boundaries
+    const scaledHeight = imgHeight * scale;
+    const minY = Math.min(0, h - scaledHeight);
+    const maxY = Math.max(0, (h - scaledHeight) / 2);
+
+    x = Math.max(minX, Math.min(x, maxX));
+    y = Math.max(minY, Math.min(y, maxY));
+
+    return { x, y, scale };
   };
 
+  // ── 1. Init Image ──
   useEffect(() => {
-    const c = document.createElement("canvas");
-    c.width = world.cols;
-    c.height = world.rows;
-    const ctx = c.getContext("2d");
-    if (!ctx) return;
-    const img = ctx.createImageData(world.cols, world.rows);
+    if (!world.textureUrl) return;
+    const img = new Image();
+    img.src = world.textureUrl;
+    img.onload = () => {
+      imageRef.current = img;
 
-    for (let i = 0; i < world.cellData.length; i++) {
-      const [r, g, b] = hexToRgb(world.cellData[i]?.color ?? "#000000");
-      const p = i * 4;
-      img.data[p] = r;
-      img.data[p + 1] = g;
-      img.data[p + 2] = b;
-      img.data[p + 3] = 255;
-    }
+      if (size.width > 0 && size.height > 0) {
+        fitImageToScreen(img, size.width, size.height);
+        draw(size.width, size.height);
+      }
+    };
+  }, [world.textureUrl, size.width, size.height]); // Add size dependencies to ensure drawing happens if img loaded before resize triggered
 
-    ctx.putImageData(img, 0, 0);
-    textureRef.current = c;
-  }, [world]);
-
+  // ── 2. Handle Resize ──
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setSize({
-          width: Math.max(100, Math.floor(entry.contentRect.width)),
-          height: Math.max(100, Math.floor(entry.contentRect.height)),
-        });
+        const newWidth = Math.max(100, Math.floor(entry.contentRect.width));
+        const newHeight = Math.max(100, Math.floor(entry.contentRect.height));
+        setSize({ width: newWidth, height: newHeight });
+
+        if (imageRef.current) {
+          // Re-clamp current transform to new bounds instead of fully resetting
+          const { x, y, scale } = transformRef.current;
+          const clamped = clampTransform(x, y, scale, newWidth, newHeight, imageRef.current.width, imageRef.current.height);
+          transformRef.current = clamped;
+          onTransformChange?.(clamped);
+          draw(newWidth, newHeight);
+        }
       }
     });
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const texture = textureRef.current;
-    if (!canvas || !texture) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  const fitImageToScreen = (img: HTMLImageElement, w: number, h: number) => {
+    const minScaleX = w / img.width;
+    const minScaleY = h / img.height;
+    const scale = Math.min(minScaleX, minScaleY);
 
-    canvas.width = size.width;
-    canvas.height = size.height;
+    const x = (w - img.width * scale) / 2;
+    const y = (h - img.height * scale) / 2;
 
-    ctx.clearRect(0, 0, size.width, size.height);
-    ctx.fillStyle = "#080d15";
-    ctx.fillRect(0, 0, size.width, size.height);
-    ctx.imageSmoothingEnabled = false;
-
-    // Fast render loop for interactive hover without redrawing all 6000 hexes
-    let animFrame: number;
-    const render = () => {
-      // 1. Draw base texture
-      ctx.drawImage(texture, mapRect.x, mapRect.y, mapRect.w, mapRect.h);
-
-      // 2. Draw static hex grid (cached on offscreen canvas for O(1) draw)
-      // We lazily create the static hex grid overlay once
-      if (!ctx.canvas.__hexCache) {
-        const hexCanvas = document.createElement("canvas");
-        hexCanvas.width = size.width;
-        hexCanvas.height = size.height;
-        const hCtx = hexCanvas.getContext("2d");
-        if (hCtx) {
-          hCtx.strokeStyle = "rgba(220, 234, 255, 0.25)";
-          hCtx.lineWidth = 1;
-          for (const tile of tiling.tiles) {
-            hCtx.beginPath();
-            for (let i = 0; i < tile.vertices.length; i++) {
-              const a = tile.vertices[i];
-              const b = tile.vertices[(i + 1) % tile.vertices.length];
-              drawWrappedEdge(hCtx, a, b);
-            }
-            hCtx.stroke();
-          }
-        }
-        ctx.canvas.__hexCache = hexCanvas;
-      }
-      ctx.drawImage(ctx.canvas.__hexCache, 0, 0);
-
-      // 3. Draw dynamic highlight if hovered
-      if (hoveredTileId) {
-        const hovered = tiling.tileById[hoveredTileId];
-        if (hovered) {
-          ctx.strokeStyle = "rgba(16, 214, 210, 0.95)";
-          ctx.fillStyle = "rgba(16, 214, 210, 0.0)";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          for (let i = 0; i < hovered.vertices.length; i++) {
-            const a = hovered.vertices[i];
-            const b = hovered.vertices[(i + 1) % hovered.vertices.length];
-            drawWrappedEdge(ctx, a, b);
-          }
-          ctx.stroke();
-        }
-      }
-      animFrame = requestAnimationFrame(render);
-    };
-
-    render();
-
-    return () => {
-      cancelAnimationFrame(animFrame);
-      if (ctx.canvas.__hexCache) {
-        ctx.canvas.__hexCache = null;
-      }
-    };
-  }, [size, tiling, hoveredTileId, mapRect]);
-
-  const onPointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
-    // Throttle pointer move to prevent event flooding
-    if (e.currentTarget.__moveTimeout) return;
-    e.currentTarget.__moveTimeout = setTimeout(() => {
-      (e.target as HTMLCanvasElement).__moveTimeout = null;
-    }, 16); // ~60fps throttle
-    const rect = e.currentTarget.getBoundingClientRect();
-    const cx = ((e.clientX - rect.left) / rect.width) * size.width;
-    const cy = ((e.clientY - rect.top) / rect.height) * size.height;
-    if (cx < mapRect.x || cy < mapRect.y || cx > mapRect.x + mapRect.w || cy > mapRect.y + mapRect.h) {
-      setHoveredTileId(null);
-      onCellHover?.(null);
-      return;
-    }
-    const px = (cx - mapRect.x) / mapRect.w;
-    const py = (cy - mapRect.y) / mapRect.h;
-    const lon = px * Math.PI * 2 - Math.PI;
-    const lat = py * Math.PI - Math.PI / 2;
-
-    const tile = pickTile(tiling, lon, lat);
-    setHoveredTileId(tile?.id ?? null);
-    const cell = tileCell(world, tile);
-    onCellHover?.((cell as TerrainCell | null) ?? null);
+    transformRef.current = { x, y, scale };
+    onTransformChange?.(transformRef.current);
   };
 
-  const onPointerLeave = () => {
-    setHoveredTileId(null);
-    onCellHover?.(null);
+  // ── 3. Render Loop ──
+  const draw = (w = size.width, h = size.height) => {
+    if (!canvasRef.current || !imageRef.current || w === 0 || h === 0) return;
+    const ctx = canvasRef.current.getContext("2d");
+    if (!ctx) return;
+
+    // Only update canvas dimensions if they changed to prevent flicker
+    if (canvasRef.current.width !== w) canvasRef.current.width = w;
+    if (canvasRef.current.height !== h) canvasRef.current.height = h;
+
+    // Clear background
+    ctx.fillStyle = "#080d15";
+    ctx.fillRect(0, 0, w, h);
+
+    const { x, y, scale } = transformRef.current;
+
+    ctx.imageSmoothingEnabled = false;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.drawImage(imageRef.current, 0, 0);
+
+    ctx.strokeStyle = "rgba(255,255,255,0.1)";
+    ctx.lineWidth = 1 / scale;
+    ctx.strokeRect(0, 0, imageRef.current.width, imageRef.current.height);
+
+    ctx.restore();
+  };
+
+  // Render trigger when transform updates
+  const scheduleDraw = () => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => draw());
+  };
+
+  // ── 4. Interaction ──
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    if (!imageRef.current) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const zoomSensitivity = 0.002;
+    const zoomDelta = Math.exp(-e.deltaY * zoomSensitivity);
+
+    const { x, y, scale } = transformRef.current;
+
+    let newScale = scale * zoomDelta;
+
+    const newX = mouseX - (mouseX - x) * (newScale / scale);
+    const newY = mouseY - (mouseY - y) * (newScale / scale);
+
+    const clamped = clampTransform(newX, newY, newScale, size.width, size.height, imageRef.current.width, imageRef.current.height);
+    transformRef.current = clamped;
+    onTransformChange?.(clamped);
+
+    scheduleDraw();
+  };
+
+  const handlePointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
+    isDraggingRef.current = true;
+    lastPosRef.current = { x: e.clientX, y: e.clientY };
+    (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
+    if (!isDraggingRef.current || !imageRef.current) return;
+
+    const dx = e.clientX - lastPosRef.current.x;
+    const dy = e.clientY - lastPosRef.current.y;
+
+    let { x, y, scale } = transformRef.current;
+    x += dx;
+    y += dy;
+
+    lastPosRef.current = { x: e.clientX, y: e.clientY };
+
+    const clamped = clampTransform(x, y, scale, size.width, size.height, imageRef.current.width, imageRef.current.height);
+    transformRef.current = clamped;
+
+    onTransformChange?.(clamped);
+    scheduleDraw();
+  };
+
+  const handlePointerUp = (e: PointerEvent<HTMLCanvasElement>) => {
+    isDraggingRef.current = false;
+    (e.target as HTMLCanvasElement).releasePointerCapture(e.pointerId);
   };
 
   return (
     <div ref={containerRef} className="w-full h-full rounded-lg border border-[#1f2937] overflow-hidden bg-[#080d15]">
       <canvas
         ref={canvasRef}
-        className="w-full h-full block"
-        onPointerMove={onPointerMove}
-        onPointerLeave={onPointerLeave}
+        className="w-full h-full block cursor-grab active:cursor-grabbing touch-none"
+        onWheel={handleWheel}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       />
     </div>
   );
