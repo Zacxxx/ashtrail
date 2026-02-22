@@ -28,14 +28,17 @@ pkg/
 
 apps/dev-tools/target/*
 apps/dev-tools/backend/target/*
-apps/dev-tools/backend/cache/*
-apps/dev-tools/backend/world_cache/*
-apps/dev-tools/backend/world_cache/*
 
-# Dev-tools generated terrain/planet artifacts (can be very large)
-apps/dev-tools/generated/world-cache/*
-apps/dev-tools/generated/planet/*
-apps/dev-tools/generated/planet/.runs/*
-!apps/dev-tools/generated/world-cache/.gitkeep
-!apps/dev-tools/generated/planet/.gitkeep
-!apps/dev-tools/generated/planet/.runs/.gitkeep
+# Dev-tools generated artifacts — ignore contents, keep directories
+generated/world-cache/*
+generated/textures/*
+generated/planet/*
+generated/history.json
+!generated/world-cache/.gitkeep
+!generated/textures/.gitkeep
+!generated/planet/.gitkeep
+apps/dev-tools/generated/textures/hybrid-3b1d2a86-b28e-4cb3-841d-0a6b2329f71c.jpg
+apps/dev-tools/generated/textures/hybrid-19f482d1-9f9e-4c66-9152-33429ebbdada.jpg
+apps/dev-tools/generated/world-cache/hybrid-3b1d2a86-b28e-4cb3-841d-0a6b2329f71c.json
+apps/dev-tools/generated/world-cache/hybrid-19f482d1-9f9e-4c66-9152-33429ebbdada.json
+apps/dev-tools/generated/world-cache/hybrid-b535fec3-d7a0-4cc5-9708-0eeed678afd8.json

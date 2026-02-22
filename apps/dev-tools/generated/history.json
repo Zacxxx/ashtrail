@@ -1,0 +1,36 @@
+[
+  {
+    "config": {
+      "climate": {
+        "globalMeanTemp": 15,
+        "latitudeGradient": 50,
+        "oceanWarmthFactor": 0.5,
+        "precipitationMultiplier": 1,
+        "prevailingWindDir": 270,
+        "windStrength": 1
+      },
+      "geo": {
+        "continentalScale": 500,
+        "erosionIterations": 50,
+        "lacunarity": 2,
+        "octaves": 6,
+        "persistence": 0.5,
+        "plateCount": 8,
+        "tectonicIntensity": 1.3,
+        "volcanicDensity": 0.25
+      },
+      "world": {
+        "atmosphericDensity": 1,
+        "axialTilt": 23.5,
+        "oceanCoverage": 0.45,
+        "planetRadius": 6371,
+        "seed": 42,
+        "solarLuminosity": 1
+      }
+    },
+    "id": "643ea78b-3614-4296-82e7-e1e6b8fb474c",
+    "prompt": "Equirectangular projection map texture, satellite view, highly detailed, realistic. CRITICAL: Do NOT render any text, labels, names, annotations, legends, or letters on the image. The output must be a pure photographic satellite-style map with zero text of any kind.\n\nUser Instructions:\nA desolate, dusty orange planet with deep canyon scars, dry ocean basins, and rocky gray mountain ranges.\n\n[ENVIRONMENTAL REQUIREMENTS]:\nEnsure the map visually matches these parameters:\n- Ocean Coverage: 45%\n- Mean Temperature: 15°C\n- Precipitation/Moisture Multiplier: 1x\n- Continental Scale: 500\n- Tectonic Intensity: 1.3\n- Volcanic Density: 25%\n[LANDMASS LAYOUT - visualize these as geographic regions, do NOT write their names on the map]:\n- A landmass (~80% of total land area): A massive central supercontinent dominated by blasted badlands and volcanic ridges.",
+    "textureUrl": "/api/textures/hybrid-19f482d1-9f9e-4c66-9152-33429ebbdada.jpg",
+    "timestamp": 1771714731094
+  }
+]

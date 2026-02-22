@@ -49,16 +49,17 @@ pub fn classify_biome(
 
     if elevation < water_level {
         let depth = water_level - elevation;
-        if depth > 0.35 {
+        // Hypsometric curve compresses ocean depths; thresholds adjusted accordingly
+        if depth > 0.20 {
             return BiomeType::AbyssalOcean;
         }
-        if depth > 0.25 {
+        if depth > 0.14 {
             return BiomeType::DeepOcean;
         }
-        if depth > 0.10 {
+        if depth > 0.06 {
             return BiomeType::Ocean;
         }
-        if depth > 0.05 {
+        if depth > 0.02 {
             if temperature > 22.0 && precipitation > 0.5 {
                 return BiomeType::CoralReef;
             }
@@ -67,8 +68,9 @@ pub fn classify_biome(
         return BiomeType::TidalFlat;
     }
 
+    // Wider coastal zone for continental shelf transitions
     let coast_proximity = elevation - water_level;
-    if coast_proximity < 0.02 {
+    if coast_proximity < 0.03 {
         if precipitation > 0.6 && temperature > 20.0 {
             return BiomeType::Mangrove;
         }
@@ -78,13 +80,14 @@ pub fn classify_biome(
         return BiomeType::Beach;
     }
 
-    if elevation > 0.85 {
+    // Alpine / high-altitude thresholds adjusted for hypsometric curve
+    if elevation > 0.92 {
         return BiomeType::IceSheet;
     }
-    if elevation > 0.75 {
+    if elevation > 0.84 {
         return BiomeType::AlpineBare;
     }
-    if elevation > 0.65 {
+    if elevation > 0.76 {
         return BiomeType::AlpineMeadow;
     }
 

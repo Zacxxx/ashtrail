@@ -1,15 +1,16 @@
 mod generator;
 mod hierarchy;
+mod gemini;
 
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, post, delete},
     Json, Router,
 };
 use generator::{
-    generate_world_with_progress_and_cancel, load_cached_response, request_cache_key,
+    generate_hybrid_with_progress_and_cancel, generate_world_with_progress_and_cancel, load_cached_response, request_cache_key,
     save_cached_response, GenerateTerrainRequest, GenerateTerrainResponse,
 };
 use hierarchy::{generate_full_planet_hierarchy, HierarchyGenerateRequest, PlanetManifest};
@@ -22,7 +23,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info};
+use tower_http::services::ServeDir;
+use base64::Engine as _;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -84,6 +87,58 @@ struct PlanetPreviewRequest {
     rows: Option<u32>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlanetHybridRequest {
+    config: geo_core::SimulationConfig,
+    prompt: String,
+    cols: Option<u32>,
+    rows: Option<u32>,
+    temperature: Option<f32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerateTextRequest {
+    prompt: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlanetImageEditRequest {
+    prompt: String,
+    base64_image: String,
+    temperature: Option<f32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoreQueryRequest {
+    lon: f32,
+    lat: f32,
+    biome: String,
+    temperature: f32,
+    elevation: f32,
+    resources: Vec<String>,
+    world_context: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoreQueryResponse {
+    raw_json: String,
+}
+
+/// List saved planet cache entries.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SavedEntry {
+    cache_key: String,
+    file_name: String,
+    size_bytes: u64,
+    modified: String,
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -91,6 +146,24 @@ async fn main() {
         .with_thread_names(true)
         .compact()
         .init();
+
+    for path in &[
+        "../../../.env.local",
+        "../../../.env",
+        "../../.env.local",
+        "../../.env",
+        "../.env.local",
+        "../.env",
+        ".env.local",
+        ".env",
+    ] {
+        dotenv::from_path(path).ok();
+    }
+    dotenv::dotenv().ok();
+
+    // Ensure the textures directory exists for serving saved images
+    let textures_dir = PathBuf::from("generated/textures");
+    std::fs::create_dir_all(&textures_dir).expect("failed to create textures directory");
 
     let state = AppState {
         jobs: Arc::new(Mutex::new(HashMap::new())),
@@ -105,8 +178,22 @@ async fn main() {
             "/api/terrain/jobs/{job_id}",
             get(get_job_status).delete(cancel_job),
         )
-        .route("/api/planet/preview", post(generate_planet_preview))
+        .route("/api/planet/preview", post(start_preview_job))
+        .route("/api/planet/preview/{job_id}", get(get_job_status))
+        .route("/api/planet/hybrid", post(start_hybrid_job))
+        .route("/api/planet/hybrid/{job_id}", get(get_job_status))
         .route("/api/planet/generate-full", post(generate_full_planet))
+        .route("/api/planet/saved", get(list_saved_planets))
+        .route("/api/planet/saved/{cache_key}", get(load_saved_planet))
+        .route("/api/planet/lore/query", post(query_lore_handler))
+        .route("/api/text/generate", post(generate_text_handler))
+        .route("/api/planet/ecology", post(start_ecology_job))
+        .route("/api/planet/ecology/{job_id}", get(get_job_status))
+        .route("/api/planet/humanity", post(start_humanity_job))
+        .route("/api/planet/humanity/{job_id}", get(get_job_status))
+        .route("/api/history", get(get_history).post(save_history).delete(clear_history))
+        .route("/api/history/{id}", delete(delete_history))
+        .nest_service("/api/textures", ServeDir::new("generated/textures"))
         .with_state(state)
         .layer(
             CorsLayer::new()
@@ -197,31 +284,384 @@ async fn start_generate_job(
             }
         }
 
-        let mut last_stage = String::new();
-        let mut last_bucket: i32 = -1;
+        run_generation_job(&spawned_job_id, request, &request_key, &jobs, &cache_root);
+    });
 
-        let progress_jobs = jobs.clone();
-        let cancel_jobs = jobs.clone();
-        let cancel_job_id = spawned_job_id.clone();
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
 
-        let result = generate_world_with_progress_and_cancel(
+/// Planet preview job — uses the same job-based approach with progress tracking.
+async fn start_preview_job(
+    State(state): State<AppState>,
+    Json(request): Json<PlanetPreviewRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let job_id = Uuid::new_v4().to_string();
+    let cols = request.cols.unwrap_or(2048).clamp(128, 4096);
+    let rows = request.rows.unwrap_or(1024).clamp(64, 2048);
+
+    info!(
+        job_id = %job_id,
+        cols,
+        rows,
+        seed = request.config.world.seed,
+        ocean_coverage = format!("{:.0}%", request.config.world.ocean_coverage * 100.0),
+        "planet preview job starting"
+    );
+
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        jobs.insert(
+            job_id.clone(),
+            JobRecord {
+                status: JobStatus::Queued,
+                progress: 0.0,
+                current_stage: "Queued".to_string(),
+                result: None,
+                error: None,
+                cancel_requested: false,
+            },
+        );
+    }
+
+    let terrain_request = GenerateTerrainRequest {
+        config: request.config,
+        cols,
+        rows,
+        km_per_cell: 100.0,
+        octaves: 2,
+    };
+
+    let jobs = state.jobs.clone();
+    let cache_root = state.cache_root.clone();
+    let spawned_job_id = job_id.clone();
+    let request_key = request_cache_key(&terrain_request).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("cache key error: {e}"),
+        )
+    })?;
+
+    tokio::task::spawn_blocking(move || {
+        // Check cache first
+        match load_cached_response(&cache_root, &request_key) {
+            Ok(Some(cached)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.status = JobStatus::Completed;
+                        job.progress = 100.0;
+                        job.current_stage = "Completed (cache hit)".to_string();
+                        job.result = Some(cached);
+                        job.error = None;
+                    }
+                }
+                info!(job_id = %spawned_job_id, cache_key = %request_key, "planet preview cache hit");
+                return;
+            }
+            Ok(None) => {
+                info!(job_id = %spawned_job_id, cache_key = %request_key, "planet preview cache miss — generating");
+            }
+            Err(err) => {
+                warn!(job_id = %spawned_job_id, error = %err, "planet preview cache read error");
+            }
+        }
+
+        run_generation_job(&spawned_job_id, terrain_request, &request_key, &jobs, &cache_root);
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+/// Shared generation runner with detailed logging and progress.
+fn run_generation_job(
+    job_id: &str,
+    request: GenerateTerrainRequest,
+    request_key: &str,
+    jobs: &Arc<Mutex<HashMap<String, JobRecord>>>,
+    cache_root: &std::path::Path,
+) {
+    let start = std::time::Instant::now();
+
+    let mut last_stage = String::new();
+    let mut last_bucket: i32 = -1;
+
+    let progress_jobs = jobs.clone();
+    let cancel_jobs = jobs.clone();
+    let cancel_job_id = job_id.to_string();
+    let log_job_id = job_id.to_string();
+    let log_job_id2 = job_id.to_string();
+
+    // Mark as running
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(job_id) {
+            job.status = JobStatus::Running;
+            job.current_stage = "Starting generation".to_string();
+        }
+    }
+
+    info!(job_id = %log_job_id, cols = request.cols, rows = request.rows, "generation starting");
+
+    let result = generate_world_with_progress_and_cancel(
+        request,
+        |progress| {
+            if let Ok(mut map) = progress_jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id) {
+                    job.status = JobStatus::Running;
+                    job.progress = progress.progress;
+                    job.current_stage = progress.stage.to_string();
+                }
+            }
+
+            let bucket = (progress.progress / 5.0).floor() as i32;
+            if progress.stage != last_stage || bucket != last_bucket {
+                info!(
+                    job_id = %log_job_id,
+                    progress = format!("{:.1}%", progress.progress),
+                    stage = progress.stage,
+                    "generation progress"
+                );
+                last_stage = progress.stage.to_string();
+                last_bucket = bucket;
+            }
+        },
+        || {
+            if let Ok(map) = cancel_jobs.lock() {
+                if let Some(job) = map.get(&cancel_job_id) {
+                    return job.cancel_requested;
+                }
+            }
+            true
+        },
+    );
+
+    let elapsed = start.elapsed();
+
+    match result {
+        Ok(response) => {
+            let cell_count = response.cell_data.len();
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id2) {
+                    job.current_stage = "Caching result...".to_string();
+                }
+            }
+
+            if let Err(err) = save_cached_response(cache_root, request_key, &response) {
+                error!(job_id = %log_job_id2, error = %err, "failed to write cache");
+            } else {
+                info!(job_id = %log_job_id2, cache_key = %request_key, "result cached");
+            }
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id2) {
+                    job.status = JobStatus::Completed;
+                    job.progress = 100.0;
+                    job.current_stage = "Completed".to_string();
+                    job.result = Some(response);
+                    job.error = None;
+                }
+            }
+            info!(
+                job_id = %log_job_id2,
+                elapsed_ms = elapsed.as_millis(),
+                cells = cell_count,
+                "generation completed"
+            );
+        }
+        Err(err) => {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id2) {
+                    if err == "cancelled" || job.cancel_requested {
+                        job.status = JobStatus::Cancelled;
+                        job.current_stage = "Cancelled".to_string();
+                        job.error = None;
+                    } else {
+                        job.status = JobStatus::Failed;
+                        job.current_stage = "Failed".to_string();
+                        job.error = Some(err.clone());
+                    }
+                }
+            }
+            if err == "cancelled" {
+                info!(job_id = %log_job_id2, elapsed_ms = elapsed.as_millis(), "generation cancelled");
+            } else {
+                error!(job_id = %log_job_id2, error = %err, elapsed_ms = elapsed.as_millis(), "generation failed");
+            }
+        }
+    }
+}
+
+/// Start hybrid Gemini + Procedural generation job
+async fn start_hybrid_job(
+    State(state): State<AppState>,
+    Json(request): Json<PlanetHybridRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let job_id = Uuid::new_v4().to_string();
+    let cols = request.cols.unwrap_or(2048).clamp(128, 4096);
+    let rows = request.rows.unwrap_or(1024).clamp(64, 2048);
+
+    info!(
+        job_id = %job_id,
+        cols,
+        rows,
+        prompt = %request.prompt,
+        "hybrid planet preview job starting"
+    );
+
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        jobs.insert(
+            job_id.clone(),
+            JobRecord {
+                status: JobStatus::Queued,
+                progress: 0.0,
+                current_stage: "Requesting Gemini Image...".to_string(),
+                result: None,
+                error: None,
+                cancel_requested: false,
+            },
+        );
+    }
+
+    let terrain_request = GenerateTerrainRequest {
+        config: request.config,
+        cols,
+        rows,
+        km_per_cell: 100.0,
+        octaves: 2,
+    };
+
+    let jobs = state.jobs.clone();
+    let cache_root = state.cache_root.clone();
+    let spawned_job_id = job_id.clone();
+    
+    // For hybrid, we don't cache purely by request configs since Gemini AI varies wildly.
+    // We will bypass checking cache logic entirely for the demo and always generate.
+    let request_key = format!("hybrid-{}", Uuid::new_v4());
+
+    tokio::task::spawn(async move {
+        run_hybrid_generation_job(spawned_job_id, terrain_request, request.prompt, request.temperature, request_key, jobs, cache_root).await;
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn run_hybrid_generation_job(
+    job_id: String,
+    request: GenerateTerrainRequest,
+    prompt: String,
+    temperature: Option<f32>,
+    request_key: String,
+    jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
+    cache_root: std::path::PathBuf,
+) {
+    let start = std::time::Instant::now();
+
+    // 1. Fetch AI Image
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(&job_id) {
+            job.status = JobStatus::Running;
+            job.current_stage = "Downloading Gemini Map...".to_string();
+        }
+    }
+
+    let image_bytes = match gemini::generate_image_bytes(&prompt, temperature).await {
+        Ok(b) => b,
+        Err((_code, err_msg)) => {
+            error!("Failed to fetch Gemini image: {}", err_msg);
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&job_id) {
+                    job.status = JobStatus::Failed;
+                    job.current_stage = "Failed to communicate with Gemini".to_string();
+                    job.error = Some(err_msg);
+                }
+            }
+            return;
+        }
+    };
+
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(&job_id) {
+            job.current_stage = "Decoding Map Image...".to_string();
+        }
+    }
+
+    // Decode image in background thread
+    let decode_result = tokio::task::spawn_blocking(move || {
+        image::load_from_memory(&image_bytes).map(|img| (img.to_rgba8(), image_bytes))
+    }).await.unwrap();
+
+    let (rgba_image, raw_bytes) = match decode_result {
+        Ok((i, b)) => (i, b),
+        Err(e) => {
+            error!("Failed to decode Gemini JPEG: {}", e);
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&job_id) {
+                    job.status = JobStatus::Failed;
+                    job.current_stage = "Failed to decode image bytes".to_string();
+                    job.error = Some(e.to_string());
+                }
+            }
+            return;
+        }
+    };
+
+    // Save the ORIGINAL Gemini JPEG bytes to disk immediately, before converting to RGBA pixels.
+    // This ensures we have a valid JPEG file, not raw pixel data pretending to be JPEG.
+    let texture_filename = format!("{}.jpg", request_key);
+    let texture_path = std::path::Path::new("generated/textures").join(&texture_filename);
+    let texture_url = format!("/api/textures/{}", texture_filename);
+    if let Err(e) = std::fs::write(&texture_path, &raw_bytes) {
+        error!(job_id = %job_id, error = %e, "failed to save texture to disk");
+    } else {
+        info!(job_id = %job_id, path = %texture_path.display(), size_bytes = raw_bytes.len(), "texture saved to disk");
+    }
+
+    let image_width = rgba_image.width();
+    let image_height = rgba_image.height();
+    let pixel_data = rgba_image.into_raw();
+
+    let mut last_stage = String::new();
+    let mut last_bucket: i32 = -1;
+
+    let progress_jobs = jobs.clone();
+    let cancel_jobs = jobs.clone();
+    let cancel_job_id = job_id.clone();
+    let log_job_id = job_id.clone();
+    let log_job_id2 = job_id.clone();
+
+    // Spawn geometry computation
+    let result = tokio::task::spawn_blocking(move || {
+        generate_hybrid_with_progress_and_cancel(
             request,
+            &pixel_data,
+            image_width,
+            image_height,
             |progress| {
                 if let Ok(mut map) = progress_jobs.lock() {
-                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                    if let Some(job) = map.get_mut(&log_job_id) {
                         job.status = JobStatus::Running;
                         job.progress = progress.progress;
                         job.current_stage = progress.stage.to_string();
                     }
                 }
 
-                let bucket = (progress.progress / 10.0).floor() as i32;
+                let bucket = (progress.progress / 5.0).floor() as i32;
                 if progress.stage != last_stage || bucket != last_bucket {
                     info!(
-                        job_id = %spawned_job_id,
-                        progress = format!("{:.0}", progress.progress),
+                        job_id = %log_job_id,
+                        progress = format!("{:.1}%", progress.progress),
                         stage = progress.stage,
-                        "terrain job progress"
+                        "hybrid generation progress"
                     );
                     last_stage = progress.stage.to_string();
                     last_bucket = bucket;
@@ -233,53 +673,95 @@ async fn start_generate_job(
                         return job.cancel_requested;
                     }
                 }
-                true
+                false
             },
-        );
+        )
+    }).await;
 
-        match result {
-            Ok(response) => {
-                if let Err(err) = save_cached_response(&cache_root, &request_key, &response) {
-                    error!(job_id = %spawned_job_id, error = %err, "failed to write terrain cache");
-                } else {
-                    info!(job_id = %spawned_job_id, cache_key = %request_key, "terrain job cached");
-                }
+    let elapsed = start.elapsed();
 
-                if let Ok(mut map) = jobs.lock() {
-                    if let Some(job) = map.get_mut(&spawned_job_id) {
-                        job.status = JobStatus::Completed;
-                        job.progress = 100.0;
-                        job.current_stage = "Completed".to_string();
-                        job.result = Some(response);
-                        job.error = None;
-                    }
+    let task_result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id2) {
+                    job.status = JobStatus::Failed;
+                    job.current_stage = "Panic in worker thread".to_string();
+                    job.error = Some("Thread panic".to_string());
                 }
-                info!(job_id = %spawned_job_id, "terrain job completed");
             }
-            Err(err) => {
-                if let Ok(mut map) = jobs.lock() {
-                    if let Some(job) = map.get_mut(&spawned_job_id) {
-                        if err == "cancelled" || job.cancel_requested {
-                            job.status = JobStatus::Cancelled;
-                            job.current_stage = "Cancelled".to_string();
-                            job.error = None;
-                        } else {
-                            job.status = JobStatus::Failed;
-                            job.current_stage = "Failed".to_string();
-                            job.error = Some(err.clone());
-                        }
+            return;
+        }
+    };
+
+    match task_result {
+        Ok(mut response) => {
+            let cell_count = response.cell_data.len();
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id2) {
+                    job.current_stage = "Saving texture to disk...".to_string();
+                }
+            }
+
+            // The original Gemini JPEG was already saved to disk before geometry generation.
+            // Just override texture_url to point at the static file URL.
+            response.texture_url = Some(texture_url.clone());
+
+            if let Err(err) = save_cached_response(&cache_root, &request_key, &response) {
+                error!(job_id = %log_job_id2, error = %err, "failed to write hybrid cache");
+            } else {
+                info!(job_id = %log_job_id2, cache_key = %request_key, "hybrid result cached");
+            }
+
+            // CRITICAL: Strip the massive cell_data and cell_colors arrays before
+            // storing in the job record. The frontend only needs textureUrl, cols, rows.
+            // Keeping 2M+ cells in memory crashes Chrome when serialized to JSON.
+            let lightweight_response = GenerateTerrainResponse {
+                cols: response.cols,
+                rows: response.rows,
+                cell_data: Vec::new(),
+                cell_colors: Vec::new(),
+                texture_url: response.texture_url.clone(),
+            };
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id2) {
+                    job.status = JobStatus::Completed;
+                    job.progress = 100.0;
+                    job.current_stage = "Completed".to_string();
+                    job.result = Some(lightweight_response);
+                    job.error = None;
+                }
+            }
+            info!(
+                job_id = %log_job_id2,
+                elapsed_ms = elapsed.as_millis(),
+                cells = cell_count,
+                "hybrid generation completed"
+            );
+        }
+        Err(err) => {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id2) {
+                    if err == "cancelled" || job.cancel_requested {
+                        job.status = JobStatus::Cancelled;
+                        job.current_stage = "Cancelled".to_string();
+                        job.error = None;
+                    } else {
+                        job.status = JobStatus::Failed;
+                        job.current_stage = "Failed".to_string();
+                        job.error = Some(err.clone());
                     }
                 }
-                if err == "cancelled" {
-                    info!(job_id = %spawned_job_id, "terrain job cancelled");
-                } else {
-                    error!(job_id = %spawned_job_id, error = %err, "terrain job failed");
-                }
+            }
+            if err == "cancelled" {
+                info!(job_id = %log_job_id2, elapsed_ms = elapsed.as_millis(), "hybrid cancelled");
+            } else {
+                error!(job_id = %log_job_id2, error = %err, elapsed_ms = elapsed.as_millis(), "hybrid processing failed");
             }
         }
-    });
-
-    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+    }
 }
 
 async fn get_job_status(
@@ -329,7 +811,7 @@ async fn cancel_job(
         job.current_stage = "Cancellation requested".to_string();
     }
 
-    info!(job_id = %job_id, "terrain job cancellation requested");
+    info!(job_id = %job_id, "job cancellation requested");
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -367,53 +849,344 @@ async fn generate_full_planet(
     Ok(Json(GeneratePlanetResponse { manifest, run_path }))
 }
 
-async fn generate_planet_preview(
+/// List saved planet cache files.
+async fn list_saved_planets(
     State(state): State<AppState>,
-    Json(request): Json<PlanetPreviewRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let cols = request.cols.unwrap_or(480).clamp(128, 2048);
-    let rows = request.rows.unwrap_or(240).clamp(64, 1024);
-
-    let terrain_request = GenerateTerrainRequest {
-        config: request.config,
-        cols,
-        rows,
-        km_per_cell: 100.0,
-        octaves: 2,
-    };
-
-    let cache_key = request_cache_key(&terrain_request).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("cache key error: {e}"),
-        )
-    })?;
-
-    if let Some(hit) = load_cached_response(&state.cache_root, &cache_key).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("cache read error: {e}"),
-        )
-    })? {
-        info!(cache_key = %cache_key, cols, rows, "planet preview cache hit");
-        return Ok(Json(hit));
-    }
-
     let cache_root = state.cache_root.clone();
-    let response = tokio::task::spawn_blocking(move || {
-        let generated = generate_world_with_progress_and_cancel(terrain_request, |_| {}, || false)?;
-        save_cached_response(&cache_root, &cache_key, &generated)?;
-        Ok::<GenerateTerrainResponse, String>(generated)
+    let entries = tokio::task::spawn_blocking(move || -> Result<Vec<SavedEntry>, String> {
+        let mut result = Vec::new();
+        if !cache_root.exists() {
+            return Ok(result);
+        }
+        let dir = std::fs::read_dir(&cache_root)
+            .map_err(|e| format!("failed to read cache dir: {e}"))?;
+        for entry in dir {
+            let entry = entry.map_err(|e| format!("dir entry error: {e}"))?;
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "json") {
+                let metadata = std::fs::metadata(&path)
+                    .map_err(|e| format!("metadata error: {e}"))?;
+                let modified = metadata.modified()
+                    .ok()
+                    .and_then(|t| {
+                        let dt: chrono::DateTime<chrono::Utc> = t.into();
+                        Some(dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                    })
+                    .unwrap_or_default();
+                let file_name = path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let cache_key = file_name.trim_end_matches(".json").to_string();
+                result.push(SavedEntry {
+                    cache_key,
+                    file_name,
+                    size_bytes: metadata.len(),
+                    modified,
+                });
+            }
+        }
+        result.sort_by(|a, b| b.modified.cmp(&a.modified));
+        Ok(result)
     })
     .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("planet preview task join error: {e}"),
-        )
-    })?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task error: {e}")))?
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    info!(cols, rows, "planet preview generated");
-    Ok(Json(response))
+    Ok(Json(entries))
+}
+
+/// Load a specific saved planet by cache key.
+async fn load_saved_planet(
+    State(state): State<AppState>,
+    Path(cache_key): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    info!(cache_key = %cache_key, "loading saved planet");
+    let cache_root = state.cache_root.clone();
+    let response = tokio::task::spawn_blocking(move || {
+        load_cached_response(&cache_root, &cache_key)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    match response {
+        Some(data) => {
+            info!(cols = data.cols, rows = data.rows, "saved planet loaded");
+            Ok(Json(data))
+        }
+        None => Err((StatusCode::NOT_FOUND, "saved planet not found".to_string())),
+    }
+}
+
+async fn generate_text_handler(
+    Json(request): Json<GenerateTextRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    match gemini::generate_text(&request.prompt).await {
+        Ok(text) => Ok((StatusCode::OK, Json(serde_json::json!({ "text": text })))),
+        Err((code, msg)) => Err((code, msg)),
+    }
+}
+
+async fn query_lore_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<LoreQueryRequest>,
+) -> impl IntoResponse {
+    info!("Handling lore query for coords {}, {}", payload.lon, payload.lat);
+
+    // Build the prompt for Gemini
+    let prompt = format!(
+        "You are the game master simulator for a planet called Ashtrail.\n\
+        The world context is: {}\n\n\
+        The user has clicked on a specific hexagonal region of the map.\n\
+        Region Stats:\n\
+        - Longitude: {:.2}, Latitude: {:.2}\n\
+        - Biome: {}\n\
+        - Temperature: {:.1}°C\n\
+        - Elevation: {:.0}m\n\
+        - Resources: {}\n\n\
+        Provide localized lore for this specific hex. Consider the biome, elevation, and resources.\n\
+        If there are nearby oceans or extreme temperatures, weave that into how the settlement survives.\n\
+        You MUST respond ONLY with a raw JSON object containing exactly these fields:\n\
+        {{\n\
+            \"regionName\": \"A creative name for this hex\",\n\
+            \"population\": \"A descriptive population size (e.g. '12,000 citizens', or 'Uninhabited')\",\n\
+            \"resourcesSummary\": \"A short sentence on its economic output\",\n\
+            \"lore\": \"1-2 paragraphs of rich atmospheric flavor text describing the culture, history, or dangers of this region.\"\n\
+        }}\n\
+        Do NOT wrap the response in markdown code blocks. Just return the raw JSON.",
+        payload.world_context,
+        payload.lon, payload.lat,
+        payload.biome,
+        payload.temperature,
+        payload.elevation,
+        payload.resources.join(", ")
+    );
+
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(payload.world_context.as_bytes());
+    hasher.update(payload.lon.to_string().as_bytes());
+    hasher.update(payload.lat.to_string().as_bytes());
+    let hex_hash = format!("{:x}", hasher.finalize());
+    let cache_file = state.cache_root.join(format!("lore_{}.json", hex_hash));
+
+    if cache_file.exists() {
+        if let Ok(cached_data) = std::fs::read_to_string(&cache_file) {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({ "status": "success", "text": cached_data })),
+            )
+                .into_response();
+        }
+    }
+
+    match gemini::generate_text(&prompt).await {
+        Ok(text) => {
+            let clean_text = text.trim().strip_prefix("```json").unwrap_or(&text)
+                .strip_prefix("```").unwrap_or(&text)
+                .strip_suffix("```").unwrap_or(&text)
+                .trim().to_string();
+                
+            let _ = std::fs::create_dir_all(&state.cache_root);
+            let _ = std::fs::write(&cache_file, &clean_text);
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "status": "success", "text": clean_text })),
+            )
+                .into_response()
+        },
+        Err((status, msg)) => (
+            status,
+            Json(serde_json::json!({ "status": "error", "message": msg })),
+        )
+            .into_response(),
+    }
+}
+
+async fn get_history(State(state): State<AppState>) -> impl IntoResponse {
+    let history_file = state.cache_root.parent().unwrap_or(std::path::Path::new("generated")).join("history.json");
+    if let Ok(data) = std::fs::read_to_string(&history_file) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+            return (StatusCode::OK, Json(json)).into_response();
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!([]))).into_response()
+}
+
+async fn save_history(
+    State(state): State<AppState>,
+    Json(item): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let history_file = state.cache_root.parent().unwrap_or(std::path::Path::new("generated")).join("history.json");
+    let mut history: Vec<serde_json::Value> = std::fs::read_to_string(&history_file)
+        .ok()
+        .and_then(|d| serde_json::from_str(&d).ok())
+        .unwrap_or_default();
+
+    // Remove existing if matching ID
+    if let Some(id) = item.get("id").and_then(|i| i.as_str()) {
+        history.retain(|i| i.get("id").and_then(|id_val| id_val.as_str()) != Some(id));
+    }
+    
+    // Prepend new item
+    history.insert(0, item);
+
+    // Hard cap at 5 local items to prevent massive base64 file bloat
+    history.truncate(5);
+
+    if let Some(parent) = history_file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    
+    match std::fs::write(&history_file, serde_json::to_string_pretty(&history).unwrap_or_default()) {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+async fn delete_history(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let history_file = state.cache_root.parent().unwrap_or(std::path::Path::new("generated")).join("history.json");
+    let mut history: Vec<serde_json::Value> = std::fs::read_to_string(&history_file)
+        .ok()
+        .and_then(|d| serde_json::from_str(&d).ok())
+        .unwrap_or_default();
+
+    history.retain(|i| i.get("id").and_then(|id_val| id_val.as_str()) != Some(id.as_str()));
+
+    let _ = std::fs::write(&history_file, serde_json::to_string_pretty(&history).unwrap_or_default());
+    StatusCode::OK.into_response()
+}
+
+async fn clear_history(State(state): State<AppState>) -> impl IntoResponse {
+    let history_file = state.cache_root.parent().unwrap_or(std::path::Path::new("generated")).join("history.json");
+    let _ = std::fs::write(&history_file, "[]");
+    StatusCode::OK.into_response()
+}
+
+
+async fn start_ecology_job(
+    State(state): State<AppState>,
+    Json(request): Json<PlanetImageEditRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()))?;
+        jobs.insert(job_id.clone(), JobRecord {
+            status: JobStatus::Queued, progress: 0.0, current_stage: "Requesting Gemini Ecology Layer...".to_string(),
+            result: None, error: None, cancel_requested: false,
+        });
+    }
+    let jobs = state.jobs.clone();
+    let cache_root = state.cache_root.clone();
+    let spawned_job_id = job_id.clone();
+    let request_key = format!("ecology-{}", Uuid::new_v4());
+    tokio::task::spawn(async move {
+        run_image_edit_job(spawned_job_id, request.prompt, request.base64_image, request.temperature, request_key, jobs, cache_root).await;
+    });
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_humanity_job(
+    State(state): State<AppState>,
+    Json(request): Json<PlanetImageEditRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()))?;
+        jobs.insert(job_id.clone(), JobRecord {
+            status: JobStatus::Queued, progress: 0.0, current_stage: "Requesting Gemini Humanity Layer...".to_string(),
+            result: None, error: None, cancel_requested: false,
+        });
+    }
+    let jobs = state.jobs.clone();
+    let cache_root = state.cache_root.clone();
+    let spawned_job_id = job_id.clone();
+    let request_key = format!("humanity-{}", Uuid::new_v4());
+    tokio::task::spawn(async move {
+        run_image_edit_job(spawned_job_id, request.prompt, request.base64_image, request.temperature, request_key, jobs, cache_root).await;
+    });
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn run_image_edit_job(
+    job_id: String,
+    prompt: String,
+    base64_image: String,
+    temperature: Option<f32>,
+    request_key: String,
+    jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
+    cache_root: std::path::PathBuf,
+) {
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(&job_id) {
+            job.status = JobStatus::Running;
+            job.current_stage = "Calling Gemini Vision API...".to_string();
+        }
+    }
+
+    let (mime_type, data) = if base64_image.starts_with("data:") {
+        let parts: Vec<&str> = base64_image.split(',').collect();
+        let mime = parts[0].split(';').next().unwrap().strip_prefix("data:").unwrap_or("image/jpeg");
+        (mime.to_string(), parts.get(1).unwrap_or(&"").to_string())
+    } else {
+        ("image/jpeg".to_string(), base64_image)
+    };
+
+    let image_bytes = match gemini::generate_image_edit_bytes(&prompt, &data, &mime_type, temperature).await {
+        Ok(b) => b,
+        Err((_code, err_msg)) => {
+            error!("Failed to fetch Gemini edit image: {}", err_msg);
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&job_id) {
+                    job.status = JobStatus::Failed;
+                    job.current_stage = "Failed to communicate with Gemini".to_string();
+                    job.error = Some(err_msg);
+                }
+            }
+            return;
+        }
+    };
+
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(&job_id) {
+            job.current_stage = "Caching resulting image...".to_string();
+            job.progress = 50.0;
+        }
+    }
+
+    if let Err(e) = std::fs::create_dir_all(&cache_root) {
+        error!("Failed to create cache dir: {}", e);
+    }
+
+    let image_path = cache_root.join(format!("{}.jpg", request_key));
+    if let Err(e) = std::fs::write(&image_path, &image_bytes) {
+        error!("Failed to write edited image: {}", e);
+    }
+    
+    let response = GenerateTerrainResponse {
+        cols: 0,
+        rows: 0,
+        cell_data: vec![],
+        cell_colors: vec![],
+        texture_url: Some(format!("/api/planet/saved/{}", request_key)),
+    };
+
+    if let Err(err) = generator::save_cached_response(&cache_root, &request_key, &response) {
+        error!("failed to write cache json: {}", err);
+    }
+
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(&job_id) {
+            job.status = JobStatus::Completed;
+            job.progress = 100.0;
+            job.current_stage = "Completed".to_string();
+            job.result = Some(response);
+            job.error = None;
+        }
+    }
 }
