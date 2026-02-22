@@ -2,21 +2,13 @@ import { Link } from "react-router-dom";
 
 const TOOLS = [
     {
-        id: "new-worldgen",
-        name: "New World Generator",
-        description: "AI-driven bare planet generation using the Gemini API.",
+        id: "worldgen",
+        name: "World Generator",
+        description: "AI-driven planetary simulation and terrain generation using the Gemini API.",
         icon: "✨",
-        status: "NEW",
-        color: "bg-purple-500",
-    },
-    {
-        id: "legacy-worldgen",
-        name: "Legacy World Generator",
-        description: "V3 procedural generator with tectonic plate simulation and biomes.",
-        icon: "🌍",
         status: "STABLE",
-        color: "bg-teal-500",
-    },
+        color: "bg-purple-500",
+    }
 ];
 
 export function App() {

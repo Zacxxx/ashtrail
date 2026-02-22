@@ -13,6 +13,7 @@ interface PlanetGlobeProps {
   world: PlanetWorldData;
   onCellHover?: (cell: TerrainCell | null) => void;
   onCellClick?: (cell: TerrainCell | null) => void;
+  showHexGrid?: boolean;
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -129,14 +130,102 @@ export function PlanetGlobe({ world, onCellHover, onCellClick }: PlanetGlobeProp
     rim.position.set(-3, -1.5, -2.5);
     scene.add(rim);
 
-    const texture = world.textureUrl
-      ? new THREE.TextureLoader().load(world.textureUrl)
-      : makeTexture(world);
-    texture.colorSpace = THREE.SRGBColorSpace;
+    // ── Heightmap generation from color texture ──
+    function generateHeightmapFromImage(image: HTMLImageElement | HTMLCanvasElement): THREE.CanvasTexture {
+      const w = image instanceof HTMLImageElement ? image.naturalWidth : image.width;
+      const h = image instanceof HTMLImageElement ? image.naturalHeight : image.height;
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(image, 0, 0, w, h);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const src = imageData.data;
+
+      // Convert color → elevation heuristic:
+      // Deep ocean (blue-dominant) → 0.0
+      // Shallow water → 0.15
+      // Lowland green → 0.3
+      // Highland brown → 0.55
+      // Mountain gray → 0.75
+      // Snow/ice white → 0.95
+      for (let i = 0; i < src.length; i += 4) {
+        const r = src[i] / 255;
+        const g = src[i + 1] / 255;
+        const b = src[i + 2] / 255;
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        let elevation: number;
+
+        // Ocean detection: blue is dominant channel
+        const isWater = b > r * 1.15 && b > g * 1.05 && luminance < 0.55;
+        if (isWater) {
+          // Map deep blue → 0.0, lighter blue → 0.15
+          elevation = luminance * 0.3;
+        } else {
+          // Land: use luminance but boost contrast
+          // Green lowlands → mid, brown highlands → higher, white peaks → highest
+          const greenness = g - Math.max(r, b);
+          if (greenness > 0.05) {
+            // Vegetation: moderate elevation
+            elevation = 0.25 + luminance * 0.35;
+          } else if (luminance > 0.75) {
+            // Snow/ice/peaks
+            elevation = 0.7 + (luminance - 0.75) * 1.2;
+          } else {
+            // Brown/gray terrain
+            elevation = 0.3 + luminance * 0.5;
+          }
+        }
+
+        const v = Math.min(255, Math.max(0, Math.round(elevation * 255)));
+        src[i] = v;
+        src[i + 1] = v;
+        src[i + 2] = v;
+        // alpha stays 255
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    // ── Load color texture and derive heightmap ──
+    let globeMaterial: THREE.MeshStandardMaterial;
+
+    if (world.textureUrl) {
+      const loader = new THREE.TextureLoader();
+      const texture = loader.load(world.textureUrl, (loadedTex) => {
+        // Once the color texture is loaded, derive the heightmap from it
+        const heightmap = generateHeightmapFromImage(loadedTex.image);
+        globeMaterial.displacementMap = heightmap;
+        globeMaterial.displacementScale = 0.06;
+        globeMaterial.bumpMap = heightmap;
+        globeMaterial.bumpScale = 0.04;
+        globeMaterial.needsUpdate = true;
+      });
+      texture.colorSpace = THREE.SRGBColorSpace;
+      globeMaterial = new THREE.MeshStandardMaterial({
+        map: texture,
+        roughness: 0.92,
+        metalness: 0.0,
+      });
+    } else {
+      const texture = makeTexture(world);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      globeMaterial = new THREE.MeshStandardMaterial({
+        map: texture,
+        roughness: 0.92,
+        metalness: 0.0,
+      });
+    }
+
     const globe = new THREE.Mesh(
-      // Higher subdivision for crisp UV mapping at zoom
       new THREE.SphereGeometry(1, 256, 256),
-      new THREE.MeshStandardMaterial({ map: texture, roughness: 0.95, metalness: 0.0 })
+      globeMaterial
     );
     scene.add(globe);
 
@@ -370,7 +459,10 @@ export function PlanetGlobe({ world, onCellHover, onCellClick }: PlanetGlobeProp
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("resize", resize);
-      texture.dispose();
+      globeMaterial.map?.dispose();
+      globeMaterial.displacementMap?.dispose();
+      globeMaterial.bumpMap?.dispose();
+      globeMaterial.dispose();
       tileOverlayGeo.dispose();
       highlightGeo.dispose();
       renderer.dispose();
