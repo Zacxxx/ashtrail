@@ -49,3 +49,5 @@ apps/dev-tools/generated/world-cache/hybrid-a74bcbf8-0074-433d-a81f-8a9f86ac4deb
 
 apps/dev-tools/generated/textures/*
 apps/dev-tools/generated/world-cache/*
+apps/dev-tools/backend/bin/*
+apps/dev-tools/generated/upscale/*

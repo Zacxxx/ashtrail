@@ -165,6 +165,9 @@ async fn main() {
     let textures_dir = PathBuf::from("generated/textures");
     std::fs::create_dir_all(&textures_dir).expect("failed to create textures directory");
 
+    let upscale_dir = PathBuf::from("generated/upscale");
+    std::fs::create_dir_all(&upscale_dir).expect("failed to create upscale directory");
+
     let state = AppState {
         jobs: Arc::new(Mutex::new(HashMap::new())),
         cache_root: PathBuf::from("generated/world-cache"),
@@ -193,7 +196,10 @@ async fn main() {
         .route("/api/planet/humanity/{job_id}", get(get_job_status))
         .route("/api/history", get(get_history).post(save_history).delete(clear_history))
         .route("/api/history/{id}", delete(delete_history))
+        .route("/api/planet/upscale", post(start_upscale_job))
+        .route("/api/planet/upscale/{job_id}", get(get_job_status))
         .nest_service("/api/textures", ServeDir::new("generated/textures"))
+        .nest_service("/api/upscale", ServeDir::new("generated/upscale"))
         .with_state(state)
         .layer(
             CorsLayer::new()
@@ -1066,6 +1072,214 @@ async fn clear_history(State(state): State<AppState>) -> impl IntoResponse {
     let history_file = state.cache_root.parent().unwrap_or(std::path::Path::new("generated")).join("history.json");
     let _ = std::fs::write(&history_file, "[]");
     StatusCode::OK.into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpscaleRequest {
+    history_id: String,
+}
+
+async fn start_upscale_job(
+    State(state): State<AppState>,
+    Json(request): Json<UpscaleRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let job_id = Uuid::new_v4().to_string();
+
+    info!(
+        job_id = %job_id,
+        history_id = %request.history_id,
+        "upscale job starting"
+    );
+
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        jobs.insert(
+            job_id.clone(),
+            JobRecord {
+                status: JobStatus::Queued,
+                progress: 0.0,
+                current_stage: "Queued for Upscaling".to_string(),
+                result: None,
+                error: None,
+                cancel_requested: false,
+            },
+        );
+    }
+
+    let jobs = state.jobs.clone();
+    let cache_root = state.cache_root.clone();
+    let spawned_job_id = job_id.clone();
+    
+    tokio::task::spawn(async move {
+        run_upscale_job(spawned_job_id, request.history_id, jobs, cache_root).await;
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn run_upscale_job(
+    job_id: String,
+    history_id: String,
+    jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
+    cache_root: std::path::PathBuf,
+) {
+    let start = std::time::Instant::now();
+    
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(&job_id) {
+            job.status = JobStatus::Running;
+            job.current_stage = "Reading History...".to_string();
+        }
+    }
+
+    let history_file = cache_root.parent().unwrap_or(std::path::Path::new("generated")).join("history.json");
+    let history_data: Vec<serde_json::Value> = std::fs::read_to_string(&history_file)
+        .ok()
+        .and_then(|d| serde_json::from_str(&d).ok())
+        .unwrap_or_default();
+        
+    let item = match history_data.into_iter().find(|i| i.get("id").and_then(|id| id.as_str()) == Some(&history_id)) {
+        Some(i) => i,
+        None => {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&job_id) {
+                    job.status = JobStatus::Failed;
+                    job.current_stage = "Failed".to_string();
+                    job.error = Some("History item not found".to_string());
+                }
+            }
+            return;
+        }
+    };
+    
+    let texture_url = match item.get("textureUrl").and_then(|t| t.as_str()) {
+        Some(u) => u,
+        None => {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&job_id) {
+                    job.status = JobStatus::Failed;
+                    job.current_stage = "Failed".to_string();
+                    job.error = Some("No texture in history item".to_string());
+                }
+            }
+            return;
+        }
+    };
+    
+    // texture_url is like "/api/textures/some-id.jpg"
+    let file_name = texture_url.split('/').last().unwrap_or("");
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let input_path = cwd.join("generated/textures").join(file_name);
+    
+    if !input_path.exists() {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&job_id) {
+                job.status = JobStatus::Failed;
+                job.current_stage = "Failed".to_string();
+                job.error = Some(format!("Source image not found: {:?}", input_path));
+            }
+        }
+        return;
+    }
+    
+    let output_filename = format!("upscaled_{}.png", Uuid::new_v4());
+    let output_path = cwd.join("generated/upscale").join(&output_filename);
+    
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(&job_id) {
+            job.progress = 50.0;
+            job.current_stage = "Running ESRGAN (This may take a minute)...".to_string();
+        }
+    }
+    
+    let exe_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bin").join("realesrgan-ncnn-vulkan");
+    let model_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bin").join("models");
+    
+    info!(
+        job_id = %job_id,
+        exe_path = %exe_path.display(),
+        input = %input_path.display(),
+        output = %output_path.display(),
+        "Launching ESRGAN"
+    );
+
+    let output = std::process::Command::new(&exe_path)
+        .arg("-i")
+        .arg(&input_path)
+        .arg("-o")
+        .arg(&output_path)
+        .arg("-s")
+        .arg("4")
+        .arg("-m")
+        .arg(&model_dir)
+        .output();
+        
+    let success = match output {
+        Ok(out) => out.status.success(),
+        Err(e) => {
+            error!("Failed to launch ESRGAN: {}", e);
+            false
+        }
+    };
+    
+    if !success || !output_path.exists() {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&job_id) {
+                job.status = JobStatus::Failed;
+                job.current_stage = "Failed".to_string();
+                job.error = Some("ESRGAN process failed to generate output".to_string());
+            }
+        }
+        return;
+    }
+    
+    let new_texture_url = format!("/api/upscale/{}", output_filename);
+    
+    // Create new history item
+    let mut new_item = item.clone();
+    let new_id = Uuid::new_v4().to_string();
+    if let Some(obj) = new_item.as_object_mut() {
+        obj.insert("id".to_string(), serde_json::Value::String(new_id.clone()));
+        obj.insert("textureUrl".to_string(), serde_json::Value::String(new_texture_url.clone()));
+        obj.insert("isUpscaled".to_string(), serde_json::Value::Bool(true));
+        obj.insert("parentId".to_string(), serde_json::Value::String(history_id.clone()));
+        // Update timestamp slightly to appear newest
+        obj.insert("timestamp".to_string(), serde_json::Value::Number(serde_json::Number::from(
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
+        )));
+    }
+    
+    // Write new history item into array
+    let mut history_data: Vec<serde_json::Value> = std::fs::read_to_string(&history_file)
+        .ok()
+        .and_then(|d| serde_json::from_str(&d).ok())
+        .unwrap_or_default();
+    history_data.insert(0, new_item);
+    let _ = std::fs::write(&history_file, serde_json::to_string_pretty(&history_data).unwrap_or_default());
+    
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(&job_id) {
+            job.status = JobStatus::Completed;
+            job.progress = 100.0;
+            job.current_stage = "Completed".to_string();
+            job.result = Some(GenerateTerrainResponse {
+                cols: 8192,
+                rows: 4096,
+                cell_data: Vec::new(),
+                cell_colors: Vec::new(),
+                texture_url: Some(new_texture_url.clone()),
+            });
+            job.error = None;
+        }
+    }
+    
+    info!(job_id = %job_id, elapsed_ms = start.elapsed().as_millis(), "upscale completed successfully");
 }
 
 

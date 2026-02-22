@@ -8,6 +8,8 @@ export interface GenerationHistoryItem {
     config: SimulationConfig; // All the simulation sliders
     textureUrl: string;    // Base64 object URL of the final image mapping
     thumbnailUrl?: string; // Smaller version for gallery
+    isUpscaled?: boolean;  // True if generated via ESRGAN
+    parentId?: string;     // History ID of the original non-upscaled map
 }
 
 const API_URL = "/api/history";
