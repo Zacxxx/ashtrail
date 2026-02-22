@@ -1,8 +1,19 @@
 
 import { GoogleGenAI } from "@google/genai";
 
+
 // Initialize with environmental API Key
-export const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// We use a safe check to avoid crashing the module load if the key is missing in the browser
+const getApiKey = () => {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY || process.env.API_KEY || "";
+  }
+  return "";
+};
+
+const apiKey = getApiKey();
+export const ai = new GoogleGenAI({ apiKey: apiKey || "MISSING_API_KEY" });
+
 
 export const GM_MODELS = {
   narrative: 'gemini-3-flash-preview',

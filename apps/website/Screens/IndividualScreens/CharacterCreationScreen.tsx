@@ -182,6 +182,20 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
     charisma: 3
   });
 
+  // Refs for auto-resize
+  const biometricRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (biometricRef.current) {
+      biometricRef.current.style.height = 'auto';
+      // Limit growth to prevent pushing layout
+      const nextHeight = Math.min(biometricRef.current.scrollHeight, 180);
+      biometricRef.current.style.height = nextHeight + 'px';
+      // Enable scroll if we hit the limit
+      biometricRef.current.style.overflowY = biometricRef.current.scrollHeight > 180 ? 'auto' : 'hidden';
+    }
+  }, [appearancePrompt]);
+
   const handleAgeChange = (val: number) => {
     setAge(Math.max(18, val));
   };
@@ -200,7 +214,26 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
     }
   }, [gender]);
 
-  const handleGenerateProfileText = async () => {
+  const handleRefreshPortrait = async (specificText?: string) => {
+    if (isGeneratingPortrait) return;
+    setIsGeneratingPortrait(true);
+
+    // HARMONIZATION: Combine core attributes from selectors with the narrative text
+    const selectorsSummary = Object.entries(appearanceSelectors)
+      .map(([k, v]) => `${k.replace(/([A-Z])/g, ' $1')}: ${v}`)
+      .join(', ');
+
+    const contextPrompt = `A ${gender} wasteland explorer, aged ${age}. Overall characteristics: ${selectorsSummary}. Detailed appearance: ${specificText || appearancePrompt}`;
+
+    const url = await generateCharacterPortrait(contextPrompt);
+    if (url) setPortraitUrl(url);
+    setIsGeneratingPortrait(false);
+  };
+
+  const handleManifestIdentity = async () => {
+    if (isSyncing || isGeneratingPortrait) return;
+
+    // Step 1: Synthesize Narrative from Selectors
     setIsSyncing(true);
     const narrative = await enhanceAppearancePrompt({
       ...appearanceSelectors,
@@ -209,17 +242,11 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
     });
     setAppearancePrompt(narrative || '');
     setIsSyncing(false);
-  };
 
-  const handleGeneratePortrait = async () => {
-    if (!appearancePrompt) {
-      await handleGenerateProfileText();
+    // Step 2: Manifest Portrait using the new narrative
+    if (narrative) {
+      await handleRefreshPortrait(narrative);
     }
-    setIsGeneratingPortrait(true);
-    const contextPrompt = `${gender}, aged ${age}. ${appearancePrompt}`;
-    const url = await generateCharacterPortrait(contextPrompt);
-    if (url) setPortraitUrl(url);
-    setIsGeneratingPortrait(false);
   };
 
   const filteredTraits = useMemo(() => {
@@ -326,127 +353,203 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
           <div className="flex-1 overflow-hidden">
             {activeTab === 'IDENTITY' && (
-              <div className="flex h-full animate-in fade-in duration-500">
-                <div className="w-2/5 flex flex-col border-r border-zinc-800 pr-6 overflow-hidden">
-                  <div className="flex gap-4 shrink-0 mb-6 bg-zinc-900/40 p-3 border border-zinc-800/50 rounded-sm">
-                    <div className="flex flex-col items-center gap-2 shrink-0">
-                      <div className="relative group w-24 h-24">
-                        {portraitUrl ? (
-                          <img src={portraitUrl} alt="Portrait" className="w-full h-full border border-orange-500/50 grayscale rounded-sm shadow-xl object-cover" />
-                        ) : (
-                          <div className="w-full h-full bg-zinc-950 border border-dashed border-zinc-800 rounded-sm flex items-center justify-center opacity-40">
-                            <span className="text-[8px] mono uppercase text-zinc-600">No Image</span>
+              <div className="flex-1 flex flex-row overflow-hidden animate-in fade-in duration-500">
+                {/* LEFT COLUMN: ALL INPUTS */}
+                <div className="w-[420px] flex flex-col pr-6 border-r border-zinc-800/50 h-full min-h-0">
+                  <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-0">
+                    <div className="space-y-4">
+                      {/* Technical Input Panel */}
+                      <div className="bg-zinc-900/30 border border-zinc-800/50 rounded-sm divide-y divide-zinc-800/30">
+                        {/* 1. Core Designation */}
+                        <div className="p-3 space-y-3">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest">01 // Core Designation</label>
+                            <Badge color="zinc">Identity Sync Required</Badge>
                           </div>
-                        )}
-                      </div>
-                      <Button
-                        onClick={handleGeneratePortrait}
-                        disabled={isGeneratingPortrait || !name || age < 18}
-                        variant="accent"
-                        size="sm"
-                        className="w-24 h-6 text-[8px] font-black mono uppercase py-0"
-                        isLoading={isGeneratingPortrait}
-                      >
-                        {isGeneratingPortrait ? '...' : 'GEN PORTRAIT'}
-                      </Button>
-                    </div>
 
-                    <div className="flex-1 flex flex-col justify-start gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[8px] mono text-zinc-600 uppercase">Wastelander Designation</label>
-                        <textarea
-                          value={name}
-                          onChange={(e) => setName(e.target.value.replace(/\n/g, ''))}
-                          placeholder="NAME"
-                          rows={1}
-                          className="bg-transparent text-2xl font-black italic mono text-white uppercase outline-none placeholder:text-zinc-800 w-full tracking-wider pr-4 resize-none overflow-hidden leading-[1.1]"
-                          onInput={(e) => {
-                            const target = e.target as HTMLTextAreaElement;
-                            target.style.height = 'auto';
-                            target.style.height = target.scrollHeight + 'px';
-                          }}
-                        />
-                        <div className="h-px bg-zinc-800 w-full opacity-50" />
-                      </div>
+                          <div className="space-y-1">
+                            <label className="text-[7px] mono text-zinc-600 uppercase">Wastelander Name</label>
+                            <textarea
+                              value={name}
+                              onChange={(e) => setName(e.target.value.replace(/\n/g, ''))}
+                              placeholder="NAME"
+                              rows={1}
+                              className="bg-transparent text-xl font-black italic mono text-white uppercase outline-none placeholder:text-zinc-800 w-full tracking-wider pr-4 resize-none overflow-hidden leading-tight"
+                              onInput={(e) => {
+                                const target = e.target as HTMLTextAreaElement;
+                                target.style.height = 'auto';
+                                target.style.height = target.scrollHeight + 'px';
+                              }}
+                            />
+                            <div className="h-px bg-orange-500/30 w-full" />
+                          </div>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="flex flex-col">
-                          <label className="text-[8px] mono text-zinc-600 uppercase">Age</label>
-                          <div className="flex items-center gap-2 mt-2">
-                            <button
-                              onClick={() => handleAgeChange(age - 1)}
-                              className="w-5 h-6 flex items-center justify-center bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 rounded-sm text-[10px] mono transition-colors"
-                            >
-                              -
-                            </button>
-                            <span className="text-xs mono font-black text-white w-6 text-center">{age}</span>
-                            <button
-                              onClick={() => handleAgeChange(age + 1)}
-                              className="w-5 h-6 flex items-center justify-center bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 rounded-sm text-[10px] mono transition-colors"
-                            >
-                              +
-                            </button>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="flex flex-col">
+                              <label className="text-[7px] mono text-zinc-600 uppercase">Age Record</label>
+                              <div className="flex items-center gap-2 mt-1">
+                                <button
+                                  onClick={() => setAge(Math.max(18, age - 1))}
+                                  className="w-5 h-5 flex items-center justify-center bg-zinc-950 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-700 rounded-sm text-[10px] mono transition-colors"
+                                >
+                                  -
+                                </button>
+                                <span className="text-xs mono font-black text-white w-6 text-center">{age}</span>
+                                <button
+                                  onClick={() => setAge(age + 1)}
+                                  className="w-5 h-5 flex items-center justify-center bg-zinc-950 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-700 rounded-sm text-[10px] mono transition-colors"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex flex-col">
+                              <label className="text-[7px] mono text-zinc-600 uppercase">Gender Matrix</label>
+                              <div className="mt-1">
+                                <CustomDropdown
+                                  value={gender}
+                                  options={['Male', 'Female', 'Non-Binary', 'Undetermined']}
+                                  onChange={setGender}
+                                  align="left"
+                                />
+                              </div>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex flex-col">
-                          <label className="text-[8px] mono text-zinc-600 uppercase">Gender</label>
-                          <div className="mt-2 h-6">
-                            <CustomDropdown
-                              value={gender}
-                              options={['Male', 'Female', 'Non-Binary', 'Undetermined']}
-                              onChange={setGender}
-                              align="left"
-                            />
+
+                        {/* 2. Physical Vectors */}
+                        <div className="p-3 space-y-2">
+                          <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest block">02 // Physical Vectors</label>
+                          <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                            {Object.entries(APPEARANCE_SELECTORS).map(([key, options]) => (
+                              <div key={key} className="flex flex-col gap-0.5 py-0.5 group">
+                                <span className="text-[7px] mono uppercase text-zinc-600 group-hover:text-zinc-500">{key.replace(/([A-Z])/g, ' $1')}</span>
+                                <CustomDropdown
+                                  value={appearanceSelectors[key]}
+                                  options={options}
+                                  onChange={(val) => setAppearanceSelectors(prev => ({ ...prev, [key]: val }))}
+                                  align="left"
+                                />
+                              </div>
+                            ))}
                           </div>
+                        </div>
+
+                        {/* 3. Neural Backstory */}
+                        <div className="p-3 space-y-2">
+                          <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest block">03 // Neural Backstory</label>
+                          <textarea
+                            value={history}
+                            onChange={(e) => setHistory(e.target.value)}
+                            placeholder="Document your origin..."
+                            className="w-full bg-zinc-950/40 border border-zinc-800/40 p-2 text-zinc-400 mono text-xs focus:border-orange-900/30 outline-none rounded-sm resize-none custom-scrollbar leading-relaxed h-28 overflow-y-auto overflow-x-hidden"
+                          />
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex-1 flex flex-col overflow-hidden">
-                    <label className="text-[11px] uppercase text-zinc-500 mono font-bold mb-4 tracking-[0.2em] flex justify-between items-center border-b border-zinc-800 pb-2">
-                      <span>Appearance Profile</span>
-                      <Button variant="ghost" size="sm" onClick={handleGenerateProfileText} isLoading={isSyncing} className="h-6 px-3 text-[10px] text-orange-500 hover:text-orange-400">
-                        {isSyncing ? 'Generating...' : 'Synthesize Profile'}
-                      </Button>
-                    </label>
-                    <div className="flex-1 overflow-y-auto space-y-1 pr-2 custom-scrollbar">
-                      {Object.entries(APPEARANCE_SELECTORS).map(([key, options]) => (
-                        <div key={key} className="flex items-center justify-between gap-2 py-1 px-2 hover:bg-zinc-900/30 transition-colors group">
-                          <span className="text-[11px] mono uppercase text-zinc-500 group-hover:text-zinc-400 shrink-0">{key.replace(/([A-Z])/g, ' $1')}</span>
-                          <CustomDropdown
-                            value={appearanceSelectors[key]}
-                            options={options}
-                            onChange={(val) => setAppearanceSelectors(prev => ({ ...prev, [key]: val }))}
-                          />
-                        </div>
-                      ))}
-                    </div>
+                  {/* UNIFIED ACTION BUTTON - Aligned at bottom */}
+                  <div className="pt-6 shrink-0">
+                    <Button
+                      variant="accent"
+                      onClick={handleManifestIdentity}
+                      className="w-full py-5 text-xs tracking-[0.5em] font-black border-l-4 border-orange-500 shadow-[0_0_30px_rgba(234,88,12,0.15)] hover:shadow-[0_0_40px_rgba(234,88,12,0.25)] relative overflow-hidden group"
+                      isLoading={isSyncing || isGeneratingPortrait}
+                    >
+                      <div className="absolute inset-x-0 bottom-0 h-[1px] bg-white/20" />
+                      {isGeneratingPortrait || isSyncing ? 'MANIFESTING CONFIGURATION...' : 'MANIFEST NEURAL IDENTITY'}
+                    </Button>
                   </div>
                 </div>
 
-                <div className="flex-1 pl-6 flex flex-col overflow-hidden">
-                  <div className="flex-1 flex flex-col overflow-hidden mb-6">
-                    <label className="text-[11px] uppercase text-zinc-500 mono font-bold mb-4 tracking-[0.2em] border-b border-zinc-800 pb-2">Backstory Dossier</label>
-                    <textarea
-                      value={history}
-                      onChange={(e) => setHistory(e.target.value)}
-                      placeholder="Document your origin. Every entry influences your starting disposition..."
-                      className="flex-1 bg-zinc-950/20 border border-zinc-900 p-4 text-zinc-300 mono text-sm focus:border-orange-900/50 outline-none rounded-sm resize-none custom-scrollbar leading-relaxed"
-                    />
+                {/* RIGHT COLUMN: AI OUTPUTS (PORTRAIT & DESCRIPTION) */}
+                <div className="flex-1 pl-6 flex flex-col gap-4 h-full min-h-0 overflow-hidden">
+                  {/* Portrait Box - Larger and Main Focus */}
+                  <div className="h-[380px] bg-zinc-950/50 border border-zinc-800 rounded-sm flex flex-col overflow-hidden relative group shrink-0">
+                    <div className="absolute top-0 left-0 right-0 bg-zinc-900/80 px-4 py-1.5 border-b border-zinc-800 text-[9px] mono text-zinc-500 uppercase flex justify-between z-10 transition-colors group-hover:bg-zinc-900">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+                        <span>Neural Visualization</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {portraitUrl && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleRefreshPortrait(); }}
+                            disabled={isGeneratingPortrait}
+                            className="text-orange-500 hover:text-orange-400 font-black disabled:opacity-50 flex items-center gap-1 transition-all"
+                          >
+                            <span className="text-[10px]">↻</span> RE-SYNC
+                          </button>
+                        )}
+                        <span className={portraitUrl ? 'text-green-500' : 'text-zinc-700'}>
+                          {portraitUrl ? 'Link Active' : 'No Signal'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 flex items-center justify-center p-6 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]">
+                      {portraitUrl ? (
+                        <div className="w-full h-full relative group shadow-[0_0_50px_rgba(0,0,0,0.6)] border border-zinc-800/50 p-1">
+                          <img src={portraitUrl} alt="Portrait" className="w-full h-full object-contain animate-in fade-in zoom-in duration-1000" />
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-4 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0">
+                            <span className="text-[9px] mono text-orange-400 font-black tracking-widest">IDENTITY CONFIRMED</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center space-y-4">
+                          <div className="w-24 h-24 border-2 border-zinc-900 border-dashed rounded-full flex items-center justify-center mx-auto opacity-20 relative animate-[pulse_4s_infinite]">
+                            <span className="text-3xl text-zinc-800">?</span>
+                          </div>
+                          <p className="text-[9px] mono text-zinc-700 uppercase tracking-widest animate-pulse">Waiting for neural manifestation...</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {(isSyncing || isGeneratingPortrait) && (
+                      <div className="absolute inset-0 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center gap-4 z-50">
+                        <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin shadow-[0_0_15px_rgba(234,88,12,0.4)]" />
+                        <span className="text-xs mono text-orange-500 font-black animate-pulse tracking-[0.2em] uppercase">Synthesizing User Data...</span>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="flex-1 flex flex-col overflow-hidden relative">
-                    <label className="text-[11px] uppercase text-zinc-600 mono font-bold mb-4 tracking-[0.2em] border-b border-zinc-800 pb-2 flex justify-between">
-                      <span>Physical Manifestation</span>
-                      {!appearancePrompt && <span className="text-red-900 animate-pulse text-[10px] uppercase">Analysis Required</span>}
+                  {/* Physical Description Output - EDITABLE */}
+                  <div className="flex-1 bg-zinc-900/30 border border-zinc-800 rounded-sm p-5 relative flex flex-col group min-h-0 overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-orange-600/5 blur-[80px] -mr-16 -mt-16 pointer-events-none group-hover:bg-orange-600/10 transition-all" />
+                    <label className="text-[10px] uppercase text-orange-500/80 mono font-black mb-3 tracking-[0.2em] border-b border-orange-900/40 pb-1.5 flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1 h-2 bg-orange-500" />
+                        <span>Biometric Profile</span>
+                      </div>
+                      {!appearancePrompt ? (
+                        <span className="text-zinc-800 text-[9px] uppercase">Awaiting Link</span>
+                      ) : (
+                        <span className="text-[8px] text-zinc-600 mono lowercase opacity-50 group-hover:opacity-100 transition-opacity italic">editable profile</span>
+                      )}
                     </label>
-                    <textarea
-                      value={appearancePrompt}
-                      onChange={(e) => setAppearancePrompt(e.target.value)}
-                      placeholder="Click 'Synthesize' to manifest physical data..."
-                      className="flex-1 bg-zinc-900/20 p-4 rounded-sm border border-zinc-900 overflow-y-auto custom-scrollbar italic text-zinc-400 text-xs leading-relaxed resize-none outline-none focus:border-orange-900/40"
-                    />
+                    <div className="flex-1 flex flex-col overflow-y-auto min-h-0 custom-scrollbar pr-2">
+                      {appearancePrompt ? (
+                        <textarea
+                          ref={biometricRef}
+                          value={appearancePrompt}
+                          onChange={(e) => setAppearancePrompt(e.target.value)}
+                          onInput={(e) => {
+                            const target = e.target as HTMLTextAreaElement;
+                            target.style.height = 'auto';
+                            const nextHeight = Math.min(target.scrollHeight, 180);
+                            target.style.height = nextHeight + 'px';
+                            target.style.overflowY = target.scrollHeight > 180 ? 'auto' : 'hidden';
+                          }}
+                          className="w-full bg-transparent text-xs italic text-zinc-400 leading-relaxed mono resize-none outline-none custom-scrollbar animate-in slide-in-from-bottom-2 duration-700 focus:text-white transition-colors overflow-y-hidden"
+                          placeholder="Refine biometric data..."
+                        />
+                      ) : (
+                        <div className="h-full flex items-center justify-center border border-zinc-900 border-dashed rounded-sm">
+                          <span className="text-[9px] mono text-zinc-800 uppercase italic tracking-widest">Initialize neural link...</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

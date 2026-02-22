@@ -2,7 +2,14 @@
 import { GoogleGenAI } from "@google/genai";
 import { GameState } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getApiKey = () => {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY || process.env.API_KEY || "";
+  }
+  return "";
+};
+
+const ai = new GoogleGenAI({ apiKey: getApiKey() || "MISSING_API_KEY" });
 
 const SYSTEM_INSTRUCTION = `
 You are the AI Game Master (GM) for "Ashtrail," a post-apocalyptic survival RPG.
@@ -31,7 +38,7 @@ Format your output as:
 
 export async function getGMNarrative(state: GameState, actionTriggered?: string) {
   const model = 'gemini-3-flash-preview';
-  
+
   const prompt = `
     CURRENT STATE:
     Day: ${state.day}
