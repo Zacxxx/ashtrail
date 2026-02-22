@@ -171,7 +171,7 @@ export function WorldGenPage() {
   const fullPromptRef = useRef<string>("");
 
   const generatePlanet = useCallback(async () => {
-    setGenProgress({ isActive: true, progress: 0, stage: "Starting Hybrid Generation…", jobId: null });
+    setGenProgress({ isActive: true, progress: 0, stage: "Starting Generation…", jobId: null });
     setGlobeWorld(null);
 
     // Assemble secret system prompt, user prompt, and config
@@ -406,7 +406,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
   }, [selectedCell, prompt]);
 
   return (
-    <div className="flex flex-col h-screen bg-[#030508] text-gray-300 font-sans tracking-wide overflow-hidden relative">
+    <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
       <div className="absolute inset-0 z-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-900/20 via-[#030508] to-[#030508]" />
 
       {/* ══ Top Header (Floating) ══ */}
@@ -417,11 +417,10 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
           </Link>
           <div className="flex flex-col">
             <h1 className="text-xs font-black tracking-[0.3em] text-white">ASHTRAIL</h1>
-            <span className="text-[9px] font-medium tracking-[0.2em] text-purple-400">PLANETARY ENGINE V4</span>
           </div>
         </div>
         <div className="flex items-center gap-4 pointer-events-auto">
-          <div className="flex items-center bg-[#0a0f14]/60 backdrop-blur-md border border-white/5 rounded-full p-1 shadow-lg">
+          <div className="flex items-center bg-[#1e1e1e]/60 backdrop-blur-md border border-white/5 rounded-full p-1 shadow-lg">
             <button
               onClick={() => setViewMode("2d")}
               className={`px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "2d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}
@@ -437,10 +436,10 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
           </div>
           <button
             onClick={() => setShowHistory(!showHistory)}
-            className={`flex items-center justify-center w-10 h-10 rounded-full border transition-all backdrop-blur-md shadow-lg ${showHistory ? 'bg-purple-500/20 border-purple-500/50 text-purple-400' : 'bg-[#0a0f14]/60 border-white/5 text-gray-400 hover:text-white hover:bg-white/5'}`}
+            className={`flex items-center justify-center w-10 h-10 rounded-full border transition-all backdrop-blur-md shadow-lg ${showHistory ? 'bg-[#E6E6FA]/20 border-[#E6E6FA]/50 text-[#E6E6FA]' : 'bg-[#1e1e1e]/60 border-white/5 text-gray-400 hover:text-white hover:bg-white/5'}`}
             title="Generation Gallery"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
           </button>
         </div>
       </header>
@@ -454,28 +453,28 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
           {activeStep === "GEO" && (
             <div className="flex flex-col gap-4 h-full">
               {/* Tab Bar */}
-              <div className="flex bg-[#0a0f14]/60 backdrop-blur-xl border border-white/5 rounded-2xl p-1.5 shadow-2xl shrink-0">
+              <div className="flex bg-[#1e1e1e]/60 backdrop-blur-xl border border-white/5 rounded-2xl p-1.5 shadow-2xl shrink-0">
                 {(["base", "world", "continents", "geology", "climate"] as InspectorTab[]).map(tab => (
                   <button
                     key={tab}
                     onClick={() => setInspectorTab(tab)}
                     className={`flex-1 py-2.5 text-[9px] font-bold tracking-widest rounded-xl transition-all ${inspectorTab === tab
-                      ? "bg-purple-500/15 text-purple-300 shadow-sm border border-purple-500/20"
+                      ? "bg-[#E6E6FA]/15 text-[#E6E6FA] shadow-sm border border-[#E6E6FA]/20"
                       : "text-gray-500 hover:text-gray-300 border border-transparent"
                       }`}
                   >
-                    {tab.substring(0, 3).toUpperCase()}
+                    {tab.toUpperCase()}
                   </button>
                 ))}
               </div>
 
               {/* Panel Content */}
-              <div className="flex-1 flex flex-col bg-[#0a0f14]/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl overflow-hidden">
+              <div className="flex-1 flex flex-col bg-[#1e1e1e]/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl overflow-hidden">
                 <div className="p-5 flex-1 overflow-y-auto scrollbar-thin">
                   <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-[11px] font-black tracking-[0.2em] text-purple-400 flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
-                      GEOSIMULATION
+                    <h3 className="text-[11px] font-black tracking-[0.2em] text-[#E6E6FA] flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-[#E6E6FA] shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
+                      GEOLOGY
                     </h3>
                   </div>
 
@@ -488,7 +487,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                         <textarea
                           value={prompt}
                           onChange={e => setPrompt(e.target.value)}
-                          className="w-full h-32 bg-black/40 border border-white/10 rounded-xl p-4 text-sm text-gray-200 focus:outline-none focus:border-purple-500/50 resize-none shadow-inner placeholder:text-gray-700 transition-colors"
+                          className="w-full h-32 bg-black/40 border border-white/10 rounded-xl p-4 text-sm text-gray-200 focus:outline-none focus:border-[#E6E6FA]/50 resize-none shadow-inner placeholder:text-gray-700 transition-colors"
                           placeholder="Describe the overall aesthetic and mood of the planet..."
                         />
                       </div>
@@ -499,7 +498,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                           <select
                             value={aiResolution}
                             onChange={e => setAiResolution(e.target.value)}
-                            className="w-full bg-black/40 text-xs text-gray-300 border border-white/10 p-2.5 rounded-xl focus:outline-none focus:border-purple-500/50 appearance-none shadow-inner"
+                            className="w-full bg-black/40 text-xs text-gray-300 border border-white/10 p-2.5 rounded-xl focus:outline-none focus:border-[#E6E6FA]/50 appearance-none shadow-inner"
                           >
                             <option value="1024x512">1K FAST</option>
                             <option value="2048x1024">2K STANDARD</option>
@@ -509,20 +508,20 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                         <div>
                           <label className="block text-[9px] font-extrabold tracking-[0.15em] text-gray-400 mb-2 flex justify-between">
                             <span>TEMP</span>
-                            <span className="text-purple-400">{aiTemperature.toFixed(2)}</span>
+                            <span className="text-[#E6E6FA]">{aiTemperature.toFixed(2)}</span>
                           </label>
                           <input
                             type="range" min="0" max="2" step="0.1"
                             value={aiTemperature}
                             onChange={e => setAiTemperature(parseFloat(e.target.value))}
-                            className="w-full accent-purple-500 mt-2"
+                            className="w-full accent-[#E6E6FA] mt-2"
                           />
                         </div>
                       </div>
 
                       <div className="pt-4 mt-2 border-t border-white/5">
                         <label className="flex items-center gap-3 cursor-pointer group">
-                          <div className={`w-10 h-5 rounded-full transition-colors relative ${showHexGrid ? 'bg-purple-500' : 'bg-white/10'}`}>
+                          <div className={`w-10 h-5 rounded-full transition-colors relative ${showHexGrid ? 'bg-[#E6E6FA]' : 'bg-white/10'}`}>
                             <div className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${showHexGrid ? 'translate-x-5' : ''}`} />
                           </div>
                           <span className="text-[10px] font-bold tracking-widest text-gray-400 group-hover:text-gray-200 transition-colors">HEX OVERLAY</span>
@@ -545,7 +544,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                           </button>
                           <button
                             onClick={() => setContinents(prev => [...prev, { id: crypto.randomUUID(), name: `Continent ${prev.length + 1}`, prompt: "", size: 50 }])}
-                            className="text-[9px] font-bold tracking-widest text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 px-3 py-1.5 rounded-lg transition-all"
+                            className="text-[9px] font-bold tracking-widest text-[#E6E6FA] hover:text-purple-200 bg-[#E6E6FA]/10 hover:bg-[#E6E6FA]/20 border border-[#E6E6FA]/20 px-3 py-1.5 rounded-lg transition-all"
                           >
                             + ADD
                           </button>
@@ -572,14 +571,14 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                               type="text"
                               value={c.name}
                               onChange={e => setContinents(prev => prev.map(x => x.id === c.id ? { ...x, name: e.target.value } : x))}
-                              className="bg-transparent text-purple-300 text-xs font-bold tracking-widest mb-3 focus:outline-none w-4/5 pb-1 border-b border-transparent focus:border-purple-500/30 transition-colors"
+                              className="bg-transparent text-[#E6E6FA] text-xs font-bold tracking-widest mb-3 focus:outline-none w-4/5 pb-1 border-b border-transparent focus:border-[#E6E6FA]/30 transition-colors"
                               placeholder="Continent Name"
                             />
 
                             <textarea
                               value={c.prompt}
                               onChange={e => setContinents(prev => prev.map(x => x.id === c.id ? { ...x, prompt: e.target.value } : x))}
-                              className="w-full h-20 bg-white/5 border border-white/5 rounded-lg p-3 text-xs text-gray-300 focus:outline-none focus:border-purple-500/30 resize-none mb-4 shadow-inner"
+                              className="w-full h-20 bg-white/5 border border-white/5 rounded-lg p-3 text-xs text-gray-300 focus:outline-none focus:border-[#E6E6FA]/30 resize-none mb-4 shadow-inner"
                               placeholder="Describe geographic features..."
                             />
 
@@ -674,9 +673,9 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                       variant="primary"
                       onClick={generatePlanet}
                       disabled={genProgress.isActive}
-                      className="w-full text-[10px] tracking-widest py-3 bg-purple-600 hover:bg-purple-500 border-none"
+                      className="w-full text-[10px] tracking-widest py-3 bg-[#E6E6FA] hover:bg-[#E6E6FA] border-none"
                     >
-                      {genProgress.isActive ? "GENERATING..." : "START HYBRID GENERATION"}
+                      {genProgress.isActive ? "GENERATING..." : "GENERATE PLANET"}
                     </Button>
 
                     {genProgress.stage && !genProgress.isActive && (
@@ -689,7 +688,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
           )}
 
           {activeStep === "ECO" && (
-            <div className="flex-1 flex flex-col bg-[#0a0f14]/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl overflow-hidden h-full">
+            <div className="flex-1 flex flex-col bg-[#1e1e1e]/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl overflow-hidden h-full">
               <div className="p-5 flex-1 overflow-y-auto scrollbar-thin">
                 <h3 className="text-[11px] font-black tracking-[0.2em] text-green-400 flex items-center gap-2 mb-6">
                   <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
@@ -725,7 +724,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
           )}
 
           {activeStep === "HUMANITY" && (
-            <div className="flex-1 flex flex-col bg-[#0a0f14]/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl overflow-hidden h-full">
+            <div className="flex-1 flex flex-col bg-[#1e1e1e]/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl overflow-hidden h-full">
               <div className="p-5 flex-1 overflow-y-auto scrollbar-thin">
                 <h3 className="text-[11px] font-black tracking-[0.2em] text-orange-400 flex items-center gap-2 mb-6">
                   <div className="w-2 h-2 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)]" />
@@ -763,16 +762,16 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
 
         {/* ── Center Canvas ── */}
         <main className="flex-1 relative bg-transparent rounded-3xl m-4 overflow-hidden shadow-2xl border border-white/5 z-0">
-          <div className="absolute inset-0 bg-[#030508]" />
+          <div className="absolute inset-0 bg-[#1e1e1e]" />
 
           <div className="w-full h-full p-2 lg:-ml-24 xl:ml-0 transition-all">
             {viewMode === "2d" ? (
               globeWorld ? (
-                <div className="relative w-full h-full rounded-2xl overflow-hidden shadow-2xl border border-white/10 p-1 bg-[#0a0f14]/40 backdrop-blur-sm">
+                <div className="relative w-full h-full rounded-2xl overflow-hidden shadow-2xl border border-white/10 p-1 bg-[#1e1e1e]/40 backdrop-blur-sm">
                   <PlanetMap2D world={globeWorld} onCellHover={handleCellHover} />
                 </div>
               ) : (
-                <div className="w-full h-full rounded-2xl border border-white/5 bg-[#0a0f14]/40 backdrop-blur-md flex flex-col items-center justify-center text-[10px] tracking-widest text-gray-500">
+                <div className="w-full h-full rounded-2xl border border-white/5 bg-[#1e1e1e]/40 backdrop-blur-md flex flex-col items-center justify-center text-[10px] tracking-widest text-gray-500">
                   <div className="w-16 h-16 border border-white/10 rounded-full flex items-center justify-center mb-4">
                     <svg className="w-6 h-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
                   </div>
@@ -794,7 +793,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                 )}
               </div>
             ) : (
-              <div className="w-full h-full rounded-2xl border border-white/5 bg-[#0a0f14]/40 backdrop-blur-md flex flex-col items-center justify-center text-[10px] tracking-widest text-gray-500 gap-4">
+              <div className="w-full h-full rounded-2xl border border-white/5 bg-[#1e1e1e]/40 backdrop-blur-md flex flex-col items-center justify-center text-[10px] tracking-widest text-gray-500 gap-4">
                 <div className="w-24 h-24 border border-white/5 rounded-full flex items-center justify-center">
                   <div className="w-16 h-16 border border-white/10 rounded-full animate-[spin_10s_linear_infinite]" />
                 </div>
@@ -804,54 +803,59 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
           </div>
         </main >
 
-        {/* ── History Drawer ── */}
-        < div className={`absolute top-0 right-0 bottom-0 w-80 bg-[#0a0f14]/80 backdrop-blur-xl border-l border-white/5 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] z-40 flex flex-col shadow-2xl ${showHistory ? "translate-x-0" : "translate-x-full"}`}>
-          <div className="h-16 border-b border-white/5 flex justify-between items-center px-6 shrink-0 bg-white/5">
-            <h3 className="text-[10px] font-black tracking-[0.2em] text-purple-400">ARCHIVES</h3>
-            <button onClick={() => setShowHistory(false)} className="text-gray-500 hover:text-white transition-colors">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
-            {history.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-40 text-center space-y-3 opacity-50">
-                <svg className="w-8 h-8 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
-                <p className="text-[9px] font-bold tracking-widest text-gray-500">NO ARCHIVES FOUND</p>
+        {/* ── History Modal ── */}
+        {showHistory && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-8 bg-black/60 backdrop-blur-sm transition-opacity" onClick={() => setShowHistory(false)}>
+            <div className="w-full max-w-4xl h-[80vh] bg-[#1e1e1e]/90 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="h-16 border-b border-white/5 flex justify-between items-center px-6 shrink-0 bg-white/5">
+                <h3 className="text-[10px] font-black tracking-[0.2em] text-[#E6E6FA]">ARCHIVES</h3>
+                <button onClick={() => setShowHistory(false)} className="text-gray-500 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
               </div>
-            ) : (
-              history.map(item => (
-                <div key={item.id} className="relative group border border-white/10 bg-black/40 rounded-xl overflow-hidden cursor-pointer hover:border-purple-500/40 transition-all shadow-lg"
-                  onClick={() => {
-                    setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
-                    setConfig(item.config);
-                    setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
-                  }}
-                >
-                  <img src={item.textureUrl} alt="History thumbnail" className="w-full h-32 object-cover object-center opacity-60 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500" />
-                  <div className="absolute top-0 inset-x-0 p-3 bg-gradient-to-b from-black/90 via-black/40 to-transparent">
-                    <p className="text-[10px] text-gray-200 line-clamp-2 font-medium leading-relaxed drop-shadow-md">{item.prompt}</p>
-                    <p className="text-[8px] font-bold tracking-widest text-purple-400 mt-2">{new Date(item.timestamp).toLocaleDateString()}</p>
+              <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 scrollbar-thin">
+                {history.length === 0 ? (
+                  <div className="col-span-full flex flex-col items-center justify-center h-40 text-center space-y-3 opacity-50">
+                    <svg className="w-8 h-8 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
+                    <p className="text-[9px] font-bold tracking-widest text-gray-500">NO ARCHIVES FOUND</p>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); deleteFromHistory(item.id); }}
-                    className="absolute bottom-3 right-3 text-[9px] font-bold tracking-widest bg-red-500/20 hover:bg-red-500 text-red-200 hover:text-white px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all border border-red-500/30"
-                  >
-                    DELETE
-                  </button>
-                </div>
-              ))
-            )}
+                ) : (
+                  history.map(item => (
+                    <div key={item.id} className="relative aspect-[2/1] group border border-white/10 bg-black/40 rounded-xl overflow-hidden cursor-pointer hover:border-[#E6E6FA]/40 transition-all shadow-lg"
+                      onClick={() => {
+                        setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
+                        setConfig(item.config);
+                        setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
+                        setShowHistory(false);
+                      }}
+                    >
+                      <img src={item.textureUrl} alt="History thumbnail" className="absolute inset-0 w-full h-full object-cover object-center opacity-60 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500" />
+                      <div className="absolute top-0 inset-x-0 p-3 bg-gradient-to-b from-black/90 via-black/40 to-transparent">
+                        <p className="text-[10px] text-gray-200 line-clamp-2 font-medium leading-relaxed drop-shadow-md">{item.prompt}</p>
+                        <p className="text-[8px] font-bold tracking-widest text-[#E6E6FA] mt-2">{new Date(item.timestamp).toLocaleDateString()}</p>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteFromHistory(item.id); }}
+                        className="absolute bottom-3 right-3 text-[9px] font-bold tracking-widest bg-red-500/20 hover:bg-red-500 text-red-200 hover:text-white px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all border border-red-500/30"
+                      >
+                        DELETE
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
-        </div >
+        )}
 
         {/* ── Progress Overlay HUD ── */}
         {
           genProgress.isActive && (
             <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none bg-black/40 backdrop-blur-sm">
-              <div className="bg-[#0a0f14]/80 backdrop-blur-2xl border border-purple-500/40 rounded-3xl p-8 flex flex-col items-center gap-6 shadow-[0_0_50px_rgba(168,85,247,0.15)] min-w-[320px]">
+              <div className="bg-[#1e1e1e]/80 backdrop-blur-2xl border border-[#E6E6FA]/40 rounded-3xl p-8 flex flex-col items-center gap-6 shadow-[0_0_50px_rgba(168,85,247,0.15)] min-w-[320px]">
 
                 <div className="relative flex items-center justify-center">
-                  <div className="absolute w-24 h-24 border border-purple-500/20 rounded-full animate-[ping_3s_ease-in-out_infinite]" />
+                  <div className="absolute w-24 h-24 border border-[#E6E6FA]/20 rounded-full animate-[ping_3s_ease-in-out_infinite]" />
                   <svg className="w-20 h-20 -rotate-90 transform" viewBox="0 0 64 64">
                     <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="3" />
                     <circle
@@ -863,15 +867,15 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                     />
                   </svg>
                   <span className="absolute text-sm font-black text-white tracking-wider">
-                    {genProgress.progress.toFixed(0)}<span className="text-[10px] text-purple-400 opacity-80">%</span>
+                    {genProgress.progress.toFixed(0)}<span className="text-[10px] text-[#E6E6FA] opacity-80">%</span>
                   </span>
                 </div>
 
                 <div className="flex flex-col items-center gap-2 w-full">
-                  <span className="text-[11px] font-black tracking-[0.2em] text-purple-300 uppercase animate-pulse">{genProgress.stage}</span>
+                  <span className="text-[11px] font-black tracking-[0.2em] text-[#E6E6FA] uppercase animate-pulse">{genProgress.stage}</span>
                   <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden mt-2">
                     <div
-                      className="h-full bg-gradient-to-r from-purple-600 via-purple-400 to-indigo-400 rounded-full transition-all duration-300"
+                      className="h-full bg-gradient-to-r from-[#E6E6FA] via-[#E6E6FA] to-indigo-400 rounded-full transition-all duration-300"
                       style={{ width: `${genProgress.progress}%` }}
                     />
                   </div>
@@ -882,18 +886,23 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
         }
 
         {/* ── Bottom Workflow Bar ── */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center bg-[#0a0f14]/70 backdrop-blur-xl p-2 rounded-2xl border border-white/5 z-20 shadow-2xl">
-          <div className="flex items-center gap-8 px-6 py-2 border-r border-white/5 mr-4">
-            <span className="text-[9px] font-black tracking-[0.3em] text-gray-500 -rotate-90 origin-center translate-y-2">STAGE</span>
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center bg-[#1e1e1e]/70 backdrop-blur-xl p-2 rounded-2xl border border-white/5 z-20 shadow-2xl">
+          <div className="flex items-center px-6 py-2 border-r border-white/5 mr-4">
+            <span className="text-[9px] font-black tracking-[0.3em] text-gray-500">STAGE</span>
           </div>
 
           <div className="flex items-center gap-3 pr-4">
             {WORKFLOW_STEPS.map((step, idx) => {
               const isActive = activeStep === step;
-              const color = step === "GEO" ? "purple" : step === "ECO" ? "green" : "orange";
-              const bgClass = isActive ? `bg-${color}-500/15 border-${color}-500/40` : `bg-transparent border-transparent hover:bg-white/5`;
-              const textClass = isActive ? `text-${color}-300` : `text-gray-500`;
-              const numberClass = isActive ? `text-${color}-400` : `text-gray-600`;
+              const colorSettings = step === "GEO"
+                ? { bg: "bg-[#E6E6FA]/15", border: "border-[#E6E6FA]/40", text: "text-[#E6E6FA]", number: "text-[#E6E6FA]", underscore: "bg-[#E6E6FA]" }
+                : step === "ECO"
+                  ? { bg: "bg-green-500/15", border: "border-green-500/40", text: "text-green-300", number: "text-green-400", underscore: "bg-green-500" }
+                  : { bg: "bg-orange-500/15", border: "border-orange-500/40", text: "text-orange-300", number: "text-orange-400", underscore: "bg-orange-500" };
+
+              const bgClass = isActive ? `${colorSettings.bg} ${colorSettings.border}` : `bg-transparent border-transparent hover:bg-white/5`;
+              const textClass = isActive ? colorSettings.text : `text-gray-500`;
+              const numberClass = isActive ? colorSettings.number : `text-gray-600`;
 
               return (
                 <button
@@ -903,8 +912,8 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                 >
                   <span className={`text-base font-black ${numberClass}`}>0{idx + 1}</span>
                   <div className="flex flex-col items-start pt-1">
-                    <span className="text-[10px] font-black tracking-[0.2em]">{step === "GEO" ? "GEOSIM" : WORKFLOW_LABELS[step].toUpperCase()}</span>
-                    {isActive && <div className={`h-0.5 w-4 mt-1 bg-${color}-500 rounded-full`} />}
+                    <span className="text-[10px] font-black tracking-[0.2em]">{WORKFLOW_LABELS[step].toUpperCase()}</span>
+                    {isActive && <div className={`h-0.5 w-4 mt-1 ${colorSettings.underscore} rounded-full`} />}
                   </div>
                 </button>
               );
@@ -916,7 +925,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
         {
           hoveredCell && !selectedCell && viewMode === "3d" && (
             <aside className="absolute bottom-8 right-8 z-20 w-56 pointer-events-none">
-              <div className="px-4 py-3 bg-[#0a0f14]/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl">
+              <div className="px-4 py-3 bg-[#1e1e1e]/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl">
                 <div className="flex items-center gap-3 mb-3 border-b border-white/5 pb-3">
                   <div className="w-4 h-4 rounded-md shadow-inner border border-white/10" style={{ backgroundColor: hoveredCell.color }} />
                   <span className="text-white text-[10px] font-black tracking-widest uppercase">{BIOME_META[hoveredCell.biome]?.name ?? hoveredCell.biome}</span>
@@ -948,7 +957,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
         {
           selectedCell && (
             <aside className="absolute top-24 right-8 bottom-32 w-[340px] z-30">
-              <div className="h-full flex flex-col p-5 bg-[#0a0f14]/80 backdrop-blur-xl border border-purple-500/30 rounded-2xl shadow-2xl relative">
+              <div className="h-full flex flex-col p-5 bg-[#1e1e1e]/80 backdrop-blur-xl border border-[#E6E6FA]/30 rounded-2xl shadow-2xl relative">
 
                 <button
                   onClick={() => setSelectedCell(null)}
@@ -958,7 +967,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                 </button>
 
                 <div className="mb-6 flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+                  <div className="w-2 h-2 rounded-full bg-[#E6E6FA] animate-pulse" />
                   <h2 className="text-[10px] font-black tracking-[0.25em] text-white">
                     INSPECTOR OVERRIDE
                   </h2>
@@ -967,7 +976,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                 <div className="flex items-center gap-4 bg-black/40 p-3 rounded-xl border border-white/5 mb-6">
                   <div className="w-10 h-10 rounded-lg shadow-inner border border-white/10" style={{ backgroundColor: selectedCell.color }} />
                   <div className="flex flex-col">
-                    <span className="text-[11px] text-purple-300 font-black tracking-widest uppercase">{BIOME_META[selectedCell.biome]?.name ?? selectedCell.biome}</span>
+                    <span className="text-[11px] text-[#E6E6FA] font-black tracking-widest uppercase">{BIOME_META[selectedCell.biome]?.name ?? selectedCell.biome}</span>
                     <span className="text-[9px] text-gray-500 font-mono mt-1">LOC: {selectedCell.x}, {selectedCell.y}</span>
                   </div>
                 </div>
@@ -993,8 +1002,8 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                         </div>
                       ) : (
                         <>
-                          <div className="bg-purple-500/5 p-4 rounded-xl border border-purple-500/20">
-                            <h3 className="text-[8px] font-black tracking-[0.2em] text-purple-400 mb-2">DESIGNATION</h3>
+                          <div className="bg-[#E6E6FA]/5 p-4 rounded-xl border border-[#E6E6FA]/20">
+                            <h3 className="text-[8px] font-black tracking-[0.2em] text-[#E6E6FA] mb-2">DESIGNATION</h3>
                             <p className="text-[13px] text-white font-medium tracking-wide">{regionLore.regionName}</p>
                           </div>
 
@@ -1010,15 +1019,15 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                           </div>
 
                           <div>
-                            <h3 className="text-[8px] font-black tracking-[0.2em] text-purple-400 mb-2 flex items-center gap-2">
-                              <span className="w-1 h-1 bg-purple-500 rounded-full" /> STRUCTURAL ANALYSIS
+                            <h3 className="text-[8px] font-black tracking-[0.2em] text-[#E6E6FA] mb-2 flex items-center gap-2">
+                              <span className="w-1 h-1 bg-[#E6E6FA] rounded-full" /> STRUCTURAL ANALYSIS
                             </h3>
                             <p className="text-[11px] text-gray-400 leading-relaxed italic bg-black/20 p-3 rounded-xl border border-white/5">"{regionLore.resourcesSummary}"</p>
                           </div>
 
                           <div>
-                            <h3 className="text-[8px] font-black tracking-[0.2em] text-purple-400 mb-2 flex items-center gap-2">
-                              <span className="w-1 h-1 bg-purple-500 rounded-full" /> ARCHIVAL RECORD
+                            <h3 className="text-[8px] font-black tracking-[0.2em] text-[#E6E6FA] mb-2 flex items-center gap-2">
+                              <span className="w-1 h-1 bg-[#E6E6FA] rounded-full" /> ARCHIVAL RECORD
                             </h3>
                             <p className="text-[11px] text-gray-300 leading-relaxed space-y-2">
                               {regionLore.lore}
@@ -1044,7 +1053,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}`;
                       variant="primary"
                       onClick={fetchRegionLore}
                       disabled={isFetchingLore}
-                      className="w-full text-[10px] tracking-[0.2em] font-black py-3.5 bg-purple-600/80 hover:bg-purple-500 border border-purple-500/50 rounded-xl transition-all shadow-[0_0_15px_rgba(168,85,247,0.2)] disabled:opacity-50 disabled:shadow-none"
+                      className="w-full text-[10px] tracking-[0.2em] font-black py-3.5 bg-[#E6E6FA]/80 hover:bg-[#E6E6FA] border border-[#E6E6FA]/50 rounded-xl transition-all shadow-[0_0_15px_rgba(168,85,247,0.2)] disabled:opacity-50 disabled:shadow-none"
                     >
                       {isFetchingLore ? "CALCULATING..." : "INITIATE SCAN"}
                     </Button>
@@ -1082,7 +1091,7 @@ export const CollapsibleSection = memo(function CollapsibleSection({
         onClick={onToggle}
         className="flex items-center justify-between w-full border-b border-[#1f2937] pb-2 mb-2 group"
       >
-        <h3 className="text-[10px] font-bold tracking-[0.15em] text-purple-500">{title}</h3>
+        <h3 className="text-[10px] font-bold tracking-[0.15em] text-[#E6E6FA]">{title}</h3>
         <span className={`text-gray-600 text-[10px] transition-transform ${collapsed ? "" : "rotate-180"}`}>
           ▾
         </span>
@@ -1108,14 +1117,14 @@ export const Slider = memo(function Slider({ label, value, min, max, step, forma
     <div>
       <div className="flex justify-between mb-1">
         <span className="text-gray-500 text-[10px] tracking-wider">{label}</span>
-        <span className="text-purple-500 text-[10px] font-mono">{display}</span>
+        <span className="text-[#E6E6FA] text-[10px] font-mono">{display}</span>
       </div>
       <input
         type="range"
         min={min} max={max} step={step}
         value={value}
         onChange={e => onChange(Number(e.target.value))}
-        className="w-full accent-purple-500 h-1"
+        className="w-full accent-[#E6E6FA] h-1"
       />
     </div>
   );
