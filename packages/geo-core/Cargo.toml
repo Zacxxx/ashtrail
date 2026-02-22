@@ -1,0 +1,11 @@
+[package]
+name = "geo-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+noise = "0.9"
+rand = "0.8"
+rand_pcg = "0.3"
+rayon = "1.10"
