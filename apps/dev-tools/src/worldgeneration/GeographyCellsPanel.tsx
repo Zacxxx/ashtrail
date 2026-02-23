@@ -253,19 +253,8 @@ export function GeographyCellsPanel({ globeWorld, selectedCell, onGenerateSubTil
                             CLICK TO INSPECT ({cellFeatures.cols}×{cellFeatures.rows} grid)
                         </label>
                         <div
-                            className="w-full rounded-lg overflow-hidden cursor-crosshair border border-white/10"
+                            className="w-full rounded-lg overflow-hidden border border-white/10"
                             style={{ aspectRatio: `${cellFeatures.cols}/${cellFeatures.rows}` }}
-                            onClick={(e) => {
-                                const rect = (e.target as HTMLElement).getBoundingClientRect();
-                                const rx = (e.clientX - rect.left) / rect.width;
-                                const ry = (e.clientY - rect.top) / rect.height;
-                                const cx = Math.floor(rx * cellFeatures.cols);
-                                const cy = Math.floor(ry * cellFeatures.rows);
-                                const idx = cy * cellFeatures.cols + cx;
-                                if (idx >= 0 && idx < cellFeatures.cells.length) {
-                                    setSelectedFeatureIdx(idx);
-                                }
-                            }}
                         >
                             <canvas
                                 ref={(canvas) => {
@@ -279,8 +268,19 @@ export function GeographyCellsPanel({ globeWorld, selectedCell, onGenerateSubTil
                                         ctx.fillRect(cell.x, cell.y, 1, 1);
                                     }
                                 }}
-                                className="w-full h-full"
+                                className="w-full h-full cursor-crosshair"
                                 style={{ imageRendering: "pixelated" }}
+                                onClick={(e) => {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const rx = (e.clientX - rect.left) / rect.width;
+                                    const ry = (e.clientY - rect.top) / rect.height;
+                                    const cx = Math.floor(rx * cellFeatures.cols);
+                                    const cy = Math.floor(ry * cellFeatures.rows);
+                                    const idx = cy * cellFeatures.cols + cx;
+                                    if (idx >= 0 && idx < cellFeatures.cells.length) {
+                                        setSelectedFeatureIdx(idx);
+                                    }
+                                }}
                             />
                         </div>
                     </div>
