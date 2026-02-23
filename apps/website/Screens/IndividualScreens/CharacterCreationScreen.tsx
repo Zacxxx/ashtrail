@@ -483,9 +483,14 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
           : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
           }`}
       >
-        <span className={`font-bold text-[10px] uppercase mono ${active ? 'text-orange-400' : 'text-zinc-300'} truncate mr-2`}>
-          {trait.name}
-        </span>
+        <div className="flex items-center gap-3 truncate">
+          {/* ICON PLACEHOLDER - Reserved for future use */}
+          <div className="w-5 h-5 flex-shrink-0 rounded-sm border border-zinc-800/50 bg-zinc-950/30 group-hover:border-zinc-700 transition-colors" />
+
+          <span className={`font-bold text-[10px] uppercase mono ${active ? 'text-orange-400' : 'text-zinc-300'} truncate`}>
+            {trait.name}
+          </span>
+        </div>
         <Badge color={trait.type === 'positive' ? 'blue' : trait.type === 'negative' ? 'red' : 'zinc'}>
           {trait.cost > 0 ? `-${trait.cost}` : trait.cost < 0 ? `+${Math.abs(trait.cost)}` : '0'}
         </Badge>
@@ -861,9 +866,15 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                     {selectedOccupation && (
                       <div className="mb-4 p-4 bg-orange-600/10 border border-orange-500 rounded-sm shadow-[inset_0_0_15px_rgba(249,115,22,0.08)] animate-in fade-in duration-300">
                         <div className="flex justify-between items-start">
-                          <div>
-                            <span className="text-xs mono font-black uppercase text-orange-400 tracking-widest">{selectedOccupation.name}</span>
-                            <p className="text-[10px] mono text-zinc-400 mt-1">{selectedOccupation.description}</p>
+                          <div className="flex items-start gap-4">
+                            {/* ICON PLACEHOLDER - Reserved for future use */}
+                            <div className="w-12 h-12 flex-shrink-0 rounded-sm border border-orange-500/30 bg-orange-500/5 flex items-center justify-center text-orange-500/20 text-xl font-black italic mono">
+                              {selectedOccupation.name.charAt(0)}
+                            </div>
+                            <div>
+                              <span className="text-xs mono font-black uppercase text-orange-400 tracking-widest">{selectedOccupation.name}</span>
+                              <p className="text-[10px] mono text-zinc-400 mt-1">{selectedOccupation.description}</p>
+                            </div>
                           </div>
                           <button
                             onClick={() => setSelectedOccupation(null)}
@@ -906,10 +917,16 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                                 : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
                                 }`}
                             >
-                              <span className={`font-bold text-[10px] uppercase mono tracking-wider ${selectedOccupation?.id === occ.id ? 'text-orange-400' : 'text-zinc-300'
-                                }`}>
-                                {occ.name}
-                              </span>
+                              <div className="flex items-center gap-3">
+                                {/* ICON PLACEHOLDER - Reserved for future use */}
+                                <div className="w-6 h-6 flex-shrink-0 rounded-sm border border-zinc-800/50 bg-zinc-950/30 group-hover:border-zinc-700 transition-colors flex items-center justify-center text-[8px] text-zinc-800 font-black">
+                                  {occ.name.charAt(0)}
+                                </div>
+                                <span className={`font-bold text-[10px] uppercase mono tracking-wider ${selectedOccupation?.id === occ.id ? 'text-orange-400' : 'text-zinc-300'
+                                  }`}>
+                                  {occ.name}
+                                </span>
+                              </div>
                             </button>
                           </Tooltip>
                         ))}
@@ -1093,9 +1110,10 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
         {/* Header: Large Circular Occupation Identity */}
         <div className="flex flex-col items-center pt-8 pb-4 shrink-0 relative z-20">
           <div className="relative group">
-            <div className="w-24 h-24 rounded-full border-4 border-zinc-800 bg-zinc-950 flex items-center justify-center overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.7)] group-hover:border-orange-500/50 transition-all duration-500">
-              <div className="text-4xl font-black text-zinc-800 select-none">{selectedOccupation.name.charAt(0)}</div>
-              <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-60" />
+            <div className="w-24 h-24 rounded-full border-4 border-zinc-800 bg-zinc-950 flex items-center justify-center overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.7)] group-hover:border-orange-500/50 transition-all duration-500 relative">
+              {/* ICON PLACEHOLDER - This will be replaced by the occupation icon */}
+              <div className="text-4xl font-black text-zinc-800 select-none z-10">{selectedOccupation.name.charAt(0)}</div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-60 z-0" />
             </div>
             <div className="absolute -inset-3 border border-orange-500/10 rounded-full animate-[spin_15s_linear_infinite]" />
             <div className="absolute -inset-1 border border-zinc-800/50 rounded-full" />
