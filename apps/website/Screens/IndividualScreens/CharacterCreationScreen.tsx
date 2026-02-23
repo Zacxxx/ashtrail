@@ -162,6 +162,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
   const [isGeneratingPortrait, setIsGeneratingPortrait] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isProfileModified, setIsProfileModified] = useState(false);
 
   // History State
   const [history, setHistory] = useState('');
@@ -226,7 +227,10 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
     const contextPrompt = `A ${gender} wasteland explorer, aged ${age}. Overall characteristics: ${selectorsSummary}. Detailed appearance: ${specificText || appearancePrompt}`;
 
     const url = await generateCharacterPortrait(contextPrompt);
-    if (url) setPortraitUrl(url);
+    if (url) {
+      setPortraitUrl(url);
+      setIsProfileModified(false);
+    }
     setIsGeneratingPortrait(false);
   };
 
@@ -363,8 +367,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         {/* 1. Core Designation */}
                         <div className="p-3 space-y-3">
                           <div className="flex justify-between items-center">
-                            <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest">01 // Core Designation</label>
-                            <Badge color="zinc">Identity Sync Required</Badge>
+                            <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest">01 // Designation</label>
                           </div>
 
                           <div className="space-y-1">
@@ -419,7 +422,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
                         {/* 2. Physical Vectors */}
                         <div className="p-3 space-y-2">
-                          <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest block">02 // Physical Vectors</label>
+                          <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest block">02 // Appearance</label>
                           <div className="grid grid-cols-2 gap-x-6 gap-y-1">
                             {Object.entries(APPEARANCE_SELECTORS).map(([key, options]) => (
                               <div key={key} className="flex flex-col gap-0.5 py-0.5 group">
@@ -437,7 +440,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
                         {/* 3. Neural Backstory */}
                         <div className="p-3 space-y-2">
-                          <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest block">03 // Neural Backstory</label>
+                          <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest block">03 // Backstory</label>
                           <textarea
                             value={history}
                             onChange={(e) => setHistory(e.target.value)}
@@ -458,7 +461,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                       isLoading={isSyncing || isGeneratingPortrait}
                     >
                       <div className="absolute inset-x-0 bottom-0 h-[1px] bg-white/20" />
-                      {isGeneratingPortrait || isSyncing ? 'MANIFESTING CONFIGURATION...' : 'MANIFEST NEURAL IDENTITY'}
+                      {isGeneratingPortrait || isSyncing ? 'Generating...' : 'generate your character'}
                     </Button>
                   </div>
                 </div>
@@ -470,20 +473,20 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                     <div className="absolute top-0 left-0 right-0 bg-zinc-900/80 px-4 py-1.5 border-b border-zinc-800 text-[9px] mono text-zinc-500 uppercase flex justify-between z-10 transition-colors group-hover:bg-zinc-900">
                       <div className="flex items-center gap-2">
                         <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-                        <span>Neural Visualization</span>
+                        <span>Visualization</span>
                       </div>
                       <div className="flex items-center gap-3">
                         {portraitUrl && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleRefreshPortrait(); }}
                             disabled={isGeneratingPortrait}
-                            className="text-orange-500 hover:text-orange-400 font-black disabled:opacity-50 flex items-center gap-1 transition-all"
+                            className={`text-orange-500 hover:text-orange-400 font-black disabled:opacity-50 flex items-center transition-all mono uppercase text-[9px] tracking-widest ${isProfileModified ? 'animate-pulse text-orange-300 drop-shadow-[0_0_5px_rgba(249,115,22,0.5)]' : ''}`}
                           >
-                            <span className="text-[10px]">↻</span> RE-SYNC
+                            regenerate
                           </button>
                         )}
                         <span className={portraitUrl ? 'text-green-500' : 'text-zinc-700'}>
-                          {portraitUrl ? 'Link Active' : 'No Signal'}
+                          {portraitUrl ? 'Generated' : 'No Signal'}
                         </span>
                       </div>
                     </div>
@@ -501,7 +504,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                           <div className="w-24 h-24 border-2 border-zinc-900 border-dashed rounded-full flex items-center justify-center mx-auto opacity-20 relative animate-[pulse_4s_infinite]">
                             <span className="text-3xl text-zinc-800">?</span>
                           </div>
-                          <p className="text-[9px] mono text-zinc-700 uppercase tracking-widest animate-pulse">Waiting for neural manifestation...</p>
+                          <p className="text-[9px] mono text-zinc-700 uppercase tracking-widest animate-pulse">Waiting for generation...</p>
                         </div>
                       )}
                     </div>
@@ -520,12 +523,19 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                     <label className="text-[10px] uppercase text-orange-500/80 mono font-black mb-3 tracking-[0.2em] border-b border-orange-900/40 pb-1.5 flex justify-between items-center">
                       <div className="flex items-center gap-2">
                         <span className="w-1 h-2 bg-orange-500" />
-                        <span>Biometric Profile</span>
+                        <span>Profile</span>
                       </div>
                       {!appearancePrompt ? (
                         <span className="text-zinc-800 text-[9px] uppercase">Awaiting Link</span>
                       ) : (
-                        <span className="text-[8px] text-zinc-600 mono lowercase opacity-50 group-hover:opacity-100 transition-opacity italic">editable profile</span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="text-[8px] text-zinc-600 mono uppercase opacity-50 group-hover:opacity-100 transition-opacity tracking-widest">editable profile</span>
+                          {isProfileModified && (
+                            <span className="text-[8px] text-orange-500 mono font-black animate-pulse uppercase tracking-wider bg-orange-500/10 px-1 rounded-sm">
+                              [ please press regenerate ]
+                            </span>
+                          )}
+                        </div>
                       )}
                     </label>
                     <div className="flex-1 flex flex-col overflow-y-auto min-h-0 custom-scrollbar pr-2">
@@ -533,7 +543,10 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         <textarea
                           ref={biometricRef}
                           value={appearancePrompt}
-                          onChange={(e) => setAppearancePrompt(e.target.value)}
+                          onChange={(e) => {
+                            setAppearancePrompt(e.target.value);
+                            setIsProfileModified(true);
+                          }}
                           onInput={(e) => {
                             const target = e.target as HTMLTextAreaElement;
                             target.style.height = 'auto';
@@ -546,7 +559,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         />
                       ) : (
                         <div className="h-full flex items-center justify-center border border-zinc-900 border-dashed rounded-sm">
-                          <span className="text-[9px] mono text-zinc-800 uppercase italic tracking-widest">Initialize neural link...</span>
+                          <span className="text-[9px] mono text-zinc-800 uppercase italic tracking-widest">Initializing Link...</span>
                         </div>
                       )}
                     </div>
