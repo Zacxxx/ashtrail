@@ -13,6 +13,70 @@ import {
   generateCharacterPortrait,
   enhanceAppearancePrompt
 } from '@ashtrail/core';
+import { ReactFlow, Edge, Node, Position, Handle, ConnectionLineType, Background } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+
+// Custom Talent Node for React Flow
+const TalentNode = ({ data }: { data: any }) => {
+  const { isCapstone, isConverging, isUnlocked, isAvailable, name, type, rank = 0, maxRank = 1, onUnlock } = data;
+
+  return (
+    <div className="relative group">
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ background: 'transparent', border: 'none', top: '0%' }}
+      />
+
+      <div className="flex items-center justify-center">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isAvailable && !isUnlocked && onUnlock) onUnlock();
+          }}
+          className={`w-16 h-16 rounded-full border-2 transition-all duration-300 flex items-center justify-center relative z-10 
+            ${isUnlocked
+              ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_20px_rgba(249,115,22,0.2)]'
+              : isAvailable
+                ? 'border-zinc-500 bg-zinc-900 shadow-[0_0_10px_rgba(255,255,255,0.05)]'
+                : 'border-zinc-800 bg-zinc-900/60 opacity-60'} 
+            ${isCapstone && isUnlocked ? 'shadow-[0_0_25px_rgba(249,115,22,0.4)]' : ''}
+            group-hover:scale-105 transition-transform`}
+        >
+          {/* Node Icon/Letter - Placeholder or name first letter */}
+          <span className={`text-[10px] mono font-black transition-colors ${isUnlocked ? 'text-orange-500' : 'text-zinc-700'}`}>
+            {name.charAt(0)}
+          </span>
+
+          {/* Convergence Double Circle Effect */}
+          {isConverging && (
+            <div className={`absolute inset-1.5 rounded-full border-2 animate-pulse pointer-events-none ${isUnlocked ? 'border-orange-500/40' : 'border-zinc-700/20'}`} />
+          )}
+
+          {/* Inner Circle Effect */}
+          <div className="absolute inset-2.5 rounded-full border border-zinc-800/25 pointer-events-none" />
+
+          {/* Rank Indicator */}
+          <div className={`absolute -bottom-1 -right-1 min-w-[20px] h-[15px] border px-1.5 flex items-center justify-center rounded-[2px] shadow-black shadow-sm transition-colors
+            ${isUnlocked ? 'bg-orange-500 border-orange-400 text-zinc-950 font-black' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}`}>
+            <span className="text-[7px] mono font-bold">{rank}/{maxRank}</span>
+          </div>
+
+          {/* Glow on hover */}
+          <div className={`absolute inset-0 rounded-full blur-md transition-opacity ${isAvailable ? 'bg-orange-500/10 opacity-0 group-hover:opacity-100' : 'opacity-0'}`} />
+        </button>
+      </div>
+
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ background: 'transparent', border: 'none', bottom: '0%' }}
+      />
+    </div>
+  );
+};
+
+const nodeTypes = { talent: TalentNode };
 
 interface CharacterCreationScreenProps {
   onComplete: (player: Player) => void;
@@ -812,160 +876,285 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
       {/* Talent Tree Modal */}
       {showTalentTree && selectedOccupation && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-500 p-4 md:p-8">
-          <div className="w-full h-full max-w-5xl bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col shadow-[0_0_100px_rgba(0,0,0,1)] relative overflow-hidden">
-            {/* Background Effects */}
-            <div className="absolute inset-0 opacity-[0.05] pointer-events-none"
-              style={{ backgroundImage: 'radial-gradient(circle, #f97316 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-orange-500/10 blur-[120px] rounded-full pointer-events-none" />
+        <TalentTreeOverlay
+          selectedOccupation={selectedOccupation}
+          onClose={() => setShowTalentTree(false)}
+        />
+      )}
+    </Container>
+  );
+};
 
-            {/* Top Close Button (Abstract/Professional) */}
-            <button
-              onClick={() => setShowTalentTree(false)}
-              className="absolute top-6 right-6 z-50 px-4 py-2 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-all mono uppercase text-[10px] bg-zinc-950/50 backdrop-blur-md flex items-center gap-2 group"
-            >
-              <span className="group-hover:text-red-500 transition-colors">Close Terminal</span>
-              <span className="text-[8px] opacity-30">[ESC]</span>
-            </button>
+// Extracted for clean React Flow context/state
+const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation: Occupation, onClose: () => void }) => {
+  const [unlockedNodes, setUnlockedNodes] = useState<Set<string>>(new Set());
+  const [availablePoints, setAvailablePoints] = useState(1); // Starting with 1 for demo
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-            {/* Header: Large Circular Occupation Identity */}
-            <div className="flex flex-col items-center pt-8 pb-4 shrink-0 relative z-20">
-              <div className="relative group">
-                <div className="w-24 h-24 rounded-full border-4 border-zinc-800 bg-zinc-900 flex items-center justify-center overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.5)] group-hover:border-orange-500/50 transition-all duration-500">
-                  {/* Occupation Placeholder Icon/Visual */}
-                  <div className="text-4xl font-black text-zinc-700 select-none">{selectedOccupation.name.charAt(0)}</div>
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 to-transparent opacity-40" />
-                </div>
-                {/* Visual Ranking Ring */}
-                <div className="absolute -inset-2 border border-orange-500/20 rounded-full animate-[spin_10s_linear_infinite]" />
-              </div>
-              <div className="mt-4 text-center">
-                <h2 className="text-xl font-black mono text-zinc-100 uppercase tracking-[0.15em]">{selectedOccupation.name}</h2>
-                <div className="text-orange-500 font-bold text-[9px] mono uppercase tracking-[0.3em] mt-1">Specialization Matrix</div>
-              </div>
+  const tree = MOCK_TALENT_TREES[selectedOccupation.id];
+
+  const handleUnlockNode = (nodeId: string) => {
+    if (availablePoints <= 0) return;
+    setUnlockedNodes(prev => {
+      const next = new Set(prev);
+      next.add(nodeId);
+      return next;
+    });
+    setAvailablePoints(prev => prev - 1);
+  };
+
+  const { nodes, edges } = useMemo(() => {
+    if (!tree) return { nodes: [], edges: [] };
+
+    const firstNode = tree.nodes[0];
+
+    const nodes: Node[] = tree.nodes.map(node => {
+      const isUnlocked = unlockedNodes.has(node.id);
+      const hasUnmetDependencies = node.dependencies?.some(depId => !unlockedNodes.has(depId));
+      const isAvailable = !isUnlocked && !hasUnmetDependencies && (node.dependencies?.length ? true : true); // Root is always available
+
+      return {
+        id: node.id,
+        type: 'talent',
+        position: { x: (node.pos.x - firstNode.pos.x), y: (node.pos.y - firstNode.pos.y) },
+        data: {
+          name: node.name,
+          description: node.description,
+          type: node.type,
+          isCapstone: node.id.includes('capstone') || node.id.includes('legend') || ['s-8', 's-9', 'g-8', 'g-9'].includes(node.id),
+          isConverging: (node.dependencies?.length || 0) > 1,
+          isUnlocked,
+          isAvailable,
+          onUnlock: () => handleUnlockNode(node.id)
+        },
+        draggable: false,
+        selectable: true,
+      };
+    });
+
+    const edges: Edge[] = [];
+    tree.nodes.forEach(node => {
+      node.dependencies?.forEach(depId => {
+        const isSourceUnlocked = unlockedNodes.has(depId);
+        const isTargetUnlocked = unlockedNodes.has(node.id);
+        edges.push({
+          id: `e-${depId}-${node.id}`,
+          source: depId,
+          target: node.id,
+          type: ConnectionLineType.Straight,
+          animated: isSourceUnlocked && !isTargetUnlocked,
+          style: {
+            stroke: isSourceUnlocked ? '#f97316' : '#27272a',
+            strokeWidth: 1.5,
+            opacity: isSourceUnlocked ? 0.8 : 0.4,
+            transition: 'stroke 0.5s ease'
+          },
+        });
+      });
+    });
+
+    return { nodes, edges };
+  }, [selectedOccupation, unlockedNodes, availablePoints]);
+
+  // Priority: Hovered node > Selected node
+  const activeDisplayNodeId = hoveredNodeId || selectedNodeId;
+  const activeNode = activeDisplayNodeId ? tree?.nodes.find(n => n.id === activeDisplayNodeId) : null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-500 p-4 md:p-8">
+      <div className="w-full h-full max-w-6xl bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col shadow-[0_0_100px_rgba(0,0,0,1)] relative overflow-hidden">
+        {/* Background Effects */}
+        <div className="absolute inset-0 opacity-[0.05] pointer-events-none"
+          style={{ backgroundImage: 'radial-gradient(circle, #f97316 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-orange-500/10 blur-[120px] rounded-full pointer-events-none" />
+
+        {/* Top Close Button */}
+        <button
+          onClick={onClose}
+          className="absolute top-6 right-6 z-50 px-4 py-2 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-all mono uppercase text-[10px] bg-zinc-950/50 backdrop-blur-md flex items-center gap-2 group"
+        >
+          <span className="group-hover:text-red-500 transition-colors">Close</span>
+          <span className="text-[8px] opacity-30">[ESC]</span>
+        </button>
+
+        {/* Header: Large Circular Occupation Identity */}
+        <div className="flex flex-col items-center pt-8 pb-4 shrink-0 relative z-20">
+          <div className="relative group">
+            <div className="w-20 h-20 rounded-full border-4 border-zinc-800 bg-zinc-900 flex items-center justify-center overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.5)] group-hover:border-orange-500/50 transition-all duration-500">
+              <div className="text-3xl font-black text-zinc-700 select-none">{selectedOccupation.name.charAt(0)}</div>
+              <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 to-transparent opacity-40" />
             </div>
+            <div className="absolute -inset-2 border border-orange-500/20 rounded-full animate-[spin_10s_linear_infinite]" />
+          </div>
+          <div className="mt-4 text-center">
+            <h2 className="text-lg font-black mono text-zinc-100 uppercase tracking-[0.15em]">{selectedOccupation.name}</h2>
+            <div className="text-orange-500 font-bold text-[8px] mono uppercase tracking-[0.3em] mt-1">Occupation Tree</div>
+          </div>
+        </div>
 
-            <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-zinc-950/20 py-10">
-              <div className="w-full h-full relative overflow-y-auto overflow-x-hidden custom-scrollbar flex items-start justify-center pt-10">
-                {/* Scaling Container for Tree */}
-                <div className="relative min-w-[600px] min-h-[600px] flex items-center justify-center">
-                  {/* Dependency Lines (SVG) */}
-                  <svg className="absolute inset-0 pointer-events-none overflow-visible">
-                    {MOCK_TALENT_TREES[selectedOccupation.id]?.nodes.map(node =>
-                      node.dependencies?.map(depId => {
-                        const depNode = MOCK_TALENT_TREES[selectedOccupation.id].nodes.find(n => n.id === depId);
-                        if (!depNode) return null;
-                        return (
-                          <line
-                            key={`${node.id}-${depId}`}
-                            x1={`calc(50% + ${depNode.pos.x}px)`}
-                            y1={`calc(50% + ${depNode.pos.y}px)`}
-                            x2={`calc(50% + ${node.pos.x}px)`}
-                            y2={`calc(50% + ${node.pos.y}px)`}
-                            stroke="#18181b"
-                            strokeWidth="3"
-                          />
-                        );
-                      })
-                    )}
-                    {MOCK_TALENT_TREES[selectedOccupation.id]?.nodes.map(node =>
-                      node.dependencies?.map(depId => {
-                        const depNode = MOCK_TALENT_TREES[selectedOccupation.id].nodes.find(n => n.id === depId);
-                        if (!depNode) return null;
-                        return (
-                          <line
-                            key={`${node.id}-${depId}-inner`}
-                            x1={`calc(50% + ${depNode.pos.x}px)`}
-                            y1={`calc(50% + ${depNode.pos.y}px)`}
-                            x2={`calc(50% + ${node.pos.x}px)`}
-                            y2={`calc(50% + ${node.pos.y}px)`}
-                            stroke="#27272a"
-                            strokeWidth="1"
-                            strokeDasharray="4 4"
-                          />
-                        );
-                      })
-                    )}
-                  </svg>
+        {/* Separator Line */}
+        <div className="w-full h-px bg-zinc-900 shadow-[0_0_10px_rgba(0,0,0,1)] relative z-20" />
 
-                  {/* Talent Nodes */}
-                  <div className="relative">
-                    {MOCK_TALENT_TREES[selectedOccupation.id]?.nodes.map(node => (
-                      <Tooltip key={node.id} content={
-                        <div className="p-2 min-w-[180px]">
-                          <div className="flex justify-between items-start mb-1">
-                            <span className="text-orange-500 font-bold uppercase text-[10px]">{node.name}</span>
-                            <span className="text-[8px] mono text-zinc-600 px-1 border border-zinc-800 rounded">{node.type}</span>
-                          </div>
-                          <div className="text-zinc-300 text-[9px] leading-snug">{node.description}</div>
-                        </div>
-                      }>
-                        <div
-                          className="absolute flex items-center justify-center"
-                          style={{ left: node.pos.x, top: node.pos.y }}
-                        >
-                          <button
-                            className={`w-14 h-14 -ml-7 -mt-7 rounded-full border-2 transition-all duration-300 flex items-center justify-center relative z-10 
-                              ${node.id.includes('capstone')
-                                ? 'border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)] bg-zinc-900'
-                                : 'border-zinc-800 bg-zinc-900/80 hover:border-zinc-500 hover:bg-zinc-800'} 
-                              group`}
-                          >
-                            <div className={`w-1.5 h-1.5 rotate-45 transform transition-all 
-                              ${node.id.includes('capstone') ? 'bg-orange-500 shadow-[0_0_5px_#f97316]' : 'bg-zinc-700 group-hover:bg-zinc-400'}`} />
+        <div className="flex-1 relative flex overflow-hidden">
+          {/* Main Tree Area */}
+          <div className="flex-1 relative bg-zinc-950/10 talent-flow-container">
+            {/* Fade Separation Gradient */}
+            <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-zinc-950 to-transparent z-10 pointer-events-none" />
+            <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-zinc-950 to-transparent z-10 pointer-events-none" />
 
-                            {/* Inner Circle Effect */}
-                            <div className="absolute inset-1 rounded-full border border-zinc-800/50 pointer-events-none" />
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              nodeOrigin={[0.5, 0.5]}
+              onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
+              onNodeMouseLeave={() => setHoveredNodeId(null)}
+              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+              onPaneClick={() => setSelectedNodeId(null)}
+              fitView
+              fitViewOptions={{ padding: 0.15, includeHiddenNodes: true }}
+              zoomOnScroll={true}
+              panOnDrag={true}
+              zoomOnPinch={true}
+              zoomOnDoubleClick={false}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={true}
+              panOnScroll={false}
+              preventScrolling={true}
+              minZoom={0.5}
+              maxZoom={1.5}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background color="#18181b" gap={24} size={1} />
+            </ReactFlow>
 
-                            {/* Rank Indicator (Bottom Right) */}
-                            <div className="absolute -bottom-1 -right-1 min-w-[18px] h-[14px] bg-zinc-950 border border-zinc-800 px-1 flex items-center justify-center rounded-[2px] shadow-black shadow-sm">
-                              <span className="text-[7px] mono font-bold text-zinc-500">0/1</span>
-                            </div>
+            {!tree && (
+              <div className="absolute inset-0 flex items-center justify-center flex-col gap-4 text-center z-20">
+                <div className="w-20 h-20 rounded-full border border-dashed border-zinc-800 flex items-center justify-center text-zinc-800">
+                  <span className="text-2xl">?</span>
+                </div>
+                <div className="text-zinc-700 mono uppercase text-[9px] tracking-[0.2em] max-w-[200px]">
+                  Matrix structure undefined for {selectedOccupation.name} classification
+                </div>
+              </div>
+            )}
+          </div>
 
-                            {/* Glow on hover */}
-                            <div className="absolute inset-0 rounded-full bg-orange-500/10 opacity-0 group-hover:opacity-100 blur-md transition-opacity" />
-                          </button>
-                        </div>
-                      </Tooltip>
-                    ))}
-                  </div>
+          {/* Detailed Info Panel - Right Side */}
+          <div className="w-80 border-l border-zinc-900 bg-zinc-950/40 backdrop-blur-sm p-6 flex flex-col gap-6 relative z-30">
+            <div className="flex-1 space-y-4">
+              <label className="text-[10px] mono text-zinc-600 uppercase tracking-widest font-black block border-b border-zinc-900 pb-2 flex justify-between">
+                <span>Neural Data</span>
+                <span className="text-[8px] opacity-40">Matrix v2.4</span>
+              </label>
 
-                  {!MOCK_TALENT_TREES[selectedOccupation.id] && (
-                    <div className="flex flex-col items-center gap-4 text-center">
-                      <div className="w-20 h-20 rounded-full border border-dashed border-zinc-800 flex items-center justify-center text-zinc-800">
-                        <span className="text-2xl">?</span>
+              {activeNode ? (
+                <div key={activeNode.id} className="animate-in fade-in slide-in-from-top-2 duration-300">
+                  <Stack gap={4}>
+                    <div className="flex justify-between items-start">
+                      <h3 className="text-lg font-black mono text-zinc-100 uppercase leading-none">{activeNode.name}</h3>
+                      <Badge color={activeNode.type === 'active' ? 'blue' : 'zinc'}>{activeNode.type}</Badge>
+                    </div>
+
+                    <p className="text-xs text-zinc-400 leading-relaxed mono">
+                      {activeNode.description}
+                    </p>
+
+                    <div className="pt-4 border-t border-zinc-900 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[9px] mono text-zinc-500 uppercase font-bold">Requirement</span>
+                        <span className="text-[9px] mono text-zinc-300 font-bold uppercase">Level 01</span>
                       </div>
-                      <div className="text-zinc-700 mono uppercase text-[9px] tracking-[0.2em] max-w-[200px]">
-                        Matrix structure undefined for {selectedOccupation.name} classification
+                      <div className="flex justify-between items-center">
+                        <span className="text-[9px] mono text-zinc-500 uppercase font-bold">Status</span>
+                        {unlockedNodes.has(activeNode.id) ? (
+                          <span className="text-[9px] mono text-orange-500 font-black uppercase flex items-center gap-1">
+                            <span className="w-1 h-1 rounded-full bg-orange-500" />
+                            Unlocked
+                          </span>
+                        ) : availablePoints > 0 && (!activeNode.dependencies || activeNode.dependencies.every(d => unlockedNodes.has(d))) ? (
+                          <span className="text-[9px] mono text-blue-500 font-black uppercase animate-pulse">Available</span>
+                        ) : (
+                          <span className="text-[9px] mono text-zinc-700 font-black uppercase">Locked</span>
+                        )}
                       </div>
                     </div>
-                  )}
+                  </Stack>
                 </div>
-              </div>
+              ) : (
+                <div className="animate-in fade-in duration-500 py-4">
+                  <Stack gap={6}>
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-1 h-4 bg-orange-500" />
+                        <h3 className="text-sm font-black mono text-zinc-100 uppercase">System Status</h3>
+                      </div>
+                      <p className="text-[10px] mono text-zinc-500 leading-relaxed">
+                        Neural matrix online. Select a protocol to initiate deep-dive analysis. All talents follow the standard wasteland combat doctrine.
+                      </p>
+                    </div>
+
+                    <div className="bg-zinc-900/20 border border-zinc-800/40 p-3 space-y-2">
+                      <div className="flex justify-between text-[8px] mono text-zinc-600 uppercase">
+                        <span>Optimization</span>
+                        <span>94%</span>
+                      </div>
+                      <div className="w-full h-1 bg-zinc-800/50 rounded-full overflow-hidden">
+                        <div className="w-[94%] h-full bg-zinc-700 shadow-[0_0_5px_rgba(255,255,255,0.1)]" />
+                      </div>
+                    </div>
+
+                    <div className="pt-8 flex flex-col items-center justify-center text-center opacity-20">
+                      <div className="w-8 h-8 border border-zinc-800 rounded-full mb-3 flex items-center justify-center">
+                        <span className="text-xs text-zinc-800">i</span>
+                      </div>
+                      <p className="text-[8px] mono text-zinc-700 uppercase tracking-widest leading-loose">
+                        Waiting for user input...<br />select node for telemetry
+                      </p>
+                    </div>
+                  </Stack>
+                </div>
+              )}
             </div>
 
-            <div className="p-6 border-t border-zinc-900 bg-zinc-950/80 backdrop-blur-md shrink-0 flex justify-between items-center relative z-30">
-              <div className="flex gap-2">
-                <div className="flex flex-col">
-                  <span className="text-[8px] mono text-zinc-600 uppercase">Available points</span>
-                  <span className="text-sm mono font-black text-orange-500">00</span>
+            <div className="mt-auto pt-6 border-t border-zinc-900">
+              <div className="p-4 bg-zinc-900/40 border border-zinc-800 rounded-sm relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-1 opacity-20 text-[7px] mono">CPU-01</div>
+                <div className="flex flex-col gap-1 items-center">
+                  <span className="text-[8px] mono text-zinc-600 uppercase tracking-tighter">Neuro-synapses available</span>
+                  <span className="text-2xl mono font-black text-orange-500 group-hover:scale-110 transition-transform duration-500">{String(availablePoints).padStart(2, '0')}</span>
                 </div>
-              </div>
-              <div className="text-center flex-1 max-w-sm px-4 text-zinc-700 mono uppercase text-[8px] leading-relaxed">
-                NEURAL LINK STABLE // AUTHORIZED OVERRIDE // CLASSIFIED ACCESS ONLY
-              </div>
-              <div className="flex gap-4">
-                <button className="px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-600 mono uppercase text-[8px] font-black tracking-widest hover:bg-zinc-800 transition-colors">
-                  Reset Matrix
-                </button>
-                <button className="px-4 py-2 bg-zinc-800 border border-zinc-700 text-zinc-100 opacity-50 cursor-not-allowed mono uppercase text-[8px] font-black tracking-widest">
-                  Commit Evolution
-                </button>
               </div>
             </div>
           </div>
         </div>
-      )}
-    </Container>
+
+        <div className="p-6 border-t border-zinc-900 bg-zinc-950/80 backdrop-blur-md shrink-0 flex justify-between items-center relative z-40">
+          <div className="flex gap-2 text-[8px] mono text-zinc-600 uppercase">
+            {unlockedNodes.size} / {tree?.nodes.length || 0} Nodes Mastered
+          </div>
+          <div className="flex gap-4">
+            <button
+              onClick={() => {
+                setUnlockedNodes(new Set());
+                setAvailablePoints(1); // Reset to demo points
+                setSelectedNodeId(null);
+              }}
+              className="px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-600 hover:text-zinc-300 mono uppercase text-[8px] font-black tracking-widest hover:bg-zinc-800 transition-colors"
+            >
+              Reset talent tree
+            </button>
+            <button className={`px-4 py-2 border transition-all mono uppercase text-[8px] font-black tracking-widest
+                ${unlockedNodes.size > 0
+                ? 'bg-orange-600 border-orange-500 text-zinc-950 hover:bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+                : 'bg-zinc-800 border-zinc-700 text-zinc-100 opacity-50 cursor-not-allowed'}`}>
+              Upgrade
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };

@@ -4,38 +4,51 @@ export const MOCK_TALENT_TREES: Record<string, TalentTree> = {
     'occ-soldier': {
         occupationId: 'occ-soldier',
         nodes: [
-            // Tier 1
-            { id: 's-t1-1', name: 'Basic Drills', description: 'Fundamental soldiering. +5% HP.', pos: { x: 0, y: -200 }, type: 'passive' },
+            // Tier 1: Entry
+            { id: 's-1', name: 'Basic Training', description: 'Standard military protocols.', pos: { x: 0, y: -300 }, type: 'passive' },
 
-            // Tier 2
-            { id: 's-t2-1', name: 'Rifleman', description: 'Proficiency with distance weapons.', pos: { x: -150, y: -100 }, dependencies: ['s-t1-1'], type: 'passive' },
-            { id: 's-t2-2', name: 'Commando', description: 'Close quarters combat training.', pos: { x: -50, y: -100 }, dependencies: ['s-t1-1'], type: 'passive' },
-            { id: 's-t2-3', name: 'Medic Training', description: 'Basic first aid for the field.', pos: { x: 50, y: -100 }, dependencies: ['s-t1-1'], type: 'passive' },
-            { id: 's-t2-4', name: 'Tactician', description: 'Understanding troop movements.', pos: { x: 150, y: -100 }, dependencies: ['s-t1-1'], type: 'passive' },
+            // Tier 2: The Split
+            { id: 's-2', name: 'Offensive Stance', description: 'Focus on direct engagements.', pos: { x: -150, y: -180 }, dependencies: ['s-1'], type: 'passive' },
+            { id: 's-3', name: 'Defensive Stance', description: 'Focus on hazard mitigation.', pos: { x: 150, y: -180 }, dependencies: ['s-1'], type: 'passive' },
 
-            // Tier 3
-            { id: 's-t3-1', name: 'Sharpshooter', description: 'Critical hit chance +10%.', pos: { x: -150, y: 0 }, dependencies: ['s-t2-1'], type: 'stat' },
-            { id: 's-t3-2', name: 'Breacher', description: 'First strike deals double damage.', pos: { x: -50, y: 0 }, dependencies: ['s-t2-2'], type: 'active' },
-            { id: 's-t3-3', name: 'Field Surgeon', description: 'Healing items are 25% more effective.', pos: { x: 50, y: 0 }, dependencies: ['s-t2-3'], type: 'passive' },
-            { id: 's-t3-4', name: 'Strategist', description: 'Reduce party AP costs by 1.', pos: { x: 150, y: 0 }, dependencies: ['s-t2-4'], type: 'passive' },
+            // Tier 3: Mid-Branch
+            { id: 's-4', name: 'Heavy Weapons', description: 'Increased firepower.', pos: { x: -150, y: -60 }, dependencies: ['s-2'], type: 'passive' },
+            { id: 's-5', name: 'Armor Plating', description: 'Increased protection.', pos: { x: 150, y: -60 }, dependencies: ['s-3'], type: 'passive' },
 
-            // Tier 4
-            { id: 's-t4-1', name: 'Overwatch', description: 'Free attack on moving enemies.', pos: { x: -150, y: 100 }, dependencies: ['s-t3-1'], type: 'active' },
-            { id: 's-t4-2', name: 'Unstoppable', description: 'Cannot be stunned or slowed.', pos: { x: -50, y: 100 }, dependencies: ['s-t3-2'], type: 'passive' },
-            { id: 's-t4-3', name: 'Trauma Specialist', description: 'Instantly revive downed allies (1/combat).', pos: { x: 50, y: 100 }, dependencies: ['s-t3-3'], type: 'active' },
-            { id: 's-t4-4', name: 'War Room Master', description: 'Reveal all enemy positions on map.', pos: { x: 150, y: 100 }, dependencies: ['s-t3-4'], type: 'passive' },
+            // Tier 4: The Convergence
+            { id: 's-6', name: 'Elite Operative', description: 'Versatile combat master.', pos: { x: 0, y: 60 }, dependencies: ['s-4', 's-5'], type: 'passive' },
 
-            // Tier 5 - Capstone
-            { id: 's-capstone', name: 'Legend of the Ash', description: 'The ultimate survivor. All stats +2.', pos: { x: 0, y: 200 }, dependencies: ['s-t4-1', 's-t4-2', 's-t4-3', 's-t4-4'], type: 'passive' },
+            // Tier 5: Transition
+            { id: 's-7', name: 'War Hero', description: 'Inspirational presence.', pos: { x: 0, y: 180 }, dependencies: ['s-6'], type: 'passive' },
+
+            // Tier 6: Final Split (Capstone)
+            { id: 's-8', name: 'Apex Predator', description: 'Single-target elimination.', pos: { x: -120, y: 300 }, dependencies: ['s-7'], type: 'active' },
+            { id: 's-9', name: 'Battlefield Legend', description: 'Wide-area influence.', pos: { x: 120, y: 300 }, dependencies: ['s-7'], type: 'passive' },
         ]
     },
     'occ-guard': {
         occupationId: 'occ-guard',
         nodes: [
-            { id: 'g-t1-1', name: 'Sentry Training', description: 'Basic vigilance. +10% vision.', pos: { x: 0, y: -200 }, type: 'passive' },
-            { id: 'g-t2-1', name: 'Bulwark', description: 'Shield proficiency.', pos: { x: -75, y: -100 }, dependencies: ['g-t1-1'], type: 'passive' },
-            { id: 'g-t2-2', name: 'Interrogator', description: 'Extract information from captives.', pos: { x: 75, y: -100 }, dependencies: ['g-t1-1'], type: 'active' },
-            { id: 'g-capstone', name: 'Bastion of Hope', description: 'Immune to fear. Party defense +20%.', pos: { x: 0, y: 0 }, dependencies: ['g-t2-1', 'g-t2-2'], type: 'passive' },
+            // Tier 1: Entry
+            { id: 'g-1', name: 'Sentry Protocols', description: 'Standard watch procedures.', pos: { x: 0, y: -300 }, type: 'passive' },
+
+            // Tier 2: The Split
+            { id: 'g-2', name: 'Shield Specialization', description: 'Left defensive path.', pos: { x: -150, y: -180 }, dependencies: ['g-1'], type: 'passive' },
+            { id: 'g-3', name: 'Detection Grid', description: 'Right detection path.', pos: { x: 150, y: -180 }, dependencies: ['g-1'], type: 'passive' },
+
+            // Tier 3: Mid-Branch
+            { id: 'g-4', name: 'Kinetic Rebound', description: 'Advanced energy redirection.', pos: { x: -150, y: -60 }, dependencies: ['g-2'], type: 'passive' },
+            { id: 'g-5', name: 'Neural Scanner', description: 'Improved biological detection.', pos: { x: 150, y: -60 }, dependencies: ['g-3'], type: 'passive' },
+
+            // Tier 4: The Convergence
+            { id: 'g-6', name: 'Fortress', description: 'The absolute unit of defense.', pos: { x: 0, y: 60 }, dependencies: ['g-4', 'g-5'], type: 'passive' },
+
+            // Tier 5: Transition
+            { id: 'g-7', name: 'Bastion Protocols', description: 'Area denial mastery.', pos: { x: 0, y: 180 }, dependencies: ['g-6'], type: 'passive' },
+
+            // Tier 6: Final Split
+            { id: 'g-8', name: 'Guardian Angel', description: 'Total ally protection.', pos: { x: -120, y: 300 }, dependencies: ['g-7'], type: 'active' },
+            { id: 'g-9', name: 'Eternal Watcher', description: 'Infinite awareness.', pos: { x: 120, y: 300 }, dependencies: ['g-7'], type: 'passive' },
         ]
     }
 };
