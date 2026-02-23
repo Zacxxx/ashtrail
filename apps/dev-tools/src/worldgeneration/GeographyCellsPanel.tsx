@@ -6,10 +6,11 @@ interface GeographyCellsPanelProps {
     globeWorld: PlanetWorld | null;
     selectedCell: TerrainCell | null;
     onGenerateSubTiles: (cell: TerrainCell) => void;
+    onGenerateCells: () => void;
     isGeneratingText: boolean;
 }
 
-export function GeographyCellsPanel({ globeWorld, selectedCell, onGenerateSubTiles, isGeneratingText }: GeographyCellsPanelProps) {
+export function GeographyCellsPanel({ globeWorld, selectedCell, onGenerateSubTiles, onGenerateCells, isGeneratingText }: GeographyCellsPanelProps) {
     if (!globeWorld?.textureUrl) {
         return (
             <div className="p-6 rounded-xl border border-white/5 bg-white/5 text-center mt-6">
@@ -17,6 +18,23 @@ export function GeographyCellsPanel({ globeWorld, selectedCell, onGenerateSubTil
                 <p className="text-[10px] text-gray-500 leading-relaxed">Generate a planet texture in the <span className="text-[#E6E6FA] font-bold">Geology</span> step first.</p>
             </div>
         );
+    }
+
+    if (!globeWorld.cellData || globeWorld.cellData.length === 0) {
+        return (
+            <div className="p-4 rounded-xl border border-white/5 bg-white/5 text-center mt-6">
+                <p className="text-[10px] text-gray-500 leading-relaxed mb-4">
+                    This planet does not have generated geometry yet.
+                </p>
+                <Button
+                    variant="primary"
+                    onClick={onGenerateCells}
+                    className="w-full text-[8px] tracking-[0.1em] font-black py-3 bg-indigo-600/30 hover:bg-indigo-600/50 text-white rounded-xl shadow-[0_0_15px_rgba(79,70,229,0.2)]"
+                >
+                    GENERATE TILE GRID (SLOW)
+                </Button>
+            </div>
+        )
     }
 
     if (!selectedCell) {

@@ -126,7 +126,7 @@ export function useWorldGeneration({
         }, 500);
     }, [prompt, config, saveToHistory, setGlobeWorld]);
 
-    const generatePlanet = useCallback(async () => {
+    const generatePlanet = useCallback(async (generateCells: boolean) => {
         setGenProgress({ isActive: true, progress: 0, stage: "Starting Generation…", jobId: null });
         setGlobeWorld(null);
 
@@ -170,7 +170,8 @@ ${configPrompt}${continentsPrompt}`;
                     prompt: fullPrompt,
                     temperature: aiTemperature,
                     cols,
-                    rows
+                    rows,
+                    generateCells
                 }),
             });
 
@@ -367,6 +368,26 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}${regio
         }
     }, [pollJobProgress]);
 
+    const generatePlanetCells = useCallback(async (historyId: string) => {
+        setGenProgress({ isActive: true, progress: 0, stage: "Queuing Geometry Grid Generator...", jobId: null });
+        try {
+            const response = await fetch("http://127.0.0.1:8787/api/planet/cells/job", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ historyId }),
+            });
+            if (!response.ok) throw new Error(await response.text());
+            const { jobId } = await response.json();
+            setGenProgress(prev => ({ ...prev, jobId }));
+            pollJobProgress(jobId, "http://127.0.0.1:8787/api/planet/cells/job");
+        } catch (error) {
+            console.error(error);
+            setGenProgress({
+                isActive: false, progress: 0, stage: `Error: ${error instanceof Error ? error.message : "Unknown error"}`, jobId: null,
+            });
+        }
+    }, [pollJobProgress]);
+
     const generateCellSubTiles = useCallback(async (selectedCell: any) => {
         if (!selectedCell) return;
         setIsGeneratingText(true);
@@ -420,5 +441,6 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}${regio
         fetchRegionLore,
         generateUpscale,
         generateCellSubTiles,
+        generatePlanetCells,
     };
 }

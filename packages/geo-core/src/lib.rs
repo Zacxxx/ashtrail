@@ -242,6 +242,7 @@ pub fn generate_world_from_image<F, C>(
     _km_per_cell: f64,
     mut on_progress: F,
     mut_should_cancel: C,
+    generate_cells: bool,
 ) -> Result<WorldData, String>
 where
     F: FnMut(GenerationProgress),
@@ -261,6 +262,15 @@ where
     let mut water_level = config.world.ocean_coverage;
     let noise_manager = NoiseManager::new(config.world.seed, config.geo.clone());
     let climate_sim = ClimateSimulator::new(&config.climate, &noise_manager);
+
+    if !generate_cells {
+        emit_progress(&mut on_progress, 100.0, "Skipping cell generation");
+        return Ok(WorldData {
+            cells: Vec::new(),
+            cols,
+            rows,
+        });
+    }
 
     // ════════════════════════════════════════════════════════════
     // PASS 1: Parallel image parsing for Base Geology

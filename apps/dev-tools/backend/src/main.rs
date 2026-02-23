@@ -95,6 +95,7 @@ struct PlanetHybridRequest {
     cols: Option<u32>,
     rows: Option<u32>,
     temperature: Option<f32>,
+    generate_cells: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -195,6 +196,8 @@ async fn main() {
         .route("/api/history/{id}", delete(delete_history))
         .route("/api/planet/geography/{id}", get(get_geography).post(save_geography))
         .route("/api/planet/cells/{id}", get(get_cells).post(save_cells))
+        .route("/api/planet/cells/job", post(start_cells_job))
+        .route("/api/planet/cells/job/{job_id}", get(get_job_status))
         .route("/api/planet/upscale", post(start_upscale_job))
         .route("/api/planet/upscale/{job_id}", get(get_job_status))
         // Static file serving for all planet textures
@@ -549,9 +552,10 @@ async fn start_hybrid_job(
     let spawned_job_id = job_id.clone();
     
     let request_key = spawned_job_id.clone();
+    let generate_cells_opt = request.generate_cells;
 
     tokio::task::spawn(async move {
-        run_hybrid_generation_job(spawned_job_id, terrain_request, request.prompt, request.temperature, request_key, jobs, planets_dir).await;
+        run_hybrid_generation_job(spawned_job_id, terrain_request, request.prompt, request.temperature, generate_cells_opt, request_key, jobs, planets_dir).await;
     });
 
     Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
@@ -562,6 +566,7 @@ async fn run_hybrid_generation_job(
     request: GenerateTerrainRequest,
     prompt: String,
     temperature: Option<f32>,
+    generate_cells: Option<bool>,
     request_key: String,
     jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
     planets_dir: std::path::PathBuf,
@@ -694,6 +699,7 @@ async fn run_hybrid_generation_job(
                 }
                 false
             },
+            generate_cells.unwrap_or(true),
         )
     }).await;
 
@@ -1507,6 +1513,254 @@ async fn run_image_edit_job(
             job.current_stage = "Completed".to_string();
             job.result = Some(response);
             job.error = None;
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StartCellsJobRequest {
+    history_id: String,
+}
+
+async fn start_cells_job(
+    State(state): State<AppState>,
+    Json(request): Json<StartCellsJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let job_id = Uuid::new_v4().to_string();
+    let history_id = request.history_id.clone();
+
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        jobs.insert(
+            job_id.clone(),
+            JobRecord {
+                status: JobStatus::Queued,
+                progress: 0.0,
+                current_stage: "Reading base map...".to_string(),
+                result: None,
+                error: None,
+                cancel_requested: false,
+            },
+        );
+    }
+
+    let jobs = state.jobs.clone();
+    let planets_dir = state.planets_dir.clone();
+    let spawned_job_id = job_id.clone();
+
+    tokio::task::spawn(async move {
+        run_cells_job(spawned_job_id, history_id, jobs, planets_dir).await;
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn run_cells_job(
+    job_id: String,
+    history_id: String,
+    jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
+    planets_dir: std::path::PathBuf,
+) {
+    let _start = std::time::Instant::now();
+    let planet_dir = planets_dir.join(&history_id);
+    let world_data_path = planet_dir.join("world_data.json");
+    let texture_path = planet_dir.join("textures").join("base.jpg");
+
+    if !world_data_path.exists() || !texture_path.exists() {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&job_id) {
+                job.status = JobStatus::Failed;
+                job.current_stage = "Missing base map data".to_string();
+                job.error = Some("Planet data not found on disk".to_string());
+            }
+        }
+        return;
+    }
+
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(&job_id) {
+            job.status = JobStatus::Running;
+            job.current_stage = "Loading map pixels...".to_string();
+        }
+    }
+
+    // Load data
+    let (cols, rows) = match tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::open(world_data_path).map_err(|e| e.to_string())?;
+        let reader = std::io::BufReader::new(file);
+        let world: GenerateTerrainResponse = serde_json::from_reader(reader).map_err(|e| e.to_string())?;
+        Ok::<_, String>((world.cols, world.rows))
+    }).await {
+        Ok(Ok((c, r))) => (c, r),
+        _ => {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&job_id) {
+                    job.status = JobStatus::Failed;
+                    job.current_stage = "Failed opening world data".to_string();
+                }
+            }
+            return;
+        }
+    };
+
+    // Load original Image
+    let image_result = tokio::task::spawn_blocking(move || {
+        image::open(texture_path).map(|img| img.to_rgba8())
+    }).await.unwrap();
+
+    let rgba_image = match image_result {
+        Ok(img) => img,
+        Err(_) => {
+             if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&job_id) {
+                    job.status = JobStatus::Failed;
+                    job.current_stage = "Failed to open texture image".to_string();
+                }
+             }
+             return;
+        }
+    };
+
+    let image_width = rgba_image.width();
+    let image_height = rgba_image.height();
+    let pixel_data = rgba_image.into_raw();
+
+    // Spawn geometry computation
+    let progress_jobs = jobs.clone();
+    let log_job_id = job_id.clone();
+    let log_job_id2 = job_id.clone();
+
+    // Recover config from history
+    let history_path = std::path::PathBuf::from("generated/history.json");
+    let mut real_config = geo_core::SimulationConfig {
+        world: geo_core::WorldConfig {
+            seed: 0,
+            planet_radius: 6371.0,
+            axial_tilt: 23.5,
+            solar_luminosity: 1.0,
+            atmospheric_density: 1.0,
+            ocean_coverage: 0.6,
+        },
+        geo: geo_core::GeoConfig {
+            continental_scale: 180.0,
+            plate_count: 12,
+            tectonic_intensity: 0.8,
+            volcanic_density: 0.2,
+            erosion_iterations: 1,
+            octaves: 5,
+            persistence: 0.5,
+            lacunarity: 2.0,
+        },
+        climate: geo_core::ClimateConfig {
+            global_mean_temp: 15.0,
+            latitude_gradient: 30.0,
+            prevailing_wind_dir: 0.0,
+            wind_strength: 0.5,
+            precipitation_multiplier: 1.0,
+            ocean_warmth_factor: 5.0,
+        },
+    };
+    if history_path.exists() {
+        if let Ok(contents) = std::fs::read_to_string(&history_path) {
+            if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&contents) {
+                if let Some(entry) = entries.iter().find(|e| e["id"].as_str() == Some(&history_id)) {
+                    if let Ok(cfg) = serde_json::from_value::<geo_core::SimulationConfig>(entry["config"].clone()) {
+                        real_config = cfg;
+                    }
+                }
+            }
+        }
+    }
+
+    let request = GenerateTerrainRequest {
+        config: real_config,
+        cols,
+        rows,
+        km_per_cell: 100.0,
+        octaves: 2,
+    };
+
+    let result = tokio::task::spawn_blocking(move || {
+        generator::generate_hybrid_with_progress_and_cancel(
+            request,
+            &pixel_data,
+            image_width,
+            image_height,
+            |progress| {
+                if let Ok(mut map) = progress_jobs.lock() {
+                    if let Some(job) = map.get_mut(&log_job_id) {
+                        job.progress = progress.progress;
+                        job.current_stage = progress.stage.to_string();
+                    }
+                }
+            },
+            || false, // cancel unsupported for this
+            true, // generate_cells is TRUE
+        )
+    }).await;
+
+    let task_result = match result {
+        Ok(r) => r,
+        Err(_) => {
+             if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id2) {
+                    job.status = JobStatus::Failed;
+                    job.current_stage = "Task died".to_string();
+                }
+             }
+             return;
+        }
+    };
+
+    match task_result {
+        Ok(response) => {
+            let planet_dir = planets_dir.join(&history_id);
+            let world_data_path = planet_dir.join("world_data.json");
+            
+            let mut final_response = response.clone();
+            final_response.texture_url = Some(format!("/api/planets/{}/textures/base.jpg", history_id));
+
+            match std::fs::File::create(&world_data_path) {
+                Ok(file) => {
+                    if let Err(_) = serde_json::to_writer(std::io::BufWriter::new(file), &final_response) {
+                        error!("failed to rewrite world JSON!");
+                    } else {
+                        info!("world_data updated with cells");
+                    }
+                }
+                Err(_) => {}
+            }
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id2) {
+                    job.status = JobStatus::Completed;
+                    job.progress = 100.0;
+                    job.current_stage = "Completed".to_string();
+                    // Strip the full cells so we don't crash
+                    job.result = Some(GenerateTerrainResponse {
+                        cols: response.cols,
+                        rows: response.rows,
+                        cell_data: Vec::new(),
+                        cell_colors: Vec::new(),
+                        texture_url: final_response.texture_url,
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&log_job_id2) {
+                    job.status = JobStatus::Failed;
+                    job.current_stage = "Failed".to_string();
+                    job.error = Some(e);
+                }
+            }
         }
     }
 }

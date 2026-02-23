@@ -28,6 +28,7 @@ export function WorldGenPage() {
     const [showHistory, setShowHistory] = useState(false);
     const [showConfigPanel, setShowConfigPanel] = useState(true);
     const [showHexGrid, setShowHexGrid] = useState(false);
+    const [generateCells, setGenerateCells] = useState(false);
     const [isMaxView, setIsMaxView] = useState(false);
 
     // ── Geography State ──
@@ -89,6 +90,7 @@ export function WorldGenPage() {
         fetchRegionLore,
         generateUpscale,
         generateCellSubTiles,
+        generatePlanetCells,
     } = useWorldGeneration({
         prompt, config, aiResolution, aiTemperature, continents,
         ecoPrompt, ecoVegetation, ecoFauna,
@@ -187,10 +189,11 @@ export function WorldGenPage() {
                             aiResolution={aiResolution} setAiResolution={setAiResolution}
                             aiTemperature={aiTemperature} setAiTemperature={setAiTemperature}
                             showHexGrid={showHexGrid} setShowHexGrid={setShowHexGrid}
+                            generateCells={generateCells} setGenerateCells={setGenerateCells}
                             config={config} updateWorld={updateWorld} updateGeo={updateGeo} updateClimate={updateClimate}
                             continents={continents} setContinents={setContinents}
                             isGeneratingText={isGeneratingText} handleAutoGenerateContinents={handleAutoGenerateContinents}
-                            generatePlanet={generatePlanet} genProgress={genProgress}
+                            generatePlanet={() => generatePlanet(generateCells)} genProgress={genProgress}
                         />
                     )}
                     {activeStep === "GEOGRAPHY" && (
@@ -208,6 +211,7 @@ export function WorldGenPage() {
                             activeHistoryId={activeHistoryId}
                             selectedCell={selectedCell}
                             onGenerateSubTiles={generateCellSubTiles}
+                            generatePlanetCells={generatePlanetCells}
                             isGeneratingText={isGeneratingText}
                             geographyTab={geographyTab}
                             setGeographyTab={setGeographyTab}
