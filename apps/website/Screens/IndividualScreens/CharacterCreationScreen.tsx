@@ -29,11 +29,7 @@ const TalentNode = ({ data }: { data: any }) => {
       />
 
       <div className="flex items-center justify-center">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isAvailable && !isUnlocked && onUnlock) onUnlock();
-          }}
+        <div
           className={`w-16 h-16 rounded-full border-2 transition-all duration-300 flex items-center justify-center relative z-10 
             ${isUnlocked
               ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_20px_rgba(249,115,22,0.2)]'
@@ -64,7 +60,7 @@ const TalentNode = ({ data }: { data: any }) => {
 
           {/* Glow on hover */}
           <div className={`absolute inset-0 rounded-full blur-md transition-opacity ${isAvailable ? 'bg-orange-500/10 opacity-0 group-hover:opacity-100' : 'opacity-0'}`} />
-        </button>
+        </div>
       </div>
 
       <Handle
@@ -965,7 +961,8 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
     return { nodes, edges };
   }, [selectedOccupation, unlockedNodes, availablePoints]);
 
-  // Priority: Hovered node > Selected node
+  // Display Logic Priority: Hovered node takes precedence over Selected node
+  // When hover ends (null), it falls back to the Selected node.
   const activeDisplayNodeId = hoveredNodeId || selectedNodeId;
   const activeNode = activeDisplayNodeId ? tree?.nodes.find(n => n.id === activeDisplayNodeId) : null;
 
@@ -1020,7 +1017,11 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
               onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
               onNodeMouseLeave={() => setHoveredNodeId(null)}
               onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-              onPaneClick={() => setSelectedNodeId(null)}
+              onNodeDoubleClick={(_, node) => {
+                if (node.data.isAvailable && !node.data.isUnlocked) {
+                  node.data.onUnlock();
+                }
+              }}
               fitView
               fitViewOptions={{ padding: 0.2, includeHiddenNodes: true }}
               zoomOnScroll={true}
@@ -1093,37 +1094,8 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
                   </Stack>
                 </div>
               ) : (
-                <div className="animate-in fade-in duration-500 py-4">
-                  <Stack gap={6}>
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-1 h-4 bg-orange-500" />
-                        <h3 className="text-sm font-black mono text-zinc-100 uppercase">System Status</h3>
-                      </div>
-                      <p className="text-[10px] mono text-zinc-500 leading-relaxed">
-                        Neural matrix online. Select a protocol to initiate deep-dive analysis. All talents follow the standard wasteland combat doctrine.
-                      </p>
-                    </div>
-
-                    <div className="bg-zinc-900/20 border border-zinc-800/40 p-3 space-y-2">
-                      <div className="flex justify-between text-[8px] mono text-zinc-600 uppercase">
-                        <span>Optimization</span>
-                        <span>94%</span>
-                      </div>
-                      <div className="w-full h-1 bg-zinc-800/50 rounded-full overflow-hidden">
-                        <div className="w-[94%] h-full bg-zinc-700 shadow-[0_0_5px_rgba(255,255,255,0.1)]" />
-                      </div>
-                    </div>
-
-                    <div className="pt-8 flex flex-col items-center justify-center text-center opacity-20">
-                      <div className="w-8 h-8 border border-zinc-800 rounded-full mb-3 flex items-center justify-center">
-                        <span className="text-xs text-zinc-800">i</span>
-                      </div>
-                      <p className="text-[8px] mono text-zinc-700 uppercase tracking-widest leading-loose">
-                        Waiting for user input...<br />select node for telemetry
-                      </p>
-                    </div>
-                  </Stack>
+                <div className="flex flex-col items-center justify-center h-40 opacity-20 border border-dashed border-zinc-800 rounded-sm">
+                  <p className="text-[8px] mono text-zinc-500 uppercase tracking-[0.2em]">Select node for telemetry</p>
                 </div>
               )}
             </div>
