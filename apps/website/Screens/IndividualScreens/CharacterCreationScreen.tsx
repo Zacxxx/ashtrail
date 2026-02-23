@@ -590,11 +590,11 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                   <section className="space-y-3">
                     <h4 className="text-[10px] text-orange-500 mono font-bold uppercase tracking-widest flex items-center gap-2">
                       <div className="w-1 h-1 rounded-full bg-orange-500" />
-                      Neural Profiling ({selectedTraits.length})
+                      Profiling ({selectedTraits.length})
                     </h4>
                     {selectedTraits.length === 0 ? (
                       <div className="p-8 border border-dashed border-zinc-800 rounded-sm text-center text-zinc-600 text-[10px] mono uppercase">
-                        No neural traits selected.
+                        No traits selected.
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
