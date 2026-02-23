@@ -17,8 +17,8 @@ import { ReactFlow, Edge, Node, Position, Handle, ConnectionLineType, Background
 import '@xyflow/react/dist/style.css';
 
 // Custom Talent Node for React Flow
-const TalentNode = ({ data }: { data: any }) => {
-  const { isCapstone, isConverging, isUnlocked, isAvailable, name, type, rank = 0, maxRank = 1, onUnlock } = data;
+const TalentNode = ({ data, selected }: { data: any, selected: boolean }) => {
+  const { isCapstone, isConverging, isUnlocked, isAvailable, name, type, rank = 0, maxRank = 1, onUnlock, isConfirming } = data;
 
   return (
     <div className="relative group">
@@ -58,8 +58,29 @@ const TalentNode = ({ data }: { data: any }) => {
             <span className="text-[7px] mono font-bold">{rank}/{maxRank}</span>
           </div>
 
-          {/* Glow on hover */}
-          <div className={`absolute inset-0 rounded-full blur-md transition-opacity ${isAvailable ? 'bg-orange-500/10 opacity-0 group-hover:opacity-100' : 'opacity-0'}`} />
+          {/* Glow on hover or selected */}
+          <div className={`absolute inset-0 rounded-full blur-md transition-opacity 
+            ${selected ? 'bg-orange-500/20 opacity-100' : isAvailable ? 'bg-orange-500/10 opacity-0 group-hover:opacity-100' : 'opacity-0'}`}
+          />
+
+          {/* Upgrade Animation Effect - Commitment Pulse for Selected OR ALREADY UNLOCKED nodes */}
+          {isConfirming && (selected || isUnlocked) && (
+            <>
+              <div className="absolute -inset-8 rounded-full border-4 border-orange-500/30 animate-ping z-0" />
+              <div className={`absolute -inset-2 rounded-full bg-orange-500/20 animate-[pulse_0.4s_ease-in-out_infinite] z-0 ${!selected && 'opacity-50'}`} />
+              {/* Scanline commitment effect only for selected */}
+              {selected && (
+                <div className="absolute inset-x-0 top-0 h-[100%] bg-gradient-to-b from-transparent via-orange-400/40 to-transparent animate-[bounce_1.5s_infinite] pointer-events-none z-20"
+                  style={{ backgroundSize: '100% 20%', backgroundRepeat: 'no-repeat' }} />
+              )}
+            </>
+          )}
+
+          {/* Selected Ring */}
+          {selected && (
+            <div className={`absolute -inset-2 rounded-full border-2 border-orange-500/60 pointer-events-none 
+              ${isConfirming ? 'animate-none' : 'animate-[pulse_2s_infinite]'}`} />
+          )}
         </div>
       </div>
 
@@ -884,9 +905,15 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 // Extracted for clean React Flow context/state
 const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation: Occupation, onClose: () => void }) => {
   const [unlockedNodes, setUnlockedNodes] = useState<Set<string>>(new Set());
-  const [availablePoints, setAvailablePoints] = useState(1); // Starting with 1 for demo
+  const [availablePoints, setAvailablePoints] = useState(2); // Starting with 2 for demo
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+
+  const handleApplyUpgrade = () => {
+    setIsConfirming(true);
+    setTimeout(() => setIsConfirming(false), 2000);
+  };
 
   const tree = MOCK_TALENT_TREES[selectedOccupation.id];
 
@@ -930,6 +957,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
           isConverging: (node.dependencies?.length || 0) > 1,
           isUnlocked,
           isAvailable,
+          isConfirming,
           onUnlock: () => handleUnlockNode(node.id)
         },
         draggable: false,
@@ -959,7 +987,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
     });
 
     return { nodes, edges };
-  }, [selectedOccupation, unlockedNodes, availablePoints]);
+  }, [selectedOccupation, unlockedNodes, availablePoints, isConfirming]);
 
   // Display Logic Priority: Hovered node takes precedence over Selected node
   // When hover ends (null), it falls back to the Selected node.
@@ -1056,8 +1084,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
           <div className="w-80 border-l border-zinc-900 bg-zinc-950/40 backdrop-blur-sm p-6 flex flex-col gap-6 relative z-30">
             <div className="flex-1 space-y-4">
               <label className="text-[10px] mono text-zinc-600 uppercase tracking-widest font-black block border-b border-zinc-900 pb-2 flex justify-between">
-                <span>Neural Data</span>
-                <span className="text-[8px] opacity-40">Matrix v2.4</span>
+                <span>Informations</span>
               </label>
 
               {activeNode ? (
@@ -1102,9 +1129,8 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
 
             <div className="mt-auto pt-6 border-t border-zinc-900">
               <div className="p-4 bg-zinc-900/40 border border-zinc-800 rounded-sm relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-1 opacity-20 text-[7px] mono">CPU-01</div>
                 <div className="flex flex-col gap-1 items-center">
-                  <span className="text-[8px] mono text-zinc-600 uppercase tracking-tighter">Neuro-synapses available</span>
+                  <span className="text-[8px] mono text-zinc-600 uppercase tracking-tighter">Ability points available</span>
                   <span className="text-2xl mono font-black text-orange-500 group-hover:scale-110 transition-transform duration-500">{String(availablePoints).padStart(2, '0')}</span>
                 </div>
               </div>
@@ -1114,23 +1140,30 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
 
         <div className="p-6 border-t border-zinc-900 bg-zinc-950/80 backdrop-blur-md shrink-0 flex justify-between items-center relative z-40">
           <div className="flex gap-2 text-[8px] mono text-zinc-600 uppercase">
-            {unlockedNodes.size} / {tree?.nodes.length || 0} Nodes Mastered
+            {unlockedNodes.size} / {tree?.nodes.length || 0} Talents mastered
           </div>
           <div className="flex gap-4">
             <button
               onClick={() => {
                 setUnlockedNodes(new Set());
-                setAvailablePoints(1); // Reset to demo points
+                setAvailablePoints(2); // Reset to demo points
                 setSelectedNodeId(null);
               }}
               className="px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-600 hover:text-zinc-300 mono uppercase text-[8px] font-black tracking-widest hover:bg-zinc-800 transition-colors"
             >
               Reset talent tree
             </button>
-            <button className={`px-4 py-2 border transition-all mono uppercase text-[8px] font-black tracking-widest
-                ${unlockedNodes.size > 0
-                ? 'bg-orange-600 border-orange-500 text-zinc-950 hover:bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
-                : 'bg-zinc-800 border-zinc-700 text-zinc-100 opacity-50 cursor-not-allowed'}`}>
+            <button
+              onClick={handleApplyUpgrade}
+              disabled={isConfirming}
+              className={`px-4 py-2 border transition-all mono uppercase text-[8px] font-black tracking-widest relative overflow-hidden active:scale-95
+                ${unlockedNodes.size > 0 || selectedNodeId
+                  ? 'bg-orange-600 border-orange-500 text-zinc-950 hover:bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+                  : 'bg-zinc-800 border-zinc-700 text-zinc-100 opacity-50 cursor-not-allowed'}
+                ${isConfirming ? 'scale-95 brightness-125' : ''}`}>
+              {isConfirming && (
+                <div className="absolute inset-0 bg-white/20 animate-pulse" />
+              )}
               Upgrade
             </button>
           </div>
