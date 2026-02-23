@@ -907,7 +907,15 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
   const { nodes, edges } = useMemo(() => {
     if (!tree) return { nodes: [], edges: [] };
 
-    const firstNode = tree.nodes[0];
+    // Calculate tree bounds for centering
+    const xCoords = tree.nodes.map(n => n.pos.x);
+    const yCoords = tree.nodes.map(n => n.pos.y);
+    const minX = Math.min(...xCoords);
+    const maxX = Math.max(...xCoords);
+    const minY = Math.min(...yCoords);
+    const maxY = Math.max(...yCoords);
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
 
     const nodes: Node[] = tree.nodes.map(node => {
       const isUnlocked = unlockedNodes.has(node.id);
@@ -917,7 +925,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
       return {
         id: node.id,
         type: 'talent',
-        position: { x: (node.pos.x - firstNode.pos.x), y: (node.pos.y - firstNode.pos.y) },
+        position: { x: (node.pos.x - centerX), y: (node.pos.y - centerY) },
         data: {
           name: node.name,
           description: node.description,
@@ -981,27 +989,28 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
         {/* Header: Large Circular Occupation Identity */}
         <div className="flex flex-col items-center pt-8 pb-4 shrink-0 relative z-20">
           <div className="relative group">
-            <div className="w-20 h-20 rounded-full border-4 border-zinc-800 bg-zinc-900 flex items-center justify-center overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.5)] group-hover:border-orange-500/50 transition-all duration-500">
-              <div className="text-3xl font-black text-zinc-700 select-none">{selectedOccupation.name.charAt(0)}</div>
-              <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 to-transparent opacity-40" />
+            <div className="w-24 h-24 rounded-full border-4 border-zinc-800 bg-zinc-950 flex items-center justify-center overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.7)] group-hover:border-orange-500/50 transition-all duration-500">
+              <div className="text-4xl font-black text-zinc-800 select-none">{selectedOccupation.name.charAt(0)}</div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-60" />
             </div>
-            <div className="absolute -inset-2 border border-orange-500/20 rounded-full animate-[spin_10s_linear_infinite]" />
+            <div className="absolute -inset-3 border border-orange-500/10 rounded-full animate-[spin_15s_linear_infinite]" />
+            <div className="absolute -inset-1 border border-zinc-800/50 rounded-full" />
           </div>
-          <div className="mt-4 text-center">
-            <h2 className="text-lg font-black mono text-zinc-100 uppercase tracking-[0.15em]">{selectedOccupation.name}</h2>
-            <div className="text-orange-500 font-bold text-[8px] mono uppercase tracking-[0.3em] mt-1">Occupation Tree</div>
+          <div className="mt-6 text-center">
+            <h2 className="text-2xl font-black mono text-zinc-100 uppercase tracking-[0.2em]">{selectedOccupation.name}</h2>
+            <div className="text-orange-500 font-bold text-[9px] mono uppercase tracking-[0.4em] mt-2">Occupation Tree</div>
           </div>
         </div>
 
         {/* Separator Line */}
-        <div className="w-full h-px bg-zinc-900 shadow-[0_0_10px_rgba(0,0,0,1)] relative z-20" />
+        <div className="w-full h-[1px] bg-zinc-900/50 shadow-[0_4px_10px_rgba(0,0,0,0.5)] relative z-20" />
 
         <div className="flex-1 relative flex overflow-hidden">
           {/* Main Tree Area */}
-          <div className="flex-1 relative bg-zinc-950/10 talent-flow-container">
+          <div className="flex-1 relative bg-zinc-950/20 talent-flow-container">
             {/* Fade Separation Gradient */}
-            <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-zinc-950 to-transparent z-10 pointer-events-none" />
-            <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-zinc-950 to-transparent z-10 pointer-events-none" />
+            <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-zinc-950 to-transparent z-10 pointer-events-none" />
+            <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-zinc-950 to-transparent z-10 pointer-events-none" />
 
             <ReactFlow
               nodes={nodes}
@@ -1013,7 +1022,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
               onNodeClick={(_, node) => setSelectedNodeId(node.id)}
               onPaneClick={() => setSelectedNodeId(null)}
               fitView
-              fitViewOptions={{ padding: 0.15, includeHiddenNodes: true }}
+              fitViewOptions={{ padding: 0.2, includeHiddenNodes: true }}
               zoomOnScroll={true}
               panOnDrag={true}
               zoomOnPinch={true}
@@ -1023,8 +1032,8 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
               elementsSelectable={true}
               panOnScroll={false}
               preventScrolling={true}
-              minZoom={0.5}
-              maxZoom={1.5}
+              minZoom={0.4}
+              maxZoom={2}
               proOptions={{ hideAttribution: true }}
             >
               <Background color="#18181b" gap={24} size={1} />
