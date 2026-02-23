@@ -14,6 +14,9 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
         },
       },
+      watch: {
+        ignored: ['**/generated/**'],
+      },
     },
     plugins: [react()],
     define: {

@@ -154,6 +154,7 @@ export interface TerrainCell {
   // Classification
   biome: BiomeType;
   color: string;                // Render color for this cell
+  subTiles?: { id: string; biome: string; description: string }[]; // Optional Sub-tiles
 }
 
 // ── Level of Detail ─────────────────────────────────────────

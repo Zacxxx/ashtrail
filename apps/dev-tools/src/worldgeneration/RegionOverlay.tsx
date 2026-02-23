@@ -2,6 +2,7 @@ import { useRef, useCallback, useState, useEffect } from "react";
 import type { GeoRegion, GeographyTool, RegionType } from "./types";
 import { REGION_TYPE_COLORS } from "./types";
 import type { MapTransform } from "../components/PlanetMap2D";
+import { guessRegionTypeFromColor, floodFillMatch, traceBoundary } from "./magicWand";
 
 interface RegionOverlayProps {
     regions: GeoRegion[];
@@ -16,6 +17,7 @@ interface RegionOverlayProps {
     transform: MapTransform;
     originalWidth: number;
     originalHeight: number;
+    textureUrl?: string; // Need this to extract pixel data for auto-lasso
 }
 
 /** Douglas-Peucker simplification */
@@ -67,9 +69,11 @@ export function RegionOverlay({
     transform,
     originalWidth,
     originalHeight,
+    textureUrl,
 }: RegionOverlayProps) {
     const wrapperRef = useRef<HTMLDivElement>(null);
     const [isDrawing, setIsDrawing] = useState(false);
+    const [isAutoSelecting, setIsAutoSelecting] = useState(false);
     const [currentPath, setCurrentPath] = useState<[number, number][]>([]);
     const regionCountRef = useRef(regions.length);
 
@@ -106,7 +110,61 @@ export function RegionOverlay({
         return [nx, ny];
     }, [transform, originalWidth, originalHeight]);
 
+    const performAutoLasso = useCallback(async (nx: number, ny: number) => {
+        if (!textureUrl) return;
+        setIsAutoSelecting(true);
+        try {
+            // Load the image into a temporary offscreen canvas
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.src = textureUrl;
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+            });
+
+            // For performance, we can downscale the extraction canvas if originalWidth is enormous, 
+            // but for typical 2K textures, a 2048x1024 Uint8Array fill is very fast.
+            const canvas = document.createElement("canvas");
+            canvas.width = originalWidth;
+            canvas.height = originalHeight;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return;
+
+            ctx.drawImage(img, 0, 0, originalWidth, originalHeight);
+            const imageData = ctx.getImageData(0, 0, originalWidth, originalHeight);
+
+            // Our normalized point to pixel point
+            const px = Math.floor(nx * originalWidth);
+            const py = Math.floor(ny * originalHeight);
+
+            // Magic Wand
+            const { mask, avgColor } = floodFillMatch(imageData, px, py, 25);
+
+            // Boundary trace
+            const rawBoundary = traceBoundary(mask, originalWidth, originalHeight);
+            if (rawBoundary.length < 3) return; // Didn't find anything meaningful
+
+            // Simplify to reduce geometry overhead
+            const simplified = simplifyPolygon(rawBoundary, 0.002);
+
+            // Auto-Guess biome type!
+            const guessedType = guessRegionTypeFromColor(avgColor[0], avgColor[1], avgColor[2]);
+            const typeLabel = guessedType.charAt(0).toUpperCase() + guessedType.slice(1);
+            const name = `Auto ${typeLabel} ${regionCountRef.current + 1}`;
+
+            onAddRegion(name, guessedType, simplified, selectedRegionId || undefined);
+
+        } catch (e) {
+            console.error("Auto-Lasso failed", e);
+        } finally {
+            setIsAutoSelecting(false);
+        }
+    }, [textureUrl, originalWidth, originalHeight, onAddRegion, selectedRegionId]);
+
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        if (isAutoSelecting) return;
+
         if (activeTool === "lasso") {
             const pt = getNormalizedPoint(e);
             if (!pt) return;
@@ -117,8 +175,13 @@ export function RegionOverlay({
             if (!pt) return;
             const region = findRegionAtPoint(pt[0], pt[1]);
             onSelectRegion(region?.id ?? null);
+        } else if (activeTool === "magic_wand") {
+            const pt = getNormalizedPoint(e);
+            if (!pt) return;
+            // Fire and forget, state handles loading overlay
+            performAutoLasso(pt[0], pt[1]);
         }
-    }, [activeTool, getNormalizedPoint, findRegionAtPoint, onSelectRegion]);
+    }, [activeTool, getNormalizedPoint, findRegionAtPoint, onSelectRegion, performAutoLasso, isAutoSelecting]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         const pt = getNormalizedPoint(e);
@@ -163,9 +226,10 @@ export function RegionOverlay({
     };
 
     const cursorClass =
-        activeTool === "lasso" ? "cursor-crosshair" :
-            activeTool === "select" ? "cursor-pointer" :
-                "pointer-events-none"; // Let the canvas underneath handle pan grabbing
+        activeTool === "magic_wand" ? (isAutoSelecting ? "cursor-wait" : "cursor-crosshair") :
+            activeTool === "lasso" ? "cursor-crosshair" :
+                activeTool === "select" ? "cursor-pointer" :
+                    "pointer-events-none"; // Let the canvas underneath handle pan grabbing
 
     return (
         <div

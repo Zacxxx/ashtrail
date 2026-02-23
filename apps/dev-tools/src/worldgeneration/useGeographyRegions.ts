@@ -1,11 +1,65 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { GeoRegion, RegionType } from "./types";
 import { REGION_TYPE_COLORS } from "./types";
 
-export function useGeographyRegions() {
+export function useGeographyRegions(activeHistoryId: string | null) {
     const [regions, setRegions] = useState<GeoRegion[]>([]);
     const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
     const [hoveredRegionId, setHoveredRegionId] = useState<string | null>(null);
+
+    const [isLoaded, setIsLoaded] = useState<boolean>(false);
+
+    // --- Backend Persistence ---
+    // Load regions when history ID changes
+    useEffect(() => {
+        if (!activeHistoryId) {
+            setRegions([]);
+            setSelectedRegionId(null);
+            setIsLoaded(false);
+            return;
+        }
+
+        let isMounted = true;
+        setIsLoaded(false);
+
+        fetch(`http://127.0.0.1:8787/api/planet/geography/${activeHistoryId}`)
+            .then(res => {
+                if (!res.ok) throw new Error("Failed to fetch regions");
+                return res.json();
+            })
+            .then(data => {
+                if (isMounted) {
+                    setRegions(Array.isArray(data) ? data : []);
+                    setIsLoaded(true);
+                }
+            })
+            .catch(err => {
+                console.error("Failed to load regions from backend", err);
+                if (isMounted) {
+                    setRegions([]);
+                    setIsLoaded(true);
+                }
+            });
+
+        setSelectedRegionId(null);
+
+        return () => {
+            isMounted = false;
+        };
+    }, [activeHistoryId]);
+
+    // Save regions whenever they change (and we have an active history loaded)
+    useEffect(() => {
+        if (!activeHistoryId || !isLoaded) return;
+
+        fetch(`http://127.0.0.1:8787/api/planet/geography/${activeHistoryId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(regions)
+        }).catch(err => {
+            console.error("Failed to save regions to backend", err);
+        });
+    }, [regions, activeHistoryId, isLoaded]);
 
     const addRegion = useCallback((name: string, type: RegionType, polygon: [number, number][], parentId?: string) => {
         const newRegion: GeoRegion = {

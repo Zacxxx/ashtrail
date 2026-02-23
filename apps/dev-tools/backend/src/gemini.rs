@@ -25,11 +25,21 @@ struct GeminiContent {
 }
 
 #[derive(Serialize)]
+struct ImageConfig {
+    #[serde(rename = "aspectRatio", skip_serializing_if = "Option::is_none")]
+    aspect_ratio: Option<String>,
+    #[serde(rename = "imageSize", skip_serializing_if = "Option::is_none")]
+    image_size: Option<String>,
+}
+
+#[derive(Serialize)]
 struct GenerationConfig {
     #[serde(rename = "responseModalities")]
     response_modalities: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(rename = "imageConfig", skip_serializing_if = "Option::is_none")]
+    image_config: Option<ImageConfig>,
 }
 
 #[derive(Serialize)]
@@ -74,7 +84,7 @@ struct GeminiError {
     message: String,
 }
 
-pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>) -> Result<Vec<u8>, (StatusCode, String)> {
+pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>, cols: u32, rows: u32) -> Result<Vec<u8>, (StatusCode, String)> {
     let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
         let msg = "GEMINI_API_KEY environment variable not set";
         error!(msg);
@@ -87,6 +97,14 @@ pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>) -> Res
     );
 
     let client = Client::new();
+    
+    let image_size = match cols {
+        1024..=2047 => "1K",
+        2048..=4095 => "2K",
+        4096..=u32::MAX => "4K",
+        _ => "1K",
+    }.to_string();
+
     let req_body = GeminiRequest {
         contents: vec![GeminiContent {
             parts: vec![GeminiPart {
@@ -97,6 +115,10 @@ pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>) -> Res
         generation_config: GenerationConfig {
             response_modalities: vec!["IMAGE".to_string()],
             temperature,
+            image_config: Some(ImageConfig {
+                aspect_ratio: None,
+                image_size: Some(image_size),
+            }),
         },
     };
 
@@ -175,6 +197,7 @@ pub async fn generate_text(prompt: &str) -> Result<String, (StatusCode, String)>
         generation_config: GenerationConfig {
             response_modalities: vec!["TEXT".to_string()],
             temperature: Some(0.9), // Higher variance
+            image_config: None,
         },
     };
 
@@ -256,6 +279,7 @@ pub async fn generate_image_edit_bytes(prompt: &str, image_base64: &str, mime_ty
         generation_config: GenerationConfig {
             response_modalities: vec!["IMAGE".to_string()],
             temperature,
+            image_config: None,
         },
     };
 

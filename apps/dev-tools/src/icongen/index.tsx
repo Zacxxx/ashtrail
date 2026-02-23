@@ -1,0 +1,1 @@
+export { IconGenPage } from "./IconGenPage";

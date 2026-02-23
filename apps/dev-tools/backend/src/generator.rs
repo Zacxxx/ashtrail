@@ -112,6 +112,7 @@ pub fn generate_hybrid_with_progress_and_cancel<F, C>(
     image_height: u32,
     on_progress: F,
     should_cancel: C,
+    generate_cells: bool,
 ) -> Result<GenerateTerrainResponse, String>
 where
     F: FnMut(GenerationProgress),
@@ -127,6 +128,7 @@ where
         request.km_per_cell,
         on_progress,
         should_cancel,
+        generate_cells,
     )?;
 
     let cell_colors = world.cells.iter().map(|c| c.color.clone()).collect();

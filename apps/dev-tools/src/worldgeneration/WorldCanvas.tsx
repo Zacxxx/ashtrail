@@ -25,6 +25,7 @@ interface WorldCanvasProps {
     geographyTool?: GeographyTool;
     activeRegionType?: RegionType;
     geography?: GeographyHook;
+    geographyTab?: "regions" | "cells";
     isMaxView?: boolean;
     setIsMaxView?: (v: boolean) => void;
 }
@@ -39,10 +40,11 @@ export function WorldCanvas({
     geographyTool = "pan",
     activeRegionType = "continent",
     geography,
+    geographyTab = "regions",
     isMaxView = false,
     setIsMaxView,
 }: WorldCanvasProps) {
-    const showGeographyOverlay = activeStep === "GEOGRAPHY" && viewMode === "2d" && globeWorld && geography;
+    const showGeographyOverlay = activeStep === "GEOGRAPHY" && viewMode === "2d" && globeWorld && geography && geographyTab === "regions";
     const [mapTransform, setMapTransform] = useState<MapTransform>({ x: 0, y: 0, scale: 1 });
 
     // Helper block to keep JSX clean
@@ -77,6 +79,9 @@ export function WorldCanvas({
                 <PlanetMap2D
                     world={globeWorld}
                     onTransformChange={setMapTransform}
+                    showHexGrid={showHexGrid}
+                    onCellHover={onCellHover}
+                    onCellClick={onCellClick}
                 />
                 {/* Geography Region Overlay */}
                 {showGeographyOverlay && (
@@ -93,6 +98,7 @@ export function WorldCanvas({
                         transform={mapTransform}
                         originalWidth={globeWorld.cols}
                         originalHeight={globeWorld.rows}
+                        textureUrl={globeWorld.textureUrl}
                     />
                 )}
             </div>

@@ -66,11 +66,16 @@ function makeTexture(world: PlanetWorldData): THREE.CanvasTexture {
   return texture;
 }
 
-export function PlanetGlobe({ world, onCellHover, onCellClick }: PlanetGlobeProps) {
+export function PlanetGlobe({ world, onCellHover, onCellClick, showHexGrid }: PlanetGlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredTileId, setHoveredTileId] = useState<string | null>(null);
   const [tiling, setTiling] = useState<PlanetTiling | null>(null);
   const [isGeneratingGeometry, setIsGeneratingGeometry] = useState(false);
+
+  const showHexGridRef = useRef(showHexGrid);
+  useEffect(() => {
+    showHexGridRef.current = showHexGrid;
+  }, [showHexGrid]);
 
   useEffect(() => {
     setIsGeneratingGeometry(true);
@@ -198,14 +203,19 @@ export function PlanetGlobe({ world, onCellHover, onCellClick }: PlanetGlobeProp
 
     if (world.textureUrl) {
       const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin("anonymous");
       const texture = loader.load(world.textureUrl, (loadedTex) => {
         // Once the color texture is loaded, derive the heightmap from it
-        const heightmap = generateHeightmapFromImage(loadedTex.image);
-        globeMaterial.displacementMap = heightmap;
-        globeMaterial.displacementScale = 0.06;
-        globeMaterial.bumpMap = heightmap;
-        globeMaterial.bumpScale = 0.04;
-        globeMaterial.needsUpdate = true;
+        try {
+          const heightmap = generateHeightmapFromImage(loadedTex.image);
+          globeMaterial.displacementMap = heightmap;
+          globeMaterial.displacementScale = 0.06;
+          globeMaterial.bumpMap = heightmap;
+          globeMaterial.bumpScale = 0.04;
+          globeMaterial.needsUpdate = true;
+        } catch (e) {
+          console.warn("Failed to generate heightmap due to CORS or tainted canvas:", e);
+        }
       });
       texture.colorSpace = THREE.SRGBColorSpace;
       globeMaterial = new THREE.MeshStandardMaterial({
@@ -373,23 +383,19 @@ export function PlanetGlobe({ world, onCellHover, onCellClick }: PlanetGlobeProp
       setHoveredTileId(tile?.id ?? null);
       if (tile) {
         onCellHover?.((tileCell(world, tile) as TerrainCell | null) ?? null);
+
+        const verts: number[] = [];
+        for (const v of tile.vertices) {
+          const q = lonLatToVec3(v.lon, v.lat, tileRadius + 0.006);
+          verts.push(q.x, q.y, q.z);
+        }
+        highlightGeo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+        highlightGeo.computeBoundingSphere();
+        highlightLine.visible = true;
       } else {
         onCellHover?.(null);
-      }
-
-      if (!tile) {
         highlightLine.visible = false;
-        return;
       }
-
-      const verts: number[] = [];
-      for (const v of tile.vertices) {
-        const q = lonLatToVec3(v.lon, v.lat, tileRadius + 0.006);
-        verts.push(q.x, q.y, q.z);
-      }
-      highlightGeo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
-      highlightGeo.computeBoundingSphere();
-      highlightLine.visible = true;
     };
 
     const onUp = () => {
@@ -427,8 +433,8 @@ export function PlanetGlobe({ world, onCellHover, onCellClick }: PlanetGlobeProp
     };
 
     renderer.domElement.addEventListener("pointerdown", onDown);
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+    renderer.domElement.addEventListener("pointermove", onMove);
+    renderer.domElement.addEventListener("pointerup", onUp);
     renderer.domElement.addEventListener("pointerleave", onLeave);
     renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("resize", resize);
@@ -446,6 +452,9 @@ export function PlanetGlobe({ world, onCellHover, onCellClick }: PlanetGlobeProp
         globe.rotation.y += 0.0008;
         syncRotations();
       }
+
+      tileOverlay.visible = showHexGridRef.current ?? false;
+
       renderer.render(scene, camera);
       raf = requestAnimationFrame(tick);
     };
@@ -456,8 +465,8 @@ export function PlanetGlobe({ world, onCellHover, onCellClick }: PlanetGlobeProp
       renderer.domElement.removeEventListener("pointerdown", onDown);
       renderer.domElement.removeEventListener("pointerleave", onLeave);
       renderer.domElement.removeEventListener("wheel", onWheel);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
+      renderer.domElement.removeEventListener("pointermove", onMove);
+      renderer.domElement.removeEventListener("pointerup", onUp);
       window.removeEventListener("resize", resize);
       globeMaterial.map?.dispose();
       globeMaterial.displacementMap?.dispose();
