@@ -16,6 +16,17 @@ import {
 import { ReactFlow, Edge, Node, Position, Handle, ConnectionLineType, Background } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
+const TALENT_ANIMATIONS = `
+@keyframes shimmer {
+  0% { transform: translateX(-150%) skewX(-20deg); }
+  100% { transform: translateX(150%) skewX(-20deg); }
+}
+@keyframes progress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+`;
+
 // Custom Talent Node for React Flow
 const TalentNode = ({ data, selected }: { data: any, selected: boolean }) => {
   const { isCapstone, isConverging, isUnlocked, isAvailable, name, type, rank = 0, maxRank = 1, onUnlock, isConfirming } = data;
@@ -59,27 +70,33 @@ const TalentNode = ({ data, selected }: { data: any, selected: boolean }) => {
           </div>
 
           {/* Glow on hover or selected */}
-          <div className={`absolute inset-0 rounded-full blur-md transition-opacity 
-            ${selected ? 'bg-orange-500/20 opacity-100' : isAvailable ? 'bg-orange-500/10 opacity-0 group-hover:opacity-100' : 'opacity-0'}`}
+          <div className={`absolute inset-0 rounded-full blur-xl transition-all duration-700 
+            ${selected ? 'bg-orange-500/30 scale-110 opacity-100' : isAvailable ? 'bg-orange-500/10 opacity-0 group-hover:opacity-100' : 'opacity-0'}`}
           />
 
           {/* Upgrade Animation Effect - Commitment Pulse for Selected OR ALREADY UNLOCKED nodes */}
           {isConfirming && (selected || isUnlocked) && (
             <>
-              <div className="absolute -inset-8 rounded-full border-4 border-orange-500/30 animate-ping z-0" />
-              <div className={`absolute -inset-2 rounded-full bg-orange-500/20 animate-[pulse_0.4s_ease-in-out_infinite] z-0 ${!selected && 'opacity-50'}`} />
-              {/* Scanline commitment effect only for selected */}
+              {/* Outer wave */}
+              <div className="absolute -inset-10 rounded-full border border-orange-500/20 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] z-0" />
+              {/* Inner breath */}
+              <div className={`absolute -inset-1 rounded-full bg-orange-500/25 animate-[pulse_0.8s_ease-in-out_infinite] z-0 ${!selected && 'opacity-40'}`} />
+
+              {/* Shimmer commitment effect only for selected */}
               {selected && (
-                <div className="absolute inset-x-0 top-0 h-[100%] bg-gradient-to-b from-transparent via-orange-400/40 to-transparent animate-[bounce_1.5s_infinite] pointer-events-none z-20"
-                  style={{ backgroundSize: '100% 20%', backgroundRepeat: 'no-repeat' }} />
+                <div className="absolute inset-0 overflow-hidden rounded-full z-20 pointer-events-none">
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-[shimmer_1.5s_infinite]" />
+                </div>
               )}
             </>
           )}
 
-          {/* Selected Ring */}
+          {/* Selected Ring - More elegant */}
           {selected && (
-            <div className={`absolute -inset-2 rounded-full border-2 border-orange-500/60 pointer-events-none 
-              ${isConfirming ? 'animate-none' : 'animate-[pulse_2s_infinite]'}`} />
+            <div className={`absolute -inset-3 rounded-full border-2 border-orange-500/40 pointer-events-none transition-all duration-500
+              ${isConfirming ? 'scale-125 opacity-0' : 'animate-[pulse_3s_ease-in-out_infinite]'}`}>
+              <div className="absolute inset-0 border border-orange-500/10 rounded-full scale-110" />
+            </div>
           )}
         </div>
       </div>
@@ -910,11 +927,6 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
 
-  const handleApplyUpgrade = () => {
-    setIsConfirming(true);
-    setTimeout(() => setIsConfirming(false), 2000);
-  };
-
   const tree = MOCK_TALENT_TREES[selectedOccupation.id];
 
   const handleUnlockNode = (nodeId: string) => {
@@ -925,6 +937,23 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
       return next;
     });
     setAvailablePoints(prev => prev - 1);
+  };
+
+  // Check if current selection can be upgraded
+  const selectedNode = selectedNodeId ? tree?.nodes.find(n => n.id === selectedNodeId) : null;
+  const isSelectedNodeUnlockable = !!(
+    selectedNode &&
+    !unlockedNodes.has(selectedNode.id) &&
+    availablePoints > 0 &&
+    (!selectedNode.dependencies || selectedNode.dependencies.every(d => unlockedNodes.has(d)))
+  );
+
+  const handleApplyUpgrade = () => {
+    if (!selectedNodeId || !isSelectedNodeUnlockable) return;
+
+    setIsConfirming(true);
+    handleUnlockNode(selectedNodeId);
+    setTimeout(() => setIsConfirming(false), 2000);
   };
 
   const { nodes, edges } = useMemo(() => {
@@ -998,6 +1027,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-500 p-4 md:p-8">
       <div className="w-full h-full max-w-6xl bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col shadow-[0_0_100px_rgba(0,0,0,1)] relative overflow-hidden">
         {/* Background Effects */}
+        <style>{TALENT_ANIMATIONS}</style>
         <div className="absolute inset-0 opacity-[0.05] pointer-events-none"
           style={{ backgroundImage: 'radial-gradient(circle, #f97316 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-orange-500/10 blur-[120px] rounded-full pointer-events-none" />
@@ -1155,16 +1185,24 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
             </button>
             <button
               onClick={handleApplyUpgrade}
-              disabled={isConfirming}
-              className={`px-4 py-2 border transition-all mono uppercase text-[8px] font-black tracking-widest relative overflow-hidden active:scale-95
-                ${unlockedNodes.size > 0 || selectedNodeId
-                  ? 'bg-orange-600 border-orange-500 text-zinc-950 hover:bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+              disabled={isConfirming || !isSelectedNodeUnlockable}
+              className={`px-6 py-2 border transition-all duration-500 mono uppercase text-[9px] font-black tracking-[0.2em] relative overflow-hidden active:scale-95
+                ${isSelectedNodeUnlockable
+                  ? 'bg-orange-600 border-orange-500 text-zinc-950 hover:bg-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.4)] hover:shadow-[0_0_30px_rgba(249,115,22,0.6)]'
                   : 'bg-zinc-800 border-zinc-700 text-zinc-100 opacity-50 cursor-not-allowed'}
-                ${isConfirming ? 'scale-95 brightness-125' : ''}`}>
+                ${isConfirming ? 'brightness-125' : ''}`}>
+
+              {/* Progress background during confirmation */}
               {isConfirming && (
-                <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                <div className="absolute inset-0 bg-white/10 animate-[pulse_1s_infinite]" />
               )}
-              Upgrade
+              {isConfirming && (
+                <div className="absolute bottom-0 left-0 h-1 bg-white/40 animate-[progress_2s_linear]" />
+              )}
+
+              <span className="relative z-10 flex items-center gap-2">
+                {isConfirming ? 'Committing...' : 'Upgrade Selection'}
+              </span>
             </button>
           </div>
         </div>
