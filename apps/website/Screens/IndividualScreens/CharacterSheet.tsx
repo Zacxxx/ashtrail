@@ -19,6 +19,15 @@ export const CharacterSheet: React.FC<{ state: GameState }> = ({ state }) => {
             <h2 className="text-2xl font-black italic mono uppercase text-white">{player.name}</h2>
             <div className="flex gap-2 flex-wrap">
               <Badge color="blue">Level {player.level}</Badge>
+              {player.occupation && (
+                <Badge color="orange">
+                  <div className="flex items-center gap-1.5">
+                    {/* ICON PLACEHOLDER - Reserved for future use */}
+                    <div className="w-3 h-3 flex-shrink-0" />
+                    {player.occupation.name}
+                  </div>
+                </Badge>
+              )}
               <Badge color="zinc">{player.age} Years</Badge>
               <Badge color="zinc">{player.gender}</Badge>
             </div>
