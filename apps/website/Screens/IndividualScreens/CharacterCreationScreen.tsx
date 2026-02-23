@@ -9,6 +9,7 @@ import {
   OccupationCategory,
   ALL_TRAITS,
   ALL_OCCUPATIONS,
+  MOCK_TALENT_TREES,
   generateCharacterPortrait,
   enhanceAppearancePrompt
 } from '@ashtrail/core';
@@ -190,6 +191,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
   const [selectedOccupation, setSelectedOccupation] = useState<Occupation | null>(null);
   const [occupationSearch, setOccupationSearch] = useState('');
   const [occupationCategory, setOccupationCategory] = useState<OccupationCategory | 'ALL'>('ALL');
+  const [showTalentTree, setShowTalentTree] = useState(false);
 
   // Refs for auto-resize
   const biometricRef = useRef<HTMLTextAreaElement>(null);
@@ -724,12 +726,19 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                             remove
                           </button>
                         </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
+                        <div className="mt-3 flex flex-wrap gap-2 items-center">
                           {selectedOccupation.perks.map((perk, i) => (
                             <span key={i} className="text-[8px] mono uppercase bg-orange-500/10 text-orange-400 px-2 py-1 rounded-sm border border-orange-900/30 tracking-wider">
                               {perk}
                             </span>
                           ))}
+                          <button
+                            onClick={() => setShowTalentTree(true)}
+                            className="ml-auto text-[8px] mono uppercase bg-zinc-900 text-zinc-400 hover:text-orange-400 px-3 py-1 rounded-sm border border-zinc-800 hover:border-orange-500/50 transition-all font-black tracking-widest flex items-center gap-2 group"
+                          >
+                            <div className="w-1 h-1 bg-zinc-600 group-hover:bg-orange-500 rounded-full" />
+                            View Talent Tree
+                          </button>
                         </div>
                       </div>
                     )}
@@ -800,6 +809,163 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
           </div>
         </div>
       </Card>
+
+      {/* Talent Tree Modal */}
+      {showTalentTree && selectedOccupation && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-500 p-4 md:p-8">
+          <div className="w-full h-full max-w-5xl bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col shadow-[0_0_100px_rgba(0,0,0,1)] relative overflow-hidden">
+            {/* Background Effects */}
+            <div className="absolute inset-0 opacity-[0.05] pointer-events-none"
+              style={{ backgroundImage: 'radial-gradient(circle, #f97316 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-orange-500/10 blur-[120px] rounded-full pointer-events-none" />
+
+            {/* Top Close Button (Abstract/Professional) */}
+            <button
+              onClick={() => setShowTalentTree(false)}
+              className="absolute top-6 right-6 z-50 px-4 py-2 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-all mono uppercase text-[10px] bg-zinc-950/50 backdrop-blur-md flex items-center gap-2 group"
+            >
+              <span className="group-hover:text-red-500 transition-colors">Close Terminal</span>
+              <span className="text-[8px] opacity-30">[ESC]</span>
+            </button>
+
+            {/* Header: Large Circular Occupation Identity */}
+            <div className="flex flex-col items-center pt-8 pb-4 shrink-0 relative z-20">
+              <div className="relative group">
+                <div className="w-24 h-24 rounded-full border-4 border-zinc-800 bg-zinc-900 flex items-center justify-center overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.5)] group-hover:border-orange-500/50 transition-all duration-500">
+                  {/* Occupation Placeholder Icon/Visual */}
+                  <div className="text-4xl font-black text-zinc-700 select-none">{selectedOccupation.name.charAt(0)}</div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 to-transparent opacity-40" />
+                </div>
+                {/* Visual Ranking Ring */}
+                <div className="absolute -inset-2 border border-orange-500/20 rounded-full animate-[spin_10s_linear_infinite]" />
+              </div>
+              <div className="mt-4 text-center">
+                <h2 className="text-xl font-black mono text-zinc-100 uppercase tracking-[0.15em]">{selectedOccupation.name}</h2>
+                <div className="text-orange-500 font-bold text-[9px] mono uppercase tracking-[0.3em] mt-1">Specialization Matrix</div>
+              </div>
+            </div>
+
+            <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-zinc-950/20 py-10">
+              <div className="w-full h-full relative overflow-y-auto overflow-x-hidden custom-scrollbar flex items-start justify-center pt-10">
+                {/* Scaling Container for Tree */}
+                <div className="relative min-w-[600px] min-h-[600px] flex items-center justify-center">
+                  {/* Dependency Lines (SVG) */}
+                  <svg className="absolute inset-0 pointer-events-none overflow-visible">
+                    {MOCK_TALENT_TREES[selectedOccupation.id]?.nodes.map(node =>
+                      node.dependencies?.map(depId => {
+                        const depNode = MOCK_TALENT_TREES[selectedOccupation.id].nodes.find(n => n.id === depId);
+                        if (!depNode) return null;
+                        return (
+                          <line
+                            key={`${node.id}-${depId}`}
+                            x1={`calc(50% + ${depNode.pos.x}px)`}
+                            y1={`calc(50% + ${depNode.pos.y}px)`}
+                            x2={`calc(50% + ${node.pos.x}px)`}
+                            y2={`calc(50% + ${node.pos.y}px)`}
+                            stroke="#18181b"
+                            strokeWidth="3"
+                          />
+                        );
+                      })
+                    )}
+                    {MOCK_TALENT_TREES[selectedOccupation.id]?.nodes.map(node =>
+                      node.dependencies?.map(depId => {
+                        const depNode = MOCK_TALENT_TREES[selectedOccupation.id].nodes.find(n => n.id === depId);
+                        if (!depNode) return null;
+                        return (
+                          <line
+                            key={`${node.id}-${depId}-inner`}
+                            x1={`calc(50% + ${depNode.pos.x}px)`}
+                            y1={`calc(50% + ${depNode.pos.y}px)`}
+                            x2={`calc(50% + ${node.pos.x}px)`}
+                            y2={`calc(50% + ${node.pos.y}px)`}
+                            stroke="#27272a"
+                            strokeWidth="1"
+                            strokeDasharray="4 4"
+                          />
+                        );
+                      })
+                    )}
+                  </svg>
+
+                  {/* Talent Nodes */}
+                  <div className="relative">
+                    {MOCK_TALENT_TREES[selectedOccupation.id]?.nodes.map(node => (
+                      <Tooltip key={node.id} content={
+                        <div className="p-2 min-w-[180px]">
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="text-orange-500 font-bold uppercase text-[10px]">{node.name}</span>
+                            <span className="text-[8px] mono text-zinc-600 px-1 border border-zinc-800 rounded">{node.type}</span>
+                          </div>
+                          <div className="text-zinc-300 text-[9px] leading-snug">{node.description}</div>
+                        </div>
+                      }>
+                        <div
+                          className="absolute flex items-center justify-center"
+                          style={{ left: node.pos.x, top: node.pos.y }}
+                        >
+                          <button
+                            className={`w-14 h-14 -ml-7 -mt-7 rounded-full border-2 transition-all duration-300 flex items-center justify-center relative z-10 
+                              ${node.id.includes('capstone')
+                                ? 'border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)] bg-zinc-900'
+                                : 'border-zinc-800 bg-zinc-900/80 hover:border-zinc-500 hover:bg-zinc-800'} 
+                              group`}
+                          >
+                            <div className={`w-1.5 h-1.5 rotate-45 transform transition-all 
+                              ${node.id.includes('capstone') ? 'bg-orange-500 shadow-[0_0_5px_#f97316]' : 'bg-zinc-700 group-hover:bg-zinc-400'}`} />
+
+                            {/* Inner Circle Effect */}
+                            <div className="absolute inset-1 rounded-full border border-zinc-800/50 pointer-events-none" />
+
+                            {/* Rank Indicator (Bottom Right) */}
+                            <div className="absolute -bottom-1 -right-1 min-w-[18px] h-[14px] bg-zinc-950 border border-zinc-800 px-1 flex items-center justify-center rounded-[2px] shadow-black shadow-sm">
+                              <span className="text-[7px] mono font-bold text-zinc-500">0/1</span>
+                            </div>
+
+                            {/* Glow on hover */}
+                            <div className="absolute inset-0 rounded-full bg-orange-500/10 opacity-0 group-hover:opacity-100 blur-md transition-opacity" />
+                          </button>
+                        </div>
+                      </Tooltip>
+                    ))}
+                  </div>
+
+                  {!MOCK_TALENT_TREES[selectedOccupation.id] && (
+                    <div className="flex flex-col items-center gap-4 text-center">
+                      <div className="w-20 h-20 rounded-full border border-dashed border-zinc-800 flex items-center justify-center text-zinc-800">
+                        <span className="text-2xl">?</span>
+                      </div>
+                      <div className="text-zinc-700 mono uppercase text-[9px] tracking-[0.2em] max-w-[200px]">
+                        Matrix structure undefined for {selectedOccupation.name} classification
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-zinc-900 bg-zinc-950/80 backdrop-blur-md shrink-0 flex justify-between items-center relative z-30">
+              <div className="flex gap-2">
+                <div className="flex flex-col">
+                  <span className="text-[8px] mono text-zinc-600 uppercase">Available points</span>
+                  <span className="text-sm mono font-black text-orange-500">00</span>
+                </div>
+              </div>
+              <div className="text-center flex-1 max-w-sm px-4 text-zinc-700 mono uppercase text-[8px] leading-relaxed">
+                NEURAL LINK STABLE // AUTHORIZED OVERRIDE // CLASSIFIED ACCESS ONLY
+              </div>
+              <div className="flex gap-4">
+                <button className="px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-600 mono uppercase text-[8px] font-black tracking-widest hover:bg-zinc-800 transition-colors">
+                  Reset Matrix
+                </button>
+                <button className="px-4 py-2 bg-zinc-800 border border-zinc-700 text-zinc-100 opacity-50 cursor-not-allowed mono uppercase text-[8px] font-black tracking-widest">
+                  Commit Evolution
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </Container>
   );
 };

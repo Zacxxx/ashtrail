@@ -144,3 +144,18 @@ export interface GameState {
     log: string[];
   };
 }
+
+export interface TalentNode {
+  id: string;
+  name: string;
+  description: string;
+  pos: { x: number; y: number };
+  dependencies?: string[];
+  unlocked?: boolean;
+  type: 'active' | 'passive' | 'stat';
+}
+
+export interface TalentTree {
+  occupationId: string;
+  nodes: TalentNode[];
+}
