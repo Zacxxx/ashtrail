@@ -13,7 +13,7 @@ import {
   generateCharacterPortrait,
   enhanceAppearancePrompt
 } from '@ashtrail/core';
-import { ReactFlow, Edge, Node, Position, Handle, ConnectionLineType, Background } from '@xyflow/react';
+import { ReactFlow, Edge as RFEdge, Node as RFNode, Position, Handle, ConnectionLineType, Background, ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
 const TALENT_ANIMATIONS = `
@@ -958,10 +958,12 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
       {/* Talent Tree Modal */}
       {showTalentTree && selectedOccupation && (
-        <TalentTreeOverlay
-          selectedOccupation={selectedOccupation}
-          onClose={() => setShowTalentTree(false)}
-        />
+        <ReactFlowProvider>
+          <TalentTreeOverlay
+            selectedOccupation={selectedOccupation}
+            onClose={() => setShowTalentTree(false)}
+          />
+        </ReactFlowProvider>
       )}
     </Container>
   );
@@ -969,6 +971,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
 // Extracted for clean React Flow context/state
 const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation: Occupation, onClose: () => void }) => {
+  const { fitView } = useReactFlow();
   const [unlockedNodes, setUnlockedNodes] = useState<Set<string>>(new Set());
   const [availablePoints, setAvailablePoints] = useState(2); // Starting with 2 for demo
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -1004,20 +1007,18 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
     setTimeout(() => setIsConfirming(false), 2000);
   };
 
+  // Ensure centering especially after animation
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fitView({ padding: 0.15, duration: 800 });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [fitView, selectedOccupation]);
+
   const { nodes, edges } = useMemo(() => {
     if (!tree) return { nodes: [], edges: [] };
 
-    // Calculate tree bounds for centering
-    const xCoords = tree.nodes.map(n => n.pos.x);
-    const yCoords = tree.nodes.map(n => n.pos.y);
-    const minX = Math.min(...xCoords);
-    const maxX = Math.max(...xCoords);
-    const minY = Math.min(...yCoords);
-    const maxY = Math.max(...yCoords);
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-
-    const nodes: Node[] = tree.nodes.map(node => {
+    const nodes: RFNode[] = tree.nodes.map(node => {
       const isUnlocked = unlockedNodes.has(node.id);
       const hasUnmetDependencies = node.dependencies?.some(depId => !unlockedNodes.has(depId));
       const isAvailable = !isUnlocked && !hasUnmetDependencies && (node.dependencies?.length ? true : true); // Root is always available
@@ -1025,7 +1026,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
       return {
         id: node.id,
         type: 'talent',
-        position: { x: (node.pos.x - centerX), y: (node.pos.y - centerY) },
+        position: node.pos,
         data: {
           name: node.name,
           description: node.description,
@@ -1042,7 +1043,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
       };
     });
 
-    const edges: Edge[] = [];
+    const edges: RFEdge[] = [];
     tree.nodes.forEach(node => {
       node.dependencies?.forEach(depId => {
         const isSourceUnlocked = unlockedNodes.has(depId);
@@ -1129,7 +1130,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
                 }
               }}
               fitView
-              fitViewOptions={{ padding: 0.2, includeHiddenNodes: true }}
+              fitViewOptions={{ padding: 0.15, includeHiddenNodes: true }}
               zoomOnScroll={true}
               panOnDrag={true}
               zoomOnPinch={true}
