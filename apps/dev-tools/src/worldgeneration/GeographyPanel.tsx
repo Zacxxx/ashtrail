@@ -20,7 +20,7 @@ interface GeographyPanelProps {
     generateUpscale: (historyId: string) => Promise<void>;
     activeHistoryId: string | null;
     selectedCell: TerrainCell | null;
-    generatePlanetCells: (historyId: string) => void;
+    generatePlanetCells: (historyId: string, regions?: GeoRegion[]) => void;
     onGenerateSubTiles: (cell: TerrainCell) => void;
     isGeneratingText: boolean;
     geographyTab: "regions" | "cells";
@@ -113,10 +113,11 @@ export function GeographyPanel({
                         globeWorld={globeWorld}
                         selectedCell={selectedCell}
                         onGenerateCells={() => {
-                            if (activeHistoryId) generatePlanetCells(activeHistoryId);
+                            if (activeHistoryId) generatePlanetCells(activeHistoryId, regions);
                         }}
                         onGenerateSubTiles={onGenerateSubTiles}
                         isGeneratingText={isGeneratingText}
+                        activeHistoryId={activeHistoryId}
                     />
                 ) : (
                     <div className="space-y-6">

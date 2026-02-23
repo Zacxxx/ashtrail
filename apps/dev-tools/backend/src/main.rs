@@ -1,3 +1,4 @@
+mod cell_analyzer;
 mod generator;
 mod hierarchy;
 mod gemini;
@@ -33,6 +34,7 @@ struct AppState {
     jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
     planets_dir: PathBuf,
     planet_root: PathBuf,
+    icons_dir: PathBuf,
 }
 
 #[derive(Clone, Serialize)]
@@ -130,6 +132,38 @@ struct LoreQueryResponse {
     raw_json: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IconBatchRequest {
+    prompts: Vec<String>,
+    base64_image: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BatchManifest {
+    batch_id: String,
+    created_at: String,
+    icons: Vec<BatchIcon>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BatchIcon {
+    filename: String,
+    prompt: String,
+    url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchSummary {
+    batch_id: String,
+    icon_count: usize,
+    created_at: String,
+    thumbnail_url: Option<String>,
+}
+
 /// List saved planet cache entries.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -166,10 +200,14 @@ async fn main() {
     let planets_dir = PathBuf::from("generated/planets");
     std::fs::create_dir_all(&planets_dir).expect("failed to create planets directory");
 
+    let icons_dir = PathBuf::from("generated/icons");
+    std::fs::create_dir_all(&icons_dir).expect("failed to create icons directory");
+
     let state = AppState {
         jobs: Arc::new(Mutex::new(HashMap::new())),
         planets_dir,
         planet_root: PathBuf::from("generated/planet"), // For the hierarchical generator
+        icons_dir,
     };
 
     let app = Router::new()
@@ -195,13 +233,18 @@ async fn main() {
         .route("/api/history", get(get_history).post(save_history).delete(clear_history))
         .route("/api/history/{id}", delete(delete_history))
         .route("/api/planet/geography/{id}", get(get_geography).post(save_geography))
-        .route("/api/planet/cells/{id}", get(get_cells).post(save_cells))
         .route("/api/planet/cells/job", post(start_cells_job))
         .route("/api/planet/cells/job/{job_id}", get(get_job_status))
+        .route("/api/planet/cells/{id}", get(get_cells).post(save_cells))
+        .route("/api/planet/cell-features/{id}", get(get_cell_features))
         .route("/api/planet/upscale", post(start_upscale_job))
         .route("/api/planet/upscale/{job_id}", get(get_job_status))
+        .route("/api/icons/generate-batch", post(generate_icon_batch))
+        .route("/api/icons/batches", get(list_icon_batches))
+        .route("/api/icons/batches/{batch_id}", get(get_icon_batch))
         // Static file serving for all planet textures
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
+        .nest_service("/api/icons", ServeDir::new("generated/icons"))
         .with_state(state)
         .layer(
             CorsLayer::new()
@@ -1174,6 +1217,19 @@ async fn save_cells(
     }
 }
 
+async fn get_cell_features(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let file_path = state.planets_dir.join(&id).join("cell_features.json");
+    if let Ok(data) = std::fs::read_to_string(&file_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+            return (StatusCode::OK, Json(json)).into_response();
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!(null))).into_response()
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UpscaleRequest {
@@ -1521,6 +1577,8 @@ async fn run_image_edit_job(
 #[serde(rename_all = "camelCase")]
 struct StartCellsJobRequest {
     history_id: String,
+    /// Optional geography regions from the frontend. If absent, loaded from disk.
+    regions: Option<Vec<cell_analyzer::GeoRegionInput>>,
 }
 
 async fn start_cells_job(
@@ -1529,6 +1587,7 @@ async fn start_cells_job(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let job_id = Uuid::new_v4().to_string();
     let history_id = request.history_id.clone();
+    let regions = request.regions;
 
     {
         let mut jobs = state.jobs.lock().map_err(|_| {
@@ -1555,7 +1614,7 @@ async fn start_cells_job(
     let spawned_job_id = job_id.clone();
 
     tokio::task::spawn(async move {
-        run_cells_job(spawned_job_id, history_id, jobs, planets_dir).await;
+        run_cells_job(spawned_job_id, history_id, regions, jobs, planets_dir).await;
     });
 
     Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
@@ -1564,20 +1623,20 @@ async fn start_cells_job(
 async fn run_cells_job(
     job_id: String,
     history_id: String,
+    request_regions: Option<Vec<cell_analyzer::GeoRegionInput>>,
     jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
     planets_dir: std::path::PathBuf,
 ) {
-    let _start = std::time::Instant::now();
+    let start = std::time::Instant::now();
     let planet_dir = planets_dir.join(&history_id);
-    let world_data_path = planet_dir.join("world_data.json");
     let texture_path = planet_dir.join("textures").join("base.jpg");
 
-    if !world_data_path.exists() || !texture_path.exists() {
+    if !texture_path.exists() {
         if let Ok(mut map) = jobs.lock() {
             if let Some(job) = map.get_mut(&job_id) {
                 job.status = JobStatus::Failed;
-                job.current_stage = "Missing base map data".to_string();
-                job.error = Some("Planet data not found on disk".to_string());
+                job.current_stage = "Missing texture image".to_string();
+                job.error = Some("Planet texture not found on disk".to_string());
             }
         }
         return;
@@ -1590,40 +1649,47 @@ async fn run_cells_job(
         }
     }
 
-    // Load data
-    let (cols, rows) = match tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(world_data_path).map_err(|e| e.to_string())?;
-        let reader = std::io::BufReader::new(file);
-        let world: GenerateTerrainResponse = serde_json::from_reader(reader).map_err(|e| e.to_string())?;
-        Ok::<_, String>((world.cols, world.rows))
-    }).await {
-        Ok(Ok((c, r))) => (c, r),
-        _ => {
-            if let Ok(mut map) = jobs.lock() {
-                if let Some(job) = map.get_mut(&job_id) {
-                    job.status = JobStatus::Failed;
-                    job.current_stage = "Failed opening world data".to_string();
+    // Load geography regions: use provided regions, or fall back to disk
+    let regions = match request_regions {
+        Some(r) => r,
+        None => {
+            let geo_path = planet_dir.join("geography.json");
+            if geo_path.exists() {
+                match std::fs::read_to_string(&geo_path) {
+                    Ok(data) => serde_json::from_str::<Vec<cell_analyzer::GeoRegionInput>>(&data)
+                        .unwrap_or_default(),
+                    Err(_) => Vec::new(),
                 }
+            } else {
+                Vec::new()
             }
-            return;
         }
     };
 
-    // Load original Image
+    info!(
+        job_id = %job_id,
+        history_id = %history_id,
+        region_count = regions.len(),
+        "cell analysis starting"
+    );
+
+    // Load texture image
+    let tp = texture_path.clone();
     let image_result = tokio::task::spawn_blocking(move || {
-        image::open(texture_path).map(|img| img.to_rgba8())
+        image::open(tp).map(|img| img.to_rgba8())
     }).await.unwrap();
 
     let rgba_image = match image_result {
         Ok(img) => img,
-        Err(_) => {
-             if let Ok(mut map) = jobs.lock() {
+        Err(e) => {
+            if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&job_id) {
                     job.status = JobStatus::Failed;
                     job.current_stage = "Failed to open texture image".to_string();
+                    job.error = Some(e.to_string());
                 }
-             }
-             return;
+            }
+            return;
         }
     };
 
@@ -1631,67 +1697,33 @@ async fn run_cells_job(
     let image_height = rgba_image.height();
     let pixel_data = rgba_image.into_raw();
 
-    // Spawn geometry computation
+    // Determine cell grid size: use a sensible coarse grid.
+    // At 2K textures (2048x1024), use 128x64 = ~8K cells.
+    // At 4K textures (4096x2048), use 256x128 = ~32K cells.
+    let cell_cols = (image_width / 16).max(32).min(512);
+    let cell_rows = (image_height / 16).max(16).min(256);
+
+    info!(
+        job_id = %job_id,
+        image_width, image_height,
+        cell_cols, cell_rows,
+        total_cells = cell_cols * cell_rows,
+        "running cell analysis"
+    );
+
+    // Run analysis in blocking thread
     let progress_jobs = jobs.clone();
     let log_job_id = job_id.clone();
     let log_job_id2 = job_id.clone();
 
-    // Recover config from history
-    let history_path = std::path::PathBuf::from("generated/history.json");
-    let mut real_config = geo_core::SimulationConfig {
-        world: geo_core::WorldConfig {
-            seed: 0,
-            planet_radius: 6371.0,
-            axial_tilt: 23.5,
-            solar_luminosity: 1.0,
-            atmospheric_density: 1.0,
-            ocean_coverage: 0.6,
-        },
-        geo: geo_core::GeoConfig {
-            continental_scale: 180.0,
-            plate_count: 12,
-            tectonic_intensity: 0.8,
-            volcanic_density: 0.2,
-            erosion_iterations: 1,
-            octaves: 5,
-            persistence: 0.5,
-            lacunarity: 2.0,
-        },
-        climate: geo_core::ClimateConfig {
-            global_mean_temp: 15.0,
-            latitude_gradient: 30.0,
-            prevailing_wind_dir: 0.0,
-            wind_strength: 0.5,
-            precipitation_multiplier: 1.0,
-            ocean_warmth_factor: 5.0,
-        },
-    };
-    if history_path.exists() {
-        if let Ok(contents) = std::fs::read_to_string(&history_path) {
-            if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&contents) {
-                if let Some(entry) = entries.iter().find(|e| e["id"].as_str() == Some(&history_id)) {
-                    if let Ok(cfg) = serde_json::from_value::<geo_core::SimulationConfig>(entry["config"].clone()) {
-                        real_config = cfg;
-                    }
-                }
-            }
-        }
-    }
-
-    let request = GenerateTerrainRequest {
-        config: real_config,
-        cols,
-        rows,
-        km_per_cell: 100.0,
-        octaves: 2,
-    };
-
     let result = tokio::task::spawn_blocking(move || {
-        generator::generate_hybrid_with_progress_and_cancel(
-            request,
+        cell_analyzer::analyze_cells(
             &pixel_data,
             image_width,
             image_height,
+            cell_cols,
+            cell_rows,
+            &regions,
             |progress| {
                 if let Ok(mut map) = progress_jobs.lock() {
                     if let Some(job) = map.get_mut(&log_job_id) {
@@ -1700,41 +1732,34 @@ async fn run_cells_job(
                     }
                 }
             },
-            || false, // cancel unsupported for this
-            true, // generate_cells is TRUE
         )
     }).await;
 
-    let task_result = match result {
-        Ok(r) => r,
-        Err(_) => {
-             if let Ok(mut map) = jobs.lock() {
-                if let Some(job) = map.get_mut(&log_job_id2) {
-                    job.status = JobStatus::Failed;
-                    job.current_stage = "Task died".to_string();
-                }
-             }
-             return;
-        }
-    };
+    let elapsed = start.elapsed();
 
-    match task_result {
-        Ok(response) => {
-            let planet_dir = planets_dir.join(&history_id);
-            let world_data_path = planet_dir.join("world_data.json");
-            
-            let mut final_response = response.clone();
-            final_response.texture_url = Some(format!("/api/planets/{}/textures/base.jpg", history_id));
+    match result {
+        Ok(analysis) => {
+            let total_cells = analysis.total_cells;
+            let features_path = planet_dir.join("cell_features.json");
 
-            match std::fs::File::create(&world_data_path) {
+            // Write cell features to disk
+            match std::fs::File::create(&features_path) {
                 Ok(file) => {
-                    if let Err(_) = serde_json::to_writer(std::io::BufWriter::new(file), &final_response) {
-                        error!("failed to rewrite world JSON!");
+                    if let Err(err) = serde_json::to_writer(std::io::BufWriter::new(file), &analysis) {
+                        error!(job_id = %log_job_id2, error = %err, "failed to write cell_features.json");
                     } else {
-                        info!("world_data updated with cells");
+                        info!(
+                            job_id = %log_job_id2,
+                            path = %features_path.display(),
+                            total_cells,
+                            elapsed_ms = elapsed.as_millis(),
+                            "cell features saved"
+                        );
                     }
                 }
-                Err(_) => {}
+                Err(err) => {
+                    error!(job_id = %log_job_id2, error = %err, "failed to create cell_features.json");
+                }
             }
 
             if let Ok(mut map) = jobs.lock() {
@@ -1742,25 +1767,195 @@ async fn run_cells_job(
                     job.status = JobStatus::Completed;
                     job.progress = 100.0;
                     job.current_stage = "Completed".to_string();
-                    // Strip the full cells so we don't crash
+                    // Provide a lightweight result — the full data is on disk
                     job.result = Some(GenerateTerrainResponse {
-                        cols: response.cols,
-                        rows: response.rows,
+                        cols: analysis.cols,
+                        rows: analysis.rows,
                         cell_data: Vec::new(),
                         cell_colors: Vec::new(),
-                        texture_url: final_response.texture_url,
+                        texture_url: Some(format!("/api/planets/{}/textures/base.jpg", history_id)),
                     });
                 }
             }
         }
         Err(e) => {
+            error!(job_id = %log_job_id2, error = %e, "cell analysis task panicked");
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&log_job_id2) {
                     job.status = JobStatus::Failed;
-                    job.current_stage = "Failed".to_string();
-                    job.error = Some(e);
+                    job.current_stage = "Task died".to_string();
+                    job.error = Some(format!("Thread panic: {e}"));
                 }
             }
         }
     }
+}
+
+/// Generate a batch of pixel-art icons via Gemini, stored in a dedicated folder.
+async fn generate_icon_batch(
+    State(state): State<AppState>,
+    Json(request): Json<IconBatchRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let prompts = request.prompts;
+
+    if prompts.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "No prompts provided".to_string()));
+    }
+    if prompts.len() > 50 {
+        return Err((StatusCode::BAD_REQUEST, "Maximum 50 prompts per batch".to_string()));
+    }
+
+    let batch_id = Uuid::new_v4().to_string();
+    let batch_dir = state.icons_dir.join(&batch_id);
+    std::fs::create_dir_all(&batch_dir).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create batch dir: {e}"))
+    })?;
+
+    info!(
+        batch_id = %batch_id,
+        count = prompts.len(),
+        "icon batch generation starting"
+    );
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let mut icons: Vec<BatchIcon> = Vec::new();
+
+    for (i, user_prompt) in prompts.iter().enumerate() {
+        let wrapped_prompt = format!(
+            "Generate a single 32x32 pixel art game icon. \
+            Style: pixel art, limited color palette, crisp pixels, no anti-aliasing, \
+            centered composition, transparent or solid dark background. \
+            The icon depicts: {}. \
+            Output ONLY the icon image, no text, no borders, no decorations.",
+            user_prompt
+        );
+
+        info!(batch_id = %batch_id, index = i, prompt = %user_prompt, "generating icon");
+
+        let image_bytes_result = if let Some(base64_img) = &request.base64_image {
+            // If they provided a reference image, use the vision/edit endpoint
+            gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", Some(0.4)).await
+        } else {
+            // Standard image generation
+            gemini::generate_image_bytes(&wrapped_prompt, Some(0.4), 256, 256).await
+        };
+
+        let image_bytes = image_bytes_result.map_err(|(code, msg)| {
+            error!("Icon generation failed for item {}: {}", i, msg);
+            (code, msg)
+        })?;
+
+        let batch_dir_clone = batch_dir.clone();
+        let batch_id_clone = batch_id.clone();
+        let prompt_for_manifest = user_prompt.clone();
+
+        let icon = tokio::task::spawn_blocking(move || -> Result<BatchIcon, (StatusCode, String)> {
+            let img = image::load_from_memory(&image_bytes).map_err(|e| {
+                error!("Failed to decode icon image: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Image decode error: {e}"))
+            })?;
+
+            let filename = format!("{:03}.png", i);
+            let path = batch_dir_clone.join(&filename);
+
+            img.save(&path).map_err(|e| {
+                error!("Failed to save icon: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}"))
+            })?;
+
+            info!(path = %path.display(), "icon saved");
+            Ok(BatchIcon {
+                filename: filename.clone(),
+                prompt: prompt_for_manifest,
+                url: format!("/api/icons/{}/{}", batch_id_clone, filename),
+            })
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {e}")))?
+        .map_err(|e| e)?;
+
+        icons.push(icon);
+    }
+
+    // Write manifest
+    let manifest = BatchManifest {
+        batch_id: batch_id.clone(),
+        created_at,
+        icons,
+    };
+
+    let manifest_path = batch_dir.join("manifest.json");
+    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {e}"))
+    })?;
+    std::fs::write(&manifest_path, &manifest_json).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Manifest write error: {e}"))
+    })?;
+
+    info!(batch_id = %batch_id, total = manifest.icons.len(), "batch generation completed");
+    Ok(Json(manifest))
+}
+
+/// List all icon batches.
+async fn list_icon_batches(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let icons_dir = state.icons_dir.clone();
+
+    let batches = tokio::task::spawn_blocking(move || -> Result<Vec<BatchSummary>, String> {
+        let mut result = Vec::new();
+        if !icons_dir.exists() {
+            return Ok(result);
+        }
+        let dir = std::fs::read_dir(&icons_dir).map_err(|e| format!("read dir: {e}"))?;
+        for entry in dir {
+            let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let manifest_path = path.join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let data = std::fs::read_to_string(&manifest_path)
+                .map_err(|e| format!("read manifest: {e}"))?;
+            let manifest: BatchManifest = serde_json::from_str(&data)
+                .map_err(|e| format!("parse manifest: {e}"))?;
+
+            let thumbnail_url = manifest.icons.first().map(|i| i.url.clone());
+            result.push(BatchSummary {
+                batch_id: manifest.batch_id,
+                icon_count: manifest.icons.len(),
+                created_at: manifest.created_at,
+                thumbnail_url,
+            });
+        }
+        // Sort newest first
+        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(result)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(batches))
+}
+
+/// Get a single batch manifest.
+async fn get_icon_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let manifest_path = state.icons_dir.join(&batch_id).join("manifest.json");
+    if !manifest_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+    let data = tokio::fs::read_to_string(&manifest_path).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"))
+    })?;
+    let manifest: BatchManifest = serde_json::from_str(&data).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse error: {e}"))
+    })?;
+    Ok(Json(manifest))
 }

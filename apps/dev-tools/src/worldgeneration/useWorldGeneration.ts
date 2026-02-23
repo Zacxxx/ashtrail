@@ -368,13 +368,13 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}${regio
         }
     }, [pollJobProgress]);
 
-    const generatePlanetCells = useCallback(async (historyId: string) => {
-        setGenProgress({ isActive: true, progress: 0, stage: "Queuing Geometry Grid Generator...", jobId: null });
+    const generatePlanetCells = useCallback(async (historyId: string, regions?: any[]) => {
+        setGenProgress({ isActive: true, progress: 0, stage: "Queuing Cell Analyzer...", jobId: null });
         try {
             const response = await fetch("http://127.0.0.1:8787/api/planet/cells/job", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ historyId }),
+                body: JSON.stringify({ historyId, regions }),
             });
             if (!response.ok) throw new Error(await response.text());
             const { jobId } = await response.json();
