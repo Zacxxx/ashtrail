@@ -266,12 +266,17 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
     };
   }, [traitSearch, selectedTraits]);
 
+  const MAX_NEUTRAL_TRAITS = 3;
+  const selectedNeutralCount = selectedTraits.filter(t => t.type === 'neutral' && !t.id.startsWith('age-')).length;
+
   const toggleTrait = (trait: Trait) => {
     const isSelected = selectedTraits.find(t => t.id === trait.id);
     if (isSelected) {
       setSelectedTraits(prev => prev.filter(t => t.id !== trait.id));
       setTraitPoints(prev => prev + trait.cost);
     } else {
+      // Block neutral traits if limit reached
+      if (trait.type === 'neutral' && selectedNeutralCount >= MAX_NEUTRAL_TRAITS) return;
       if (traitPoints >= trait.cost || trait.cost < 0) {
         setSelectedTraits(prev => [...prev, trait]);
         setTraitPoints(prev => prev - trait.cost);
@@ -578,11 +583,19 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                       onChange={(e) => setTraitSearch(e.target.value)}
                     />
                   </div>
-                  <div className="bg-zinc-900 px-4 py-2 border border-zinc-800 rounded flex flex-col items-end">
-                    <span className="text-[8px] text-zinc-500 mono uppercase">Budget Remaining</span>
-                    <span className={`text-xl font-black mono leading-none ${traitPoints < 0 ? 'text-red-500' : 'text-orange-500'}`}>
-                      {traitPoints}
-                    </span>
+                  <div className="flex gap-3">
+                    <div className="bg-zinc-900 px-4 py-2 border border-zinc-800 rounded flex flex-col items-end">
+                      <span className="text-[8px] text-zinc-500 mono uppercase">Neutral Slots</span>
+                      <span className={`text-xl font-black mono leading-none ${selectedNeutralCount >= MAX_NEUTRAL_TRAITS ? 'text-red-500' : 'text-zinc-400'}`}>
+                        {selectedNeutralCount}/{MAX_NEUTRAL_TRAITS}
+                      </span>
+                    </div>
+                    <div className="bg-zinc-900 px-4 py-2 border border-zinc-800 rounded flex flex-col items-end">
+                      <span className="text-[8px] text-zinc-500 mono uppercase">Budget Remaining</span>
+                      <span className={`text-xl font-black mono leading-none ${traitPoints < 0 ? 'text-red-500' : 'text-orange-500'}`}>
+                        {traitPoints}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -617,7 +630,12 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                       </div>
                     </section>
                     <section className="space-y-3">
-                      <h4 className="text-[9px] text-zinc-500 mono font-bold uppercase tracking-widest border-b border-zinc-800 pb-1">Neutral Profiles</h4>
+                      <h4 className="text-[9px] text-zinc-500 mono font-bold uppercase tracking-widest border-b border-zinc-800 pb-1 flex items-center justify-between">
+                        <span>Neutral Profiles</span>
+                        <span className={`text-[8px] ${selectedNeutralCount >= MAX_NEUTRAL_TRAITS ? 'text-red-500' : 'text-zinc-600'}`}>
+                          {selectedNeutralCount}/{MAX_NEUTRAL_TRAITS}
+                        </span>
+                      </h4>
                       <div className="space-y-1">
                         {filteredTraits.neutral.map(t => <TraitItem key={t.id} trait={t} />)}
                       </div>

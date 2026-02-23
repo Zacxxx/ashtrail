@@ -35,6 +35,14 @@ export const ALL_TRAITS: Trait[] = [
   { id: 't15', name: 'Lucky', description: 'Small chance for critical failures to be ignored or loot to be doubled.', cost: 8, type: 'positive' },
   { id: 't21', name: 'Silver Tongue', description: 'Charisma that works even in the Ash. Better rates with all traders.', cost: 7, type: 'positive' },
   { id: 't22', name: 'Bushwhacker', description: 'Deals 20% extra damage when initiating combat from stealth.', cost: 9, type: 'positive' },
+  { id: 't-pathfinder', name: 'Pathfinder', description: 'Instinct for forgotten routes. Travel encounters are 25% less likely, and map discovery range is increased.', cost: 9, type: 'positive' },
+  { id: 't-scavenger-instinct', name: "Scavenger's Instinct", description: 'Knows where to dig. Containers have a small chance to yield rare materials.', cost: 8, type: 'positive' },
+  { id: 't-crisis-manager', name: 'Crisis Manager', description: 'Remains calm under pressure. Party morale drops 30% slower during emergencies.', cost: 10, type: 'positive' },
+  { id: 't-ghost-walker', name: 'Ghost Walker', description: 'Moves like drifting ash. Stealth actions generate 20% less Heat.', cost: 7, type: 'positive' },
+  { id: 't-quartermaster', name: 'Quartermaster', description: 'Inventory is war. Supplies spoil 50% slower and stack more efficiently.', cost: 11, type: 'positive' },
+  { id: 't-battlefield-surgeon', name: 'Battlefield Surgeon', description: 'Improvised surgery expert. Healing in combat restores 20% more HP.', cost: 10, type: 'positive' },
+  { id: 't-salvage-engineer', name: 'Salvage Engineer', description: 'Nothing is truly broken. Destroyed equipment yields extra parts.', cost: 8, type: 'positive' },
+  { id: 't-negotiator', name: 'Negotiator', description: 'Always finds common ground. Conflict events have a chance to be resolved peacefully.', cost: 9, type: 'positive' },
 
   // --- NEGATIVE TRAITS ---
   { id: 't-frail', name: 'Frail', description: 'A weak frame plagued by old injuries. -15 Max HP.', cost: -10, type: 'negative' },
@@ -50,6 +58,14 @@ export const ALL_TRAITS: Trait[] = [
   { id: 't50', name: 'Cowardly', description: 'Quickly becomes panicked when HP drops below 40%.', cost: -4, type: 'negative' },
   { id: 't48', name: 'Clumsy', description: '10% chance to fail complex manual tasks and waste resources.', cost: -5, type: 'negative' },
   { id: 't-pacifist-neg', name: 'Pacifist', description: 'You hate the sight of blood. -20% Melee damage.', cost: -5, type: 'negative' },
+  { id: 't-paranoid', name: 'Paranoid', description: 'Trusts no one. Crew Trust decays slowly over time.', cost: -7, type: 'negative' },
+  { id: 't-fragile-mind', name: 'Fragile Mind', description: 'Nightmares of the old world. Morale recovers 40% slower.', cost: -9, type: 'negative' },
+  { id: 't-rust-allergy', name: 'Rust Allergy', description: 'Chemical sensitivity. Using damaged equipment sometimes causes HP loss.', cost: -6, type: 'negative' },
+  { id: 't-tunnel-vision', name: 'Tunnel Vision', description: 'Obsessive focus. Misses secondary objectives more often.', cost: -5, type: 'negative' },
+  { id: 't-reckless-loader', name: 'Reckless Loader', description: 'Careless with supplies. Ammo and tools are consumed 15% faster.', cost: -7, type: 'negative' },
+  { id: 't-nomadic-restlessness', name: 'Nomadic Restlessness', description: 'Cannot stay still. Penalties when remaining too long in one settlement.', cost: -6, type: 'negative' },
+  { id: 't-static-whispers', name: 'Static Whispers', description: 'Hears voices in radio static. Random morale fluctuations.', cost: -5, type: 'negative' },
+  { id: 't-brittle-bones', name: 'Brittle Bones', description: 'Old fractures never healed. Takes extra damage from falls and impacts.', cost: -8, type: 'negative' },
 
   // --- NEUTRAL TRAITS ---
   { id: 't-nomad', name: 'Wasteland Nomad', description: 'The road is your only home. +1 Agility while traveling, -1 Wisdom while in settlements.', cost: 0, type: 'neutral' },
@@ -71,6 +87,14 @@ export const ALL_TRAITS: Trait[] = [
   { id: 't94', name: 'Curious', description: 'Driven to investigate. Reveals POIs easier, but generates more Heat.', cost: 0, type: 'neutral' },
   { id: 't96', name: 'Optimist', description: 'Finds hope in ash. Higher Morale floor, but takes longer to realize a situation is fatal.', cost: 0, type: 'neutral' },
   { id: 't98', name: 'Nostalgic', description: 'Collects Old World relics. High sanity, but easily distracted in ruins.', cost: 0, type: 'neutral' },
+  { id: 't-chronicler', name: 'Chronicler', description: 'Documents everything. Extra lore and journal entries, slight XP bonus from discoveries.', cost: 0, type: 'neutral' },
+  { id: 't-lone-strategist', name: 'Lone Strategist', description: 'Plans better alone. Tactical bonuses when separated from crew.', cost: 0, type: 'neutral' },
+  { id: 't-ash-born', name: 'Ash-Born', description: 'Adapted to toxic zones. Radiation resistance increased, but normal zones feel dull.', cost: 0, type: 'neutral' },
+  { id: 't-relic-seeker', name: 'Relic Seeker', description: 'Obsessed with Old World tech. Special POIs appear more often.', cost: 0, type: 'neutral' },
+  { id: 't-ritualist', name: 'Ritualist', description: 'Performs daily rites. Minor morale buff if routines are respected.', cost: 0, type: 'neutral' },
+  { id: 't-crowd-chameleon', name: 'Crowd Chameleon', description: 'Blends into any group. Reduced penalties in hostile settlements.', cost: 0, type: 'neutral' },
+  { id: 't-risk-accountant', name: 'Risk Accountant', description: 'Calculates odds constantly. Crit chance and failure chance both slightly increased.', cost: 0, type: 'neutral' },
+  { id: 't-bonded-companion', name: 'Bonded Companion', description: 'Forms strong attachment. Gains buffs near one specific crew member, heavy debuff if separated.', cost: 0, type: 'neutral' },
 ];
 
 export const FACTIONS = [
@@ -83,13 +107,13 @@ export const FACTIONS = [
 ];
 
 export const MAP_NODES: Node[] = [
-  { 
-    id: 'start-001', 
-    name: 'Iron Gate Station', 
-    type: 'settlement', 
-    faction: 'The Fuel Guild', 
-    danger: 1, 
-    scarcity: [ResourceType.WATER, ResourceType.FOOD], 
+  {
+    id: 'start-001',
+    name: 'Iron Gate Station',
+    type: 'settlement',
+    faction: 'The Fuel Guild',
+    danger: 1,
+    scarcity: [ResourceType.WATER, ResourceType.FOOD],
     abundance: [ResourceType.FUEL, ResourceType.PARTS],
     description: 'A fortified trading hub at the edge of the Dead Zone.',
     pois: [
@@ -98,69 +122,69 @@ export const MAP_NODES: Node[] = [
       { id: 'poi-3', name: 'Repair Bay 4', type: 'market', description: 'Standard maintenance facilities for heavy rigs.' }
     ]
   },
-  { 
-    id: 'node-002', 
-    name: 'Sinking Refinery', 
-    type: 'refinery', 
-    faction: 'Scrap Nomads', 
-    danger: 3, 
-    scarcity: [ResourceType.MEDS], 
-    abundance: [ResourceType.FUEL], 
+  {
+    id: 'node-002',
+    name: 'Sinking Refinery',
+    type: 'refinery',
+    faction: 'Scrap Nomads',
+    danger: 3,
+    scarcity: [ResourceType.MEDS],
+    abundance: [ResourceType.FUEL],
     description: 'A massive structure partially submerged in the shifting sands.',
     pois: [
       { id: 'poi-4', name: 'The Overflow Pipes', type: 'hazard', description: 'Toxic runoff pools here. Dangerous but often contains lost scrap.' },
       { id: 'poi-5', name: 'Nomad Scrap Heap', type: 'market', description: 'A massive pile of junk where anything can be found for a price.' }
     ]
   },
-  { 
-    id: 'node-003', 
-    name: 'Cleft Canyon Ruins', 
-    type: 'ruins', 
-    faction: 'None', 
-    danger: 6, 
-    scarcity: [ResourceType.FUEL], 
-    abundance: [ResourceType.PARTS, ResourceType.AMMO], 
+  {
+    id: 'node-003',
+    name: 'Cleft Canyon Ruins',
+    type: 'ruins',
+    faction: 'None',
+    danger: 6,
+    scarcity: [ResourceType.FUEL],
+    abundance: [ResourceType.PARTS, ResourceType.AMMO],
     description: 'Ancient concrete skeletons of a forgotten age.',
     pois: [
       { id: 'poi-6', name: 'Bank Vault 7', type: 'ruin', description: 'Untouched for decades. Guaranteed high-value relics inside.' },
       { id: 'poi-7', name: 'Canyon Sniper Nest', type: 'hazard', description: 'A strategic point overlooking the canyon floor.' }
     ]
   },
-  { 
-    id: 'node-004', 
-    name: 'Silent Wells', 
-    type: 'outpost', 
-    faction: 'Water Syndicate', 
-    danger: 2, 
-    scarcity: [ResourceType.AMMO, ResourceType.FUEL], 
-    abundance: [ResourceType.WATER], 
+  {
+    id: 'node-004',
+    name: 'Silent Wells',
+    type: 'outpost',
+    faction: 'Water Syndicate',
+    danger: 2,
+    scarcity: [ResourceType.AMMO, ResourceType.FUEL],
+    abundance: [ResourceType.WATER],
     description: 'A vital moisture collection point guarded by the Syndicate.',
     pois: [
       { id: 'poi-8', name: 'The Main Piston', type: 'landmark', description: 'A massive steam-driven pump that provides life to the sector.' },
       { id: 'poi-9', name: 'Water Barons Office', type: 'npc', description: 'Where deals are made. Highly secured.' }
     ]
   },
-  { 
-    id: 'node-005', 
-    name: 'Obsidian Pass', 
-    type: 'tunnel', 
-    faction: 'The Dust Wraiths', 
-    danger: 8, 
-    scarcity: [ResourceType.FOOD], 
-    abundance: [ResourceType.MEDS], 
+  {
+    id: 'node-005',
+    name: 'Obsidian Pass',
+    type: 'tunnel',
+    faction: 'The Dust Wraiths',
+    danger: 8,
+    scarcity: [ResourceType.FOOD],
+    abundance: [ResourceType.MEDS],
     description: 'A dark, dangerous corridor through the mountainside.',
     pois: [
       { id: 'poi-10', name: 'The Narrow Throat', type: 'hazard', description: 'A natural choke point where ambushes are frequent.' }
     ]
   },
-  { 
-    id: 'node-006', 
-    name: 'The Great Terminal', 
-    type: 'settlement', 
-    faction: 'Remnant Military', 
-    danger: 2, 
-    scarcity: [ResourceType.PARTS], 
-    abundance: [ResourceType.AMMO, ResourceType.FOOD], 
+  {
+    id: 'node-006',
+    name: 'The Great Terminal',
+    type: 'settlement',
+    faction: 'Remnant Military',
+    danger: 2,
+    scarcity: [ResourceType.PARTS],
+    abundance: [ResourceType.AMMO, ResourceType.FOOD],
     description: 'The last bastion of organized military presence in the sector.',
     pois: [
       { id: 'poi-11', name: 'Military Commissary', type: 'market', description: 'High-quality rations and standard military gear.' },
