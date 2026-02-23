@@ -5,7 +5,10 @@ import {
   Player,
   Stats,
   Trait,
+  Occupation,
+  OccupationCategory,
   ALL_TRAITS,
+  ALL_OCCUPATIONS,
   generateCharacterPortrait,
   enhanceAppearancePrompt
 } from '@ashtrail/core';
@@ -183,6 +186,11 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
     charisma: 3
   });
 
+  // Occupation State
+  const [selectedOccupation, setSelectedOccupation] = useState<Occupation | null>(null);
+  const [occupationSearch, setOccupationSearch] = useState('');
+  const [occupationCategory, setOccupationCategory] = useState<OccupationCategory | 'ALL'>('ALL');
+
   // Refs for auto-resize
   const biometricRef = useRef<HTMLTextAreaElement>(null);
 
@@ -309,6 +317,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
       portraitUrl: portraitUrl || undefined,
       stats: finalStats,
       traits: finalTraits,
+      occupation: selectedOccupation || undefined,
       hp: 10 + finalStats.endurance * 5,
       maxHp: 10 + finalStats.endurance * 5,
       xp: 0,
@@ -352,7 +361,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                   : 'text-zinc-600 border-transparent hover:text-zinc-400'
                   }`}
               >
-                {tab}
+                {tab === 'STATS' ? 'STATS & OCCUPATIONS' : tab}
               </button>
             ))}
           </div>
@@ -667,6 +676,89 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         <ProgressBar value={val} max={10} color="bg-orange-500" />
                       </div>
                     ))}
+                  </div>
+
+                  {/* OCCUPATION SECTION */}
+                  <div className="max-w-4xl mx-auto mt-6 border-t border-zinc-800 pt-6">
+                    <div className="flex justify-between items-center mb-4 gap-4">
+                      <h4 className="text-xs text-orange-500 mono font-bold uppercase tracking-widest flex items-center gap-2 shrink-0">
+                        <div className="w-1 h-1 rounded-full bg-orange-500" />
+                        Occupation
+                      </h4>
+                      <div className="flex items-center gap-2 flex-1 justify-end">
+                        <div className="flex gap-1">
+                          {(['ALL', 'SECURITY', 'TECHNICAL', 'CRAFT', 'ADMIN', 'SOCIAL', 'FIELD'] as const).map(cat => (
+                            <button
+                              key={cat}
+                              onClick={() => setOccupationCategory(cat)}
+                              className={`px-2 py-1 text-[8px] mono uppercase font-bold tracking-wider border rounded-sm transition-all ${occupationCategory === cat
+                                ? 'text-orange-500 border-orange-500/50 bg-orange-500/10'
+                                : 'text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'
+                                }`}
+                            >
+                              {cat}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="w-40">
+                          <Input
+                            placeholder="Search..."
+                            value={occupationSearch}
+                            onChange={(e) => setOccupationSearch(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {selectedOccupation && (
+                      <div className="mb-4 p-4 bg-orange-600/10 border border-orange-500 rounded-sm shadow-[inset_0_0_15px_rgba(249,115,22,0.08)] animate-in fade-in duration-300">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-xs mono font-black uppercase text-orange-400 tracking-widest">{selectedOccupation.name}</span>
+                            <p className="text-[10px] mono text-zinc-400 mt-1">{selectedOccupation.description}</p>
+                          </div>
+                          <button
+                            onClick={() => setSelectedOccupation(null)}
+                            className="text-[9px] mono uppercase text-zinc-600 hover:text-red-500 font-black tracking-widest transition-colors"
+                          >
+                            remove
+                          </button>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {selectedOccupation.perks.map((perk, i) => (
+                            <span key={i} className="text-[8px] mono uppercase bg-orange-500/10 text-orange-400 px-2 py-1 rounded-sm border border-orange-900/30 tracking-wider">
+                              {perk}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[240px] overflow-y-auto pr-2 custom-scrollbar">
+                      {ALL_OCCUPATIONS
+                        .filter(occ => {
+                          const search = occupationSearch.toLowerCase();
+                          const matchesSearch = occ.name.toLowerCase().includes(search) || occ.description.toLowerCase().includes(search);
+                          const matchesCategory = occupationCategory === 'ALL' || occ.category === occupationCategory;
+                          return matchesSearch && matchesCategory;
+                        })
+                        .map(occ => (
+                          <Tooltip key={occ.id} content={`${occ.description} — ${occ.perks.join(' • ')}`}>
+                            <button
+                              onClick={() => setSelectedOccupation(selectedOccupation?.id === occ.id ? null : occ)}
+                              className={`w-full p-3 text-left border rounded-sm transition-all group flex items-center justify-between ${selectedOccupation?.id === occ.id
+                                ? 'bg-orange-600/20 border-orange-500 shadow-[inset_0_0_10px_rgba(249,115,22,0.1)]'
+                                : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
+                                }`}
+                            >
+                              <span className={`font-bold text-[10px] uppercase mono tracking-wider ${selectedOccupation?.id === occ.id ? 'text-orange-400' : 'text-zinc-300'
+                                }`}>
+                                {occ.name}
+                              </span>
+                            </button>
+                          </Tooltip>
+                        ))}
+                    </div>
                   </div>
                 </div>
               </div>

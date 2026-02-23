@@ -35,6 +35,17 @@ export interface Trait {
   impact?: string;
 }
 
+export type OccupationCategory = 'SECURITY' | 'TECHNICAL' | 'CRAFT' | 'ADMIN' | 'SOCIAL' | 'FIELD';
+
+export interface Occupation {
+  id: string;
+  name: string;
+  category: OccupationCategory;
+  description: string;
+  shortDescription: string;
+  perks: string[];
+}
+
 export interface Item {
   id: string;
   name: string;
@@ -52,6 +63,7 @@ export interface Player {
   portraitUrl?: string;
   stats: Stats;
   traits: Trait[];
+  occupation?: Occupation;
   hp: number;
   maxHp: number;
   xp: number;
@@ -64,7 +76,7 @@ export interface CrewMember {
   name: string;
   role: 'driver' | 'mechanic' | 'medic' | 'scout' | 'negotiator' | 'muscle';
   traits: string[];
-  morale: number; 
+  morale: number;
   trust: number;
   spIndex: number;
 }
@@ -96,15 +108,15 @@ export interface Node {
   pois?: PointOfInterest[];
 }
 
-export type GameScreen = 
-  | 'MENU' 
-  | 'CHARACTER_CREATION' 
+export type GameScreen =
+  | 'MENU'
+  | 'CHARACTER_CREATION'
   | 'LORE_INTRO'
-  | 'WORLD_MAP' 
-  | 'LOCATION_MAP' 
-  | 'INTERACTION' 
-  | 'COMBAT' 
-  | 'CHARACTER_SHEET' 
+  | 'WORLD_MAP'
+  | 'LOCATION_MAP'
+  | 'INTERACTION'
+  | 'COMBAT'
+  | 'CHARACTER_SHEET'
   | 'QUEST_LOG'
   | 'SETTINGS';
 
