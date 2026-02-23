@@ -13,6 +13,8 @@ interface GeologyPanelProps {
     setAiTemperature: (value: number) => void;
     showHexGrid: boolean;
     setShowHexGrid: (value: boolean) => void;
+    generateCells: boolean;
+    setGenerateCells: (value: boolean) => void;
     config: SimulationConfig;
     updateWorld: (patch: Partial<SimulationConfig["world"]>) => void;
     updateGeo: (patch: Partial<SimulationConfig["geo"]>) => void;
@@ -35,6 +37,8 @@ export function GeologyPanel({
     setAiTemperature,
     showHexGrid,
     setShowHexGrid,
+    generateCells,
+    setGenerateCells,
     config,
     updateWorld,
     updateGeo,
@@ -99,8 +103,9 @@ export function GeologyPanel({
                                 </div>
                             </div>
 
-                            <div className="pt-4 mt-2 border-t border-white/5">
+                            <div className="pt-4 mt-2 border-t border-white/5 space-y-3">
                                 <Toggle label="HEX OVERLAY" checked={showHexGrid} onChange={setShowHexGrid} />
+                                <Toggle label="GENERATE TILE GRID (SLOW)" checked={generateCells} onChange={setGenerateCells} />
                             </div>
                         </div>
                     )}

@@ -42,7 +42,7 @@ export type RegionType =
     | "mountain_range" | "plateau" | "valley" | "canyon" | "volcano" | "crater" | "glacier"
     | "custom";
 
-export type GeographyTool = "lasso" | "select" | "pan";
+export type GeographyTool = "lasso" | "magic_wand" | "select" | "pan";
 
 export interface GeoRegion {
     id: string;

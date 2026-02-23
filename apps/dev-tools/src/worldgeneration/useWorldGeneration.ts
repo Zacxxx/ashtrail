@@ -21,6 +21,7 @@ interface UseWorldGenerationParams {
     setGlobeWorld: (world: PlanetWorld | null) => void;
     setContinents: (continents: ContinentConfig[]) => void;
     setActiveHistoryId: (id: string | null) => void;
+    saveCellSubTiles: (cellX: number, cellY: number, subTiles: any[]) => void;
 }
 
 export function useWorldGeneration({
@@ -40,6 +41,7 @@ export function useWorldGeneration({
     setGlobeWorld,
     setContinents,
     setActiveHistoryId,
+    saveCellSubTiles,
 }: UseWorldGenerationParams) {
     const [genProgress, setGenProgress] = useState<GenerationProgress>({
         isActive: false,
@@ -124,15 +126,16 @@ export function useWorldGeneration({
         }, 500);
     }, [prompt, config, saveToHistory, setGlobeWorld]);
 
-    const generatePlanet = useCallback(async () => {
+    const generatePlanet = useCallback(async (generateCells: boolean) => {
         setGenProgress({ isActive: true, progress: 0, stage: "Starting Generation…", jobId: null });
         setGlobeWorld(null);
 
-        const systemPrompt = `Generate a seamless equirectangular projection planetary map texture.
-STYLE: NASA satellite photography, photorealistic, top-down orthographic view as seen from orbit.
+        const systemPrompt = `Generate a seamless equirectangular projection ALIEN planetary map texture.
+STYLE: Deep space satellite photography, photorealistic, top-down orthographic view as seen from orbit.
 FORMAT: Must be a valid equirectangular (cylindrical) projection that wraps seamlessly around a sphere — poles at top/bottom, equator centered.
-ABSOLUTELY FORBIDDEN: No text, labels, annotations, legends, icons, UI elements, borders, or any overlay graphics. No fantasy elements like floating islands, crystals, spires, glowing objects, or impossible geology. This must look like a real photograph of a planet taken from space.
-RENDER ONLY: Realistic terrain — oceans, continents, deserts, forests, ice caps, mountain ranges, rivers, coastlines — as they would appear in actual satellite imagery.`;
+CRITICAL REQUIREMENT: The planet MUST NOT RESEMBLE EARTH. Do not generate Earth-like continents (e.g. Africa, South America, Eurasia). Create completely novel, unrecognizable alien landmass configurations.
+ABSOLUTELY FORBIDDEN: No Earth-like geography. No text, labels, annotations, legends, icons, UI elements, borders, or any overlay graphics. No fantasy elements like floating islands, crystals, spires, glowing objects, or impossible geology. This must look like a real photograph of an ALIEN planet taken from space.
+RENDER ONLY: Realistic but completely random alien terrain — alien oceans, unusual continents, deserts, forests, ice caps, mountain ranges, rivers, coastlines — as they would appear in actual satellite imagery of an undiscovered exoplanet.`;
 
         const configPrompt = `Planet parameters to match visually:
 - Ocean/water coverage: ~${(config.world.oceanCoverage * 100).toFixed(0)}% of surface
@@ -167,7 +170,8 @@ ${configPrompt}${continentsPrompt}`;
                     prompt: fullPrompt,
                     temperature: aiTemperature,
                     cols,
-                    rows
+                    rows,
+                    generateCells
                 }),
             });
 
@@ -364,6 +368,66 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}${regio
         }
     }, [pollJobProgress]);
 
+    const generatePlanetCells = useCallback(async (historyId: string, regions?: any[]) => {
+        setGenProgress({ isActive: true, progress: 0, stage: "Queuing Cell Analyzer...", jobId: null });
+        try {
+            const response = await fetch("http://127.0.0.1:8787/api/planet/cells/job", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ historyId, regions }),
+            });
+            if (!response.ok) throw new Error(await response.text());
+            const { jobId } = await response.json();
+            setGenProgress(prev => ({ ...prev, jobId }));
+            pollJobProgress(jobId, "http://127.0.0.1:8787/api/planet/cells/job");
+        } catch (error) {
+            console.error(error);
+            setGenProgress({
+                isActive: false, progress: 0, stage: `Error: ${error instanceof Error ? error.message : "Unknown error"}`, jobId: null,
+            });
+        }
+    }, [pollJobProgress]);
+
+    const generateCellSubTiles = useCallback(async (selectedCell: any) => {
+        if (!selectedCell) return;
+        setIsGeneratingText(true);
+
+        try {
+            const response = await fetch("/api/text/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    prompt: `Generate 7 localized hexagonal sub-tiles (1 center, 6 neighbors) for a region with biome: ${selectedCell.biome}, elevation: ${selectedCell.elevationMeters}m. The planet theme is: ${prompt}.
+                    Format the response ONLY as a strict JSON array of objects.
+                    Each object must have:
+                    - 'id' (e.g. 'Center', 'North', 'NorthEast', etc.)
+                    - 'biome' (a sub-variant of the main biome)
+                    - 'description' (a very brief 1-sentence description of the terrain at this sub-tile).
+                    Do not include markdown formatting or backticks around the JSON.`
+                }),
+            });
+
+            if (!response.ok) throw new Error("Failed to generate sub-tiles");
+
+            const data = await response.json();
+            const parsed = JSON.parse(data.text);
+
+            if (Array.isArray(parsed) && globeWorld) {
+                const newCellData = [...globeWorld.cellData];
+                const cellIndex = newCellData.findIndex(c => c.x === selectedCell.x && c.y === selectedCell.y);
+                if (cellIndex !== -1) {
+                    newCellData[cellIndex] = { ...newCellData[cellIndex], subTiles: parsed };
+                }
+                setGlobeWorld({ ...globeWorld, cellData: newCellData });
+                saveCellSubTiles(selectedCell.x, selectedCell.y, parsed);
+            }
+        } catch (err) {
+            console.error("AI Sub-Tile Generation Failed:", err);
+        } finally {
+            setIsGeneratingText(false);
+        }
+    }, [prompt, globeWorld, setGlobeWorld, saveCellSubTiles]);
+
     return {
         genProgress,
         isGeneratingText,
@@ -376,5 +440,7 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}${regio
         handleAutoGenerateContinents,
         fetchRegionLore,
         generateUpscale,
+        generateCellSubTiles,
+        generatePlanetCells,
     };
 }

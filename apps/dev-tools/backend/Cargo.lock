@@ -440,6 +440,7 @@ dependencies = [
  "dotenv",
  "geo-core",
  "image",
+ "rayon",
  "reqwest",
  "serde",
  "serde_json",
