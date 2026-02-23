@@ -5,10 +5,160 @@ import {
   Player,
   Stats,
   Trait,
+  Occupation,
+  OccupationCategory,
   ALL_TRAITS,
+  ALL_OCCUPATIONS,
+  MOCK_TALENT_TREES,
   generateCharacterPortrait,
   enhanceAppearancePrompt
 } from '@ashtrail/core';
+import { ReactFlow, Edge as RFEdge, Node as RFNode, Position, Handle, ConnectionLineType, Background, ReactFlowProvider, useReactFlow } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+
+const TALENT_ANIMATIONS = `
+@keyframes shimmer {
+  0% { transform: translateX(-150%) skewX(-20deg); }
+  100% { transform: translateX(150%) skewX(-20deg); }
+}
+@keyframes progress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+`;
+
+// Custom Talent Node for React Flow
+const TalentNode = ({ data, selected }: { data: any, selected: boolean }) => {
+  const { isCapstone, isConverging, isUnlocked, isAvailable, name, type, rank = 0, maxRank = 1, onUnlock, isConfirming } = data;
+
+  // Determine node color theme based on type
+  const themeColors = {
+    active: {
+      border: 'border-cyan-500',
+      bg: 'bg-cyan-500/10',
+      shadow: 'shadow-[0_0_20px_rgba(6,182,212,0.2)]',
+      text: 'text-cyan-500',
+      glow: 'bg-cyan-500/30',
+      wave: 'border-cyan-500/20',
+      breath: 'bg-cyan-500/25',
+      ring: 'border-cyan-500/40',
+      innerRing: 'border-cyan-500/10'
+    },
+    stat: {
+      border: 'border-emerald-500',
+      bg: 'bg-emerald-500/10',
+      shadow: 'shadow-[0_0_20px_rgba(16,185,129,0.2)]',
+      text: 'text-emerald-500',
+      glow: 'bg-emerald-500/30',
+      wave: 'border-emerald-500/20',
+      breath: 'bg-emerald-500/25',
+      ring: 'border-emerald-500/40',
+      innerRing: 'border-emerald-500/10'
+    },
+    passive: {
+      border: 'border-orange-500',
+      bg: 'bg-orange-500/10',
+      shadow: 'shadow-[0_0_20px_rgba(249,115,22,0.2)]',
+      text: 'text-orange-500',
+      glow: 'bg-orange-500/30',
+      wave: 'border-orange-500/20',
+      breath: 'bg-orange-500/25',
+      ring: 'border-orange-500/40',
+      innerRing: 'border-orange-500/10'
+    }
+  }[type as 'active' | 'stat' | 'passive'] || {
+    border: 'border-orange-500',
+    bg: 'bg-orange-500/10',
+    shadow: 'shadow-[0_0_20px_rgba(249,115,22,0.2)]',
+    text: 'text-orange-500',
+    glow: 'bg-orange-500/30',
+    wave: 'border-orange-500/20',
+    breath: 'bg-orange-500/25',
+    ring: 'border-orange-500/40',
+    innerRing: 'border-orange-500/10'
+  };
+
+  return (
+    <div className="relative group">
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ background: 'transparent', border: 'none', top: '0%' }}
+      />
+
+      <div className="flex items-center justify-center">
+        <div
+          className={`w-16 h-16 transition-all duration-300 flex items-center justify-center relative z-10 
+            ${type === 'stat' ? 'rotate-45 rounded-sm' : type === 'active' ? 'rounded-lg' : 'rounded-full'} border-2
+            ${isUnlocked
+              ? `${themeColors.border} ${themeColors.bg} ${themeColors.shadow}`
+              : isAvailable
+                ? 'border-zinc-500 bg-zinc-900 shadow-[0_0_10px_rgba(255,255,255,0.05)]'
+                : 'border-zinc-800 bg-zinc-900/60 opacity-60'} 
+            ${isCapstone && isUnlocked ? `shadow-[0_0_25px_${themeColors.text.replace('text', 'rgba')}/40] scale-110` : ''}
+            group-hover:scale-105 transition-transform`}
+        >
+          {/* Node Icon/Letter - Placeholder or name first letter */}
+          <span className={`text-[10px] mono font-black transition-colors ${type === 'stat' ? '-rotate-45' : ''} ${isUnlocked ? themeColors.text : 'text-zinc-700'}`}>
+            {name.charAt(0)}
+          </span>
+
+          {/* Convergence Double Circle Effect */}
+          {isConverging && (
+            <div className={`absolute inset-1.5 rounded-full border-2 animate-pulse pointer-events-none ${isUnlocked ? `${themeColors.ring.replace('40', '20')}` : 'border-zinc-700/20'}`} />
+          )}
+
+          {/* Inner Circle Effect */}
+          <div className={`absolute inset-2.5 rounded-full border border-zinc-800/25 pointer-events-none ${type === 'stat' ? 'rotate-0' : ''}`} />
+
+          {/* Rank Indicator */}
+          <div className={`absolute -bottom-1 -right-1 min-w-[20px] h-[15px] border px-1.5 flex items-center justify-center rounded-[2px] shadow-black shadow-sm transition-colors z-30
+            ${isUnlocked ? `${themeColors.text.replace('text', 'bg')} border-white/20 text-zinc-950 font-black` : 'bg-zinc-950 border-zinc-800 text-zinc-500'} ${type === 'stat' ? '-rotate-45' : ''}`}>
+            <span className="text-[7px] mono font-bold">{rank}/{maxRank}</span>
+          </div>
+
+          {/* Glow on hover or selected */}
+          <div className={`absolute inset-0 rounded-full blur-xl transition-all duration-700 
+            ${selected ? `${themeColors.glow} scale-110 opacity-100` : isAvailable ? `${themeColors.glow.replace('30', '10')} opacity-0 group-hover:opacity-100` : 'opacity-0'}`}
+          />
+
+          {/* Upgrade Animation Effect - Commitment Pulse for Selected OR ALREADY UNLOCKED nodes */}
+          {isConfirming && (selected || isUnlocked) && (
+            <>
+              {/* Outer wave */}
+              <div className={`absolute -inset-10 rounded-full border ${themeColors.wave} animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] z-0`} />
+              {/* Inner breath */}
+              <div className={`absolute -inset-1 rounded-full ${themeColors.breath} animate-[pulse_0.8s_ease-in-out_infinite] z-0 ${!selected && 'opacity-40'}`} />
+
+              {/* Shimmer commitment effect only for selected */}
+              {selected && (
+                <div className={`absolute inset-0 overflow-hidden ${type === 'stat' ? '' : 'rounded-full'} z-20 pointer-events-none`}>
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-[shimmer_1.5s_infinite]" />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Selected Ring - More elegant */}
+          {selected && (
+            <div className={`absolute -inset-3 rounded-full border-2 ${themeColors.ring} pointer-events-none transition-all duration-500
+              ${isConfirming ? 'scale-125 opacity-0' : 'animate-[pulse_3s_ease-in-out_infinite]'}`}>
+              <div className={`absolute inset-0 border ${themeColors.innerRing} rounded-full scale-110`} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ background: 'transparent', border: 'none', bottom: '0%' }}
+      />
+    </div >
+  );
+};
+
+const nodeTypes = { talent: TalentNode };
 
 interface CharacterCreationScreenProps {
   onComplete: (player: Player) => void;
@@ -162,6 +312,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
   const [isGeneratingPortrait, setIsGeneratingPortrait] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isProfileModified, setIsProfileModified] = useState(false);
 
   // History State
   const [history, setHistory] = useState('');
@@ -181,6 +332,12 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
     endurance: 3,
     charisma: 3
   });
+
+  // Occupation State
+  const [selectedOccupation, setSelectedOccupation] = useState<Occupation | null>(null);
+  const [occupationSearch, setOccupationSearch] = useState('');
+  const [occupationCategory, setOccupationCategory] = useState<OccupationCategory | 'ALL'>('ALL');
+  const [showTalentTree, setShowTalentTree] = useState(false);
 
   // Refs for auto-resize
   const biometricRef = useRef<HTMLTextAreaElement>(null);
@@ -226,7 +383,10 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
     const contextPrompt = `A ${gender} wasteland explorer, aged ${age}. Overall characteristics: ${selectorsSummary}. Detailed appearance: ${specificText || appearancePrompt}`;
 
     const url = await generateCharacterPortrait(contextPrompt);
-    if (url) setPortraitUrl(url);
+    if (url) {
+      setPortraitUrl(url);
+      setIsProfileModified(false);
+    }
     setIsGeneratingPortrait(false);
   };
 
@@ -262,12 +422,17 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
     };
   }, [traitSearch, selectedTraits]);
 
+  const MAX_NEUTRAL_TRAITS = 3;
+  const selectedNeutralCount = selectedTraits.filter(t => t.type === 'neutral' && !t.id.startsWith('age-')).length;
+
   const toggleTrait = (trait: Trait) => {
     const isSelected = selectedTraits.find(t => t.id === trait.id);
     if (isSelected) {
       setSelectedTraits(prev => prev.filter(t => t.id !== trait.id));
       setTraitPoints(prev => prev + trait.cost);
     } else {
+      // Block neutral traits if limit reached
+      if (trait.type === 'neutral' && selectedNeutralCount >= MAX_NEUTRAL_TRAITS) return;
       if (traitPoints >= trait.cost || trait.cost < 0) {
         setSelectedTraits(prev => [...prev, trait]);
         setTraitPoints(prev => prev - trait.cost);
@@ -300,6 +465,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
       portraitUrl: portraitUrl || undefined,
       stats: finalStats,
       traits: finalTraits,
+      occupation: selectedOccupation || undefined,
       hp: 10 + finalStats.endurance * 5,
       maxHp: 10 + finalStats.endurance * 5,
       xp: 0,
@@ -343,7 +509,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                   : 'text-zinc-600 border-transparent hover:text-zinc-400'
                   }`}
               >
-                {tab}
+                {tab === 'STATS' ? 'STATS & OCCUPATIONS' : tab}
               </button>
             ))}
           </div>
@@ -363,8 +529,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         {/* 1. Core Designation */}
                         <div className="p-3 space-y-3">
                           <div className="flex justify-between items-center">
-                            <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest">01 // Core Designation</label>
-                            <Badge color="zinc">Identity Sync Required</Badge>
+                            <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest">01 // Designation</label>
                           </div>
 
                           <div className="space-y-1">
@@ -419,7 +584,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
                         {/* 2. Physical Vectors */}
                         <div className="p-3 space-y-2">
-                          <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest block">02 // Physical Vectors</label>
+                          <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest block">02 // Appearance</label>
                           <div className="grid grid-cols-2 gap-x-6 gap-y-1">
                             {Object.entries(APPEARANCE_SELECTORS).map(([key, options]) => (
                               <div key={key} className="flex flex-col gap-0.5 py-0.5 group">
@@ -437,7 +602,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
                         {/* 3. Neural Backstory */}
                         <div className="p-3 space-y-2">
-                          <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest block">03 // Neural Backstory</label>
+                          <label className="text-[9px] uppercase text-zinc-500 mono font-black tracking-widest block">03 // Backstory</label>
                           <textarea
                             value={history}
                             onChange={(e) => setHistory(e.target.value)}
@@ -458,7 +623,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                       isLoading={isSyncing || isGeneratingPortrait}
                     >
                       <div className="absolute inset-x-0 bottom-0 h-[1px] bg-white/20" />
-                      {isGeneratingPortrait || isSyncing ? 'MANIFESTING CONFIGURATION...' : 'MANIFEST NEURAL IDENTITY'}
+                      {isGeneratingPortrait || isSyncing ? 'Generating...' : 'generate your character'}
                     </Button>
                   </div>
                 </div>
@@ -470,20 +635,20 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                     <div className="absolute top-0 left-0 right-0 bg-zinc-900/80 px-4 py-1.5 border-b border-zinc-800 text-[9px] mono text-zinc-500 uppercase flex justify-between z-10 transition-colors group-hover:bg-zinc-900">
                       <div className="flex items-center gap-2">
                         <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-                        <span>Neural Visualization</span>
+                        <span>Visualization</span>
                       </div>
                       <div className="flex items-center gap-3">
                         {portraitUrl && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleRefreshPortrait(); }}
                             disabled={isGeneratingPortrait}
-                            className="text-orange-500 hover:text-orange-400 font-black disabled:opacity-50 flex items-center gap-1 transition-all"
+                            className={`text-orange-500 hover:text-orange-400 font-black disabled:opacity-50 flex items-center transition-all mono uppercase text-[9px] tracking-widest ${isProfileModified ? 'animate-pulse text-orange-300 drop-shadow-[0_0_5px_rgba(249,115,22,0.5)]' : ''}`}
                           >
-                            <span className="text-[10px]">↻</span> RE-SYNC
+                            regenerate
                           </button>
                         )}
                         <span className={portraitUrl ? 'text-green-500' : 'text-zinc-700'}>
-                          {portraitUrl ? 'Link Active' : 'No Signal'}
+                          {portraitUrl ? 'Generated' : 'No Signal'}
                         </span>
                       </div>
                     </div>
@@ -501,7 +666,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                           <div className="w-24 h-24 border-2 border-zinc-900 border-dashed rounded-full flex items-center justify-center mx-auto opacity-20 relative animate-[pulse_4s_infinite]">
                             <span className="text-3xl text-zinc-800">?</span>
                           </div>
-                          <p className="text-[9px] mono text-zinc-700 uppercase tracking-widest animate-pulse">Waiting for neural manifestation...</p>
+                          <p className="text-[9px] mono text-zinc-700 uppercase tracking-widest animate-pulse">Waiting for generation...</p>
                         </div>
                       )}
                     </div>
@@ -520,12 +685,19 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                     <label className="text-[10px] uppercase text-orange-500/80 mono font-black mb-3 tracking-[0.2em] border-b border-orange-900/40 pb-1.5 flex justify-between items-center">
                       <div className="flex items-center gap-2">
                         <span className="w-1 h-2 bg-orange-500" />
-                        <span>Biometric Profile</span>
+                        <span>Profile</span>
                       </div>
                       {!appearancePrompt ? (
                         <span className="text-zinc-800 text-[9px] uppercase">Awaiting Link</span>
                       ) : (
-                        <span className="text-[8px] text-zinc-600 mono lowercase opacity-50 group-hover:opacity-100 transition-opacity italic">editable profile</span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="text-[8px] text-zinc-600 mono uppercase opacity-50 group-hover:opacity-100 transition-opacity tracking-widest">editable profile</span>
+                          {isProfileModified && (
+                            <span className="text-[8px] text-orange-500 mono font-black animate-pulse uppercase tracking-wider bg-orange-500/10 px-1 rounded-sm">
+                              [ please press regenerate ]
+                            </span>
+                          )}
+                        </div>
                       )}
                     </label>
                     <div className="flex-1 flex flex-col overflow-y-auto min-h-0 custom-scrollbar pr-2">
@@ -533,7 +705,10 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         <textarea
                           ref={biometricRef}
                           value={appearancePrompt}
-                          onChange={(e) => setAppearancePrompt(e.target.value)}
+                          onChange={(e) => {
+                            setAppearancePrompt(e.target.value);
+                            setIsProfileModified(true);
+                          }}
                           onInput={(e) => {
                             const target = e.target as HTMLTextAreaElement;
                             target.style.height = 'auto';
@@ -546,7 +721,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         />
                       ) : (
                         <div className="h-full flex items-center justify-center border border-zinc-900 border-dashed rounded-sm">
-                          <span className="text-[9px] mono text-zinc-800 uppercase italic tracking-widest">Initialize neural link...</span>
+                          <span className="text-[9px] mono text-zinc-800 uppercase italic tracking-widest">Initializing Link...</span>
                         </div>
                       )}
                     </div>
@@ -565,11 +740,19 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                       onChange={(e) => setTraitSearch(e.target.value)}
                     />
                   </div>
-                  <div className="bg-zinc-900 px-4 py-2 border border-zinc-800 rounded flex flex-col items-end">
-                    <span className="text-[8px] text-zinc-500 mono uppercase">Budget Remaining</span>
-                    <span className={`text-xl font-black mono leading-none ${traitPoints < 0 ? 'text-red-500' : 'text-orange-500'}`}>
-                      {traitPoints}
-                    </span>
+                  <div className="flex gap-3">
+                    <div className="bg-zinc-900 px-4 py-2 border border-zinc-800 rounded flex flex-col items-end">
+                      <span className="text-[8px] text-zinc-500 mono uppercase">Neutral Slots</span>
+                      <span className={`text-xl font-black mono leading-none ${selectedNeutralCount >= MAX_NEUTRAL_TRAITS ? 'text-red-500' : 'text-zinc-400'}`}>
+                        {selectedNeutralCount}/{MAX_NEUTRAL_TRAITS}
+                      </span>
+                    </div>
+                    <div className="bg-zinc-900 px-4 py-2 border border-zinc-800 rounded flex flex-col items-end">
+                      <span className="text-[8px] text-zinc-500 mono uppercase">Budget Remaining</span>
+                      <span className={`text-xl font-black mono leading-none ${traitPoints < 0 ? 'text-red-500' : 'text-orange-500'}`}>
+                        {traitPoints}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -577,11 +760,11 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                   <section className="space-y-3">
                     <h4 className="text-[10px] text-orange-500 mono font-bold uppercase tracking-widest flex items-center gap-2">
                       <div className="w-1 h-1 rounded-full bg-orange-500" />
-                      Neural Profiling ({selectedTraits.length})
+                      Profiling ({selectedTraits.length})
                     </h4>
                     {selectedTraits.length === 0 ? (
                       <div className="p-8 border border-dashed border-zinc-800 rounded-sm text-center text-zinc-600 text-[10px] mono uppercase">
-                        No neural traits selected.
+                        No traits selected.
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -604,7 +787,12 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                       </div>
                     </section>
                     <section className="space-y-3">
-                      <h4 className="text-[9px] text-zinc-500 mono font-bold uppercase tracking-widest border-b border-zinc-800 pb-1">Neutral Profiles</h4>
+                      <h4 className="text-[9px] text-zinc-500 mono font-bold uppercase tracking-widest border-b border-zinc-800 pb-1 flex items-center justify-between">
+                        <span>Neutral Profiles</span>
+                        <span className={`text-[8px] ${selectedNeutralCount >= MAX_NEUTRAL_TRAITS ? 'text-red-500' : 'text-zinc-600'}`}>
+                          {selectedNeutralCount}/{MAX_NEUTRAL_TRAITS}
+                        </span>
+                      </h4>
                       <div className="space-y-1">
                         {filteredTraits.neutral.map(t => <TraitItem key={t.id} trait={t} />)}
                       </div>
@@ -636,6 +824,96 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         <ProgressBar value={val} max={10} color="bg-orange-500" />
                       </div>
                     ))}
+                  </div>
+
+                  {/* OCCUPATION SECTION */}
+                  <div className="max-w-4xl mx-auto mt-6 border-t border-zinc-800 pt-6">
+                    <div className="flex justify-between items-center mb-4 gap-4">
+                      <h4 className="text-xs text-orange-500 mono font-bold uppercase tracking-widest flex items-center gap-2 shrink-0">
+                        <div className="w-1 h-1 rounded-full bg-orange-500" />
+                        Occupation
+                      </h4>
+                      <div className="flex items-center gap-2 flex-1 justify-end">
+                        <div className="flex gap-1">
+                          {(['ALL', 'SECURITY', 'TECHNICAL', 'CRAFT', 'ADMIN', 'SOCIAL', 'FIELD'] as const).map(cat => (
+                            <button
+                              key={cat}
+                              onClick={() => setOccupationCategory(cat)}
+                              className={`px-2 py-1 text-[8px] mono uppercase font-bold tracking-wider border rounded-sm transition-all ${occupationCategory === cat
+                                ? 'text-orange-500 border-orange-500/50 bg-orange-500/10'
+                                : 'text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'
+                                }`}
+                            >
+                              {cat}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="w-40">
+                          <Input
+                            placeholder="Search..."
+                            value={occupationSearch}
+                            onChange={(e) => setOccupationSearch(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {selectedOccupation && (
+                      <div className="mb-4 p-4 bg-orange-600/10 border border-orange-500 rounded-sm shadow-[inset_0_0_15px_rgba(249,115,22,0.08)] animate-in fade-in duration-300">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-xs mono font-black uppercase text-orange-400 tracking-widest">{selectedOccupation.name}</span>
+                            <p className="text-[10px] mono text-zinc-400 mt-1">{selectedOccupation.description}</p>
+                          </div>
+                          <button
+                            onClick={() => setSelectedOccupation(null)}
+                            className="text-[9px] mono uppercase text-zinc-600 hover:text-red-500 font-black tracking-widest transition-colors"
+                          >
+                            remove
+                          </button>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2 items-center">
+                          {selectedOccupation.perks.map((perk, i) => (
+                            <span key={i} className="text-[8px] mono uppercase bg-orange-500/10 text-orange-400 px-2 py-1 rounded-sm border border-orange-900/30 tracking-wider">
+                              {perk}
+                            </span>
+                          ))}
+                          <button
+                            onClick={() => setShowTalentTree(true)}
+                            className="ml-auto text-[8px] mono uppercase bg-zinc-900 text-zinc-400 hover:text-orange-400 px-3 py-1 rounded-sm border border-zinc-800 hover:border-orange-500/50 transition-all font-black tracking-widest flex items-center gap-2 group"
+                          >
+                            <div className="w-1 h-1 bg-zinc-600 group-hover:bg-orange-500 rounded-full" />
+                            View Talent Tree
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[240px] overflow-y-auto pr-2 custom-scrollbar">
+                      {ALL_OCCUPATIONS
+                        .filter(occ => {
+                          const search = occupationSearch.toLowerCase();
+                          const matchesSearch = occ.name.toLowerCase().includes(search) || occ.description.toLowerCase().includes(search);
+                          const matchesCategory = occupationCategory === 'ALL' || occ.category === occupationCategory;
+                          return matchesSearch && matchesCategory;
+                        })
+                        .map(occ => (
+                          <Tooltip key={occ.id} content={`${occ.description} — ${occ.perks.join(' • ')}`}>
+                            <button
+                              onClick={() => setSelectedOccupation(selectedOccupation?.id === occ.id ? null : occ)}
+                              className={`w-full p-3 text-left border rounded-sm transition-all group flex items-center justify-between ${selectedOccupation?.id === occ.id
+                                ? 'bg-orange-600/20 border-orange-500 shadow-[inset_0_0_10px_rgba(249,115,22,0.1)]'
+                                : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
+                                }`}
+                            >
+                              <span className={`font-bold text-[10px] uppercase mono tracking-wider ${selectedOccupation?.id === occ.id ? 'text-orange-400' : 'text-zinc-300'
+                                }`}>
+                                {occ.name}
+                              </span>
+                            </button>
+                          </Tooltip>
+                        ))}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -677,6 +955,307 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
           </div>
         </div>
       </Card>
+
+      {/* Talent Tree Modal */}
+      {showTalentTree && selectedOccupation && (
+        <ReactFlowProvider>
+          <TalentTreeOverlay
+            selectedOccupation={selectedOccupation}
+            onClose={() => setShowTalentTree(false)}
+          />
+        </ReactFlowProvider>
+      )}
     </Container>
+  );
+};
+
+// Extracted for clean React Flow context/state
+const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation: Occupation, onClose: () => void }) => {
+  const { fitView } = useReactFlow();
+  const [unlockedNodes, setUnlockedNodes] = useState<Set<string>>(new Set());
+  const [availablePoints, setAvailablePoints] = useState(2); // Starting with 2 for demo
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+
+  const tree = MOCK_TALENT_TREES[selectedOccupation.id];
+
+  const handleUnlockNode = (nodeId: string) => {
+    if (availablePoints <= 0) return;
+    setUnlockedNodes(prev => {
+      const next = new Set(prev);
+      next.add(nodeId);
+      return next;
+    });
+    setAvailablePoints(prev => prev - 1);
+  };
+
+  // Check if current selection can be upgraded
+  const selectedNode = selectedNodeId ? tree?.nodes.find(n => n.id === selectedNodeId) : null;
+  const isSelectedNodeUnlockable = !!(
+    selectedNode &&
+    !unlockedNodes.has(selectedNode.id) &&
+    availablePoints > 0 &&
+    (!selectedNode.dependencies || selectedNode.dependencies.every(d => unlockedNodes.has(d)))
+  );
+
+  const handleApplyUpgrade = () => {
+    if (!selectedNodeId || !isSelectedNodeUnlockable) return;
+
+    setIsConfirming(true);
+    handleUnlockNode(selectedNodeId);
+    setTimeout(() => setIsConfirming(false), 2000);
+  };
+
+  // Ensure centering especially after animation
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fitView({ padding: 0.15, duration: 800 });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [fitView, selectedOccupation]);
+
+  const { nodes, edges } = useMemo(() => {
+    if (!tree) return { nodes: [], edges: [] };
+
+    const nodes: RFNode[] = tree.nodes.map(node => {
+      const isUnlocked = unlockedNodes.has(node.id);
+      const hasUnmetDependencies = node.dependencies?.some(depId => !unlockedNodes.has(depId));
+      const isAvailable = !isUnlocked && !hasUnmetDependencies && (node.dependencies?.length ? true : true); // Root is always available
+
+      return {
+        id: node.id,
+        type: 'talent',
+        position: node.pos,
+        data: {
+          name: node.name,
+          description: node.description,
+          type: node.type,
+          isCapstone: node.id.includes('capstone') || node.id.includes('legend') || /-(8|9)$/.test(node.id) || ['s-8', 's-9', 'g-8', 'g-9'].includes(node.id),
+          isConverging: (node.dependencies?.length || 0) > 1,
+          isUnlocked,
+          isAvailable,
+          isConfirming,
+          onUnlock: () => handleUnlockNode(node.id)
+        },
+        draggable: false,
+        selectable: true,
+      };
+    });
+
+    const edges: RFEdge[] = [];
+    tree.nodes.forEach(node => {
+      node.dependencies?.forEach(depId => {
+        const isSourceUnlocked = unlockedNodes.has(depId);
+        const isTargetUnlocked = unlockedNodes.has(node.id);
+        edges.push({
+          id: `e-${depId}-${node.id}`,
+          source: depId,
+          target: node.id,
+          type: ConnectionLineType.Straight,
+          animated: isSourceUnlocked && !isTargetUnlocked,
+          style: {
+            stroke: isSourceUnlocked ? '#f97316' : '#27272a',
+            strokeWidth: 1.5,
+            opacity: isSourceUnlocked ? 0.8 : 0.4,
+            transition: 'stroke 0.5s ease'
+          },
+        });
+      });
+    });
+
+    return { nodes, edges };
+  }, [selectedOccupation, unlockedNodes, availablePoints, isConfirming]);
+
+  // Display Logic Priority: Hovered node takes precedence over Selected node
+  // When hover ends (null), it falls back to the Selected node.
+  const activeDisplayNodeId = hoveredNodeId || selectedNodeId;
+  const activeNode = activeDisplayNodeId ? tree?.nodes.find(n => n.id === activeDisplayNodeId) : null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-500 p-4 md:p-8">
+      <div className="w-full h-full max-w-6xl bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col shadow-[0_0_100px_rgba(0,0,0,1)] relative overflow-hidden">
+        {/* Background Effects */}
+        <style>{TALENT_ANIMATIONS}</style>
+        <div className="absolute inset-0 opacity-[0.05] pointer-events-none"
+          style={{ backgroundImage: 'radial-gradient(circle, #f97316 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-orange-500/10 blur-[120px] rounded-full pointer-events-none" />
+
+        {/* Top Close Button */}
+        <button
+          onClick={onClose}
+          className="absolute top-6 right-6 z-50 px-4 py-2 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-all mono uppercase text-[10px] bg-zinc-950/50 backdrop-blur-md flex items-center gap-2 group"
+        >
+          <span className="group-hover:text-red-500 transition-colors">Close</span>
+          <span className="text-[8px] opacity-30">[ESC]</span>
+        </button>
+
+        {/* Header: Large Circular Occupation Identity */}
+        <div className="flex flex-col items-center pt-8 pb-4 shrink-0 relative z-20">
+          <div className="relative group">
+            <div className="w-24 h-24 rounded-full border-4 border-zinc-800 bg-zinc-950 flex items-center justify-center overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.7)] group-hover:border-orange-500/50 transition-all duration-500">
+              <div className="text-4xl font-black text-zinc-800 select-none">{selectedOccupation.name.charAt(0)}</div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-60" />
+            </div>
+            <div className="absolute -inset-3 border border-orange-500/10 rounded-full animate-[spin_15s_linear_infinite]" />
+            <div className="absolute -inset-1 border border-zinc-800/50 rounded-full" />
+          </div>
+          <div className="mt-6 text-center">
+            <h2 className="text-2xl font-black mono text-zinc-100 uppercase tracking-[0.2em]">{selectedOccupation.name}</h2>
+            <div className="text-orange-500 font-bold text-[9px] mono uppercase tracking-[0.4em] mt-2">Occupation Tree</div>
+          </div>
+        </div>
+
+        {/* Separator Line */}
+        <div className="w-full h-[1px] bg-zinc-900/50 shadow-[0_4px_10px_rgba(0,0,0,0.5)] relative z-20" />
+
+        <div className="flex-1 relative flex overflow-hidden">
+          {/* Main Tree Area */}
+          <div className="flex-1 relative bg-zinc-950/20 talent-flow-container">
+            {/* Fade Separation Gradient */}
+            <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-zinc-950 to-transparent z-10 pointer-events-none" />
+            <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-zinc-950 to-transparent z-10 pointer-events-none" />
+
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              nodeOrigin={[0.5, 0.5]}
+              onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
+              onNodeMouseLeave={() => setHoveredNodeId(null)}
+              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+              onNodeDoubleClick={(_, node) => {
+                if (node.data.isAvailable && !node.data.isUnlocked) {
+                  node.data.onUnlock();
+                }
+              }}
+              fitView
+              fitViewOptions={{ padding: 0.15, includeHiddenNodes: true }}
+              zoomOnScroll={true}
+              panOnDrag={true}
+              zoomOnPinch={true}
+              zoomOnDoubleClick={false}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={true}
+              panOnScroll={false}
+              preventScrolling={true}
+              minZoom={0.4}
+              maxZoom={2}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background color="#18181b" gap={24} size={1} />
+            </ReactFlow>
+
+            {!tree && (
+              <div className="absolute inset-0 flex items-center justify-center flex-col gap-4 text-center z-20">
+                <div className="w-20 h-20 rounded-full border border-dashed border-zinc-800 flex items-center justify-center text-zinc-800">
+                  <span className="text-2xl">?</span>
+                </div>
+                <div className="text-zinc-700 mono uppercase text-[9px] tracking-[0.2em] max-w-[200px]">
+                  Matrix structure undefined for {selectedOccupation.name} classification
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Detailed Info Panel - Right Side */}
+          <div className="w-80 border-l border-zinc-900 bg-zinc-950/40 backdrop-blur-sm p-6 flex flex-col gap-6 relative z-30">
+            <div className="flex-1 space-y-4">
+              <label className="text-[10px] mono text-zinc-600 uppercase tracking-widest font-black block border-b border-zinc-900 pb-2 flex justify-between">
+                <span>Informations</span>
+              </label>
+
+              {activeNode ? (
+                <div key={activeNode.id} className="animate-in fade-in slide-in-from-top-2 duration-300">
+                  <Stack gap={4}>
+                    <div className="flex justify-between items-start">
+                      <h3 className="text-lg font-black mono text-zinc-100 uppercase leading-none">{activeNode.name}</h3>
+                      <Badge color={activeNode.type === 'active' ? 'blue' : 'zinc'}>{activeNode.type}</Badge>
+                    </div>
+
+                    <p className="text-xs text-zinc-400 leading-relaxed mono">
+                      {activeNode.description}
+                    </p>
+
+                    <div className="pt-4 border-t border-zinc-900 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[9px] mono text-zinc-500 uppercase font-bold">Requirement</span>
+                        <span className="text-[9px] mono text-zinc-300 font-bold uppercase">Level 01</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[9px] mono text-zinc-500 uppercase font-bold">Status</span>
+                        {unlockedNodes.has(activeNode.id) ? (
+                          <span className="text-[9px] mono text-orange-500 font-black uppercase flex items-center gap-1">
+                            <span className="w-1 h-1 rounded-full bg-orange-500" />
+                            Unlocked
+                          </span>
+                        ) : availablePoints > 0 && (!activeNode.dependencies || activeNode.dependencies.every(d => unlockedNodes.has(d))) ? (
+                          <span className="text-[9px] mono text-blue-500 font-black uppercase animate-pulse">Available</span>
+                        ) : (
+                          <span className="text-[9px] mono text-zinc-700 font-black uppercase">Locked</span>
+                        )}
+                      </div>
+                    </div>
+                  </Stack>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-40 opacity-20 border border-dashed border-zinc-800 rounded-sm">
+                  <p className="text-[8px] mono text-zinc-500 uppercase tracking-[0.2em]">Select node for telemetry</p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-auto pt-6 border-t border-zinc-900">
+              <div className="p-4 bg-zinc-900/40 border border-zinc-800 rounded-sm relative overflow-hidden group">
+                <div className="flex flex-col gap-1 items-center">
+                  <span className="text-[8px] mono text-zinc-600 uppercase tracking-tighter">Ability points available</span>
+                  <span className="text-2xl mono font-black text-orange-500 group-hover:scale-110 transition-transform duration-500">{String(availablePoints).padStart(2, '0')}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 border-t border-zinc-900 bg-zinc-950/80 backdrop-blur-md shrink-0 flex justify-between items-center relative z-40">
+          <div className="flex gap-2 text-[8px] mono text-zinc-600 uppercase">
+            {unlockedNodes.size} / {tree?.nodes.length || 0} Talents mastered
+          </div>
+          <div className="flex gap-4">
+            <button
+              onClick={() => {
+                setUnlockedNodes(new Set());
+                setAvailablePoints(2); // Reset to demo points
+                setSelectedNodeId(null);
+              }}
+              className="px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-600 hover:text-zinc-300 mono uppercase text-[8px] font-black tracking-widest hover:bg-zinc-800 transition-colors"
+            >
+              Reset talent tree
+            </button>
+            <button
+              onClick={handleApplyUpgrade}
+              disabled={isConfirming || !isSelectedNodeUnlockable}
+              className={`px-6 py-2 border transition-all duration-500 mono uppercase text-[9px] font-black tracking-[0.2em] relative overflow-hidden active:scale-95
+                ${isSelectedNodeUnlockable
+                  ? 'bg-orange-600 border-orange-500 text-zinc-950 hover:bg-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.4)] hover:shadow-[0_0_30px_rgba(249,115,22,0.6)]'
+                  : 'bg-zinc-800 border-zinc-700 text-zinc-100 opacity-50 cursor-not-allowed'}
+                ${isConfirming ? 'brightness-125' : ''}`}>
+
+              {/* Progress background during confirmation */}
+              {isConfirming && (
+                <div className="absolute inset-0 bg-white/10 animate-[pulse_1s_infinite]" />
+              )}
+              {isConfirming && (
+                <div className="absolute bottom-0 left-0 h-1 bg-white/40 animate-[progress_2s_linear]" />
+              )}
+
+              <span className="relative z-10 flex items-center gap-2">
+                {isConfirming ? 'Committing...' : 'Upgrade Selection'}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
