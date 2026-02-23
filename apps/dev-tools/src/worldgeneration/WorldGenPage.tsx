@@ -32,7 +32,11 @@ export function WorldGenPage() {
     // ── Geography State ──
     const [geographyTool, setGeographyTool] = useState<GeographyTool>("lasso");
     const [activeRegionType, setActiveRegionType] = useState<RegionType>("continent");
-    const geography = useGeographyRegions();
+    // ── History ──
+    const { history, saveToHistory, deleteFromHistory } = useGenerationHistory();
+    const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+
+    const geography = useGeographyRegions(activeHistoryId);
 
     // ── Planet State ──
     const [prompt, setPrompt] = useState<string>("A desolate, dusty orange planet with deep canyon scars, dry ocean basins, and rocky gray mountain ranges.");
@@ -55,10 +59,6 @@ export function WorldGenPage() {
     // ── Interaction State ──
     const [hoveredCell, setHoveredCell] = useState<TerrainCell | null>(null);
     const [selectedCell, setSelectedCell] = useState<TerrainCell | null>(null);
-
-    // ── History ──
-    const { history, saveToHistory, deleteFromHistory } = useGenerationHistory();
-    const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
 
     // ── Config Helpers ──
     const updateWorld = useCallback((patch: Partial<SimulationConfig["world"]>) => {
@@ -238,12 +238,17 @@ export function WorldGenPage() {
                 <Modal open={showHistory} onClose={() => setShowHistory(false)} title="ARCHIVES">
                     <HistoryGallery
                         history={history}
+                        activePlanetId={activeHistoryId}
                         deleteFromHistory={deleteFromHistory}
-                        onSelect={(item) => {
+                        onSelectPlanet={(item) => {
                             setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
                             setConfig(item.config);
                             setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
                             setActiveHistoryId(item.id);
+                            setShowHistory(false);
+                        }}
+                        onSelectTexture={(_, textureUrl) => {
+                            setGlobeWorld(prev => prev ? { ...prev, textureUrl } : { cols: 512, rows: 256, cellData: [], textureUrl });
                             setShowHistory(false);
                         }}
                     />

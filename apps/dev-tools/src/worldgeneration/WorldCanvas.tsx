@@ -93,6 +93,7 @@ export function WorldCanvas({
                         transform={mapTransform}
                         originalWidth={globeWorld.cols}
                         originalHeight={globeWorld.rows}
+                        textureUrl={globeWorld.textureUrl}
                     />
                 )}
             </div>

@@ -198,14 +198,19 @@ export function PlanetGlobe({ world, onCellHover, onCellClick }: PlanetGlobeProp
 
     if (world.textureUrl) {
       const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin("anonymous");
       const texture = loader.load(world.textureUrl, (loadedTex) => {
         // Once the color texture is loaded, derive the heightmap from it
-        const heightmap = generateHeightmapFromImage(loadedTex.image);
-        globeMaterial.displacementMap = heightmap;
-        globeMaterial.displacementScale = 0.06;
-        globeMaterial.bumpMap = heightmap;
-        globeMaterial.bumpScale = 0.04;
-        globeMaterial.needsUpdate = true;
+        try {
+          const heightmap = generateHeightmapFromImage(loadedTex.image);
+          globeMaterial.displacementMap = heightmap;
+          globeMaterial.displacementScale = 0.06;
+          globeMaterial.bumpMap = heightmap;
+          globeMaterial.bumpScale = 0.04;
+          globeMaterial.needsUpdate = true;
+        } catch (e) {
+          console.warn("Failed to generate heightmap due to CORS or tainted canvas:", e);
+        }
       });
       texture.colorSpace = THREE.SRGBColorSpace;
       globeMaterial = new THREE.MeshStandardMaterial({

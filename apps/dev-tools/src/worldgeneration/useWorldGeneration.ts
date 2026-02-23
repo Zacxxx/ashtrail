@@ -128,11 +128,12 @@ export function useWorldGeneration({
         setGenProgress({ isActive: true, progress: 0, stage: "Starting Generation…", jobId: null });
         setGlobeWorld(null);
 
-        const systemPrompt = `Generate a seamless equirectangular projection planetary map texture.
-STYLE: NASA satellite photography, photorealistic, top-down orthographic view as seen from orbit.
+        const systemPrompt = `Generate a seamless equirectangular projection ALIEN planetary map texture.
+STYLE: Deep space satellite photography, photorealistic, top-down orthographic view as seen from orbit.
 FORMAT: Must be a valid equirectangular (cylindrical) projection that wraps seamlessly around a sphere — poles at top/bottom, equator centered.
-ABSOLUTELY FORBIDDEN: No text, labels, annotations, legends, icons, UI elements, borders, or any overlay graphics. No fantasy elements like floating islands, crystals, spires, glowing objects, or impossible geology. This must look like a real photograph of a planet taken from space.
-RENDER ONLY: Realistic terrain — oceans, continents, deserts, forests, ice caps, mountain ranges, rivers, coastlines — as they would appear in actual satellite imagery.`;
+CRITICAL REQUIREMENT: The planet MUST NOT RESEMBLE EARTH. Do not generate Earth-like continents (e.g. Africa, South America, Eurasia). Create completely novel, unrecognizable alien landmass configurations.
+ABSOLUTELY FORBIDDEN: No Earth-like geography. No text, labels, annotations, legends, icons, UI elements, borders, or any overlay graphics. No fantasy elements like floating islands, crystals, spires, glowing objects, or impossible geology. This must look like a real photograph of an ALIEN planet taken from space.
+RENDER ONLY: Realistic but completely random alien terrain — alien oceans, unusual continents, deserts, forests, ice caps, mountain ranges, rivers, coastlines — as they would appear in actual satellite imagery of an undiscovered exoplanet.`;
 
         const configPrompt = `Planet parameters to match visually:
 - Ocean/water coverage: ~${(config.world.oceanCoverage * 100).toFixed(0)}% of surface

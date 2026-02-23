@@ -170,8 +170,8 @@ export function GeographyPanel({
                                 onClick={() => activeHistoryId && generateUpscale(activeHistoryId)}
                                 disabled={!activeHistoryId}
                                 className={`w-full text-[8px] tracking-[0.1em] font-black py-3 flex flex-col items-center gap-1 transition-all rounded-xl ${activeHistoryId
-                                        ? "bg-fuchsia-600/30 hover:bg-fuchsia-600/50 border border-fuchsia-500/30 text-white shadow-[0_0_15px_rgba(192,38,211,0.2)]"
-                                        : "bg-fuchsia-900/10 border-fuchsia-900/20 text-gray-500 opacity-50"
+                                    ? "bg-fuchsia-600/30 hover:bg-fuchsia-600/50 border border-fuchsia-500/30 text-white shadow-[0_0_15px_rgba(192,38,211,0.2)]"
+                                    : "bg-fuchsia-900/10 border-fuchsia-900/20 text-gray-500 opacity-50"
                                     }`}
                                 title={activeHistoryId ? "Upscale to 4x Resolution" : "Generate or select a planet first"}
                             >
