@@ -483,9 +483,14 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
           : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
           }`}
       >
-        <span className={`font-bold text-[10px] uppercase mono ${active ? 'text-orange-400' : 'text-zinc-300'} truncate mr-2`}>
-          {trait.name}
-        </span>
+        <div className="flex items-center gap-3 truncate">
+          {/* ICON PLACEHOLDER - Reserved for future use */}
+          <div className="w-5 h-5 flex-shrink-0 rounded-sm border border-zinc-800/50 bg-zinc-950/30 group-hover:border-zinc-700 transition-colors" />
+
+          <span className={`font-bold text-[10px] uppercase mono ${active ? 'text-orange-400' : 'text-zinc-300'} truncate`}>
+            {trait.name}
+          </span>
+        </div>
         <Badge color={trait.type === 'positive' ? 'blue' : trait.type === 'negative' ? 'red' : 'zinc'}>
           {trait.cost > 0 ? `-${trait.cost}` : trait.cost < 0 ? `+${Math.abs(trait.cost)}` : '0'}
         </Badge>
