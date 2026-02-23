@@ -31,6 +31,53 @@ const TALENT_ANIMATIONS = `
 const TalentNode = ({ data, selected }: { data: any, selected: boolean }) => {
   const { isCapstone, isConverging, isUnlocked, isAvailable, name, type, rank = 0, maxRank = 1, onUnlock, isConfirming } = data;
 
+  // Determine node color theme based on type
+  const themeColors = {
+    active: {
+      border: 'border-cyan-500',
+      bg: 'bg-cyan-500/10',
+      shadow: 'shadow-[0_0_20px_rgba(6,182,212,0.2)]',
+      text: 'text-cyan-500',
+      glow: 'bg-cyan-500/30',
+      wave: 'border-cyan-500/20',
+      breath: 'bg-cyan-500/25',
+      ring: 'border-cyan-500/40',
+      innerRing: 'border-cyan-500/10'
+    },
+    stat: {
+      border: 'border-emerald-500',
+      bg: 'bg-emerald-500/10',
+      shadow: 'shadow-[0_0_20px_rgba(16,185,129,0.2)]',
+      text: 'text-emerald-500',
+      glow: 'bg-emerald-500/30',
+      wave: 'border-emerald-500/20',
+      breath: 'bg-emerald-500/25',
+      ring: 'border-emerald-500/40',
+      innerRing: 'border-emerald-500/10'
+    },
+    passive: {
+      border: 'border-orange-500',
+      bg: 'bg-orange-500/10',
+      shadow: 'shadow-[0_0_20px_rgba(249,115,22,0.2)]',
+      text: 'text-orange-500',
+      glow: 'bg-orange-500/30',
+      wave: 'border-orange-500/20',
+      breath: 'bg-orange-500/25',
+      ring: 'border-orange-500/40',
+      innerRing: 'border-orange-500/10'
+    }
+  }[type as 'active' | 'stat' | 'passive'] || {
+    border: 'border-orange-500',
+    bg: 'bg-orange-500/10',
+    shadow: 'shadow-[0_0_20px_rgba(249,115,22,0.2)]',
+    text: 'text-orange-500',
+    glow: 'bg-orange-500/30',
+    wave: 'border-orange-500/20',
+    breath: 'bg-orange-500/25',
+    ring: 'border-orange-500/40',
+    innerRing: 'border-orange-500/10'
+  };
+
   return (
     <div className="relative group">
       <Handle
@@ -41,50 +88,51 @@ const TalentNode = ({ data, selected }: { data: any, selected: boolean }) => {
 
       <div className="flex items-center justify-center">
         <div
-          className={`w-16 h-16 rounded-full border-2 transition-all duration-300 flex items-center justify-center relative z-10 
+          className={`w-16 h-16 transition-all duration-300 flex items-center justify-center relative z-10 
+            ${type === 'stat' ? 'rotate-45 rounded-sm' : type === 'active' ? 'rounded-lg' : 'rounded-full'} border-2
             ${isUnlocked
-              ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_20px_rgba(249,115,22,0.2)]'
+              ? `${themeColors.border} ${themeColors.bg} ${themeColors.shadow}`
               : isAvailable
                 ? 'border-zinc-500 bg-zinc-900 shadow-[0_0_10px_rgba(255,255,255,0.05)]'
                 : 'border-zinc-800 bg-zinc-900/60 opacity-60'} 
-            ${isCapstone && isUnlocked ? 'shadow-[0_0_25px_rgba(249,115,22,0.4)]' : ''}
+            ${isCapstone && isUnlocked ? `shadow-[0_0_25px_${themeColors.text.replace('text', 'rgba')}/40] scale-110` : ''}
             group-hover:scale-105 transition-transform`}
         >
           {/* Node Icon/Letter - Placeholder or name first letter */}
-          <span className={`text-[10px] mono font-black transition-colors ${isUnlocked ? 'text-orange-500' : 'text-zinc-700'}`}>
+          <span className={`text-[10px] mono font-black transition-colors ${type === 'stat' ? '-rotate-45' : ''} ${isUnlocked ? themeColors.text : 'text-zinc-700'}`}>
             {name.charAt(0)}
           </span>
 
           {/* Convergence Double Circle Effect */}
           {isConverging && (
-            <div className={`absolute inset-1.5 rounded-full border-2 animate-pulse pointer-events-none ${isUnlocked ? 'border-orange-500/40' : 'border-zinc-700/20'}`} />
+            <div className={`absolute inset-1.5 rounded-full border-2 animate-pulse pointer-events-none ${isUnlocked ? `${themeColors.ring.replace('40', '20')}` : 'border-zinc-700/20'}`} />
           )}
 
           {/* Inner Circle Effect */}
-          <div className="absolute inset-2.5 rounded-full border border-zinc-800/25 pointer-events-none" />
+          <div className={`absolute inset-2.5 rounded-full border border-zinc-800/25 pointer-events-none ${type === 'stat' ? 'rotate-0' : ''}`} />
 
           {/* Rank Indicator */}
-          <div className={`absolute -bottom-1 -right-1 min-w-[20px] h-[15px] border px-1.5 flex items-center justify-center rounded-[2px] shadow-black shadow-sm transition-colors
-            ${isUnlocked ? 'bg-orange-500 border-orange-400 text-zinc-950 font-black' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}`}>
+          <div className={`absolute -bottom-1 -right-1 min-w-[20px] h-[15px] border px-1.5 flex items-center justify-center rounded-[2px] shadow-black shadow-sm transition-colors z-30
+            ${isUnlocked ? `${themeColors.text.replace('text', 'bg')} border-white/20 text-zinc-950 font-black` : 'bg-zinc-950 border-zinc-800 text-zinc-500'} ${type === 'stat' ? '-rotate-45' : ''}`}>
             <span className="text-[7px] mono font-bold">{rank}/{maxRank}</span>
           </div>
 
           {/* Glow on hover or selected */}
           <div className={`absolute inset-0 rounded-full blur-xl transition-all duration-700 
-            ${selected ? 'bg-orange-500/30 scale-110 opacity-100' : isAvailable ? 'bg-orange-500/10 opacity-0 group-hover:opacity-100' : 'opacity-0'}`}
+            ${selected ? `${themeColors.glow} scale-110 opacity-100` : isAvailable ? `${themeColors.glow.replace('30', '10')} opacity-0 group-hover:opacity-100` : 'opacity-0'}`}
           />
 
           {/* Upgrade Animation Effect - Commitment Pulse for Selected OR ALREADY UNLOCKED nodes */}
           {isConfirming && (selected || isUnlocked) && (
             <>
               {/* Outer wave */}
-              <div className="absolute -inset-10 rounded-full border border-orange-500/20 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] z-0" />
+              <div className={`absolute -inset-10 rounded-full border ${themeColors.wave} animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] z-0`} />
               {/* Inner breath */}
-              <div className={`absolute -inset-1 rounded-full bg-orange-500/25 animate-[pulse_0.8s_ease-in-out_infinite] z-0 ${!selected && 'opacity-40'}`} />
+              <div className={`absolute -inset-1 rounded-full ${themeColors.breath} animate-[pulse_0.8s_ease-in-out_infinite] z-0 ${!selected && 'opacity-40'}`} />
 
               {/* Shimmer commitment effect only for selected */}
               {selected && (
-                <div className="absolute inset-0 overflow-hidden rounded-full z-20 pointer-events-none">
+                <div className={`absolute inset-0 overflow-hidden ${type === 'stat' ? '' : 'rounded-full'} z-20 pointer-events-none`}>
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-[shimmer_1.5s_infinite]" />
                 </div>
               )}
@@ -93,9 +141,9 @@ const TalentNode = ({ data, selected }: { data: any, selected: boolean }) => {
 
           {/* Selected Ring - More elegant */}
           {selected && (
-            <div className={`absolute -inset-3 rounded-full border-2 border-orange-500/40 pointer-events-none transition-all duration-500
+            <div className={`absolute -inset-3 rounded-full border-2 ${themeColors.ring} pointer-events-none transition-all duration-500
               ${isConfirming ? 'scale-125 opacity-0' : 'animate-[pulse_3s_ease-in-out_infinite]'}`}>
-              <div className="absolute inset-0 border border-orange-500/10 rounded-full scale-110" />
+              <div className={`absolute inset-0 border ${themeColors.innerRing} rounded-full scale-110`} />
             </div>
           )}
         </div>
@@ -106,7 +154,7 @@ const TalentNode = ({ data, selected }: { data: any, selected: boolean }) => {
         position={Position.Bottom}
         style={{ background: 'transparent', border: 'none', bottom: '0%' }}
       />
-    </div>
+    </div >
   );
 };
 
@@ -982,7 +1030,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
           name: node.name,
           description: node.description,
           type: node.type,
-          isCapstone: node.id.includes('capstone') || node.id.includes('legend') || ['s-8', 's-9', 'g-8', 'g-9'].includes(node.id),
+          isCapstone: node.id.includes('capstone') || node.id.includes('legend') || /-(8|9)$/.test(node.id) || ['s-8', 's-9', 'g-8', 'g-9'].includes(node.id),
           isConverging: (node.dependencies?.length || 0) > 1,
           isUnlocked,
           isAvailable,
