@@ -8,6 +8,7 @@ import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import type { WorkflowStep, ViewMode, InspectorTab, ContinentConfig, PlanetWorld, GeographyTool, RegionType } from "./types";
 import { useWorldGeneration } from "./useWorldGeneration";
 import { useGeographyRegions } from "./useGeographyRegions";
+import { useGeographyCells } from "./useGeographyCells";
 import { GeologyPanel } from "./GeologyPanel";
 import { GeographyPanel } from "./GeographyPanel";
 import { EcologyPanel } from "./EcologyPanel";
@@ -32,6 +33,7 @@ export function WorldGenPage() {
     // ── Geography State ──
     const [geographyTool, setGeographyTool] = useState<GeographyTool>("lasso");
     const [activeRegionType, setActiveRegionType] = useState<RegionType>("continent");
+    const [geographyTab, setGeographyTab] = useState<"regions" | "cells">("regions");
     // ── History ──
     const { history, saveToHistory, deleteFromHistory } = useGenerationHistory();
     const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
@@ -47,6 +49,8 @@ export function WorldGenPage() {
         { id: "1", name: "Pangaea Prime", prompt: "A massive central supercontinent dominated by blasted badlands and volcanic ridges.", size: 80 }
     ]);
     const [globeWorld, setGlobeWorld] = useState<PlanetWorld | null>(null);
+
+    const cells = useGeographyCells(activeHistoryId, globeWorld, setGlobeWorld);
 
     // ── Ecology / Humanity State ──
     const [ecoPrompt, setEcoPrompt] = useState<string>("Overpaint this terrain with dense, bioluminescent alien jungles and vast fungal forests along the equator.");
@@ -84,18 +88,26 @@ export function WorldGenPage() {
         handleAutoGenerateContinents,
         fetchRegionLore,
         generateUpscale,
+        generateCellSubTiles,
     } = useWorldGeneration({
         prompt, config, aiResolution, aiTemperature, continents,
         ecoPrompt, ecoVegetation, ecoFauna,
         humPrompt, humSettlements, humTech,
-        globeWorld, saveToHistory, setGlobeWorld, setContinents, setActiveHistoryId
+        globeWorld, saveToHistory, setGlobeWorld, setContinents, setActiveHistoryId,
+        saveCellSubTiles: cells.saveCellSubTiles
     });
 
     // ── Cell Handlers ──
     const handleCellHover = useCallback((cell: TerrainCell | null) => setHoveredCell(cell), []);
     const handleCellClick = useCallback((cell: TerrainCell | null) => {
-        if (cell) { setSelectedCell(cell); setRegionLore(null); }
-        else { setSelectedCell(null); }
+        if (cell) {
+            setSelectedCell(cell);
+            setRegionLore(null);
+            setActiveStep("GEOGRAPHY");
+            setGeographyTab("cells");
+        } else {
+            setSelectedCell(null);
+        }
     }, [setRegionLore]);
 
     // ── Step Change Handler ──
@@ -194,6 +206,11 @@ export function WorldGenPage() {
                             globeWorld={globeWorld}
                             generateUpscale={generateUpscale}
                             activeHistoryId={activeHistoryId}
+                            selectedCell={selectedCell}
+                            onGenerateSubTiles={generateCellSubTiles}
+                            isGeneratingText={isGeneratingText}
+                            geographyTab={geographyTab}
+                            setGeographyTab={setGeographyTab}
                         />
                     )}
                     {activeStep === "ECO" && (
@@ -223,12 +240,14 @@ export function WorldGenPage() {
                     `}
                 >
                     <WorldCanvas
-                        viewMode={viewMode} globeWorld={globeWorld} showHexGrid={showHexGrid}
+                        viewMode={viewMode} globeWorld={globeWorld}
+                        showHexGrid={showHexGrid || (activeStep === "GEOGRAPHY" && geographyTab === "cells")}
                         onCellHover={handleCellHover} onCellClick={handleCellClick}
                         activeStep={activeStep}
-                        geographyTool={geographyTool}
+                        geographyTool={geographyTab === "cells" ? "pan" : geographyTool}
                         activeRegionType={activeRegionType}
                         geography={geography}
+                        geographyTab={geographyTab}
                         isMaxView={isMaxView}
                         setIsMaxView={setIsMaxView}
                     />

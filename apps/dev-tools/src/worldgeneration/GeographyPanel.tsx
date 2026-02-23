@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Button } from "@ashtrail/ui";
+import { Button, TabBar } from "@ashtrail/ui";
 import type { GeoRegion, GeographyTool, RegionType, PlanetWorld } from "./types";
+import type { TerrainCell } from "../modules/geo/types";
 import { REGION_CATEGORIES, REGION_TYPE_COLORS } from "./types";
+import { GeographyCellsPanel } from "./GeographyCellsPanel";
 
 interface GeographyPanelProps {
     activeTool: GeographyTool;
@@ -17,6 +19,11 @@ interface GeographyPanelProps {
     globeWorld: PlanetWorld | null;
     generateUpscale: (historyId: string) => Promise<void>;
     activeHistoryId: string | null;
+    selectedCell: TerrainCell | null;
+    onGenerateSubTiles: (cell: TerrainCell) => void;
+    isGeneratingText: boolean;
+    geographyTab: "regions" | "cells";
+    setGeographyTab: (tab: "regions" | "cells") => void;
 }
 
 export function GeographyPanel({
@@ -33,6 +40,11 @@ export function GeographyPanel({
     globeWorld,
     generateUpscale,
     activeHistoryId,
+    selectedCell,
+    onGenerateSubTiles,
+    isGeneratingText,
+    geographyTab,
+    setGeographyTab,
 }: GeographyPanelProps) {
     const selectedRegion = regions.find(r => r.id === selectedRegionId);
     const [showTypePicker, setShowTypePicker] = useState(false);
@@ -77,16 +89,30 @@ export function GeographyPanel({
     return (
         <div className="flex-1 flex flex-col bg-[#1e1e1e]/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl overflow-hidden h-full">
             <div className="p-5 flex-1 overflow-y-auto scrollbar-thin">
-                <h3 className="text-[11px] font-black tracking-[0.2em] text-cyan-400 flex items-center gap-2 mb-6">
+                <h3 className="text-[11px] font-black tracking-[0.2em] text-cyan-400 flex items-center gap-2 mb-4">
                     <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
                     GEOGRAPHY ENGINE
                 </h3>
+
+                <TabBar
+                    tabs={["regions", "cells"]}
+                    activeTab={geographyTab}
+                    onTabChange={(tab) => setGeographyTab(tab as "regions" | "cells")}
+                    className="mb-4"
+                />
 
                 {!globeWorld?.textureUrl ? (
                     <div className="p-6 rounded-xl border border-white/5 bg-white/5 text-center">
                         <svg className="w-8 h-8 text-gray-600 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
                         <p className="text-[10px] text-gray-500 leading-relaxed">Generate a planet texture in the <span className="text-[#E6E6FA] font-bold">Geology</span> step first.</p>
                     </div>
+                ) : geographyTab === "cells" ? (
+                    <GeographyCellsPanel
+                        globeWorld={globeWorld}
+                        selectedCell={selectedCell}
+                        onGenerateSubTiles={onGenerateSubTiles}
+                        isGeneratingText={isGeneratingText}
+                    />
                 ) : (
                     <div className="space-y-6">
 

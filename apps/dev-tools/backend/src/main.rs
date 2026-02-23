@@ -194,6 +194,7 @@ async fn main() {
         .route("/api/history", get(get_history).post(save_history).delete(clear_history))
         .route("/api/history/{id}", delete(delete_history))
         .route("/api/planet/geography/{id}", get(get_geography).post(save_geography))
+        .route("/api/planet/cells/{id}", get(get_cells).post(save_cells))
         .route("/api/planet/upscale", post(start_upscale_job))
         .route("/api/planet/upscale/{job_id}", get(get_job_status))
         // Static file serving for all planet textures
@@ -1132,6 +1133,36 @@ async fn save_geography(
 
     let file_path = planet_dir.join("geography.json");
     match std::fs::write(&file_path, serde_json::to_string_pretty(&regions).unwrap_or_default()) {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+async fn get_cells(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let file_path = state.planets_dir.join(&id).join("cells.json");
+    if let Ok(data) = std::fs::read_to_string(&file_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+            return (StatusCode::OK, Json(json)).into_response();
+        }
+    }
+    (StatusCode::OK, Json(serde_json::json!({}))).into_response()
+}
+
+async fn save_cells(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(cells): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let planet_dir = state.planets_dir.join(&id);
+    if let Err(e) = std::fs::create_dir_all(&planet_dir) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+    }
+
+    let file_path = planet_dir.join("cells.json");
+    match std::fs::write(&file_path, serde_json::to_string_pretty(&cells).unwrap_or_default()) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
