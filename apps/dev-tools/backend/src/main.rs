@@ -200,14 +200,14 @@ async fn main() {
     let planets_dir = PathBuf::from("generated/planets");
     std::fs::create_dir_all(&planets_dir).expect("failed to create planets directory");
 
-    let icons_dir = PathBuf::from("generated/icons");
-    std::fs::create_dir_all(&icons_dir).expect("failed to create icons directory");
+    let icons_dir = PathBuf::from("../../../game-assets/generation/icons");
+    std::fs::create_dir_all(&icons_dir).expect("failed to create game-assets/generation/icons directory");
 
     let state = AppState {
         jobs: Arc::new(Mutex::new(HashMap::new())),
         planets_dir,
         planet_root: PathBuf::from("generated/planet"), // For the hierarchical generator
-        icons_dir,
+        icons_dir: icons_dir.clone(),
     };
 
     let app = Router::new()
@@ -244,7 +244,7 @@ async fn main() {
         .route("/api/icons/batches/{batch_id}", get(get_icon_batch))
         // Static file serving for all planet textures
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
-        .nest_service("/api/icons", ServeDir::new("generated/icons"))
+        .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .with_state(state)
         .layer(
             CorsLayer::new()
