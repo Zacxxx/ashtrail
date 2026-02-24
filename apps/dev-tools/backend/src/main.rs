@@ -2,6 +2,7 @@ mod cell_analyzer;
 mod generator;
 mod hierarchy;
 mod gemini;
+mod worldgen_pipeline;
 
 use axum::{
     extract::{Path, State},
@@ -242,6 +243,10 @@ async fn main() {
         .route("/api/icons/generate-batch", post(generate_icon_batch))
         .route("/api/icons/batches", get(list_icon_batches))
         .route("/api/icons/batches/{batch_id}", get(get_icon_batch))
+        // ── Worldgen Pipeline ──
+        .route("/api/worldgen/{planet_id}/status", get(worldgen_pipeline::get_pipeline_status))
+        .route("/api/worldgen/{planet_id}/run/{stage_name}", post(worldgen_pipeline::run_pipeline_stage))
+        .route("/api/worldgen/{planet_id}/job/{job_id}", get(worldgen_pipeline::get_worldgen_job_status))
         // Static file serving for all planet textures
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))

@@ -5,17 +5,14 @@ import type { SimulationConfig, TerrainCell } from "../modules/geo/types";
 import { DEFAULT_CONFIG } from "../modules/geo/engine";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
 
-import type { WorkflowStep, ViewMode, InspectorTab, ContinentConfig, PlanetWorld, GeographyTool, RegionType } from "./types";
+import type { WorkflowStep, ViewMode, InspectorTab, ContinentConfig, PlanetWorld } from "./types";
 import { useWorldGeneration } from "./useWorldGeneration";
-import { useGeographyRegions } from "./useGeographyRegions";
-import { useGeographyCells } from "./useGeographyCells";
 import { GeologyPanel } from "./GeologyPanel";
-import { GeographyPanel } from "./GeographyPanel";
+import { GeographyPipelinePanel } from "./GeographyPipelinePanel";
 import { EcologyPanel } from "./EcologyPanel";
 import { HumanityPanel } from "./HumanityPanel";
 import { WorldCanvas } from "./WorldCanvas";
 import { CellTooltip } from "./CellTooltip";
-import { RegionInspector } from "./RegionInspector";
 import { WorkflowBar } from "./WorkflowBar";
 import { ProgressOverlay } from "./ProgressOverlay";
 import { HistoryGallery } from "./HistoryGallery";
@@ -31,15 +28,9 @@ export function WorldGenPage() {
     const [generateCells, setGenerateCells] = useState(false);
     const [isMaxView, setIsMaxView] = useState(false);
 
-    // ── Geography State ──
-    const [geographyTool, setGeographyTool] = useState<GeographyTool>("lasso");
-    const [activeRegionType, setActiveRegionType] = useState<RegionType>("continent");
-    const [geographyTab, setGeographyTab] = useState<"regions" | "cells">("regions");
     // ── History ──
     const { history, saveToHistory, deleteFromHistory } = useGenerationHistory();
     const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
-
-    const geography = useGeographyRegions(activeHistoryId);
 
     // ── Planet State ──
     const [prompt, setPrompt] = useState<string>("A desolate, dusty orange planet with deep canyon scars, dry ocean basins, and rocky gray mountain ranges.");
@@ -50,8 +41,6 @@ export function WorldGenPage() {
         { id: "1", name: "Pangaea Prime", prompt: "A massive central supercontinent dominated by blasted badlands and volcanic ridges.", size: 80 }
     ]);
     const [globeWorld, setGlobeWorld] = useState<PlanetWorld | null>(null);
-
-    const cells = useGeographyCells(activeHistoryId, globeWorld, setGlobeWorld);
 
     // ── Ecology / Humanity State ──
     const [ecoPrompt, setEcoPrompt] = useState<string>("Overpaint this terrain with dense, bioluminescent alien jungles and vast fungal forests along the equator.");
@@ -77,26 +66,20 @@ export function WorldGenPage() {
     }, []);
 
     // ── Generation Hook ──
+    // Note: saveCellSubTiles removed since old geography cells pipeline is deprecated
     const {
         genProgress,
         isGeneratingText,
-        regionLore,
-        isFetchingLore,
-        setRegionLore,
         generatePlanet,
         generateEcology,
         generateHumanity,
         handleAutoGenerateContinents,
-        fetchRegionLore,
-        generateUpscale,
-        generateCellSubTiles,
-        generatePlanetCells,
     } = useWorldGeneration({
         prompt, config, aiResolution, aiTemperature, continents,
         ecoPrompt, ecoVegetation, ecoFauna,
         humPrompt, humSettlements, humTech,
         globeWorld, saveToHistory, setGlobeWorld, setContinents, setActiveHistoryId,
-        saveCellSubTiles: cells.saveCellSubTiles
+        saveCellSubTiles: () => { } // Stub — old cell pipeline deprecated
     });
 
     // ── Cell Handlers ──
@@ -104,19 +87,15 @@ export function WorldGenPage() {
     const handleCellClick = useCallback((cell: TerrainCell | null) => {
         if (cell) {
             setSelectedCell(cell);
-            setRegionLore(null);
             setActiveStep("GEOGRAPHY");
-            setGeographyTab("cells");
         } else {
             setSelectedCell(null);
         }
-    }, [setRegionLore]);
+    }, []);
 
     // ── Step Change Handler ──
     const handleStepChange = useCallback((step: WorkflowStep) => {
         setActiveStep(step);
-        // Auto-switch to 2D when entering Geography (lasso works on flat map)
-        if (step === "GEOGRAPHY") setViewMode("2d");
     }, []);
 
     return (
@@ -197,24 +176,9 @@ export function WorldGenPage() {
                         />
                     )}
                     {activeStep === "GEOGRAPHY" && (
-                        <GeographyPanel
-                            activeTool={geographyTool} setActiveTool={setGeographyTool}
-                            activeRegionType={activeRegionType} setActiveRegionType={setActiveRegionType}
-                            regions={geography.regions}
-                            selectedRegionId={geography.selectedRegionId}
-                            setSelectedRegionId={geography.setSelectedRegionId}
-                            onUpdateRegion={geography.updateRegion}
-                            onDeleteRegion={geography.deleteRegion}
-                            onClearRegions={geography.clearRegions}
-                            globeWorld={globeWorld}
-                            generateUpscale={generateUpscale}
+                        <GeographyPipelinePanel
                             activeHistoryId={activeHistoryId}
-                            selectedCell={selectedCell}
-                            onGenerateSubTiles={generateCellSubTiles}
-                            generatePlanetCells={generatePlanetCells}
-                            isGeneratingText={isGeneratingText}
-                            geographyTab={geographyTab}
-                            setGeographyTab={setGeographyTab}
+                            globeWorld={globeWorld}
                         />
                     )}
                     {activeStep === "ECO" && (
@@ -223,7 +187,7 @@ export function WorldGenPage() {
                             ecoVegetation={ecoVegetation} setEcoVegetation={setEcoVegetation}
                             ecoFauna={ecoFauna} setEcoFauna={setEcoFauna}
                             generateEcology={generateEcology} genProgress={genProgress} globeWorld={globeWorld}
-                            regions={geography.regions}
+                            regions={[]}
                         />
                     )}
                     {activeStep === "HUMANITY" && (
@@ -232,7 +196,7 @@ export function WorldGenPage() {
                             humSettlements={humSettlements} setHumSettlements={setHumSettlements}
                             humTech={humTech} setHumTech={setHumTech}
                             generateHumanity={generateHumanity} genProgress={genProgress} globeWorld={globeWorld}
-                            regions={geography.regions}
+                            regions={[]}
                         />
                     )}
                 </aside>
@@ -245,13 +209,13 @@ export function WorldGenPage() {
                 >
                     <WorldCanvas
                         viewMode={viewMode} globeWorld={globeWorld}
-                        showHexGrid={showHexGrid || (activeStep === "GEOGRAPHY" && geographyTab === "cells")}
+                        showHexGrid={showHexGrid}
                         onCellHover={handleCellHover} onCellClick={handleCellClick}
                         activeStep={activeStep}
-                        geographyTool={geographyTab === "cells" ? "pan" : geographyTool}
-                        activeRegionType={activeRegionType}
-                        geography={geography}
-                        geographyTab={geographyTab}
+                        geographyTool={"pan"}
+                        activeRegionType={"continent"}
+                        geography={{ regions: [], selectedRegionId: null, hoveredRegionId: null, setSelectedRegionId: () => { }, setHoveredRegionId: () => { }, addRegion: () => ({} as any), updateRegion: () => { }, deleteRegion: () => { }, clearRegions: () => { }, findRegionAtPoint: () => null }}
+                        geographyTab={"regions"}
                         isMaxView={isMaxView}
                         setIsMaxView={setIsMaxView}
                     />
@@ -283,17 +247,6 @@ export function WorldGenPage() {
                 {/* Cell Tooltip */}
                 {hoveredCell && !selectedCell && viewMode === "3d" && (
                     <CellTooltip hoveredCell={hoveredCell} />
-                )}
-
-                {/* Region Inspector */}
-                {selectedCell && (
-                    <RegionInspector
-                        selectedCell={selectedCell}
-                        onClose={() => setSelectedCell(null)}
-                        regionLore={regionLore}
-                        isFetchingLore={isFetchingLore}
-                        onScan={() => fetchRegionLore(selectedCell)}
-                    />
                 )}
             </div>
         </div>

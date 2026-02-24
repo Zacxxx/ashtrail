@@ -20,3 +20,4 @@ dotenv = "0.15.0"
 image = "0.25.9"
 base64 = "0.22.1"
 rayon = "1.10"
+worldgen-core = { path = "../../../packages/worldgen-core" }
