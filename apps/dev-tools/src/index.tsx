@@ -4,11 +4,15 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { App } from "./App";
 import { WorldGenPage } from "./worldgeneration";
 import { IconGenPage } from "./icongen";
+import { TravelPage } from "./travel";
+import { GalleryPage } from "./gallery";
 
 const router = createBrowserRouter([
     { path: "/", element: <App /> },
     { path: "/worldgen", element: <WorldGenPage /> },
     { path: "/icon-generation", element: <IconGenPage /> },
+    { path: "/travel", element: <TravelPage /> },
+    { path: "/gallery", element: <GalleryPage /> },
 ]);
 
 createRoot(document.getElementById("root")!).render(

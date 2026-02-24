@@ -379,14 +379,43 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}${regio
             if (!response.ok) throw new Error(await response.text());
             const { jobId } = await response.json();
             setGenProgress(prev => ({ ...prev, jobId }));
-            pollJobProgress(jobId, "http://127.0.0.1:8787/api/planet/cells/job");
+
+            // Custom polling loop for cells to prevent overwriting base globeWorld state
+            const cellPoll = setInterval(async () => {
+                try {
+                    const res = await fetch(`http://127.0.0.1:8787/api/planet/cells/job/${jobId}`);
+                    if (!res.ok) return;
+                    const data = await res.json();
+
+                    setGenProgress({
+                        isActive: data.status === "queued" || data.status === "running",
+                        progress: data.progress,
+                        stage: data.currentStage,
+                        jobId,
+                    });
+
+                    if (data.status === "completed") {
+                        clearInterval(cellPoll);
+                        setGenProgress({ isActive: false, progress: 100, stage: "Completed", jobId: null });
+                        window.dispatchEvent(new Event("cells-generated"));
+                    } else if (data.status === "failed" || data.status === "cancelled") {
+                        clearInterval(cellPoll);
+                        setGenProgress({
+                            isActive: false, progress: 0, stage: data.error || "Analysis failed", jobId: null,
+                        });
+                    }
+                } catch {
+                    // Retry on error
+                }
+            }, 500);
+
         } catch (error) {
             console.error(error);
             setGenProgress({
                 isActive: false, progress: 0, stage: `Error: ${error instanceof Error ? error.message : "Unknown error"}`, jobId: null,
             });
         }
-    }, [pollJobProgress]);
+    }, []);
 
     const generateCellSubTiles = useCallback(async (selectedCell: any) => {
         if (!selectedCell) return;

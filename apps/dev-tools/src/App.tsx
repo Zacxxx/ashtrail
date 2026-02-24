@@ -17,6 +17,22 @@ const TOOLS = [
         status: "WIP",
         color: "bg-amber-500",
     },
+    {
+        id: "travel",
+        name: "Node Travel",
+        description: "Explore the connected graph of system nodes, packets, and jump gates.",
+        icon: "🚀",
+        status: "PLANNED",
+        color: "bg-indigo-500",
+    },
+    {
+        id: "gallery",
+        name: "Planet Explorer",
+        description: "Explore locally generated planets, inspect history, and extract raw assets.",
+        icon: "🌌",
+        status: "STABLE",
+        color: "bg-teal-500",
+    },
 ];
 
 export function App() {

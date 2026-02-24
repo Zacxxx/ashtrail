@@ -74,18 +74,25 @@ export function GeographyCellsPanel({ globeWorld, selectedCell, onGenerateSubTil
 
     // Load cell features when history ID changes
     useEffect(() => {
-        if (!activeHistoryId) {
-            setCellFeatures(null);
-            return;
-        }
-        fetch(`http://127.0.0.1:8787/api/planet/cell-features/${activeHistoryId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data && data.cells) {
-                    setCellFeatures(data);
-                }
-            })
-            .catch(() => setCellFeatures(null));
+        const loadFeatures = () => {
+            if (!activeHistoryId) {
+                setCellFeatures(null);
+                return;
+            }
+            fetch(`http://127.0.0.1:8787/api/planet/cell-features/${activeHistoryId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.cells) {
+                        setCellFeatures(data);
+                    }
+                })
+                .catch(() => setCellFeatures(null));
+        };
+
+        loadFeatures();
+
+        window.addEventListener("cells-generated", loadFeatures);
+        return () => window.removeEventListener("cells-generated", loadFeatures);
     }, [activeHistoryId]);
 
     if (!globeWorld?.textureUrl) {
