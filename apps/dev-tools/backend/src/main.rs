@@ -641,7 +641,7 @@ async fn run_hybrid_generation_job(
         }
     }
 
-    let image_bytes = match gemini::generate_image_bytes(&prompt, temperature, request.cols, request.rows).await {
+    let image_bytes = match gemini::generate_image_bytes(&prompt, temperature, request.cols, request.rows, None).await {
         Ok(b) => b,
         Err((_code, err_msg)) => {
             error!("Failed to fetch Gemini image: {}", err_msg);
@@ -1514,7 +1514,7 @@ async fn run_image_edit_job(
         ("image/jpeg".to_string(), base64_image)
     };
 
-    let image_bytes = match gemini::generate_image_edit_bytes(&prompt, &data, &mime_type, temperature).await {
+    let image_bytes = match gemini::generate_image_edit_bytes(&prompt, &data, &mime_type, temperature, None).await {
         Ok(b) => b,
         Err((_code, err_msg)) => {
             error!("Failed to fetch Gemini edit image: {}", err_msg);
@@ -1822,10 +1822,9 @@ async fn generate_icon_batch(
 
     for (i, user_prompt) in prompts.iter().enumerate() {
         let wrapped_prompt = format!(
-            "Generate a single 32x32 pixel art game icon. \
-            Style: pixel art, limited color palette, crisp pixels, no anti-aliasing, \
-            centered composition, transparent or solid dark background. \
-            The icon depicts: {}. \
+            "Generate a game icon. \
+            Centered composition, transparent or solid dark background. \
+            Visual content: {}. \
             Output ONLY the icon image, no text, no borders, no decorations.",
             user_prompt
         );
@@ -1834,10 +1833,10 @@ async fn generate_icon_batch(
 
         let image_bytes_result = if let Some(base64_img) = &request.base64_image {
             // If they provided a reference image, use the vision/edit endpoint
-            gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", Some(0.4)).await
+            gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", Some(0.4), Some("1:1")).await
         } else {
             // Standard image generation
-            gemini::generate_image_bytes(&wrapped_prompt, Some(0.4), 256, 256).await
+            gemini::generate_image_bytes(&wrapped_prompt, Some(0.4), 256, 256, Some("1:1")).await
         };
 
         let image_bytes = image_bytes_result.map_err(|(code, msg)| {

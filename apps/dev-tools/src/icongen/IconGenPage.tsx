@@ -357,7 +357,6 @@ export function IconGenPage() {
                                             src={batch.thumbnailUrl}
                                             alt=""
                                             className="w-8 h-8 rounded border border-white/10 shrink-0 object-cover"
-                                            style={{ imageRendering: "pixelated" }}
                                         />
                                     ) : (
                                         <div className="w-8 h-8 rounded border border-white/10 bg-white/5 shrink-0 flex items-center justify-center text-xs">🎨</div>
@@ -421,7 +420,6 @@ export function IconGenPage() {
                                                 src={icon.url}
                                                 alt={icon.prompt}
                                                 className="w-16 h-16"
-                                                style={{ imageRendering: "pixelated" }}
                                             />
                                         </div>
 
@@ -439,7 +437,6 @@ export function IconGenPage() {
                                                     src={icon.url}
                                                     alt="preview"
                                                     className="w-[256px] h-[256px]"
-                                                    style={{ imageRendering: "pixelated" }}
                                                 />
                                                 <p className="text-[10px] text-gray-400 text-center mt-4 max-w-[256px] font-mono leading-relaxed break-words whitespace-pre-wrap">
                                                     {icon.prompt}
