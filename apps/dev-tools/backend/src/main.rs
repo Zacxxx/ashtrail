@@ -35,6 +35,7 @@ struct AppState {
     planets_dir: PathBuf,
     planet_root: PathBuf,
     icons_dir: PathBuf,
+    icons_export_dir: PathBuf,
 }
 
 #[derive(Clone, Serialize)]
@@ -200,14 +201,18 @@ async fn main() {
     let planets_dir = PathBuf::from("generated/planets");
     std::fs::create_dir_all(&planets_dir).expect("failed to create planets directory");
 
-    let icons_dir = PathBuf::from("../../../game-assets/generation/icons");
-    std::fs::create_dir_all(&icons_dir).expect("failed to create game-assets/generation/icons directory");
+    let icons_dir = PathBuf::from("../../game-assets/assets/Icons");
+    std::fs::create_dir_all(&icons_dir).expect("failed to create game-assets/assets/Icons directory");
+
+    let icons_export_dir = PathBuf::from("../../game-assets/assets/Icons");
+    std::fs::create_dir_all(&icons_export_dir).expect("failed to create game-assets/assets/Icons directory");
 
     let state = AppState {
         jobs: Arc::new(Mutex::new(HashMap::new())),
         planets_dir,
         planet_root: PathBuf::from("generated/planet"), // For the hierarchical generator
         icons_dir: icons_dir.clone(),
+        icons_export_dir,
     };
 
     let app = Router::new()
@@ -242,6 +247,7 @@ async fn main() {
         .route("/api/icons/generate-batch", post(generate_icon_batch))
         .route("/api/icons/batches", get(list_icon_batches))
         .route("/api/icons/batches/{batch_id}", get(get_icon_batch))
+        .route("/api/icons/export", post(export_icons_registry))
         // Static file serving for all planet textures
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
@@ -1957,4 +1963,164 @@ async fn get_icon_batch(
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse error: {e}"))
     })?;
     Ok(Json(manifest))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportResult {
+    total_icons: usize,
+    total_batches: usize,
+    export_path: String,
+}
+
+/// Export all icon batches into a flat folder + TS registry file.
+/// Icons are copied to game-assets/assets/icons/ with slugified names,
+/// and an index.ts is generated for easy imports.
+async fn export_icons_registry(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let icons_dir = state.icons_dir.clone();
+    let export_dir = state.icons_export_dir.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> Result<ExportResult, String> {
+        // Collect all batch manifests
+        let mut all_manifests: Vec<BatchManifest> = Vec::new();
+
+        if icons_dir.exists() {
+            let dir = std::fs::read_dir(&icons_dir).map_err(|e| format!("read icons dir: {e}"))?;
+            for entry in dir {
+                let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let manifest_path = path.join("manifest.json");
+                if !manifest_path.exists() {
+                    continue;
+                }
+                let data = std::fs::read_to_string(&manifest_path)
+                    .map_err(|e| format!("read manifest: {e}"))?;
+                let manifest: BatchManifest = serde_json::from_str(&data)
+                    .map_err(|e| format!("parse manifest: {e}"))?;
+                all_manifests.push(manifest);
+            }
+        }
+
+        // Sort by created_at so order is stable
+        all_manifests.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+        // Create export directory
+        std::fs::create_dir_all(&export_dir)
+            .map_err(|e| format!("create export dir: {e}"))?;
+
+        let mut ts_entries: Vec<String> = Vec::new();
+        let mut total_icons: usize = 0;
+
+        for manifest in &all_manifests {
+            let mut icon_entries: Vec<String> = Vec::new();
+
+            for icon in &manifest.icons {
+                // Generate a safe key from the prompt
+                let key = slugify_prompt(&icon.prompt);
+                icon_entries.push(format!(
+                    "    {{ key: '{}', prompt: '{}', file: './{}/{}' }}",
+                    key,
+                    icon.prompt.replace('\\', "\\\\").replace('\'', "\\'"),
+                    manifest.batch_id,
+                    icon.filename
+                ));
+                total_icons += 1;
+            }
+
+            let short_id = &manifest.batch_id[..8.min(manifest.batch_id.len())];
+            ts_entries.push(format!(
+                "  // Batch {} — {} — {} icons\n  {{\n    batchId: '{}',\n    createdAt: '{}',\n    icons: [\n{}\n    ],\n  }}",
+                short_id.to_uppercase(),
+                manifest.created_at,
+                manifest.icons.len(),
+                manifest.batch_id,
+                manifest.created_at,
+                icon_entries.join(",\n")
+            ));
+        }
+
+        // Write index.ts
+        let ts_content = format!(
+            "// ──────────────────────────────────────────\n\
+             // AUTO-GENERATED — DO NOT EDIT MANUALLY\n\
+             // Generated by dev-tools icon export\n\
+             // Total: {} icons across {} batches\n\
+             // ──────────────────────────────────────────\n\
+             \n\
+             export interface IconEntry {{\n\
+             \x20 key: string;\n\
+             \x20 prompt: string;\n\
+             \x20 file: string;\n\
+             }}\n\
+             \n\
+             export interface IconBatch {{\n\
+             \x20 batchId: string;\n\
+             \x20 createdAt: string;\n\
+             \x20 icons: IconEntry[];\n\
+             }}\n\
+             \n\
+             export const ICON_BATCHES: IconBatch[] = [\n\
+             {}\n\
+             ];\n\
+             \n\
+             /** Flat map of all icons by key for quick lookup. */\n\
+             export const ICONS: Record<string, IconEntry> = Object.fromEntries(\n\
+             \x20 ICON_BATCHES.flatMap(b => b.icons).map(i => [i.key, i])\n\
+             );\n",
+            total_icons,
+            all_manifests.len(),
+            ts_entries.join(",\n")
+        );
+
+        let index_path = export_dir.join("index.ts");
+        std::fs::write(&index_path, ts_content)
+            .map_err(|e| format!("write index.ts: {e}"))?;
+
+        info!(
+            total_icons = total_icons,
+            total_batches = all_manifests.len(),
+            path = %index_path.display(),
+            "icon registry exported"
+        );
+
+        Ok(ExportResult {
+            total_icons,
+            total_batches: all_manifests.len(),
+            export_path: index_path.display().to_string(),
+        })
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(result))
+}
+
+/// Turn a prompt into a safe snake_case key.
+fn slugify_prompt(prompt: &str) -> String {
+    let slug: String = prompt
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    // Collapse multiple underscores and trim
+    let mut result = String::new();
+    let mut prev_underscore = false;
+    for c in slug.chars() {
+        if c == '_' {
+            if !prev_underscore && !result.is_empty() {
+                result.push('_');
+            }
+            prev_underscore = true;
+        } else {
+            result.push(c);
+            prev_underscore = false;
+        }
+    }
+    result.trim_end_matches('_').to_string()
 }

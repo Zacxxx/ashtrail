@@ -49,6 +49,10 @@ export function IconGenPage() {
     const [activeBatch, setActiveBatch] = useState<BatchManifest | null>(null);
     const [hoveredIcon, setHoveredIcon] = useState<string | null>(null);
 
+    // ── Export State ──
+    const [isExporting, setIsExporting] = useState(false);
+    const [exportResult, setExportResult] = useState<{ totalIcons: number; totalBatches: number } | null>(null);
+
     // ── Parse prompts from textarea ──
     const parsePrompts = useCallback((): string[] => {
         return iconListText
@@ -160,6 +164,26 @@ export function IconGenPage() {
         a.click();
     }, []);
 
+    // ── Export icons to code ──
+    const handleExport = useCallback(async () => {
+        setIsExporting(true);
+        setExportResult(null);
+        try {
+            const res = await fetch("/api/icons/export", { method: "POST" });
+            if (!res.ok) {
+                const msg = await res.text();
+                throw new Error(msg || `HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            setExportResult({ totalIcons: data.totalIcons, totalBatches: data.totalBatches });
+            setTimeout(() => setExportResult(null), 4000);
+        } catch (e: any) {
+            setError(e.message || "Export failed");
+        } finally {
+            setIsExporting(false);
+        }
+    }, []);
+
     // The raw line count (for UI display of pending items)
     const rawLineCount = iconListText.split("\n").filter(l => l.trim().length > 0).length;
 
@@ -179,7 +203,37 @@ export function IconGenPage() {
                     <h1 className="text-xs font-black tracking-[0.3em] text-white">
                         ASHTRAIL <span className="text-gray-600 font-normal tracking-widest">| ICON FORGE</span>
                     </h1>
-                    <div className="ml-auto flex items-center gap-2 text-[10px] tracking-widest text-gray-600">
+                    <div className="ml-auto flex items-center gap-3 text-[10px] tracking-widest text-gray-600">
+                        {exportResult && (
+                            <span className="text-emerald-400 tracking-wider animate-pulse">
+                                ✓ {exportResult.totalIcons} icons exported ({exportResult.totalBatches} batches)
+                            </span>
+                        )}
+                        <button
+                            onClick={handleExport}
+                            disabled={isExporting || batches.length === 0}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-all text-[10px] font-bold tracking-[0.1em] ${isExporting
+                                    ? "border-white/5 bg-white/5 text-gray-500 cursor-wait"
+                                    : batches.length === 0
+                                        ? "border-white/5 bg-white/5 text-gray-600 cursor-not-allowed"
+                                        : "border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                                }`}
+                            title="Export all batches to game-assets/assets/icons/"
+                        >
+                            {isExporting ? (
+                                <>
+                                    <span className="inline-block w-3 h-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                                    EXPORTING...
+                                </>
+                            ) : (
+                                <>
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                    </svg>
+                                    EXPORT TO CODE
+                                </>
+                            )}
+                        </button>
                         <span className="inline-block w-2 h-2 rounded-full bg-amber-500/60" />
                         WIP
                     </div>

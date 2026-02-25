@@ -1,0 +1,36 @@
+{
+  "batchId": "3590a9a9-bcf2-44b0-93c9-bd668c67dffe",
+  "createdAt": "2026-02-25T15:58:22.154490+00:00",
+  "icons": [
+    {
+      "filename": "000.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns crossed rifle",
+      "url": "/api/icons/3590a9a9-bcf2-44b0-93c9-bd668c67dffe/000.png"
+    },
+    {
+      "filename": "001.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns watchtower shield",
+      "url": "/api/icons/3590a9a9-bcf2-44b0-93c9-bd668c67dffe/001.png"
+    },
+    {
+      "filename": "002.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns scrap spear",
+      "url": "/api/icons/3590a9a9-bcf2-44b0-93c9-bd668c67dffe/002.png"
+    },
+    {
+      "filename": "003.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns cracked coin",
+      "url": "/api/icons/3590a9a9-bcf2-44b0-93c9-bd668c67dffe/003.png"
+    },
+    {
+      "filename": "004.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns scope skull",
+      "url": "/api/icons/3590a9a9-bcf2-44b0-93c9-bd668c67dffe/004.png"
+    },
+    {
+      "filename": "005.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns armor cracked mask",
+      "url": "/api/icons/3590a9a9-bcf2-44b0-93c9-bd668c67dffe/005.png"
+    }
+  ]
+}
