@@ -52,3 +52,7 @@ apps/dev-tools/generated/world-cache/*
 apps/dev-tools/backend/bin/*
 apps/dev-tools/generated/upscale/*
 apps/dev-tools/generated/planets/*
+
+
+
+game-assets/assets/Icons/*
