@@ -9,6 +9,7 @@ import type { WorkflowStep, ViewMode, InspectorTab, ContinentConfig, PlanetWorld
 import { useWorldGeneration } from "./useWorldGeneration";
 import { GeologyPanel } from "./GeologyPanel";
 import { GeographyPipelinePanel } from "./GeographyPipelinePanel";
+import { GeographyInspectorPanel, type InspectorLayer } from "./GeographyInspectorPanel";
 import { EcologyPanel } from "./EcologyPanel";
 import { HumanityPanel } from "./HumanityPanel";
 import { WorldCanvas } from "./WorldCanvas";
@@ -22,6 +23,10 @@ export function WorldGenPage() {
     const [viewMode, setViewMode] = useState<ViewMode>("3d");
     const [activeStep, setActiveStep] = useState<WorkflowStep>("GEO");
     const [inspectorTab, setInspectorTab] = useState<InspectorTab>("base");
+    const [geographyTab, setGeographyTab] = useState<"pipeline" | "inspector">("pipeline");
+    const [geoSelectedId, setGeoSelectedId] = useState<number | null>(null);
+    const [geoHoveredId, setGeoHoveredId] = useState<number | null>(null);
+    const [inspectorLayer, setInspectorLayer] = useState<InspectorLayer>("provinces");
     const [showHistory, setShowHistory] = useState(false);
     const [showConfigPanel, setShowConfigPanel] = useState(true);
     const [showHexGrid, setShowHexGrid] = useState(false);
@@ -140,8 +145,9 @@ export function WorldGenPage() {
                     {/* Right: Map Controls */}
                     <div className="flex items-center justify-end gap-4">
                         <div className="flex items-center bg-[#1e1e1e]/60 border border-white/5 rounded-full p-0.5 shadow-lg">
-                            <button onClick={() => setViewMode("2d")} className={`px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "2d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 2D</button>
-                            <button onClick={() => setViewMode("3d")} className={`px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>GLOBE 3D</button>
+                            <button onClick={() => setViewMode("2d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "2d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 2D</button>
+                            <button onClick={() => setViewMode("3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>GLOBE 3D</button>
+                            <button onClick={() => setViewMode("provinces")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "provinces" ? "bg-cyan-500/20 text-cyan-300 shadow-sm border border-cyan-500/30" : "text-gray-500 hover:text-gray-300"}`}>PROVINCES</button>
                         </div>
                         <button
                             onClick={() => setShowHistory(!showHistory)}
@@ -176,10 +182,30 @@ export function WorldGenPage() {
                         />
                     )}
                     {activeStep === "GEOGRAPHY" && (
-                        <GeographyPipelinePanel
-                            activeHistoryId={activeHistoryId}
-                            globeWorld={globeWorld}
-                        />
+                        <div className="flex flex-col gap-4 h-full">
+                            <div className="shrink-0 flex items-center justify-center p-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md">
+                                <TabBar
+                                    tabs={["pipeline", "inspector"]}
+                                    activeTab={geographyTab}
+                                    onTabChange={(t) => setGeographyTab(t as any)}
+                                />
+                            </div>
+                            <div className="flex-1 overflow-y-auto scrollbar-none pb-12">
+                                {geographyTab === "pipeline" ? (
+                                    <GeographyPipelinePanel
+                                        activeHistoryId={activeHistoryId}
+                                        globeWorld={globeWorld}
+                                    />
+                                ) : (
+                                    <GeographyInspectorPanel
+                                        planetId={activeHistoryId}
+                                        selectedId={geoSelectedId}
+                                        hoveredId={geoHoveredId}
+                                        activeLayer={inspectorLayer}
+                                    />
+                                )}
+                            </div>
+                        </div>
                     )}
                     {activeStep === "ECO" && (
                         <EcologyPanel
@@ -214,10 +240,17 @@ export function WorldGenPage() {
                         activeStep={activeStep}
                         geographyTool={"pan"}
                         activeRegionType={"continent"}
-                        geography={{ regions: [], selectedRegionId: null, hoveredRegionId: null, setSelectedRegionId: () => { }, setHoveredRegionId: () => { }, addRegion: () => ({} as any), updateRegion: () => { }, deleteRegion: () => { }, clearRegions: () => { }, findRegionAtPoint: () => null }}
-                        geographyTab={"regions"}
+                        geography={{ regions: [], selectedRegionId: null, hoveredRegionId: null, setSelectedRegionId: () => { }, setHoveredRegionId: () => { }, addRegion: () => ({} as any), findRegionAtPoint: () => null }}
+                        geographyTab={geographyTab}
+                        geoHoveredId={geoHoveredId}
+                        setGeoHoveredId={setGeoHoveredId}
+                        geoSelectedId={geoSelectedId}
+                        setGeoSelectedId={setGeoSelectedId}
+                        inspectorLayer={inspectorLayer}
+                        setInspectorLayer={setInspectorLayer}
                         isMaxView={isMaxView}
                         setIsMaxView={setIsMaxView}
+                        activeHistoryId={activeHistoryId}
                     />
                 </div>
 

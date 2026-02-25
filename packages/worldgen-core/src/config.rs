@@ -28,6 +28,18 @@ pub struct WorldgenConfig {
     pub kingdom_size_max: u32,
     /// Number of border smoothing iterations
     pub smooth_iterations: u32,
+
+    // --- New Detection Heuristics ---
+    /// Target hue for water detection (0-360)
+    pub water_hue: f32,
+    /// Tolerance for water hue matching (degrees)
+    pub water_hue_tolerance: f32,
+    /// Minimum saturation for water
+    pub water_sat_min: f32,
+    /// Minimum value (brightness) for water
+    pub water_val_min: f32,
+    /// Whether to use color sampling for biome classification
+    pub color_based_biomes: bool,
 }
 
 impl Default for WorldgenConfig {
@@ -45,6 +57,12 @@ impl Default for WorldgenConfig {
             kingdom_size_min: 6,
             kingdom_size_max: 12,
             smooth_iterations: 2,
+
+            water_hue: 210.0,
+            water_hue_tolerance: 45.0,
+            water_sat_min: 0.15,
+            water_val_min: 0.10,
+            color_based_biomes: true,
         }
     }
 }

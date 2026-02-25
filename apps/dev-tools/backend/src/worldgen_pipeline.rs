@@ -90,6 +90,26 @@ pub async fn get_pipeline_status(
     Ok(Json(PipelineStatusResponse { stages }))
 }
 
+// ── DELETE /api/worldgen/{planet_id}/clear ──
+
+pub async fn clear_pipeline(
+    State(state): State<AppState>,
+    Path(planet_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let out_dir = worldgen_dir(&state.planets_dir, &planet_id);
+    
+    // Attempt to remove the entire worldgen directory
+    if out_dir.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&out_dir) {
+            error!("Failed to delete worldgen directory {}: {}", out_dir.display(), e);
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to clear pipeline data".into()));
+        }
+        info!("Cleared pipeline data for planet {}", planet_id);
+    }
+
+    Ok(StatusCode::OK)
+}
+
 // ── POST /api/worldgen/{planet_id}/run/{stage_name} ──
 
 pub async fn run_pipeline_stage(
@@ -242,17 +262,19 @@ fn run_single_stage(
     let base_path = base_image_path(planets_dir, planet_id);
 
     match stage_name {
-        "normalize" => {
-            let img = load_base_image(&base_path)?;
-            let flat = normalize::normalize_albedo(&img, 60.0, progress);
-            export::write_rgb_image(&flat, &out_dir.join("albedo_flat.png"))
+        "landmask" => {
+            let base_img = load_rgb_png(&base_path, "Failed to load base image")?;
+            let mask = landmask::extract_landmask(&base_img, config, 500, 200, progress);
+            let (w, h) = base_img.dimensions();
+            export::write_landmask(&mask, w, h, &out_dir.join("landmask.png"))
         }
 
-        "landmask" => {
-            let flat = load_rgb_png(&out_dir.join("albedo_flat.png"), "Run 'normalize' first")?;
-            let mask = landmask::extract_landmask(&flat, 15, 500, 200, progress);
-            let (w, h) = flat.dimensions();
-            export::write_landmask(&mask, w, h, &out_dir.join("landmask.png"))
+        "normalize" => {
+            let img = load_base_image(&base_path)?;
+            let (w, h) = img.dimensions();
+            let mask = load_landmask(&out_dir.join("landmask.png"), w, h)?;
+            let flat = normalize::normalize_albedo(&img, &mask, 60.0, progress);
+            export::write_rgb_image(&flat, &out_dir.join("albedo_flat.png"))
         }
 
         "height" => {
@@ -275,7 +297,8 @@ fn run_single_stage(
             let (w, h) = get_dimensions(&out_dir.join("landmask.png"))?;
             let mask = load_landmask(&out_dir.join("landmask.png"), w, h)?;
             let hf = load_height16(&out_dir.join("height16.png"), w, h)?;
-            let biomes = biome::classify_biomes(&hf, &mask, w, h, progress);
+            let base_img = load_rgb_png(&base_path, "Failed to load base image")?;
+            let biomes = biome::classify_biomes(&hf, &mask, &base_img, config, w, h, progress);
             export::write_mask_texture(&biomes, w, h, &out_dir.join("biome.png"))
         }
 

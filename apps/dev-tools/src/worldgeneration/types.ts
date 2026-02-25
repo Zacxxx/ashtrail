@@ -10,7 +10,7 @@ export const WORKFLOW_LABELS: Record<WorkflowStep, string> = {
     HUMANITY: "Humanity",
 };
 
-export type ViewMode = "3d" | "2d";
+export type ViewMode = "3d" | "2d" | "provinces";
 export type InspectorTab = "base" | "world" | "continents" | "geology" | "climate";
 
 export interface ContinentConfig {

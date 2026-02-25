@@ -1,11 +1,40 @@
+use crate::WorldgenConfig;
 use image::RgbImage;
 
+pub fn rgb_to_hsv(r: u8, g: u8, b: u8) -> (f32, f32, f32) {
+    let r_f = r as f32 / 255.0;
+    let g_f = g as f32 / 255.0;
+    let b_f = b as f32 / 255.0;
+    let max = r_f.max(g_f).max(b_f);
+    let min = r_f.min(g_f).min(b_f);
+    let delta = max - min;
+
+    let mut hue = if delta < 0.00001 {
+        0.0
+    } else if max == r_f {
+        60.0 * ((g_f - b_f) / delta)
+    } else if max == g_f {
+        60.0 * ((b_f - r_f) / delta + 2.0)
+    } else {
+        60.0 * ((r_f - g_f) / delta + 4.0)
+    };
+
+    if hue < 0.0 {
+        hue += 360.0;
+    }
+
+    let sat = if max == 0.0 { 0.0 } else { delta / max };
+    let val = max;
+
+    (hue, sat, val)
+}
+
 /// Stage 2: Generate land mask from RGB image.
-/// Uses heuristic: water_score = B - max(R, G). Land if score < threshold.
+/// Uses HSV thresholding for water detection. Land if pixel is NOT water.
 /// Then applies morphological cleanup.
 pub fn extract_landmask(
     img: &RgbImage,
-    threshold: i32,
+    config: &WorldgenConfig,
     min_island_area: u32,
     min_hole_area: u32,
     on_progress: &mut dyn FnMut(f32, &str),
@@ -13,16 +42,36 @@ pub fn extract_landmask(
     let (width, height) = img.dimensions();
     let n = (width * height) as usize;
 
-    on_progress(0.0, "Computing water score");
+    on_progress(0.0, "Computing HSV water score");
 
     // Initial classification
     let mut mask = vec![false; n];
     for (i, pixel) in img.pixels().enumerate() {
-        let r = pixel[0] as i32;
-        let g = pixel[1] as i32;
-        let b = pixel[2] as i32;
-        let water_score = b - r.max(g);
-        mask[i] = water_score < threshold; // land = true
+        let (h, s, v) = rgb_to_hsv(pixel[0], pixel[1], pixel[2]);
+
+        let r_val = pixel[0] as f32;
+        let g_val = pixel[1] as f32;
+        let b_val = pixel[2] as f32;
+
+        let is_dominant_blue = b_val > r_val.max(g_val) && s > 0.1;
+
+        // Circular distance for hue
+        let mut hue_diff = (h - config.water_hue).abs();
+        if hue_diff > 180.0 {
+            hue_diff = 360.0 - hue_diff;
+        }
+
+        // Ice/Snow heuristic: extremely bright and relatively low saturation.
+        let is_ice = v > 0.8 && s < 0.25;
+
+        // Water must match hue/sat/val OR be dominantly blue, AND must not be ice.
+        let is_water = ((hue_diff <= config.water_hue_tolerance
+            && s >= config.water_sat_min
+            && v >= config.water_val_min)
+            || is_dominant_blue)
+            && !is_ice;
+
+        mask[i] = !is_water; // land = true
     }
 
     on_progress(30.0, "Morphological closing");

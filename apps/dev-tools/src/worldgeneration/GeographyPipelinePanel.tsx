@@ -22,12 +22,27 @@ interface GeographyPipelinePanelProps {
 }
 
 export function GeographyPipelinePanel({ activeHistoryId, globeWorld }: GeographyPipelinePanelProps) {
-    const { stages, config, setConfig, runStage, resetStage } = useWorldgenPipeline(activeHistoryId);
+    const { stages, config, setConfig, runStage, resetStage, clearPipeline, isAutoRunning, startAutoRun, stopAutoRun } = useWorldgenPipeline(activeHistoryId);
     const [expandedStage, setExpandedStage] = useState<string | null>(null);
     const [showConfig, setShowConfig] = useState(false);
 
     const completedCount = Object.values(stages).filter(s => s.status === "completed").length;
     const totalCount = PIPELINE_STAGES.length;
+
+    const handleRunAll = () => {
+        if (isAutoRunning) {
+            stopAutoRun();
+        } else {
+            // If already complete, reset the first stage before running all
+            if (completedCount === totalCount) {
+                resetStage("landmask");
+                // Wait a tick for state to clear before auto-running
+                setTimeout(() => startAutoRun(), 50);
+            } else {
+                startAutoRun();
+            }
+        }
+    };
 
     if (!globeWorld?.textureUrl) {
         return (
@@ -54,9 +69,33 @@ export function GeographyPipelinePanel({ activeHistoryId, globeWorld }: Geograph
                         <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
                         PROVINCE PIPELINE
                     </h3>
-                    <span className="text-[9px] font-bold tracking-widest text-gray-500">
-                        {completedCount}/{totalCount}
-                    </span>
+                    <div className="flex items-center gap-3">
+                        <span className="text-[9px] font-bold tracking-widest text-gray-500">
+                            {completedCount}/{totalCount}
+                        </span>
+
+                        {completedCount > 0 && !isAutoRunning && (
+                            <Button
+                                variant="danger"
+                                onClick={clearPipeline}
+                                className="text-[8px] tracking-widest font-black px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 shrink-0"
+                                title="Delete all generated files and reset pipeline"
+                            >
+                                CLEAR
+                            </Button>
+                        )}
+
+                        <Button
+                            variant={isAutoRunning ? "danger" : "primary"}
+                            onClick={handleRunAll}
+                            className={`text-[8px] tracking-widest font-black px-3 py-1.5 rounded-lg border shrink-0 ${isAutoRunning
+                                ? "bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30 animate-pulse"
+                                : "bg-cyan-600/20 text-cyan-400 border-cyan-500/30 hover:bg-cyan-600/40"
+                                }`}
+                        >
+                            {isAutoRunning ? "STOP RUN" : completedCount === totalCount ? "RELAUNCH ALL" : "RUN ALL"}
+                        </Button>
+                    </div>
                 </div>
 
                 {/* Progress Bar */}
@@ -80,6 +119,27 @@ export function GeographyPipelinePanel({ activeHistoryId, globeWorld }: Geograph
 
                 {showConfig && (
                     <div className="mb-5 p-4 rounded-xl border border-white/10 bg-black/40 space-y-3">
+                        <ConfigSlider label="WATER HUE" value={config.waterHue} min={0} max={360} step={1}
+                            onChange={v => setConfig(c => ({ ...c, waterHue: v }))} suffix="°" />
+                        <ConfigSlider label="HUE TOLERANCE" value={config.waterHueTolerance} min={5} max={180} step={1}
+                            onChange={v => setConfig(c => ({ ...c, waterHueTolerance: v }))} suffix="°" />
+                        <ConfigSlider label="MIN WATER SAT" value={config.waterSatMin} min={0} max={1} step={0.01}
+                            onChange={v => setConfig(c => ({ ...c, waterSatMin: v }))} />
+                        <ConfigSlider label="MIN WATER VAL" value={config.waterValMin} min={0} max={1} step={0.01}
+                            onChange={v => setConfig(c => ({ ...c, waterValMin: v }))} />
+
+                        <div className="flex items-center gap-3">
+                            <label className="text-[8px] font-bold tracking-widest text-gray-500 w-24 shrink-0">COLOR BIOMES</label>
+                            <input
+                                type="checkbox"
+                                checked={config.colorBasedBiomes}
+                                onChange={e => setConfig(c => ({ ...c, colorBasedBiomes: e.target.checked }))}
+                                className="w-4 h-4 rounded border-white/20 bg-black/50 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-0 cursor-pointer"
+                            />
+                        </div>
+
+                        <div className="h-px w-full bg-white/5 my-2" />
+
                         <ConfigSlider label="COUNTIES" value={config.counties} min={50} max={5000} step={50}
                             onChange={v => setConfig(c => ({ ...c, counties: v }))} />
                         <ConfigSlider label="MIN AREA (px)" value={config.minCountyArea} min={10} max={1000} step={10}
@@ -112,14 +172,14 @@ export function GeographyPipelinePanel({ activeHistoryId, globeWorld }: Geograph
                             <div key={stage.id} className="group">
                                 <div
                                     className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-all ${state.status === "completed"
-                                            ? "bg-green-500/5 border-green-500/20"
-                                            : state.status === "running"
-                                                ? "bg-amber-500/5 border-amber-500/20 animate-pulse"
-                                                : state.status === "failed"
-                                                    ? "bg-red-500/5 border-red-500/20"
-                                                    : state.status === "ready"
-                                                        ? "bg-cyan-500/5 border-cyan-500/20"
-                                                        : "bg-black/20 border-white/5"
+                                        ? "bg-green-500/5 border-green-500/20"
+                                        : state.status === "running"
+                                            ? "bg-amber-500/5 border-amber-500/20 animate-pulse"
+                                            : state.status === "failed"
+                                                ? "bg-red-500/5 border-red-500/20"
+                                                : state.status === "ready"
+                                                    ? "bg-cyan-500/5 border-cyan-500/20"
+                                                    : "bg-black/20 border-white/5"
                                         }`}
                                     onClick={() => setExpandedStage(isExpanded ? null : stage.id)}
                                 >

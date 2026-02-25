@@ -14,18 +14,18 @@ export interface PipelineStage {
 
 export const PIPELINE_STAGES: PipelineStage[] = [
     {
-        id: "normalize",
-        name: "Normalize Albedo",
-        description: "Flatten input map by removing baked lighting and shadows",
-        outputs: ["albedo_flat.png"],
-        requires: [],
-    },
-    {
         id: "landmask",
         name: "Land Mask",
         description: "Segment land vs water from RGB color heuristics",
         outputs: ["landmask.png"],
-        requires: ["normalize"],
+        requires: [],
+    },
+    {
+        id: "normalize",
+        name: "Normalize Albedo",
+        description: "Flatten input map by removing baked lighting and shadows",
+        outputs: ["albedo_flat.png"],
+        requires: ["landmask"],
     },
     {
         id: "height",
@@ -127,6 +127,11 @@ export interface WorldgenConfig {
     kingdomSizeMin: number;
     kingdomSizeMax: number;
     smoothIterations: number;
+    waterHue: number;
+    waterHueTolerance: number;
+    waterSatMin: number;
+    waterValMin: number;
+    colorBasedBiomes: boolean;
 }
 
 export const DEFAULT_WORLDGEN_CONFIG: WorldgenConfig = {
@@ -142,6 +147,11 @@ export const DEFAULT_WORLDGEN_CONFIG: WorldgenConfig = {
     kingdomSizeMin: 6,
     kingdomSizeMax: 12,
     smoothIterations: 2,
+    waterHue: 210.0,
+    waterHueTolerance: 45.0,
+    waterSatMin: 0.15,
+    waterValMin: 0.10,
+    colorBasedBiomes: true,
 };
 
 const API_BASE = "http://127.0.0.1:8787";
@@ -162,17 +172,19 @@ export function useWorldgenPipeline(planetId: string | null) {
     // Compute "ready" statuses based on dependencies
     useEffect(() => {
         setStages(prev => {
+            let changed = false;
             const next = { ...prev };
             for (const stage of PIPELINE_STAGES) {
                 const current = next[stage.id];
                 if (current.status === "pending") {
                     const depsCompleted = stage.requires.every(dep => next[dep]?.status === "completed");
-                    if (depsCompleted && (stage.requires.length === 0 || stage.requires.length > 0)) {
-                        next[stage.id] = { ...current, status: stage.requires.length === 0 ? "ready" : depsCompleted ? "ready" : "pending" };
+                    if (depsCompleted) {
+                        next[stage.id] = { ...current, status: "ready" };
+                        changed = true;
                     }
                 }
             }
-            return next;
+            return changed ? next : prev;
         });
     }, [stages]);
 
@@ -356,12 +368,81 @@ export function useWorldgenPipeline(planetId: string | null) {
         };
     }, []);
 
+    const [isAutoRunning, setIsAutoRunning] = useState(false);
+
+    // Auto-run logic
+    useEffect(() => {
+        if (!isAutoRunning) return;
+
+        const hasRunning = Object.values(stages).some(s => s.status === "running");
+        const hasFailed = Object.values(stages).some(s => s.status === "failed");
+        const allCompleted = PIPELINE_STAGES.every(s => stages[s.id].status === "completed");
+
+        if (hasFailed || allCompleted) {
+            setIsAutoRunning(false);
+            return;
+        }
+
+        if (hasRunning) {
+            return; // Wait for current stage
+        }
+
+        const nextStage = PIPELINE_STAGES.find(s => stages[s.id].status === "ready");
+        if (nextStage) {
+            runStage(nextStage.id);
+        }
+    }, [isAutoRunning, stages, runStage]);
+
+    const startAutoRun = useCallback(() => setIsAutoRunning(true), []);
+    const stopAutoRun = useCallback(() => setIsAutoRunning(false), []);
+
+    // Clear pipeline (delete files and reset state)
+    const clearPipeline = useCallback(async () => {
+        if (!planetId) return;
+
+        // Stop any running auto-process
+        setIsAutoRunning(false);
+
+        try {
+            const res = await fetch(`${API_BASE}/api/worldgen/${planetId}/clear`, {
+                method: "DELETE"
+            });
+
+            if (!res.ok) {
+                console.error("Failed to clear pipeline files");
+            }
+
+            // Hard reset all stages back to original initial state
+            setStages(() => {
+                const init: Record<string, StageState> = {};
+                for (const stage of PIPELINE_STAGES) {
+                    init[stage.id] = { status: "pending", progress: 0, jobId: null, error: null, completedAt: null };
+                }
+
+                // Then immediately recompute readiness for stage 1
+                for (const stage of PIPELINE_STAGES) {
+                    if (stage.requires.length === 0) {
+                        init[stage.id] = { ...init[stage.id], status: "ready" };
+                    }
+                }
+                return init;
+            });
+
+        } catch (err) {
+            console.error("Error clearing pipeline", err);
+        }
+    }, [planetId]);
+
     return {
         stages,
         config,
         setConfig,
         runStage,
         resetStage,
+        clearPipeline,
         loadStatus,
+        isAutoRunning,
+        startAutoRun,
+        stopAutoRun,
     };
 }

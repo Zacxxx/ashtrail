@@ -89,41 +89,68 @@ pub fn distance_transform(mask: &[bool], width: u32, height: u32) -> Vec<f32> {
     dist
 }
 
-/// Simple box blur for a float buffer.
+/// Simple box blur for a float buffer using sliding window O(N).
 pub fn box_blur(data: &[f32], width: u32, height: u32, radius: u32) -> Vec<f32> {
     let n = (width * height) as usize;
     let mut temp = vec![0.0f32; n];
     let mut out = vec![0.0f32; n];
     let r = radius as i32;
 
-    // Horizontal pass
-    for y in 0..height as i32 {
-        for x in 0..width as i32 {
-            let mut sum = 0.0f32;
-            let mut count = 0u32;
-            for dx in -r..=r {
-                if let Some(i) = idx(x + dx, y, width, height) {
-                    sum += data[i];
-                    count += 1;
-                }
-            }
-            temp[(y as u32 * width + x as u32) as usize] = sum / count as f32;
+    // Horizontal pass (with wrapping)
+    for y in 0..height {
+        let y_offset = (y * width) as usize;
+
+        // Initial sliding window sum
+        let mut sum = 0.0f32;
+        let mut count = 0u32;
+        for dx in -r..=r {
+            let wx = ((dx % width as i32) + width as i32) as u32 % width;
+            sum += data[y_offset + wx as usize];
+            count += 1;
+        }
+
+        for x in 0..width {
+            temp[y_offset + x as usize] = sum / count as f32;
+
+            // Subtract leaving pixel
+            let left_x = (((x as i32 - r) % width as i32) + width as i32) as u32 % width;
+            sum -= data[y_offset + left_x as usize];
+
+            // Add entering pixel
+            let right_x = (((x as i32 + r + 1) % width as i32) + width as i32) as u32 % width;
+            sum += data[y_offset + right_x as usize];
         }
     }
 
-    // Vertical pass
-    for y in 0..height as i32 {
-        for x in 0..width as i32 {
-            let mut sum = 0.0f32;
-            let mut count = 0u32;
-            for dy in -r..=r {
-                let ny = y + dy;
-                if ny >= 0 && ny < height as i32 {
-                    sum += temp[(ny as u32 * width + x as u32) as usize];
-                    count += 1;
-                }
+    // Vertical pass (clamped)
+    for x in 0..width {
+        let mut sum = 0.0f32;
+        let mut count = 0u32;
+
+        // Initial sliding window for y=0
+        for dy in -r..=r {
+            if dy >= 0 && dy < height as i32 {
+                sum += temp[(dy as u32 * width + x) as usize];
+                count += 1;
             }
-            out[(y as u32 * width + x as u32) as usize] = sum / count as f32;
+        }
+
+        for y in 0..height {
+            out[(y * width + x) as usize] = sum / count as f32;
+
+            // Sliding window: subtract pixel that falls out of window (y - r)
+            let out_y = y as i32 - r;
+            if out_y >= 0 {
+                sum -= temp[(out_y as u32 * width + x) as usize];
+                count -= 1;
+            }
+
+            // Add pixel that enters window (y + r + 1)
+            let in_y = y as i32 + r + 1;
+            if in_y < height as i32 {
+                sum += temp[(in_y as u32 * width + x) as usize];
+                count += 1;
+            }
         }
     }
 

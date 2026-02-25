@@ -1,4 +1,7 @@
+use crate::landmask::rgb_to_hsv;
 use crate::raster::distance_transform;
+use crate::WorldgenConfig;
+use image::RgbImage;
 
 /// Biome indices (stored as u8 in biome.png).
 pub const BIOME_OCEAN: u8 = 0;
@@ -28,11 +31,83 @@ pub const BIOME_NAMES: [&str; 11] = [
     "volcanic",
 ];
 
+struct BiomeColor {
+    biome: u8,
+    h: f32,
+    s: f32,
+    v: f32,
+}
+
+const BIOME_COLORS: &[BiomeColor] = &[
+    BiomeColor {
+        biome: BIOME_ICE,
+        h: 0.0,
+        s: 0.0,
+        v: 0.9,
+    }, // White
+    BiomeColor {
+        biome: BIOME_TUNDRA,
+        h: 60.0,
+        s: 0.2,
+        v: 0.6,
+    }, // Pale brown/gray
+    BiomeColor {
+        biome: BIOME_TAIGA,
+        h: 120.0,
+        s: 0.4,
+        v: 0.3,
+    }, // Dark green
+    BiomeColor {
+        biome: BIOME_TEMPERATE,
+        h: 100.0,
+        s: 0.5,
+        v: 0.4,
+    }, // Green
+    BiomeColor {
+        biome: BIOME_GRASSLAND,
+        h: 80.0,
+        s: 0.4,
+        v: 0.6,
+    }, // Light green/yellow
+    BiomeColor {
+        biome: BIOME_DESERT,
+        h: 45.0,
+        s: 0.5,
+        v: 0.8,
+    }, // Sand/yellow
+    BiomeColor {
+        biome: BIOME_SAVANNA,
+        h: 60.0,
+        s: 0.6,
+        v: 0.6,
+    }, // Dry yellow/green
+    BiomeColor {
+        biome: BIOME_TROPICAL,
+        h: 140.0,
+        s: 0.7,
+        v: 0.3,
+    }, // Deep lush green
+    BiomeColor {
+        biome: BIOME_MOUNTAIN,
+        h: 0.0,
+        s: 0.0,
+        v: 0.4,
+    }, // Gray
+    BiomeColor {
+        biome: BIOME_VOLCANIC,
+        h: 0.0,
+        s: 0.0,
+        v: 0.1,
+    }, // Black/dark gray
+];
+
 /// Stage 5: Biome classification.
 /// Inputs: latitude (from y position), elevation, slope, coast distance.
 pub fn classify_biomes(
     height: &[u16],
     landmask: &[bool],
+    img: &RgbImage,
+    config: &WorldgenConfig,
     width: u32,
     height_dim: u32,
     on_progress: &mut dyn FnMut(f32, &str),
@@ -95,23 +170,55 @@ pub fn classify_biomes(
             // Simple rainfall estimate
             let rain = 0.5 + coast_prox * 0.3 - elev * 0.2;
 
-            // Classification rules (priority order)
+            // Base procedural classification (used as prior)
+            let mut proc_biome = BIOME_GRASSLAND;
             if elev > 0.75 || s > 0.05 {
-                biome[i] = BIOME_MOUNTAIN;
+                proc_biome = BIOME_MOUNTAIN;
             } else if temp < 0.15 {
-                biome[i] = if elev > 0.5 { BIOME_ICE } else { BIOME_TUNDRA };
+                proc_biome = if elev > 0.5 { BIOME_ICE } else { BIOME_TUNDRA };
             } else if temp < 0.3 {
-                biome[i] = BIOME_TAIGA;
+                proc_biome = BIOME_TAIGA;
             } else if temp > 0.7 && rain < 0.3 {
-                biome[i] = BIOME_DESERT;
+                proc_biome = BIOME_DESERT;
             } else if temp > 0.7 && rain > 0.5 {
-                biome[i] = BIOME_TROPICAL;
+                proc_biome = BIOME_TROPICAL;
             } else if temp > 0.5 && rain < 0.4 {
-                biome[i] = BIOME_SAVANNA;
+                proc_biome = BIOME_SAVANNA;
             } else if rain > 0.5 {
-                biome[i] = BIOME_TEMPERATE;
+                proc_biome = BIOME_TEMPERATE;
+            }
+
+            if config.color_based_biomes {
+                let pixel = img.get_pixel(x, y);
+                let (h, s, v) = rgb_to_hsv(pixel[0], pixel[1], pixel[2]);
+
+                let mut best_biome = proc_biome;
+                let mut min_dist = f32::MAX;
+
+                for bc in BIOME_COLORS {
+                    let mut dh = (h - bc.h).abs();
+                    if dh > 180.0 {
+                        dh = 360.0 - dh;
+                    }
+                    dh /= 180.0;
+
+                    let ds = s - bc.s;
+                    let dv = v - bc.v;
+                    let hue_weight = s.max(bc.s);
+
+                    let dist = dh * dh * hue_weight + ds * ds + dv * dv;
+                    let penalty = if bc.biome == proc_biome { 0.0 } else { 0.15 };
+
+                    let total_score = dist + penalty;
+
+                    if total_score < min_dist {
+                        min_dist = total_score;
+                        best_biome = bc.biome;
+                    }
+                }
+                biome[i] = best_biome;
             } else {
-                biome[i] = BIOME_GRASSLAND;
+                biome[i] = proc_biome;
             }
         }
     }

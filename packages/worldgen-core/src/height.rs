@@ -62,13 +62,17 @@ pub fn reconstruct_height(
         }
     }
 
+    on_progress(25.0, "Computing shading (high-pass luminance)");
+    let smoothed_luminance = gaussian_blur_approx(&luminance, width, height, 3.0);
+
     on_progress(35.0, "Computing mountain score");
 
-    // Mountain score: grayness (low saturation) * high texture
+    // Mountain score: combine texture (local variance) with shading (high-frequency luminance)
+    // independent of color saturation.
     let mut mountain_score = vec![0.0f32; n];
     for i in 0..n {
-        let grayness = 1.0 - saturation[i];
-        mountain_score[i] = grayness * texture[i];
+        let shade = (luminance[i] - smoothed_luminance[i]).abs();
+        mountain_score[i] = texture[i] * shade;
     }
 
     // Normalize mountain_score to 0..1

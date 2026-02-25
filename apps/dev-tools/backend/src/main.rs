@@ -247,6 +247,7 @@ async fn main() {
         .route("/api/worldgen/{planet_id}/status", get(worldgen_pipeline::get_pipeline_status))
         .route("/api/worldgen/{planet_id}/run/{stage_name}", post(worldgen_pipeline::run_pipeline_stage))
         .route("/api/worldgen/{planet_id}/job/{job_id}", get(worldgen_pipeline::get_worldgen_job_status))
+        .route("/api/worldgen/{planet_id}/clear", delete(worldgen_pipeline::clear_pipeline))
         // Static file serving for all planet textures
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
