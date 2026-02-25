@@ -137,6 +137,7 @@ struct LoreQueryResponse {
 #[serde(rename_all = "camelCase")]
 struct IconBatchRequest {
     prompts: Vec<String>,
+    style_prompt: Option<String>,
     base64_image: Option<String>,
     batch_name: Option<String>,
 }
@@ -145,6 +146,14 @@ struct IconBatchRequest {
 #[serde(rename_all = "camelCase")]
 struct RenameBatchRequest {
     new_name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegenerateIconRequest {
+    item_prompt: String,
+    style_prompt: String,
+    base64_image: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -161,7 +170,11 @@ struct BatchManifest {
 #[serde(rename_all = "camelCase")]
 struct BatchIcon {
     filename: String,
-    prompt: String,
+    prompt: String, // The full prompt used
+    #[serde(default)]
+    style_prompt: String,
+    #[serde(default)]
+    item_prompt: String,
     url: String,
 }
 
@@ -258,6 +271,7 @@ async fn main() {
         .route("/api/icons/batches", get(list_icon_batches))
         .route("/api/icons/batches/{batch_id}", get(get_icon_batch))
         .route("/api/icons/batches/{batch_id}/rename", axum::routing::put(rename_icon_batch))
+        .route("/api/icons/batches/{batch_id}/icons/{filename}/regenerate", post(regenerate_icon))
         .route("/api/icons/export", post(export_icons_registry))
         // Static file serving for all planet textures
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
@@ -1850,17 +1864,24 @@ async fn generate_icon_batch(
 
     let created_at = chrono::Utc::now().to_rfc3339();
     let mut icons: Vec<BatchIcon> = Vec::new();
+    let style_prompt = request.style_prompt.unwrap_or_default();
 
-    for (i, user_prompt) in prompts.iter().enumerate() {
+    for (i, item_prompt) in prompts.iter().enumerate() {
+        let full_prompt = if style_prompt.trim().is_empty() {
+            item_prompt.clone()
+        } else {
+            format!("{} {}", style_prompt.trim(), item_prompt.trim())
+        };
+
         let wrapped_prompt = format!(
             "Generate a game icon. \
             Centered composition, transparent or solid dark background. \
             Visual content: {}. \
             Output ONLY the icon image, no text, no borders, no decorations.",
-            user_prompt
+            full_prompt
         );
 
-        info!(batch_id = %batch_id, index = i, prompt = %user_prompt, "generating icon");
+        info!(batch_id = %batch_id, index = i, prompt = %full_prompt, "generating icon");
 
         let image_bytes_result = if let Some(base64_img) = &request.base64_image {
             // If they provided a reference image, use the vision/edit endpoint
@@ -1877,7 +1898,9 @@ async fn generate_icon_batch(
 
         let batch_dir_clone = batch_dir.clone();
         let batch_id_clone = batch_id.clone();
-        let prompt_for_manifest = user_prompt.clone();
+        let full_prompt_cloned = full_prompt.clone();
+        let item_prompt_cloned = item_prompt.clone();
+        let style_prompt_cloned = style_prompt.clone();
 
         let icon = tokio::task::spawn_blocking(move || -> Result<BatchIcon, (StatusCode, String)> {
             let img = image::load_from_memory(&image_bytes).map_err(|e| {
@@ -1896,7 +1919,9 @@ async fn generate_icon_batch(
             info!(path = %path.display(), "icon saved");
             Ok(BatchIcon {
                 filename: filename.clone(),
-                prompt: prompt_for_manifest,
+                prompt: full_prompt_cloned,
+                style_prompt: style_prompt_cloned,
+                item_prompt: item_prompt_cloned,
                 url: format!("/api/icons/{}/{}", batch_id_clone, filename),
             })
         })
@@ -1990,6 +2015,112 @@ async fn get_icon_batch(
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse error: {e}"))
     })?;
     Ok(Json(manifest))
+}
+
+/// Regenerate a single icon in a batch.
+async fn regenerate_icon(
+    State(state): State<AppState>,
+    Path((batch_id, filename)): Path<(String, String)>,
+    Json(request): Json<RegenerateIconRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let batch_dir = state.icons_dir.join(&batch_id);
+    let manifest_path = batch_dir.join("manifest.json");
+
+    if !manifest_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+
+    let item_text = request.item_prompt;
+    let style_text = request.style_prompt;
+    let full_prompt = if style_text.trim().is_empty() {
+        item_text.clone()
+    } else {
+        format!("{} {}", style_text.trim(), item_text.trim())
+    };
+
+    let wrapped_prompt = format!(
+        "Generate a game icon. \
+        Centered composition, transparent or solid dark background. \
+        Visual content: {}. \
+        Output ONLY the icon image, no text, no borders, no decorations.",
+        full_prompt
+    );
+
+    info!(batch_id = %batch_id, filename = %filename, prompt = %full_prompt, "regenerating single icon");
+
+    let image_bytes_result = if let Some(base64_img) = &request.base64_image {
+        gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", Some(0.4), Some("1:1")).await
+    } else {
+        gemini::generate_image_bytes(&wrapped_prompt, Some(0.4), 256, 256, Some("1:1")).await
+    };
+
+    let image_bytes = image_bytes_result.map_err(|(code, msg)| {
+        error!("Icon regeneration failed: {}", msg);
+        (code, msg)
+    })?;
+
+    let batch_id_clone = batch_id.clone();
+    let filename_clone = filename.clone();
+    let full_prompt_cloned = full_prompt.clone();
+    let item_prompt_cloned = item_text.clone();
+    let style_prompt_cloned = style_text.clone();
+
+    let updated_icon = tokio::task::spawn_blocking(move || -> Result<BatchIcon, (StatusCode, String)> {
+        let img = image::load_from_memory(&image_bytes).map_err(|e| {
+            error!("Failed to decode icon image: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Image decode error: {e}"))
+        })?;
+
+        let path = batch_dir.join(&filename_clone);
+        img.save(&path).map_err(|e| {
+            error!("Failed to save icon: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}"))
+        })?;
+
+        // Update manifest
+        let data = std::fs::read_to_string(&manifest_path).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Read manifest error: {e}"))
+        })?;
+        let mut manifest: BatchManifest = serde_json::from_str(&data).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse manifest error: {e}"))
+        })?;
+
+        let mut found = false;
+        for icon in &mut manifest.icons {
+            if icon.filename == filename_clone {
+                icon.prompt = full_prompt_cloned.clone();
+                icon.item_prompt = item_prompt_cloned.clone();
+                icon.style_prompt = style_prompt_cloned.clone();
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            return Err((StatusCode::NOT_FOUND, "Icon not found in manifest".to_string()));
+        }
+
+        let updated_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Serialize manifest error: {e}"))
+        })?;
+        std::fs::write(&manifest_path, &updated_json).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Write manifest error: {e}"))
+        })?;
+
+        info!(path = %path.display(), "icon regenerated and manifest updated");
+        Ok(BatchIcon {
+            filename: filename_clone.clone(),
+            prompt: full_prompt_cloned,
+            item_prompt: item_prompt_cloned,
+            style_prompt: style_prompt_cloned,
+            url: format!("/api/icons/{}/{}", batch_id_clone, filename_clone),
+        })
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {e}")))?
+    .map_err(|e| e)?;
+
+    Ok(Json(updated_icon))
 }
 
 #[derive(Serialize)]
