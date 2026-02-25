@@ -138,12 +138,15 @@ struct LoreQueryResponse {
 struct IconBatchRequest {
     prompts: Vec<String>,
     base64_image: Option<String>,
+    batch_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct BatchManifest {
     batch_id: String,
+    #[serde(default)]
+    batch_name: String,
     created_at: String,
     icons: Vec<BatchIcon>,
 }
@@ -160,6 +163,7 @@ struct BatchIcon {
 #[serde(rename_all = "camelCase")]
 struct BatchSummary {
     batch_id: String,
+    batch_name: String,
     icon_count: usize,
     created_at: String,
     thumbnail_url: Option<String>,
@@ -1811,7 +1815,20 @@ async fn generate_icon_batch(
         return Err((StatusCode::BAD_REQUEST, "Maximum 50 prompts per batch".to_string()));
     }
 
-    let batch_id = Uuid::new_v4().to_string();
+    // Use the user-supplied name (slugified) as folder name, fallback to UUID
+    let batch_name = request.batch_name
+        .as_deref()
+        .map(|n| n.trim())
+        .filter(|n| !n.is_empty())
+        .unwrap_or("")
+        .to_string();
+
+    let batch_id = if batch_name.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        slugify_prompt(&batch_name)
+    };
+
     let batch_dir = state.icons_dir.join(&batch_id);
     std::fs::create_dir_all(&batch_dir).map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create batch dir: {e}"))
@@ -1819,6 +1836,7 @@ async fn generate_icon_batch(
 
     info!(
         batch_id = %batch_id,
+        batch_name = %batch_name,
         count = prompts.len(),
         "icon batch generation starting"
     );
@@ -1885,6 +1903,7 @@ async fn generate_icon_batch(
     // Write manifest
     let manifest = BatchManifest {
         batch_id: batch_id.clone(),
+        batch_name: if batch_name.is_empty() { batch_id[..8].to_uppercase() } else { batch_name },
         created_at,
         icons,
     };
@@ -1931,6 +1950,7 @@ async fn list_icon_batches(
             let thumbnail_url = manifest.icons.first().map(|i| i.url.clone());
             result.push(BatchSummary {
                 batch_id: manifest.batch_id,
+                batch_name: manifest.batch_name,
                 icon_count: manifest.icons.len(),
                 created_at: manifest.created_at,
                 thumbnail_url,
@@ -2032,13 +2052,18 @@ async fn export_icons_registry(
                 total_icons += 1;
             }
 
-            let short_id = &manifest.batch_id[..8.min(manifest.batch_id.len())];
+            let display_name = if manifest.batch_name.is_empty() {
+                manifest.batch_id[..8.min(manifest.batch_id.len())].to_uppercase()
+            } else {
+                manifest.batch_name.clone()
+            };
             ts_entries.push(format!(
-                "  // Batch {} — {} — {} icons\n  {{\n    batchId: '{}',\n    createdAt: '{}',\n    icons: [\n{}\n    ],\n  }}",
-                short_id.to_uppercase(),
+                "  // {} — {} — {} icons\n  {{\n    batchId: '{}',\n    name: '{}',\n    createdAt: '{}',\n    icons: [\n{}\n    ],\n  }}",
+                display_name,
                 manifest.created_at,
                 manifest.icons.len(),
                 manifest.batch_id,
+                manifest.batch_name.replace('\\', "\\\\").replace('\'', "\\'"),
                 manifest.created_at,
                 icon_entries.join(",\n")
             ));
@@ -2060,6 +2085,7 @@ async fn export_icons_registry(
              \n\
              export interface IconBatch {{\n\
              \x20 batchId: string;\n\
+             \x20 name: string;\n\
              \x20 createdAt: string;\n\
              \x20 icons: IconEntry[];\n\
              }}\n\

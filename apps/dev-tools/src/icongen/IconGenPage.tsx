@@ -12,12 +12,14 @@ interface BatchIcon {
 
 interface BatchManifest {
     batchId: string;
+    batchName: string;
     createdAt: string;
     icons: BatchIcon[];
 }
 
 interface BatchSummary {
     batchId: string;
+    batchName: string;
     iconCount: number;
     createdAt: string;
     thumbnailUrl: string | null;
@@ -27,6 +29,7 @@ export function IconGenPage() {
     // ── Prompt State ──
     const [stylePrompt, setStylePrompt] = useState("");
     const [iconListText, setIconListText] = useState("");
+    const [batchName, setBatchName] = useState("");
 
     // ── Settings ──
     const [temperature, setTemperature] = useState(0.4);
@@ -123,6 +126,9 @@ export function IconGenPage() {
             if (referenceImage) {
                 payload.base64Image = referenceImage;
             }
+            if (batchName.trim()) {
+                payload.batchName = batchName.trim();
+            }
 
             const res = await fetch("/api/icons/generate-batch", {
                 method: "POST",
@@ -142,7 +148,7 @@ export function IconGenPage() {
             setIsGenerating(false);
             setGenProgress({ current: 0, total: 0 });
         }
-    }, [pendingPrompts, referenceImage, loadBatches]);
+    }, [pendingPrompts, referenceImage, batchName, loadBatches]);
 
     // ── Load a batch ──
     const selectBatch = useCallback(async (batchId: string) => {
@@ -213,10 +219,10 @@ export function IconGenPage() {
                             onClick={handleExport}
                             disabled={isExporting || batches.length === 0}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-all text-[10px] font-bold tracking-[0.1em] ${isExporting
-                                    ? "border-white/5 bg-white/5 text-gray-500 cursor-wait"
-                                    : batches.length === 0
-                                        ? "border-white/5 bg-white/5 text-gray-600 cursor-not-allowed"
-                                        : "border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                                ? "border-white/5 bg-white/5 text-gray-500 cursor-wait"
+                                : batches.length === 0
+                                    ? "border-white/5 bg-white/5 text-gray-600 cursor-not-allowed"
+                                    : "border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
                                 }`}
                             title="Export all batches to game-assets/assets/icons/"
                         >
@@ -341,6 +347,25 @@ export function IconGenPage() {
                         </CardContent>
                     </Card>
 
+                    {/* Batch Name */}
+                    <Card className="!bg-[#0f1520] !border-white/5">
+                        <CardHeader className="!bg-transparent !border-white/5">
+                            <h3 className="text-[10px] font-bold tracking-[0.15em] text-[#E6E6FA]">BATCH NAME</h3>
+                        </CardHeader>
+                        <CardContent>
+                            <input
+                                type="text"
+                                value={batchName}
+                                onChange={(e) => setBatchName(e.target.value)}
+                                placeholder="e.g. 'weapons', 'potions'"
+                                className="w-full bg-[#080d14] border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#E6E6FA]/30 transition-colors font-mono"
+                            />
+                            <p className="text-[8px] text-gray-600 mt-1 uppercase tracking-wider">
+                                Used as the folder name in Icons/. Leave empty for auto-generated ID.
+                            </p>
+                        </CardContent>
+                    </Card>
+
                     {/* Settings */}
                     <Card className="!bg-[#0f1520] !border-white/5">
                         <CardHeader className="!bg-transparent !border-white/5">
@@ -417,7 +442,7 @@ export function IconGenPage() {
                                     )}
                                     <div className="min-w-0 flex-1">
                                         <div className="text-[10px] font-bold text-gray-300 tracking-wider truncate">
-                                            BATCH {batch.batchId.substring(0, 8).toUpperCase()}
+                                            {batch.batchName || batch.batchId.substring(0, 8).toUpperCase()}
                                         </div>
                                         <div className="text-[9px] text-gray-600">
                                             {batch.iconCount} icon{batch.iconCount !== 1 ? "s" : ""} · {new Date(batch.createdAt).toLocaleDateString()}
@@ -445,7 +470,7 @@ export function IconGenPage() {
                             <div className="flex items-center justify-between">
                                 <div>
                                     <h2 className="text-[10px] font-bold tracking-[0.15em] text-gray-500">
-                                        BATCH <span className="text-[#E6E6FA]">{activeBatch.batchId.substring(0, 8).toUpperCase()}</span>
+                                        <span className="text-[#E6E6FA]">{activeBatch.batchName || activeBatch.batchId.substring(0, 8).toUpperCase()}</span>
                                     </h2>
                                     <p className="text-[9px] text-gray-600 mt-0.5">
                                         {activeBatch.icons.length} icons · {new Date(activeBatch.createdAt).toLocaleString()}
