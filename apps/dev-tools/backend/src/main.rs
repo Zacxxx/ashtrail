@@ -141,6 +141,12 @@ struct IconBatchRequest {
     batch_name: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RenameBatchRequest {
+    new_name: String,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct BatchManifest {
@@ -251,6 +257,7 @@ async fn main() {
         .route("/api/icons/generate-batch", post(generate_icon_batch))
         .route("/api/icons/batches", get(list_icon_batches))
         .route("/api/icons/batches/{batch_id}", get(get_icon_batch))
+        .route("/api/icons/batches/{batch_id}/rename", axum::routing::put(rename_icon_batch))
         .route("/api/icons/export", post(export_icons_registry))
         // Static file serving for all planet textures
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
@@ -2119,6 +2126,74 @@ async fn export_icons_registry(
             total_batches: all_manifests.len(),
             export_path: index_path.display().to_string(),
         })
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(result))
+}
+
+/// Rename a batch: update manifest + rename folder on disk.
+async fn rename_icon_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+    Json(request): Json<RenameBatchRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let new_name = request.new_name.trim().to_string();
+    if new_name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Name cannot be empty".to_string()));
+    }
+
+    let new_batch_id = slugify_prompt(&new_name);
+    let icons_dir = state.icons_dir.clone();
+    let old_dir = icons_dir.join(&batch_id);
+    let new_dir = icons_dir.join(&new_batch_id);
+
+    if !old_dir.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+
+    // If the new name resolves to a different folder that already exists, error
+    if new_batch_id != batch_id && new_dir.exists() {
+        return Err((StatusCode::CONFLICT, format!("A batch named '{}' already exists", new_batch_id)));
+    }
+
+    let result = tokio::task::spawn_blocking(move || -> Result<BatchManifest, String> {
+        // Read current manifest
+        let manifest_path = old_dir.join("manifest.json");
+        let data = std::fs::read_to_string(&manifest_path)
+            .map_err(|e| format!("read manifest: {e}"))?;
+        let mut manifest: BatchManifest = serde_json::from_str(&data)
+            .map_err(|e| format!("parse manifest: {e}"))?;
+
+        // Update manifest fields
+        manifest.batch_name = new_name;
+        manifest.batch_id = new_batch_id.clone();
+
+        // Update icon URLs to reflect the new batch_id
+        for icon in &mut manifest.icons {
+            icon.url = format!("/api/icons/{}/{}", new_batch_id, icon.filename);
+        }
+
+        // Write updated manifest
+        let updated_json = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| format!("serialize manifest: {e}"))?;
+        std::fs::write(&manifest_path, &updated_json)
+            .map_err(|e| format!("write manifest: {e}"))?;
+
+        // Rename folder if batch_id changed
+        if old_dir != new_dir {
+            std::fs::rename(&old_dir, &new_dir)
+                .map_err(|e| format!("rename folder: {e}"))?;
+            info!(
+                old = %old_dir.display(),
+                new = %new_dir.display(),
+                "batch folder renamed"
+            );
+        }
+
+        Ok(manifest)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?

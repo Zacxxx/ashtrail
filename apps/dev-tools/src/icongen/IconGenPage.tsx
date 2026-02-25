@@ -56,6 +56,11 @@ export function IconGenPage() {
     const [isExporting, setIsExporting] = useState(false);
     const [exportResult, setExportResult] = useState<{ totalIcons: number; totalBatches: number } | null>(null);
 
+    // ── Rename State ──
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [renameValue, setRenameValue] = useState("");
+    const [isRenameSaving, setIsRenameSaving] = useState(false);
+
     // ── Parse prompts from textarea ──
     const parsePrompts = useCallback((): string[] => {
         return iconListText
@@ -189,6 +194,43 @@ export function IconGenPage() {
             setIsExporting(false);
         }
     }, []);
+
+    // ── Rename batch ──
+    const startRename = useCallback(() => {
+        if (!activeBatch) return;
+        setRenameValue(activeBatch.batchName || "");
+        setIsRenaming(true);
+    }, [activeBatch]);
+
+    const cancelRename = useCallback(() => {
+        setIsRenaming(false);
+        setRenameValue("");
+    }, []);
+
+    const confirmRename = useCallback(async () => {
+        if (!activeBatch || !renameValue.trim()) return;
+        setIsRenameSaving(true);
+        try {
+            const res = await fetch(`/api/icons/batches/${activeBatch.batchId}/rename`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ newName: renameValue.trim() }),
+            });
+            if (!res.ok) {
+                const msg = await res.text();
+                throw new Error(msg || `HTTP ${res.status}`);
+            }
+            const updated: BatchManifest = await res.json();
+            setActiveBatch(updated);
+            setIsRenaming(false);
+            setRenameValue("");
+            await loadBatches();
+        } catch (e: any) {
+            setError(e.message || "Rename failed");
+        } finally {
+            setIsRenameSaving(false);
+        }
+    }, [activeBatch, renameValue, loadBatches]);
 
     // The raw line count (for UI display of pending items)
     const rawLineCount = iconListText.split("\n").filter(l => l.trim().length > 0).length;
@@ -468,11 +510,62 @@ export function IconGenPage() {
                         <div className="space-y-6">
                             {/* Batch Header */}
                             <div className="flex items-center justify-between">
-                                <div>
-                                    <h2 className="text-[10px] font-bold tracking-[0.15em] text-gray-500">
-                                        <span className="text-[#E6E6FA]">{activeBatch.batchName || activeBatch.batchId.substring(0, 8).toUpperCase()}</span>
-                                    </h2>
-                                    <p className="text-[9px] text-gray-600 mt-0.5">
+                                <div className="flex items-center gap-3">
+                                    {isRenaming ? (
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={renameValue}
+                                                onChange={(e) => setRenameValue(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter") confirmRename();
+                                                    if (e.key === "Escape") cancelRename();
+                                                }}
+                                                autoFocus
+                                                className="bg-[#080d14] border border-[#E6E6FA]/30 rounded px-2 py-1 text-sm text-[#E6E6FA] font-mono focus:outline-none focus:border-[#E6E6FA]/60 w-48"
+                                                placeholder="batch name..."
+                                            />
+                                            <button
+                                                onClick={confirmRename}
+                                                disabled={isRenameSaving || !renameValue.trim()}
+                                                className="w-6 h-6 flex items-center justify-center rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all disabled:opacity-30"
+                                                title="Confirm"
+                                            >
+                                                {isRenameSaving ? (
+                                                    <span className="inline-block w-3 h-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                                                ) : (
+                                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                )}
+                                            </button>
+                                            <button
+                                                onClick={cancelRename}
+                                                className="w-6 h-6 flex items-center justify-center rounded bg-white/5 text-gray-400 hover:bg-white/10 transition-all"
+                                                title="Cancel"
+                                            >
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <h2 className="text-[10px] font-bold tracking-[0.15em] text-gray-500">
+                                                <span className="text-[#E6E6FA]">{activeBatch.batchName || activeBatch.batchId.substring(0, 8).toUpperCase()}</span>
+                                            </h2>
+                                            <button
+                                                onClick={startRename}
+                                                className="w-5 h-5 flex items-center justify-center rounded bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-300 transition-all"
+                                                title="Rename batch"
+                                            >
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                </svg>
+                                            </button>
+                                        </>
+                                    )}
+                                    <p className="text-[9px] text-gray-600">
                                         {activeBatch.icons.length} icons · {new Date(activeBatch.createdAt).toLocaleString()}
                                     </p>
                                 </div>
