@@ -100,7 +100,7 @@ pub fn grow_provinces(
 
             // Slope penalty: relative height difference
             let h_diff = (height[ni] as f64 - height[entry.index] as f64).abs() / 65535.0;
-            let slope_cost = h_diff * cost_slope * 100.0;
+            let slope_cost = h_diff * cost_slope * 200.0;
 
             // River crossing penalty
             let river_cost = if river_mask[ni] > 0 && river_mask[entry.index] == 0 {
@@ -111,7 +111,7 @@ pub fn grow_provinces(
 
             // Ridge crossing: if going over a local maximum
             let ridge_cost = if height[ni] > height[entry.index] && h_diff > 0.01 {
-                h_diff * cost_ridge * 50.0
+                h_diff * cost_ridge * 100.0
             } else {
                 0.0
             };

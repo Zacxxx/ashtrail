@@ -146,6 +146,7 @@ export function WorldGenPage() {
                     <div className="flex items-center justify-end gap-4">
                         <div className="flex items-center bg-[#1e1e1e]/60 border border-white/5 rounded-full p-0.5 shadow-lg">
                             <button onClick={() => setViewMode("2d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "2d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 2D</button>
+                            <button onClick={() => setViewMode("map3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "map3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 3D</button>
                             <button onClick={() => setViewMode("3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>GLOBE 3D</button>
                             <button onClick={() => setViewMode("provinces")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "provinces" ? "bg-cyan-500/20 text-cyan-300 shadow-sm border border-cyan-500/30" : "text-gray-500 hover:text-gray-300"}`}>PROVINCES</button>
                         </div>

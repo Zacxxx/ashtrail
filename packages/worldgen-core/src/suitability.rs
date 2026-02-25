@@ -23,7 +23,8 @@ pub fn compute_suitability(
     on_progress(20.0, "Computing coast proximity");
 
     // Coast proximity (distance from sea)
-    let coast_dist = distance_transform(landmask, width, height_dim);
+    let water_mask: Vec<bool> = landmask.iter().map(|&v| !v).collect();
+    let coast_dist = distance_transform(&water_mask, width, height_dim);
 
     on_progress(40.0, "Computing slope");
 
@@ -56,9 +57,9 @@ pub fn compute_suitability(
 
         let river_prox = (1.0 - (river_dist[i] / 100.0).min(1.0)).max(0.0);
         let coast_prox = (1.0 - (coast_dist[i] / 150.0).min(1.0)).max(0.0);
-        let elev = height[i] as f32 / 65535.0;
+        let elev = ((height[i] as f32 - 32768.0) / 32767.0).clamp(0.0, 1.0);
         let elev_mid = 1.0 - (elev - 0.3).abs() * 2.0; // Peak at elevation 0.3
-        let flat = (1.0 - slope[i] * 20.0).max(0.0);
+        let flat = (1.0 - slope[i] * 40.0).max(0.0);
 
         // Biome weight
         let biome_weight = match biome[i] {

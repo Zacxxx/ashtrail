@@ -92,9 +92,13 @@ pub fn reconstruct_height(
 
     on_progress(55.0, "Computing coast distance");
 
-    // Distance transform from coast (land edge) for smooth shore transitions
-    let coast_dist = distance_transform(landmask, width, height);
+    // Distance transforms for coast and ocean depth
+    let water_mask: Vec<bool> = landmask.iter().map(|&v| !v).collect();
+    let dist_from_water = distance_transform(&water_mask, width, height);
+    let dist_from_land = distance_transform(landmask, width, height);
+
     let max_coast_dist = 80.0f32; // pixels for full transition
+    let max_ocean_dist = 150.0f32;
 
     on_progress(65.0, "Adding noise variation");
 
@@ -109,7 +113,11 @@ pub fn reconstruct_height(
     let mut height_f = vec![0.0f32; n];
     for i in 0..n {
         if !landmask[i] {
-            height_f[i] = 0.0;
+            let noise = noise_smooth[i] * 0.15;
+            let depth_factor = (dist_from_land[i] / max_ocean_dist).clamp(0.0, 1.0);
+            let shelf = depth_factor.powf(0.5);
+            let base_ocean = -0.3;
+            height_f[i] = base_ocean * shelf + noise * 0.5;
             continue;
         }
 
@@ -124,7 +132,7 @@ pub fn reconstruct_height(
         let base = 0.15;
 
         // Coast fade: smooth transition to sea level
-        let coast_factor = (coast_dist[i] / max_coast_dist).clamp(0.0, 1.0);
+        let coast_factor = (dist_from_water[i] / max_coast_dist).clamp(0.0, 1.0);
         let coast_smooth = coast_factor * coast_factor * (3.0 - 2.0 * coast_factor);
 
         height_f[i] = (base + h * 0.7 + noise) * coast_smooth;
@@ -132,11 +140,21 @@ pub fn reconstruct_height(
 
     on_progress(90.0, "Encoding 16-bit");
 
-    // Normalize to 0..65535 for 16-bit output
+    // Normalize to 16-bit with sea level at exactly 32768
     let max_h = height_f.iter().cloned().fold(0.0f32, f32::max).max(0.001);
+    let min_h = height_f.iter().cloned().fold(0.0f32, f32::min).min(-0.001);
+
     let result: Vec<u16> = height_f
         .iter()
-        .map(|&h| ((h / max_h).clamp(0.0, 1.0) * 65535.0) as u16)
+        .map(|&h| {
+            if h >= 0.0 {
+                let norm = (h / max_h).clamp(0.0, 1.0);
+                (32768.0 + norm * 32767.0) as u16
+            } else {
+                let norm = (h / min_h).clamp(0.0, 1.0);
+                (32768.0 - norm * 32768.0) as u16
+            }
+        })
         .collect();
 
     on_progress(100.0, "Height reconstruction complete");

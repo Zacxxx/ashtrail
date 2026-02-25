@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PlanetGlobe } from "../components/PlanetGlobe";
+import { PlanetMap3D } from "../components/PlanetMap3D";
 import { PlanetMap2D, type MapTransform } from "../components/PlanetMap2D";
 import type { TerrainCell } from "../modules/geo/types";
 import type { PlanetWorld, ViewMode, WorkflowStep, GeographyTool, RegionType, GeoRegion } from "./types";
@@ -129,6 +130,25 @@ export function WorldCanvas({
         );
     };
 
+    const renderPlane3DMap = () => {
+        if (!globeWorld) {
+            return (
+                <div className="w-full h-full rounded-2xl border border-white/5 bg-[#1e1e1e]/40 backdrop-blur-md flex flex-col items-center justify-center text-[10px] tracking-widest text-gray-500 gap-4">
+                    <div className="w-24 h-24 border border-white/5 rounded-full flex items-center justify-center">
+                        <div className="w-16 h-16 border border-white/10 rounded-full animate-[spin_10s_linear_infinite]" />
+                    </div>
+                    INITIALIZE GENERATOR ENGINE
+                </div>
+            );
+        }
+
+        return (
+            <div className="w-full h-full rounded-2xl border border-white/5 overflow-hidden relative bg-black/50 shadow-2xl">
+                <PlanetMap3D world={globeWorld} onCellHover={onCellHover} onCellClick={onCellClick} showHexGrid={showHexGrid} />
+            </div>
+        );
+    };
+
     const renderProvinceMap = () => {
         return (
             <ProvinceMapView
@@ -150,7 +170,7 @@ export function WorldCanvas({
             <div className="absolute inset-0 bg-[#1e1e1e]" />
 
             <div className="flex-1 flex p-2 transition-all overflow-hidden z-10 w-full h-full">
-                {viewMode === "2d" ? render2DMap() : viewMode === "provinces" ? renderProvinceMap() : render3DGlobe()}
+                {viewMode === "2d" ? render2DMap() : viewMode === "map3d" ? renderPlane3DMap() : viewMode === "provinces" ? renderProvinceMap() : render3DGlobe()}
             </div>
         </main>
     );

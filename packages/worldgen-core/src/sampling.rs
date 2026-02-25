@@ -23,7 +23,7 @@ pub fn place_seeds(
     rng_seed: u64,
     on_progress: &mut dyn FnMut(f32, &str),
 ) -> Vec<Seed> {
-    let _n = (width * height) as usize;
+    let n = (width * height) as usize;
     let mut rng = Pcg64::seed_from_u64(rng_seed);
 
     on_progress(0.0, "Building candidate pool");
@@ -135,6 +135,58 @@ pub fn place_seeds(
             seeds.push(Seed { id, x, y });
             if gx < grid_w && gy < grid_h {
                 grid[gy * grid_w + gx] = Some(id);
+            }
+        }
+    }
+
+    on_progress(90.0, "Ensuring all islands have seeds");
+
+    let mut has_seed_grid = vec![false; n];
+    for s in &seeds {
+        has_seed_grid[(s.y * width + s.x) as usize] = true;
+    }
+
+    let mut visited = vec![false; n];
+    for y in 0..height {
+        for x in 0..width {
+            let i = (y * width + x) as usize;
+            if landmask[i] && !visited[i] {
+                // Flood fill to find component
+                let mut best_suit = -1.0;
+                let mut best_i = i;
+                let mut has_seed = false;
+
+                let mut stack = vec![i];
+                visited[i] = true;
+
+                use crate::raster::neighbors8;
+                while let Some(ci) = stack.pop() {
+                    let cx = (ci % width as usize) as u32;
+                    let cy = (ci / width as usize) as u32;
+
+                    if suitability[ci] > best_suit {
+                        best_suit = suitability[ci];
+                        best_i = ci;
+                    }
+                    if has_seed_grid[ci] {
+                        has_seed = true;
+                    }
+
+                    for (_, _, ni) in neighbors8(cx, cy, width, height) {
+                        if landmask[ni] && !visited[ni] {
+                            visited[ni] = true;
+                            stack.push(ni);
+                        }
+                    }
+                }
+
+                if !has_seed {
+                    let id = seeds.len() as u32;
+                    let bx = (best_i % width as usize) as u32;
+                    let by = (best_i / width as usize) as u32;
+                    seeds.push(Seed { id, x: bx, y: by });
+                    has_seed_grid[best_i] = true;
+                }
             }
         }
     }
