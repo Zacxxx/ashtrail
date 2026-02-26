@@ -1,0 +1,589 @@
+[
+  {
+    "id": "age-juvenile",
+    "name": "Juvenile",
+    "description": "Underdeveloped frame but high energy. +1 Agility, -1 Strength.",
+    "cost": 0,
+    "type": "neutral",
+    "effects": [
+      {
+        "type": "STAT_MODIFIER",
+        "target": "agility",
+        "value": 1
+      },
+      {
+        "type": "STAT_MODIFIER",
+        "target": "strength",
+        "value": -1
+      }
+    ]
+  },
+  {
+    "id": "age-elder",
+    "name": "Elder",
+    "description": "Decades of survival. +1 Wisdom, -1 Endurance.",
+    "cost": 0,
+    "type": "neutral",
+    "effects": [
+      {
+        "type": "STAT_MODIFIER",
+        "target": "wisdom",
+        "value": 1
+      },
+      {
+        "type": "STAT_MODIFIER",
+        "target": "endurance",
+        "value": -1
+      }
+    ]
+  },
+  {
+    "id": "age-prime",
+    "name": "In Prime",
+    "description": "Peak physical condition. No inherent penalties.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-hardy",
+    "name": "Hardy",
+    "description": "A rugged constitution that refuses to break. +15 Max HP.",
+    "cost": 10,
+    "type": "positive",
+    "effects": [
+      {
+        "type": "STAT_MODIFIER",
+        "target": "maxHp",
+        "value": 15,
+        "trigger": "passive"
+      }
+    ]
+  },
+  {
+    "id": "t-scrapper",
+    "name": "Expert Scrapper",
+    "description": "You know where the high-grade components are hidden. +25% Parts found.",
+    "cost": 8,
+    "type": "positive"
+  },
+  {
+    "id": "t-field-medic",
+    "name": "Field Medic",
+    "description": "Basic anatomy knowledge is a rarity. Medicine is 50% more effective.",
+    "cost": 12,
+    "type": "positive"
+  },
+  {
+    "id": "t-streetwise",
+    "name": "Streetwise",
+    "description": "You speak the language of the low-life. Rumors you hear are 20% more likely to be accurate.",
+    "cost": 6,
+    "type": "positive"
+  },
+  {
+    "id": "t-lead-foot",
+    "name": "Lead Foot",
+    "description": "You can squeeze every drop of torque out of a rusted engine. -10% Fuel cost for travel.",
+    "cost": 9,
+    "type": "positive"
+  },
+  {
+    "id": "t-vigilant",
+    "name": "Vigilant",
+    "description": "You sleep with one eye open. -50% Chance of being ambushed during Nightfall.",
+    "cost": 11,
+    "type": "positive"
+  },
+  {
+    "id": "t-nimble",
+    "name": "Nimble",
+    "description": "Quick reflexes honed by dodging falling debris. +10% Evasion in combat.",
+    "cost": 7,
+    "type": "positive",
+    "effects": [
+      {
+        "type": "COMBAT_BONUS",
+        "target": "evasion",
+        "value": 10,
+        "trigger": "passive"
+      }
+    ]
+  },
+  {
+    "id": "t-scholar",
+    "name": "Pre-Ash Scholar",
+    "description": "You can actually read the old manuals. +15% XP Gain.",
+    "cost": 10,
+    "type": "positive"
+  },
+  {
+    "id": "t-stout",
+    "name": "Stout",
+    "description": "Broad shoulders meant for heavy lifting. +20% Inventory capacity.",
+    "cost": 6,
+    "type": "positive"
+  },
+  {
+    "id": "t-survivalist",
+    "name": "Survivalist",
+    "description": "You can make a feast out of a handful of dirt. -20% Daily resource consumption.",
+    "cost": 12,
+    "type": "positive"
+  },
+  {
+    "id": "t-marksman",
+    "name": "Marksman",
+    "description": "Steady hands and a cold heart. +10% Accuracy with ranged weapons.",
+    "cost": 8,
+    "type": "positive"
+  },
+  {
+    "id": "t-tinker",
+    "name": "Master Tinker",
+    "description": "You can fix a radiator with a gum wrapper. Repair actions cost 50% less Parts.",
+    "cost": 11,
+    "type": "positive"
+  },
+  {
+    "id": "t1",
+    "name": "Keen Sight",
+    "description": "Exceptional visual acuity. Easier to spot distant POIs.",
+    "cost": 8,
+    "type": "positive"
+  },
+  {
+    "id": "t3",
+    "name": "Thick Skinned",
+    "description": "Less likely to bleed from minor wounds and environment hazards.",
+    "cost": 10,
+    "type": "positive"
+  },
+  {
+    "id": "t9",
+    "name": "Iron Gut",
+    "description": "Massive resistance to food poisoning and radiation sickness from water.",
+    "cost": 6,
+    "type": "positive"
+  },
+  {
+    "id": "t15",
+    "name": "Lucky",
+    "description": "Small chance for critical failures to be ignored or loot to be doubled.",
+    "cost": 8,
+    "type": "positive"
+  },
+  {
+    "id": "t21",
+    "name": "Silver Tongue",
+    "description": "Charisma that works even in the Ash. Better rates with all traders.",
+    "cost": 7,
+    "type": "positive"
+  },
+  {
+    "id": "t22",
+    "name": "Bushwhacker",
+    "description": "Deals 20% extra damage when initiating combat from stealth.",
+    "cost": 9,
+    "type": "positive"
+  },
+  {
+    "id": "t-pathfinder",
+    "name": "Pathfinder",
+    "description": "Instinct for forgotten routes. Travel encounters are 25% less likely, and map discovery range is increased.",
+    "cost": 9,
+    "type": "positive"
+  },
+  {
+    "id": "t-scavenger-instinct",
+    "name": "Scavenger's Instinct",
+    "description": "Knows where to dig. Containers have a small chance to yield rare materials.",
+    "cost": 8,
+    "type": "positive"
+  },
+  {
+    "id": "t-crisis-manager",
+    "name": "Crisis Manager",
+    "description": "Remains calm under pressure. Party morale drops 30% slower during emergencies.",
+    "cost": 10,
+    "type": "positive"
+  },
+  {
+    "id": "t-ghost-walker",
+    "name": "Ghost Walker",
+    "description": "Moves like drifting ash. Stealth actions generate 20% less Heat.",
+    "cost": 7,
+    "type": "positive"
+  },
+  {
+    "id": "t-quartermaster",
+    "name": "Quartermaster",
+    "description": "Inventory is war. Supplies spoil 50% slower and stack more efficiently.",
+    "cost": 11,
+    "type": "positive"
+  },
+  {
+    "id": "t-battlefield-surgeon",
+    "name": "Battlefield Surgeon",
+    "description": "Improvised surgery expert. Healing in combat restores 20% more HP.",
+    "cost": 10,
+    "type": "positive"
+  },
+  {
+    "id": "t-salvage-engineer",
+    "name": "Salvage Engineer",
+    "description": "Nothing is truly broken. Destroyed equipment yields extra parts.",
+    "cost": 8,
+    "type": "positive"
+  },
+  {
+    "id": "t-negotiator",
+    "name": "Negotiator",
+    "description": "Always finds common ground. Conflict events have a chance to be resolved peacefully.",
+    "cost": 9,
+    "type": "positive"
+  },
+  {
+    "id": "t-frail",
+    "name": "Frail",
+    "description": "A weak frame plagued by old injuries. -15 Max HP.",
+    "cost": -10,
+    "type": "negative",
+    "effects": [
+      {
+        "type": "STAT_MODIFIER",
+        "target": "maxHp",
+        "value": -15,
+        "trigger": "passive"
+      }
+    ]
+  },
+  {
+    "id": "t-anemic",
+    "name": "Anemic",
+    "description": "Wounds take a long time to clot. Bleeding effects last twice as long.",
+    "cost": -8,
+    "type": "negative"
+  },
+  {
+    "id": "t-chem-reliant",
+    "name": "Chem-Reliant",
+    "description": "The Ash is too much to bear sober. Morale drops 2x faster if Meds are empty.",
+    "cost": -12,
+    "type": "negative"
+  },
+  {
+    "id": "t-loud",
+    "name": "Heavy Stepper",
+    "description": "You lack the grace for subtlety. Increases Heat generated by actions by 15%.",
+    "cost": -6,
+    "type": "negative"
+  },
+  {
+    "id": "t-jittery",
+    "name": "Jittery",
+    "description": "The constant hum of the Dead Zone gets to you. -10% Ranged accuracy.",
+    "cost": -7,
+    "type": "negative"
+  },
+  {
+    "id": "t-hoarder",
+    "name": "Sentimental Hoarder",
+    "description": "You can't bear to leave anything behind. Inventory weight increases by 15%.",
+    "cost": -6,
+    "type": "negative"
+  },
+  {
+    "id": "t-night-blind",
+    "name": "Night Blind",
+    "description": "Your eyes never adjusted to the dark. Heavy penalties to all actions during Nightfall.",
+    "cost": -8,
+    "type": "negative"
+  },
+  {
+    "id": "t41",
+    "name": "Deaf",
+    "description": "Cannot hear sounds. Massive penalty to surprise attacks and noise detection.",
+    "cost": -12,
+    "type": "negative"
+  },
+  {
+    "id": "t52",
+    "name": "Limper",
+    "description": "A permanent leg injury. 20% slower travel speed on foot.",
+    "cost": -7,
+    "type": "negative"
+  },
+  {
+    "id": "t54",
+    "name": "Ash-Lung",
+    "description": "A chronic, rattling cough that can alert nearby hostiles.",
+    "cost": -6,
+    "type": "negative"
+  },
+  {
+    "id": "t50",
+    "name": "Cowardly",
+    "description": "Quickly becomes panicked when HP drops below 40%.",
+    "cost": -4,
+    "type": "negative"
+  },
+  {
+    "id": "t48",
+    "name": "Clumsy",
+    "description": "10% chance to fail complex manual tasks and waste resources.",
+    "cost": -5,
+    "type": "negative"
+  },
+  {
+    "id": "t-pacifist-neg",
+    "name": "Pacifist",
+    "description": "You hate the sight of blood. -20% Melee damage.",
+    "cost": -5,
+    "type": "negative"
+  },
+  {
+    "id": "t-paranoid",
+    "name": "Paranoid",
+    "description": "Trusts no one. Crew Trust decays slowly over time.",
+    "cost": -7,
+    "type": "negative"
+  },
+  {
+    "id": "t-fragile-mind",
+    "name": "Fragile Mind",
+    "description": "Nightmares of the old world. Morale recovers 40% slower.",
+    "cost": -9,
+    "type": "negative"
+  },
+  {
+    "id": "t-rust-allergy",
+    "name": "Rust Allergy",
+    "description": "Chemical sensitivity. Using damaged equipment sometimes causes HP loss.",
+    "cost": -6,
+    "type": "negative"
+  },
+  {
+    "id": "t-tunnel-vision",
+    "name": "Tunnel Vision",
+    "description": "Obsessive focus. Misses secondary objectives more often.",
+    "cost": -5,
+    "type": "negative"
+  },
+  {
+    "id": "t-reckless-loader",
+    "name": "Reckless Loader",
+    "description": "Careless with supplies. Ammo and tools are consumed 15% faster.",
+    "cost": -7,
+    "type": "negative"
+  },
+  {
+    "id": "t-nomadic-restlessness",
+    "name": "Nomadic Restlessness",
+    "description": "Cannot stay still. Penalties when remaining too long in one settlement.",
+    "cost": -6,
+    "type": "negative"
+  },
+  {
+    "id": "t-static-whispers",
+    "name": "Static Whispers",
+    "description": "Hears voices in radio static. Random morale fluctuations.",
+    "cost": -5,
+    "type": "negative"
+  },
+  {
+    "id": "t-brittle-bones",
+    "name": "Brittle Bones",
+    "description": "Old fractures never healed. Takes extra damage from falls and impacts.",
+    "cost": -8,
+    "type": "negative"
+  },
+  {
+    "id": "t-nomad",
+    "name": "Wasteland Nomad",
+    "description": "The road is your only home. +1 Agility while traveling, -1 Wisdom while in settlements.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-urbanite",
+    "name": "Former Urbanite",
+    "description": "You miss the concrete jungle. +1 Wisdom in settlements, -1 Endurance on the road.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-mercenary",
+    "name": "Mercenary Heart",
+    "description": "Loyalty is bought, not earned. +10 Morale when Resources are high, -10 Trust from crew.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-zealot",
+    "name": "Static Zealot",
+    "description": "You hear god in the white noise. Immune to Fear effects, -10% XP Gain.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-martyr",
+    "name": "Selfless Martyr",
+    "description": "You’d die for the group. +10 Crew Morale when you take damage, but you lose 2x more Morale when resting.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-pragmatist",
+    "name": "Cold Pragmatist",
+    "description": "Utility above all. +5% Trade efficiency, -1 Charisma.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-daredevil",
+    "name": "Reckless Daredevil",
+    "description": "Danger is the only thing that makes you feel alive. +10% Crit chance, +10% Damage received.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-stoic",
+    "name": "Stoic Outcast",
+    "description": "The world broke you long ago. Immune to Morale shifts (positive or negative).",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-cynic",
+    "name": "Bitter Cynic",
+    "description": "You’ve seen it all before. +1 Intelligence, -10% Trust gain with new crew members.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-hermit",
+    "name": "Solitary Hermit",
+    "description": "Company is a curse. +1 Endurance when solo, -1 Agility when in a crew.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t82",
+    "name": "Talkative",
+    "description": "Enjoys socializing with crew. Boosts others morale slightly, but uses 10% more water.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t83",
+    "name": "Rad-Scars",
+    "description": "Obvious physical mutations. Intimidates enemies, but traders are more wary of you.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t88",
+    "name": "Mysterious",
+    "description": "Rarely shares details. Harder for enemies to read you, but crew trust grows slowly.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t90",
+    "name": "Perfectionist",
+    "description": "Diligent and precise. Better crafting quality, but tasks take 25% longer.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t91",
+    "name": "Superstitious",
+    "description": "Avoids \"cursed\" ruins. Randomly refuses certain dangerous actions.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t92",
+    "name": "Nocturnal",
+    "description": "Alert at night, sluggish by day. Inverts the standard Day/Night penalties.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t94",
+    "name": "Curious",
+    "description": "Driven to investigate. Reveals POIs easier, but generates more Heat.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t96",
+    "name": "Optimist",
+    "description": "Finds hope in ash. Higher Morale floor, but takes longer to realize a situation is fatal.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t98",
+    "name": "Nostalgic",
+    "description": "Collects Old World relics. High sanity, but easily distracted in ruins.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-chronicler",
+    "name": "Chronicler",
+    "description": "Documents everything. Extra lore and journal entries, slight XP bonus from discoveries.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-lone-strategist",
+    "name": "Lone Strategist",
+    "description": "Plans better alone. Tactical bonuses when separated from crew.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-ash-born",
+    "name": "Ash-Born",
+    "description": "Adapted to toxic zones. Radiation resistance increased, but normal zones feel dull.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-relic-seeker",
+    "name": "Relic Seeker",
+    "description": "Obsessed with Old World tech. Special POIs appear more often.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-ritualist",
+    "name": "Ritualist",
+    "description": "Performs daily rites. Minor morale buff if routines are respected.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-crowd-chameleon",
+    "name": "Crowd Chameleon",
+    "description": "Blends into any group. Reduced penalties in hostile settlements.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-risk-accountant",
+    "name": "Risk Accountant",
+    "description": "Calculates odds constantly. Crit chance and failure chance both slightly increased.",
+    "cost": 0,
+    "type": "neutral"
+  },
+  {
+    "id": "t-bonded-companion",
+    "name": "Bonded Companion",
+    "description": "Forms strong attachment. Gains buffs near one specific crew member, heavy debuff if separated.",
+    "cost": 0,
+    "type": "neutral"
+  }
+]

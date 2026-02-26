@@ -40,6 +40,14 @@ const TOOLS = [
         icon: "⚙️",
         status: "WIP",
         color: "bg-orange-500",
+    },
+    {
+        id: "character-builder",
+        name: "Character Builder",
+        description: "Create, edit, and export characters, NPCs, and archetypes.",
+        icon: "👤",
+        status: "WIP",
+        color: "bg-indigo-500",
     }
 ];
 

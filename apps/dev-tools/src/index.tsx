@@ -7,6 +7,7 @@ import { IconGenPage } from "./icongen";
 import { TravelPage } from "./travel";
 import { GalleryPage } from "./gallery";
 import { GameplayEnginePage } from "./gameplay-engine";
+import { CharacterBuilderPage } from "./character-builder";
 
 const router = createBrowserRouter([
     { path: "/", element: <App /> },
@@ -15,6 +16,7 @@ const router = createBrowserRouter([
     { path: "/travel", element: <TravelPage /> },
     { path: "/gallery", element: <GalleryPage /> },
     { path: "/gameplay-engine", element: <GameplayEnginePage /> },
+    { path: "/character-builder", element: <CharacterBuilderPage /> },
 ]);
 
 createRoot(document.getElementById("root")!).render(

@@ -3,6 +3,7 @@ mod generator;
 mod hierarchy;
 mod gemini;
 mod worldgen_pipeline;
+mod cms;
 
 use axum::{
     extract::{Path, State},
@@ -249,6 +250,10 @@ async fn main() {
         .route("/api/worldgen/{planet_id}/job/{job_id}", get(worldgen_pipeline::get_worldgen_job_status))
         .route("/api/worldgen/{planet_id}/clear", delete(worldgen_pipeline::clear_pipeline))
         // Static file serving for all planet textures
+        .route("/api/data/traits", get(cms::get_traits).post(cms::save_traits))
+        .route("/api/data/occupations", get(cms::get_occupations).post(cms::save_occupations))
+        .route("/api/data/items", get(cms::get_items).post(cms::save_items))
+        .route("/api/data/characters", get(cms::get_characters).post(cms::save_character))
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .with_state(state)

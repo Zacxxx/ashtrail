@@ -1,9 +1,13 @@
 import React, { useState } from "react";
 import { TabBar } from "@ashtrail/ui";
 import { Link } from "react-router-dom";
-import { CharacterCreationScreen } from "../../../website/Screens/IndividualScreens/CharacterCreationScreen";
 import { CharacterRulePanel } from "./CharacterRulePanel";
-import { ALL_TRAITS, ALL_OCCUPATIONS, Trait, Occupation } from "@ashtrail/core";
+import { TraitsView } from "./TraitsView";
+import { OccupationsView } from "./OccupationsView";
+import { CharactersView } from "./CharactersView";
+import { ItemsView } from "./ItemsView";
+import { CombatSimulator } from "./combat/CombatSimulator";
+import { GameRegistry, Trait, Occupation, Character, Item } from "@ashtrail/core";
 
 export type GameplayStep = "EXPLORATION" | "EVENTS" | "COMBAT" | "CHARACTER";
 
@@ -11,8 +15,31 @@ export function GameplayEnginePage() {
     const [activeStep, setActiveStep] = useState<GameplayStep>("CHARACTER");
 
     // Character Data State for live editing
-    const [customTraits, setCustomTraits] = useState<Trait[]>(ALL_TRAITS);
-    const [customOccupations, setCustomOccupations] = useState<Occupation[]>(ALL_OCCUPATIONS);
+    const [customTraits, setCustomTraits] = useState<Trait[]>([]);
+    const [customOccupations, setCustomOccupations] = useState<Occupation[]>([]);
+    const [customCharacters, setCustomCharacters] = useState<Character[]>([]);
+    const [customItems, setCustomItems] = useState<Item[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Selection state
+    const [selectedTrait, setSelectedTrait] = useState<Trait | null>(null);
+    const [selectedOccupation, setSelectedOccupation] = useState<Occupation | null>(null);
+    const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
+    const [selectedItem, setSelectedItem] = useState<Item | null>(null);
+    const [activeDetailTab, setActiveDetailTab] = useState<"traits" | "occupations" | "characters" | "items">("traits");
+
+    React.useEffect(() => {
+        async function loadRegistryData() {
+            // Note: Make sure the dev-tools backend is running internally so this fetches the JSON.
+            await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+            setCustomTraits(GameRegistry.getAllTraits());
+            setCustomOccupations(GameRegistry.getAllOccupations());
+            setCustomCharacters(GameRegistry.getAllCharacters());
+            setCustomItems(GameRegistry.getAllItems());
+            setIsLoading(false);
+        }
+        loadRegistryData();
+    }, []);
 
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
@@ -37,8 +64,8 @@ export function GameplayEnginePage() {
                                     key={step}
                                     onClick={() => setActiveStep(step)}
                                     className={`relative px-6 py-2 text-[10px] font-black tracking-[0.2em] rounded-full transition-all duration-300 overflow-hidden ${activeStep === step
-                                            ? "text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
-                                            : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                                        ? "text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
+                                        : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
                                         }`}
                                 >
                                     {activeStep === step && (
@@ -55,17 +82,31 @@ export function GameplayEnginePage() {
             {/* ══ Main Layout ══ */}
             <div className="flex-1 flex overflow-hidden relative z-10 pt-[80px] pb-12">
                 {/* Left Sidebar Flow */}
-                <aside className="absolute left-4 top-[80px] bottom-12 w-[340px] z-20 flex flex-col gap-4 overflow-y-auto scrollbar-none transition-transform duration-500 ease-in-out translate-x-0">
-                    {activeStep === "CHARACTER" && (
+                <aside className="absolute left-4 top-[80px] bottom-12 w-[480px] z-20 flex flex-col gap-4 overflow-y-auto scrollbar-none transition-transform duration-500 ease-in-out translate-x-0">
+                    {activeStep === "CHARACTER" && !isLoading && (
                         <CharacterRulePanel
                             traits={customTraits}
                             setTraits={setCustomTraits}
                             occupations={customOccupations}
                             setOccupations={setCustomOccupations}
+                            characters={customCharacters}
+                            setCharacters={setCustomCharacters}
+                            items={customItems}
+                            setItems={setCustomItems}
+                            selectedTrait={selectedTrait}
+                            setSelectedTrait={setSelectedTrait}
+                            selectedOccupation={selectedOccupation}
+                            setSelectedOccupation={setSelectedOccupation}
+                            selectedCharacter={selectedCharacter}
+                            setSelectedCharacter={setSelectedCharacter}
+                            selectedItem={selectedItem}
+                            setSelectedItem={setSelectedItem}
+                            activeTab={activeDetailTab}
+                            setActiveTab={setActiveDetailTab}
                         />
                     )}
-                    {activeStep !== "CHARACTER" && (
-                        <div className="flex flex-col gap-4 h-full">
+                    {activeStep !== "CHARACTER" && activeStep !== "COMBAT" && (
+                        <div className="flex flex-col gap-4 h-full w-[480px]">
                             <div className="flex-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-6 flex flex-col items-center justify-center text-center">
                                 <h2 className="text-orange-500 font-black tracking-widest text-lg mb-2">{activeStep}</h2>
                                 <p className="text-gray-500 text-sm">Under Construction</p>
@@ -75,24 +116,21 @@ export function GameplayEnginePage() {
                 </aside>
 
                 {/* Center Canvas Wrapper */}
-                <div className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ml-[370px]`}>
+                <div className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ${activeStep === "CHARACTER" || activeStep === "COMBAT" ? "ml-[510px]" : "ml-0 justify-center items-center"}`}>
                     {activeStep === "CHARACTER" && (
                         <div className="w-full h-full bg-[#030508] rounded-xl border border-white/5 overflow-hidden shadow-2xl relative flex flex-col items-center justify-center p-8">
-                            {/* Live Preview Container */}
-                            <div className="w-full h-full max-w-[1200px] border border-orange-500/20 rounded-lg overflow-hidden bg-black shadow-2xl relative">
-                                {/* Live Indicator */}
-                                <div className="absolute top-4 right-4 z-50 flex items-center gap-2 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-full border border-orange-500/30">
-                                    <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-                                    <span className="text-[10px] font-black text-orange-500 tracking-widest uppercase">Live Preview</span>
-                                </div>
-                                <CharacterCreationScreen
-                                    onComplete={(player) => console.log('Player created:', player)}
-                                    onBack={() => { }}
-                                    customTraits={customTraits}
-                                    customOccupations={customOccupations}
-                                />
+                            {/* Detail View Container */}
+                            <div className="w-full h-full max-w-[1200px] flex items-center justify-center relative">
+                                {activeDetailTab === "traits" && <TraitsView trait={selectedTrait} />}
+                                {activeDetailTab === "occupations" && <OccupationsView occupation={selectedOccupation} />}
+                                {activeDetailTab === "characters" && <CharactersView character={selectedCharacter} />}
+                                {activeDetailTab === "items" && <ItemsView item={selectedItem} />}
                             </div>
                         </div>
+                    )}
+
+                    {activeStep === "COMBAT" && (
+                        <CombatSimulator />
                     )}
                 </div>
             </div>
