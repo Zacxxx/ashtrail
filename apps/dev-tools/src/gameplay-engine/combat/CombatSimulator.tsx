@@ -3,25 +3,29 @@ import { GameRegistry, Character, Skill, ALL_SKILLS } from '@ashtrail/core';
 import { TacticalArena } from './TacticalArena';
 import { useTacticalCombat, createTacticalEntity, TacticalEntity, CombatConfig } from './useTacticalCombat';
 import { Grid, buildMapPrompt, parseAIGridResponse } from './tacticalGrid';
+import { GameRulesManager } from '../rules/useGameRules';
 
 // ── Default skills given to characters without their own ──
-const DEFAULT_PLAYER_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'first-aid', 'fireball', 'shove'].includes(s.id));
-const DEFAULT_ENEMY_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'quick-shot', 'power-strike'].includes(s.id));
+const DEFAULT_PLAYER_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot'].includes(s.id));
+const DEFAULT_ENEMY_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number): TacticalEntity {
     const skills = char.skills && char.skills.length > 0
         ? char.skills
         : isPlayer ? DEFAULT_PLAYER_SKILLS : DEFAULT_ENEMY_SKILLS;
+    const rules = GameRulesManager.get();
+    const ap = rules.core.apBase + Math.floor(char.stats.agility / rules.core.apAgilityDivisor);
+    const maxHp = rules.core.hpBase + (char.stats.endurance * rules.core.hpPerEndurance);
     return createTacticalEntity(
         `${char.id}_${isPlayer ? 'p' : 'e'}${index}`,
         isPlayer,
         char.name,
         char.stats.strength,
         char.stats.agility,
-        5 + Math.floor(char.stats.agility / 2),
+        ap,
         Math.floor(char.stats.endurance / 2),
-        char.maxHp,
-        char.maxHp,
+        maxHp,
+        maxHp,
         char.traits,
         skills,
         { row: 0, col: 0 }

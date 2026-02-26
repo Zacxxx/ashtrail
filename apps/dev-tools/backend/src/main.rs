@@ -287,6 +287,7 @@ async fn main() {
         .route("/api/data/occupations", get(cms::get_occupations).post(cms::save_occupations))
         .route("/api/data/items", get(cms::get_items).post(cms::save_items))
         .route("/api/data/characters", get(cms::get_characters).post(cms::save_character))
+        .route("/api/data/skills", get(cms::get_skills).post(cms::save_skill))
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .with_state(state)

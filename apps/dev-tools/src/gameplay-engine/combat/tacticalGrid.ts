@@ -136,6 +136,8 @@ export function findPath(grid: Grid, fromRow: number, fromCol: number, toRow: nu
 
 // ── Attack range: cells within N manhattan distance with LoS ──
 
+import { SkillAreaType } from '@ashtrail/core';
+
 export function getAttackableCells(grid: Grid, row: number, col: number, minRange: number, maxRange: number): GridCell[] {
     const results: GridCell[] = [];
     const rows = grid.length;
@@ -143,12 +145,52 @@ export function getAttackableCells(grid: Grid, row: number, col: number, minRang
 
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-            if (!grid[r][c].walkable) continue; // Skip obstacles
+            if (!grid[r][c].walkable && !grid[r][c].occupantId) continue; // Skip empty obstacles
 
             const dist = Math.abs(r - row) + Math.abs(c - col);
             if (dist >= minRange && dist <= maxRange) {
                 results.push(grid[r][c]);
             }
+        }
+    }
+
+    return results;
+}
+
+// ── AoE Calculation ──
+
+export function getAoECells(grid: Grid, centerRow: number, centerCol: number, areaType: SkillAreaType, size: number, dirR: number = 0, dirC: number = 0): GridCell[] {
+    const results: GridCell[] = [];
+    const rows = grid.length;
+    const cols = grid[0].length;
+
+    if (size === 0 || areaType === 'single') {
+        if (grid[centerRow]?.[centerCol]) results.push(grid[centerRow][centerCol]);
+        return results;
+    }
+
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const dist = Math.abs(r - centerRow) + Math.abs(c - centerCol);
+            let inArea = false;
+
+            if (areaType === 'circle') {
+                if (dist <= size) inArea = true;
+            } else if (areaType === 'cross') {
+                if ((r === centerRow || c === centerCol) && dist <= size) inArea = true;
+            } else if (areaType === 'line') {
+                // If we have a clear direction from caster to target, project the line
+                if (dirR !== 0 && dirC === 0) {
+                    if (c === centerCol && (r - centerRow) * dirR >= 0 && Math.abs(r - centerRow) <= size) inArea = true;
+                } else if (dirC !== 0 && dirR === 0) {
+                    if (r === centerRow && (c - centerCol) * dirC >= 0 && Math.abs(c - centerCol) <= size) inArea = true;
+                } else {
+                    // Fallback to cross if no valid straight line
+                    if ((r === centerRow || c === centerCol) && dist <= size) inArea = true;
+                }
+            }
+
+            if (inArea) results.push(grid[r][c]);
         }
     }
 

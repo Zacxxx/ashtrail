@@ -20,9 +20,9 @@ export const ALL_SKILLS: Skill[] = [
     targetType: 'self', healing: 15, cooldown: 2, effectType: 'support',
   },
   {
-    id: 'fireball', name: 'Fireball', description: 'Hurl a ball of flame at range 2-4.', icon: '🔥',
-    apCost: 4, minRange: 2, maxRange: 4, areaType: 'single', areaSize: 0,
-    targetType: 'enemy', damage: 14, cooldown: 1, effectType: 'magical',
+    id: 'fireball', name: 'Fireball', description: 'Hurl a ball of flame at range 2-4. Hits a 1-cell radius.', icon: '🔥',
+    apCost: 4, minRange: 2, maxRange: 4, areaType: 'circle', areaSize: 1,
+    targetType: 'cell', damage: 14, cooldown: 1, effectType: 'magical',
   },
   {
     id: 'shove', name: 'Shove', description: 'Push an adjacent enemy back 2 cells.', icon: '🫸',
@@ -35,14 +35,19 @@ export const ALL_SKILLS: Skill[] = [
     targetType: 'enemy', damage: 6, cooldown: 0, effectType: 'physical',
   },
   {
-    id: 'war-cry', name: 'War Cry', description: 'Intimidate enemies in a 2-cell radius (damage).', icon: '📯',
+    id: 'war-cry', name: 'War Cry', description: 'Intimidate enemies in a 2-cell radius around you.', icon: '📯',
     apCost: 4, minRange: 0, maxRange: 0, areaType: 'circle', areaSize: 2,
-    targetType: 'enemy', damage: 5, cooldown: 3, effectType: 'physical',
+    targetType: 'self', damage: 5, cooldown: 3, effectType: 'physical',
   },
   {
-    id: 'healing-pulse', name: 'Healing Pulse', description: 'Heal an ally within range 3.', icon: '💚',
-    apCost: 4, minRange: 1, maxRange: 3, areaType: 'single', areaSize: 0,
-    targetType: 'ally', healing: 20, cooldown: 2, effectType: 'support',
+    id: 'healing-pulse', name: 'Healing Pulse', description: 'Heal allies in a cross area up to range 3.', icon: '💚',
+    apCost: 4, minRange: 0, maxRange: 3, areaType: 'cross', areaSize: 1,
+    targetType: 'cell', healing: 20, cooldown: 2, effectType: 'support',
+  },
+  {
+    id: 'piercing-shot', name: 'Piercing Shot', description: 'A powerful shot that hits 3 cells in a line.', icon: '☄️',
+    apCost: 5, minRange: 1, maxRange: 4, areaType: 'line', areaSize: 3,
+    targetType: 'cell', damage: 18, cooldown: 2, effectType: 'physical',
   },
 ];
 

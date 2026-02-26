@@ -106,3 +106,39 @@ pub async fn save_character(State(_state): State<AppState>, Json(payload): Json<
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
+
+pub async fn get_skills(State(_state): State<AppState>) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let dir = std::env::current_dir().unwrap().join("generated").join("skills");
+    let mut skills = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        skills.push(json);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok((StatusCode::OK, Json(serde_json::Value::Array(skills))))
+}
+
+pub async fn save_skill(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let dir = std::env::current_dir().unwrap().join("generated").join("skills");
+    if let Err(e) = fs::create_dir_all(&dir) {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create skills dir: {}", e)));
+    }
+
+    let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let path = dir.join(format!("{}.json", id));
+    
+    let json_string = serde_json::to_string_pretty(&payload).unwrap();
+    match fs::write(&path, json_string) {
+        Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+}
