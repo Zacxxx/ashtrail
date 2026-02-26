@@ -1,0 +1,49 @@
+{
+  "batchId": "field",
+  "batchName": "Field",
+  "createdAt": "2026-02-25T16:46:35.423519900+00:00",
+  "icons": [
+    {
+      "filename": "000.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns, no cogs , no cog, perfectly tied to the initial prompt eye compass",
+      "stylePrompt": "",
+      "itemPrompt": "",
+      "url": "/api/icons/field/000.png"
+    },
+    {
+      "filename": "001.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns, no cogs , no cog, perfectly tied to the initial prompt compass rose",
+      "stylePrompt": "",
+      "itemPrompt": "",
+      "url": "/api/icons/field/001.png"
+    },
+    {
+      "filename": "002.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns, no cogs , no cog, perfectly tied to the initial prompt rugged tire",
+      "stylePrompt": "",
+      "itemPrompt": "",
+      "url": "/api/icons/field/002.png"
+    },
+    {
+      "filename": "003.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns, no cogs , no cog, perfectly tied to the initial prompt linked vehicles",
+      "stylePrompt": "",
+      "itemPrompt": "",
+      "url": "/api/icons/field/003.png"
+    },
+    {
+      "filename": "004.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns, no cogs , no cog, perfectly tied to the initial prompt winged package",
+      "stylePrompt": "",
+      "itemPrompt": "",
+      "url": "/api/icons/field/004.png"
+    },
+    {
+      "filename": "005.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns, no cogs , no cog, perfectly tied to the initial prompt shadow crate shadow crate",
+      "stylePrompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns, no cogs , no cog, perfectly tied to the initial prompt shadow crate",
+      "itemPrompt": "shadow crate",
+      "url": "/api/icons/field/005.png"
+    }
+  ]
+}

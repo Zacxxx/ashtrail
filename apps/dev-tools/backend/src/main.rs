@@ -140,6 +140,7 @@ struct IconBatchRequest {
     style_prompt: Option<String>,
     base64_image: Option<String>,
     batch_name: Option<String>,
+    temperature: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -154,6 +155,7 @@ struct RegenerateIconRequest {
     item_prompt: String,
     style_prompt: String,
     base64_image: Option<String>,
+    temperature: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1883,12 +1885,14 @@ async fn generate_icon_batch(
 
         info!(batch_id = %batch_id, index = i, prompt = %full_prompt, "generating icon");
 
+        let temperature = request.temperature.or(Some(0.4));
+
         let image_bytes_result = if let Some(base64_img) = &request.base64_image {
             // If they provided a reference image, use the vision/edit endpoint
-            gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", Some(0.4), Some("1:1")).await
+            gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", temperature, Some("1:1")).await
         } else {
             // Standard image generation
-            gemini::generate_image_bytes(&wrapped_prompt, Some(0.4), 256, 256, Some("1:1")).await
+            gemini::generate_image_bytes(&wrapped_prompt, temperature, 256, 256, Some("1:1")).await
         };
 
         let image_bytes = image_bytes_result.map_err(|(code, msg)| {
@@ -2048,10 +2052,12 @@ async fn regenerate_icon(
 
     info!(batch_id = %batch_id, filename = %filename, prompt = %full_prompt, "regenerating single icon");
 
+    let temperature = request.temperature.or(Some(0.4));
+
     let image_bytes_result = if let Some(base64_img) = &request.base64_image {
-        gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", Some(0.4), Some("1:1")).await
+        gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", temperature, Some("1:1")).await
     } else {
-        gemini::generate_image_bytes(&wrapped_prompt, Some(0.4), 256, 256, Some("1:1")).await
+        gemini::generate_image_bytes(&wrapped_prompt, temperature, 256, 256, Some("1:1")).await
     };
 
     let image_bytes = image_bytes_result.map_err(|(code, msg)| {
