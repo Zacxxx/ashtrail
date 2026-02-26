@@ -7,17 +7,21 @@ import { Button, Slider, Card, CardHeader, CardContent, Modal } from "@ashtrail/
 interface BatchIcon {
     filename: string;
     prompt: string;
+    stylePrompt?: string;
+    itemPrompt?: string;
     url: string;
 }
 
 interface BatchManifest {
     batchId: string;
+    batchName: string;
     createdAt: string;
     icons: BatchIcon[];
 }
 
 interface BatchSummary {
     batchId: string;
+    batchName: string;
     iconCount: number;
     createdAt: string;
     thumbnailUrl: string | null;
@@ -27,6 +31,7 @@ export function IconGenPage() {
     // ── Prompt State ──
     const [stylePrompt, setStylePrompt] = useState("");
     const [iconListText, setIconListText] = useState("");
+    const [batchName, setBatchName] = useState("");
 
     // ── Settings ──
     const [temperature, setTemperature] = useState(0.4);
@@ -47,16 +52,32 @@ export function IconGenPage() {
     // ── Browse State ──
     const [batches, setBatches] = useState<BatchSummary[]>([]);
     const [activeBatch, setActiveBatch] = useState<BatchManifest | null>(null);
-    const [hoveredIcon, setHoveredIcon] = useState<string | null>(null);
+    const [hoveredIcon, setHoveredIcon] = useState<BatchIcon | null>(null);
+
+    // ── Export State ──
+    const [isExporting, setIsExporting] = useState(false);
+    const [exportResult, setExportResult] = useState<{ totalIcons: number; totalBatches: number } | null>(null);
+
+    // ── Rename State ──
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [renameValue, setRenameValue] = useState("");
+    const [isRenameSaving, setIsRenameSaving] = useState(false);
+
+    // ── Single Icon Regeneration ──
+    const [editingIconFilename, setEditingIconFilename] = useState<string | null>(null);
+    const [tempIconItem, setTempIconItem] = useState("");
+    const [tempIconStyle, setTempIconStyle] = useState("");
+    const [tempIconRefImage, setTempIconRefImage] = useState<string | null>(null);
+    const [regeneratingIconFilename, setRegeneratingIconFilename] = useState<string | null>(null);
+    const [lastRefreshedAt, setLastRefreshedAt] = useState(Date.now());
 
     // ── Parse prompts from textarea ──
     const parsePrompts = useCallback((): string[] => {
         return iconListText
             .split("\n")
             .map((line) => line.trim())
-            .filter((line) => line.length > 0)
-            .map(line => stylePrompt.trim() ? `${stylePrompt.trim()} ${line}` : line);
-    }, [iconListText, stylePrompt]);
+            .filter((line) => line.length > 0);
+    }, [iconListText]);
 
     // ── Load batches on mount ──
     const loadBatches = useCallback(async () => {
@@ -115,9 +136,17 @@ export function IconGenPage() {
         setError(null);
 
         try {
-            const payload: any = { prompts: pendingPrompts };
+            const items = parsePrompts();
+            const payload: any = {
+                prompts: items,
+                stylePrompt: stylePrompt.trim(),
+                temperature: temperature
+            };
             if (referenceImage) {
                 payload.base64Image = referenceImage;
+            }
+            if (batchName.trim()) {
+                payload.batchName = batchName.trim();
             }
 
             const res = await fetch("/api/icons/generate-batch", {
@@ -138,7 +167,7 @@ export function IconGenPage() {
             setIsGenerating(false);
             setGenProgress({ current: 0, total: 0 });
         }
-    }, [pendingPrompts, referenceImage, loadBatches]);
+    }, [pendingPrompts, referenceImage, batchName, loadBatches]);
 
     // ── Load a batch ──
     const selectBatch = useCallback(async (batchId: string) => {
@@ -160,6 +189,135 @@ export function IconGenPage() {
         a.click();
     }, []);
 
+    // ── Export icons to code ──
+    const handleExport = useCallback(async () => {
+        setIsExporting(true);
+        setExportResult(null);
+        try {
+            const res = await fetch("/api/icons/export", { method: "POST" });
+            if (!res.ok) {
+                const msg = await res.text();
+                throw new Error(msg || `HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            setExportResult({ totalIcons: data.totalIcons, totalBatches: data.totalBatches });
+            setTimeout(() => setExportResult(null), 4000);
+        } catch (e: any) {
+            setError(e.message || "Export failed");
+        } finally {
+            setIsExporting(false);
+        }
+    }, []);
+
+    // ── Rename batch ──
+    const startRename = useCallback(() => {
+        if (!activeBatch) return;
+        setRenameValue(activeBatch.batchName || "");
+        setIsRenaming(true);
+    }, [activeBatch]);
+
+    const cancelRename = useCallback(() => {
+        setIsRenaming(false);
+        setRenameValue("");
+    }, []);
+
+    const confirmRename = useCallback(async () => {
+        if (!activeBatch || !renameValue.trim()) return;
+        setIsRenameSaving(true);
+        try {
+            const res = await fetch(`/api/icons/batches/${activeBatch.batchId}/rename`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ newName: renameValue.trim() }),
+            });
+            if (!res.ok) {
+                const msg = await res.text();
+                throw new Error(msg || `HTTP ${res.status}`);
+            }
+            const updated: BatchManifest = await res.json();
+            setActiveBatch(updated);
+            setIsRenaming(false);
+            setRenameValue("");
+            await loadBatches();
+        } catch (e: any) {
+            setError(e.message || "Rename failed");
+        } finally {
+            setIsRenameSaving(false);
+        }
+    }, [activeBatch, renameValue, loadBatches]);
+
+    // ── Regenerate Icon handler ──
+    const handleRegenerateIcon = useCallback(async (icon: BatchIcon) => {
+        const hasContent = tempIconItem.trim() || tempIconStyle.trim();
+        if (!activeBatch || !hasContent) return;
+
+        setRegeneratingIconFilename(icon.filename);
+        try {
+            const payload: any = {
+                itemPrompt: tempIconItem.trim(),
+                stylePrompt: tempIconStyle.trim(),
+                temperature: temperature
+            };
+
+            // Priority: Local ref image > Global ref image
+            if (tempIconRefImage) {
+                payload.base64Image = tempIconRefImage;
+            } else if (referenceImage) {
+                payload.base64Image = referenceImage;
+            }
+
+            const res = await fetch(`/api/icons/batches/${activeBatch.batchId}/icons/${icon.filename}/regenerate`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) {
+                const msg = await res.text();
+                throw new Error(msg || `HTTP ${res.status}`);
+            }
+
+            // Refresh only the manifest to get the new URL/prompt
+            // We append a timestamp to the URL to force browser refresh if filename is same
+            const mRes = await fetch(`/api/icons/batches/${activeBatch.batchId}`);
+            if (mRes.ok) {
+                const refreshed: BatchManifest = await mRes.json();
+                setActiveBatch(refreshed);
+                setLastRefreshedAt(Date.now());
+            }
+            setEditingIconFilename(null);
+        } catch (e: any) {
+            setError(e.message || "Regeneration failed");
+        } finally {
+            setRegeneratingIconFilename(null);
+        }
+    }, [activeBatch, tempIconItem, tempIconStyle, referenceImage]);
+
+    const startEditingIcon = (icon: BatchIcon) => {
+        setEditingIconFilename(icon.filename);
+        setTempIconRefImage(null); // Reset local ref
+        // If we have separate fields, use them. 
+        // Otherwise (legacy), the whole prompt goes to Style, and Item stays empty.
+        if (icon.itemPrompt || icon.stylePrompt) {
+            setTempIconItem(icon.itemPrompt || "");
+            setTempIconStyle(icon.stylePrompt || "");
+        } else {
+            setTempIconItem("");
+            setTempIconStyle(icon.prompt);
+        }
+    };
+
+    const handleLocalImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64 = (reader.result as string).split(",")[1];
+            setTempIconRefImage(base64);
+        };
+        reader.readAsDataURL(file);
+    };
+
     // The raw line count (for UI display of pending items)
     const rawLineCount = iconListText.split("\n").filter(l => l.trim().length > 0).length;
 
@@ -179,7 +337,37 @@ export function IconGenPage() {
                     <h1 className="text-xs font-black tracking-[0.3em] text-white">
                         ASHTRAIL <span className="text-gray-600 font-normal tracking-widest">| ICON FORGE</span>
                     </h1>
-                    <div className="ml-auto flex items-center gap-2 text-[10px] tracking-widest text-gray-600">
+                    <div className="ml-auto flex items-center gap-3 text-[10px] tracking-widest text-gray-600">
+                        {exportResult && (
+                            <span className="text-emerald-400 tracking-wider animate-pulse">
+                                ✓ {exportResult.totalIcons} icons exported ({exportResult.totalBatches} batches)
+                            </span>
+                        )}
+                        <button
+                            onClick={handleExport}
+                            disabled={isExporting || batches.length === 0}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-all text-[10px] font-bold tracking-[0.1em] ${isExporting
+                                ? "border-white/5 bg-white/5 text-gray-500 cursor-wait"
+                                : batches.length === 0
+                                    ? "border-white/5 bg-white/5 text-gray-600 cursor-not-allowed"
+                                    : "border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                                }`}
+                            title="Export all batches to game-assets/assets/icons/"
+                        >
+                            {isExporting ? (
+                                <>
+                                    <span className="inline-block w-3 h-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                                    EXPORTING...
+                                </>
+                            ) : (
+                                <>
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                    </svg>
+                                    EXPORT TO CODE
+                                </>
+                            )}
+                        </button>
                         <span className="inline-block w-2 h-2 rounded-full bg-amber-500/60" />
                         WIP
                     </div>
@@ -287,6 +475,25 @@ export function IconGenPage() {
                         </CardContent>
                     </Card>
 
+                    {/* Batch Name */}
+                    <Card className="!bg-[#0f1520] !border-white/5">
+                        <CardHeader className="!bg-transparent !border-white/5">
+                            <h3 className="text-[10px] font-bold tracking-[0.15em] text-[#E6E6FA]">BATCH NAME</h3>
+                        </CardHeader>
+                        <CardContent>
+                            <input
+                                type="text"
+                                value={batchName}
+                                onChange={(e) => setBatchName(e.target.value)}
+                                placeholder="e.g. 'weapons', 'potions'"
+                                className="w-full bg-[#080d14] border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#E6E6FA]/30 transition-colors font-mono"
+                            />
+                            <p className="text-[8px] text-gray-600 mt-1 uppercase tracking-wider">
+                                Used as the folder name in Icons/. Leave empty for auto-generated ID.
+                            </p>
+                        </CardContent>
+                    </Card>
+
                     {/* Settings */}
                     <Card className="!bg-[#0f1520] !border-white/5">
                         <CardHeader className="!bg-transparent !border-white/5">
@@ -357,14 +564,13 @@ export function IconGenPage() {
                                             src={batch.thumbnailUrl}
                                             alt=""
                                             className="w-8 h-8 rounded border border-white/10 shrink-0 object-cover"
-                                            style={{ imageRendering: "pixelated" }}
                                         />
                                     ) : (
                                         <div className="w-8 h-8 rounded border border-white/10 bg-white/5 shrink-0 flex items-center justify-center text-xs">🎨</div>
                                     )}
                                     <div className="min-w-0 flex-1">
                                         <div className="text-[10px] font-bold text-gray-300 tracking-wider truncate">
-                                            BATCH {batch.batchId.substring(0, 8).toUpperCase()}
+                                            {batch.batchName || batch.batchId.substring(0, 8).toUpperCase()}
                                         </div>
                                         <div className="text-[9px] text-gray-600">
                                             {batch.iconCount} icon{batch.iconCount !== 1 ? "s" : ""} · {new Date(batch.createdAt).toLocaleDateString()}
@@ -390,11 +596,62 @@ export function IconGenPage() {
                         <div className="space-y-6">
                             {/* Batch Header */}
                             <div className="flex items-center justify-between">
-                                <div>
-                                    <h2 className="text-[10px] font-bold tracking-[0.15em] text-gray-500">
-                                        BATCH <span className="text-[#E6E6FA]">{activeBatch.batchId.substring(0, 8).toUpperCase()}</span>
-                                    </h2>
-                                    <p className="text-[9px] text-gray-600 mt-0.5">
+                                <div className="flex items-center gap-3">
+                                    {isRenaming ? (
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={renameValue}
+                                                onChange={(e) => setRenameValue(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter") confirmRename();
+                                                    if (e.key === "Escape") cancelRename();
+                                                }}
+                                                autoFocus
+                                                className="bg-[#080d14] border border-[#E6E6FA]/30 rounded px-2 py-1 text-sm text-[#E6E6FA] font-mono focus:outline-none focus:border-[#E6E6FA]/60 w-48"
+                                                placeholder="batch name..."
+                                            />
+                                            <button
+                                                onClick={confirmRename}
+                                                disabled={isRenameSaving || !renameValue.trim()}
+                                                className="w-6 h-6 flex items-center justify-center rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all disabled:opacity-30"
+                                                title="Confirm"
+                                            >
+                                                {isRenameSaving ? (
+                                                    <span className="inline-block w-3 h-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                                                ) : (
+                                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                )}
+                                            </button>
+                                            <button
+                                                onClick={cancelRename}
+                                                className="w-6 h-6 flex items-center justify-center rounded bg-white/5 text-gray-400 hover:bg-white/10 transition-all"
+                                                title="Cancel"
+                                            >
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <h2 className="text-[10px] font-bold tracking-[0.15em] text-gray-500">
+                                                <span className="text-[#E6E6FA]">{activeBatch.batchName || activeBatch.batchId.substring(0, 8).toUpperCase()}</span>
+                                            </h2>
+                                            <button
+                                                onClick={startRename}
+                                                className="w-5 h-5 flex items-center justify-center rounded bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-300 transition-all"
+                                                title="Rename batch"
+                                            >
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                </svg>
+                                            </button>
+                                        </>
+                                    )}
+                                    <p className="text-[9px] text-gray-600">
                                         {activeBatch.icons.length} icons · {new Date(activeBatch.createdAt).toLocaleString()}
                                     </p>
                                 </div>
@@ -412,54 +669,66 @@ export function IconGenPage() {
                                     <div
                                         key={`${icon.url}-${i}`}
                                         className="group relative flex flex-col items-center justify-start bg-[#0f1520] border border-white/5 rounded-xl p-4 hover:border-[#E6E6FA]/20 transition-all h-full"
-                                        onMouseEnter={() => setHoveredIcon(icon.url)}
+                                        onMouseEnter={() => setHoveredIcon(icon)}
                                         onMouseLeave={() => setHoveredIcon(null)}
                                     >
-                                        {/* Icon image */}
-                                        <div className="relative mb-3 flex-shrink-0">
-                                            <img
-                                                src={icon.url}
-                                                alt={icon.prompt}
-                                                className="w-16 h-16"
-                                                style={{ imageRendering: "pixelated" }}
-                                            />
-                                        </div>
-
-                                        {/* Prompt label */}
-                                        <div className="flex-1 flex items-start overflow-hidden w-full">
-                                            <p className="text-[9px] text-gray-400 text-center leading-tight line-clamp-3 w-full font-mono">
-                                                {icon.prompt}
-                                            </p>
-                                        </div>
-
-                                        {/* Hover preview */}
-                                        {hoveredIcon === icon.url && (
-                                            <div className="fixed top-1/2 left-3/4 -translate-x-1/2 -translate-y-1/2 z-50 p-6 bg-[#0a0f16]/95 backdrop-blur-xl border border-[#E6E6FA]/20 rounded-2xl shadow-2xl shadow-black">
-                                                <img
-                                                    src={icon.url}
-                                                    alt="preview"
-                                                    className="w-[256px] h-[256px]"
-                                                    style={{ imageRendering: "pixelated" }}
-                                                />
-                                                <p className="text-[10px] text-gray-400 text-center mt-4 max-w-[256px] font-mono leading-relaxed break-words whitespace-pre-wrap">
-                                                    {icon.prompt}
-                                                </p>
-                                            </div>
-                                        )}
-
                                         {/* Download */}
                                         <button
                                             onClick={() => downloadIcon(icon.url)}
-                                            className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-md bg-[#E6E6FA]/10 text-[#E6E6FA] hover:bg-[#E6E6FA]/20 transition-all"
-                                            title="Download"
+                                            className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-lg bg-white/10 backdrop-blur-md text-white border border-white/10 hover:bg-[#E6E6FA] hover:text-[#070b12] transition-all z-20"
+                                            title="Download Icon"
                                         >
-                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                             </svg>
                                         </button>
+
+                                        {/* Icon image */}
+                                        <div className="relative mb-4 flex-shrink-0 group/img shadow-2xl shadow-black/40 rounded-lg overflow-hidden">
+                                            <img
+                                                src={`${icon.url}?t=${lastRefreshedAt}`}
+                                                alt={icon.prompt}
+                                                className="w-20 h-20 relative z-10"
+                                            />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity" />
+                                        </div>
+
+                                        {/* Prompt label */}
+                                        <div className="flex-1 flex flex-col items-center w-full">
+                                            <p className="text-[11px] text-gray-300 text-center leading-snug line-clamp-2 w-full font-mono mb-3 px-1 min-h-[2.4em]">
+                                                {icon.itemPrompt || icon.prompt}
+                                            </p>
+                                            <button
+                                                onClick={() => startEditingIcon(icon)}
+                                                className="group/btn relative px-4 py-2 rounded-lg bg-white/[0.03] border border-white/10 transition-all hover:bg-[#E6E6FA]/10 hover:border-[#E6E6FA]/30 overflow-hidden"
+                                            >
+                                                <div className="flex items-center gap-2 text-[10px] text-[#E6E6FA] font-black uppercase tracking-widest relative z-10">
+                                                    <svg className="w-3.5 h-3.5 group-hover/btn:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                    </svg>
+                                                    Regenerate
+                                                </div>
+                                            </button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
+
+                            {/* Global Hover Preview - Moved to the far right and made smaller */}
+                            {hoveredIcon && (
+                                <div className="fixed top-1/2 right-8 -translate-y-1/2 z-[60] p-4 bg-[#0a0f16]/95 backdrop-blur-xl border border-[#E6E6FA]/20 rounded-xl shadow-2xl shadow-black pointer-events-none select-none">
+                                    <div className="flex flex-col items-center">
+                                        <img
+                                            src={`${hoveredIcon.url}?t=${lastRefreshedAt}`}
+                                            alt="preview"
+                                            className="w-[256px] h-[256px] rounded-lg shadow-inner bg-black/20"
+                                        />
+                                        <p className="text-[10px] text-gray-400 text-center mt-4 max-w-[256px] font-mono leading-relaxed break-words whitespace-pre-wrap px-1">
+                                            {hoveredIcon.prompt}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ) : (
                         /* Generating shimmer */
@@ -533,7 +802,107 @@ export function IconGenPage() {
                         </button>
                     </div>
                 </div>
-            </Modal >
-        </div >
+            </Modal>
+
+            {/* ── Icon Regeneration Frameless Overlay ── */}
+            {editingIconFilename && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="relative w-[700px] bg-[#0a1120] rounded-[24px] border border-white/10 shadow-[0_0_100px_rgba(0,0,0,0.8)] overflow-hidden animate-in fade-in zoom-in duration-200">
+                        {/* Close button - Top Right */}
+                        <button
+                            onClick={() => setEditingIconFilename(null)}
+                            className="absolute top-6 right-6 w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all z-20"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+
+                        <div className="flex p-10 gap-10">
+                            {/* Left Column */}
+                            <div className="w-[200px] shrink-0 space-y-8">
+                                <div className="relative aspect-square bg-[#E6E6FA]/5 rounded-[20px] border border-[#E6E6FA]/10 flex items-center justify-center overflow-hidden shadow-inner">
+                                    <div className="absolute inset-0 bg-gradient-to-br from-[#E6E6FA]/10 to-transparent opacity-40" />
+                                    <img
+                                        src={activeBatch?.icons.find(i => i.filename === editingIconFilename)?.url + `?t=${lastRefreshedAt}`}
+                                        className="w-32 h-32 relative z-10 drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)]"
+                                        alt="Current"
+                                    />
+                                </div>
+
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2 px-1">
+                                        <div className="w-1 h-3 bg-emerald-500 rounded-full" />
+                                        <label className="text-[10px] text-emerald-400 font-black uppercase tracking-widest">Subject</label>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        value={tempIconItem}
+                                        onChange={(e) => setTempIconItem(e.target.value)}
+                                        className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white font-medium focus:outline-none focus:border-emerald-500/40 transition-all placeholder:text-white/10"
+                                        placeholder="Item name..."
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Right Column */}
+                            <div className="flex-1 flex flex-col gap-8 pt-2">
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between px-1">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1 h-3 bg-[#E6E6FA] rounded-full" />
+                                            <label className="text-[10px] text-[#E6E6FA] font-black uppercase tracking-widest">Global Style</label>
+                                        </div>
+                                        <div className="relative">
+                                            <div
+                                                className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center cursor-pointer hover:border-[#E6E6FA]/40 hover:bg-white/10 transition-all shadow-lg overflow-hidden group/ref"
+                                                onClick={() => document.getElementById(`modal-ref-upload`)?.click()}
+                                            >
+                                                {(tempIconRefImage || referenceImage) ? (
+                                                    <img src={`data:image/png;base64,${tempIconRefImage || referenceImage}`} className="w-full h-full object-cover" alt="ref" />
+                                                ) : (
+                                                    <svg className="w-4 h-4 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                    </svg>
+                                                )}
+                                            </div>
+                                            <input id="modal-ref-upload" type="file" className="hidden" onChange={handleLocalImageUpload} />
+                                        </div>
+                                    </div>
+                                    <textarea
+                                        value={tempIconStyle}
+                                        onChange={(e) => setTempIconStyle(e.target.value)}
+                                        className="w-full bg-[#070b12]/50 border border-white/10 rounded-2xl px-5 py-4 text-[12px] text-white/50 font-mono focus:outline-none focus:border-[#E6E6FA]/40 min-h-[160px] resize-none leading-relaxed transition-all shadow-inner custom-scrollbar"
+                                        placeholder="Artistic parameters..."
+                                    />
+                                </div>
+
+                                <div className="flex items-center justify-between pt-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-2 h-2 rounded-full ${tempIconItem.trim() ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-white/10'}`} />
+                                        <span className="text-[9px] text-white/20 font-black uppercase tracking-[0.2em]">
+                                            {tempIconItem.trim() ? 'Ready' : 'Awaiting subject'}
+                                        </span>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const icon = activeBatch?.icons.find(i => i.filename === editingIconFilename);
+                                            if (icon) handleRegenerateIcon(icon);
+                                        }}
+                                        disabled={regeneratingIconFilename === editingIconFilename || !tempIconItem.trim()}
+                                        className={`px-10 py-3 rounded-xl text-[11px] font-black uppercase tracking-[0.2em] transition-all ${regeneratingIconFilename === editingIconFilename
+                                            ? "bg-white/5 text-white/10 cursor-not-allowed"
+                                            : "bg-white text-[#070b12] hover:bg-[#E6E6FA] shadow-[0_10px_40px_rgba(255,255,255,0.1)] hover:-translate-y-0.5"
+                                            }`}
+                                    >
+                                        {regeneratingIconFilename === editingIconFilename ? "..." : "⚡ Regenerate"}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 }

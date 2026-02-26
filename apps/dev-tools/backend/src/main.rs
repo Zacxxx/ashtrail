@@ -37,6 +37,7 @@ struct AppState {
     planets_dir: PathBuf,
     planet_root: PathBuf,
     icons_dir: PathBuf,
+    icons_export_dir: PathBuf,
 }
 
 #[derive(Clone, Serialize)]
@@ -138,13 +139,33 @@ struct LoreQueryResponse {
 #[serde(rename_all = "camelCase")]
 struct IconBatchRequest {
     prompts: Vec<String>,
+    style_prompt: Option<String>,
     base64_image: Option<String>,
+    batch_name: Option<String>,
+    temperature: Option<f32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RenameBatchRequest {
+    new_name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegenerateIconRequest {
+    item_prompt: String,
+    style_prompt: String,
+    base64_image: Option<String>,
+    temperature: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct BatchManifest {
     batch_id: String,
+    #[serde(default)]
+    batch_name: String,
     created_at: String,
     icons: Vec<BatchIcon>,
 }
@@ -153,7 +174,11 @@ struct BatchManifest {
 #[serde(rename_all = "camelCase")]
 struct BatchIcon {
     filename: String,
-    prompt: String,
+    prompt: String, // The full prompt used
+    #[serde(default)]
+    style_prompt: String,
+    #[serde(default)]
+    item_prompt: String,
     url: String,
 }
 
@@ -161,6 +186,7 @@ struct BatchIcon {
 #[serde(rename_all = "camelCase")]
 struct BatchSummary {
     batch_id: String,
+    batch_name: String,
     icon_count: usize,
     created_at: String,
     thumbnail_url: Option<String>,
@@ -202,14 +228,18 @@ async fn main() {
     let planets_dir = PathBuf::from("generated/planets");
     std::fs::create_dir_all(&planets_dir).expect("failed to create planets directory");
 
-    let icons_dir = PathBuf::from("../../../game-assets/generation/icons");
-    std::fs::create_dir_all(&icons_dir).expect("failed to create game-assets/generation/icons directory");
+    let icons_dir = PathBuf::from("../../game-assets/assets/Icons");
+    std::fs::create_dir_all(&icons_dir).expect("failed to create game-assets/assets/Icons directory");
+
+    let icons_export_dir = PathBuf::from("../../game-assets/assets/Icons");
+    std::fs::create_dir_all(&icons_export_dir).expect("failed to create game-assets/assets/Icons directory");
 
     let state = AppState {
         jobs: Arc::new(Mutex::new(HashMap::new())),
         planets_dir,
         planet_root: PathBuf::from("generated/planet"), // For the hierarchical generator
         icons_dir: icons_dir.clone(),
+        icons_export_dir,
     };
 
     let app = Router::new()
@@ -244,6 +274,9 @@ async fn main() {
         .route("/api/icons/generate-batch", post(generate_icon_batch))
         .route("/api/icons/batches", get(list_icon_batches))
         .route("/api/icons/batches/{batch_id}", get(get_icon_batch))
+        .route("/api/icons/batches/{batch_id}/rename", axum::routing::put(rename_icon_batch))
+        .route("/api/icons/batches/{batch_id}/icons/{filename}/regenerate", post(regenerate_icon))
+        .route("/api/icons/export", post(export_icons_registry))
         // ── Worldgen Pipeline ──
         .route("/api/worldgen/{planet_id}/status", get(worldgen_pipeline::get_pipeline_status))
         .route("/api/worldgen/{planet_id}/run/{stage_name}", post(worldgen_pipeline::run_pipeline_stage))
@@ -652,7 +685,7 @@ async fn run_hybrid_generation_job(
         }
     }
 
-    let image_bytes = match gemini::generate_image_bytes(&prompt, temperature, request.cols, request.rows).await {
+    let image_bytes = match gemini::generate_image_bytes(&prompt, temperature, request.cols, request.rows, None).await {
         Ok(b) => b,
         Err((_code, err_msg)) => {
             error!("Failed to fetch Gemini image: {}", err_msg);
@@ -1534,7 +1567,7 @@ async fn run_image_edit_job(
         ("image/jpeg".to_string(), base64_image)
     };
 
-    let image_bytes = match gemini::generate_image_edit_bytes(&prompt, &data, &mime_type, temperature).await {
+    let image_bytes = match gemini::generate_image_edit_bytes(&prompt, &data, &mime_type, temperature, None).await {
         Ok(b) => b,
         Err((_code, err_msg)) => {
             error!("Failed to fetch Gemini edit image: {}", err_msg);
@@ -1827,7 +1860,20 @@ async fn generate_icon_batch(
         return Err((StatusCode::BAD_REQUEST, "Maximum 50 prompts per batch".to_string()));
     }
 
-    let batch_id = Uuid::new_v4().to_string();
+    // Use the user-supplied name (slugified) as folder name, fallback to UUID
+    let batch_name = request.batch_name
+        .as_deref()
+        .map(|n| n.trim())
+        .filter(|n| !n.is_empty())
+        .unwrap_or("")
+        .to_string();
+
+    let batch_id = if batch_name.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        slugify_prompt(&batch_name)
+    };
+
     let batch_dir = state.icons_dir.join(&batch_id);
     std::fs::create_dir_all(&batch_dir).map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create batch dir: {e}"))
@@ -1835,31 +1881,40 @@ async fn generate_icon_batch(
 
     info!(
         batch_id = %batch_id,
+        batch_name = %batch_name,
         count = prompts.len(),
         "icon batch generation starting"
     );
 
     let created_at = chrono::Utc::now().to_rfc3339();
     let mut icons: Vec<BatchIcon> = Vec::new();
+    let style_prompt = request.style_prompt.unwrap_or_default();
 
-    for (i, user_prompt) in prompts.iter().enumerate() {
+    for (i, item_prompt) in prompts.iter().enumerate() {
+        let full_prompt = if style_prompt.trim().is_empty() {
+            item_prompt.clone()
+        } else {
+            format!("{} {}", style_prompt.trim(), item_prompt.trim())
+        };
+
         let wrapped_prompt = format!(
-            "Generate a single 32x32 pixel art game icon. \
-            Style: pixel art, limited color palette, crisp pixels, no anti-aliasing, \
-            centered composition, transparent or solid dark background. \
-            The icon depicts: {}. \
+            "Generate a game icon. \
+            Centered composition, transparent or solid dark background. \
+            Visual content: {}. \
             Output ONLY the icon image, no text, no borders, no decorations.",
-            user_prompt
+            full_prompt
         );
 
-        info!(batch_id = %batch_id, index = i, prompt = %user_prompt, "generating icon");
+        info!(batch_id = %batch_id, index = i, prompt = %full_prompt, "generating icon");
+
+        let temperature = request.temperature.or(Some(0.4));
 
         let image_bytes_result = if let Some(base64_img) = &request.base64_image {
             // If they provided a reference image, use the vision/edit endpoint
-            gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", Some(0.4)).await
+            gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", temperature, Some("1:1")).await
         } else {
             // Standard image generation
-            gemini::generate_image_bytes(&wrapped_prompt, Some(0.4), 256, 256).await
+            gemini::generate_image_bytes(&wrapped_prompt, temperature, 256, 256, Some("1:1")).await
         };
 
         let image_bytes = image_bytes_result.map_err(|(code, msg)| {
@@ -1869,7 +1924,9 @@ async fn generate_icon_batch(
 
         let batch_dir_clone = batch_dir.clone();
         let batch_id_clone = batch_id.clone();
-        let prompt_for_manifest = user_prompt.clone();
+        let full_prompt_cloned = full_prompt.clone();
+        let item_prompt_cloned = item_prompt.clone();
+        let style_prompt_cloned = style_prompt.clone();
 
         let icon = tokio::task::spawn_blocking(move || -> Result<BatchIcon, (StatusCode, String)> {
             let img = image::load_from_memory(&image_bytes).map_err(|e| {
@@ -1888,7 +1945,9 @@ async fn generate_icon_batch(
             info!(path = %path.display(), "icon saved");
             Ok(BatchIcon {
                 filename: filename.clone(),
-                prompt: prompt_for_manifest,
+                prompt: full_prompt_cloned,
+                style_prompt: style_prompt_cloned,
+                item_prompt: item_prompt_cloned,
                 url: format!("/api/icons/{}/{}", batch_id_clone, filename),
             })
         })
@@ -1902,6 +1961,7 @@ async fn generate_icon_batch(
     // Write manifest
     let manifest = BatchManifest {
         batch_id: batch_id.clone(),
+        batch_name: if batch_name.is_empty() { batch_id[..8].to_uppercase() } else { batch_name },
         created_at,
         icons,
     };
@@ -1948,6 +2008,7 @@ async fn list_icon_batches(
             let thumbnail_url = manifest.icons.first().map(|i| i.url.clone());
             result.push(BatchSummary {
                 batch_id: manifest.batch_id,
+                batch_name: manifest.batch_name,
                 icon_count: manifest.icons.len(),
                 created_at: manifest.created_at,
                 thumbnail_url,
@@ -1980,4 +2041,346 @@ async fn get_icon_batch(
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse error: {e}"))
     })?;
     Ok(Json(manifest))
+}
+
+/// Regenerate a single icon in a batch.
+async fn regenerate_icon(
+    State(state): State<AppState>,
+    Path((batch_id, filename)): Path<(String, String)>,
+    Json(request): Json<RegenerateIconRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let batch_dir = state.icons_dir.join(&batch_id);
+    let manifest_path = batch_dir.join("manifest.json");
+
+    if !manifest_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+
+    let item_text = request.item_prompt;
+    let style_text = request.style_prompt;
+    let full_prompt = if style_text.trim().is_empty() {
+        item_text.clone()
+    } else {
+        format!("{} {}", style_text.trim(), item_text.trim())
+    };
+
+    let wrapped_prompt = format!(
+        "Generate a game icon. \
+        Centered composition, transparent or solid dark background. \
+        Visual content: {}. \
+        Output ONLY the icon image, no text, no borders, no decorations.",
+        full_prompt
+    );
+
+    info!(batch_id = %batch_id, filename = %filename, prompt = %full_prompt, "regenerating single icon");
+
+    let temperature = request.temperature.or(Some(0.4));
+
+    let image_bytes_result = if let Some(base64_img) = &request.base64_image {
+        gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", temperature, Some("1:1")).await
+    } else {
+        gemini::generate_image_bytes(&wrapped_prompt, temperature, 256, 256, Some("1:1")).await
+    };
+
+    let image_bytes = image_bytes_result.map_err(|(code, msg)| {
+        error!("Icon regeneration failed: {}", msg);
+        (code, msg)
+    })?;
+
+    let batch_id_clone = batch_id.clone();
+    let filename_clone = filename.clone();
+    let full_prompt_cloned = full_prompt.clone();
+    let item_prompt_cloned = item_text.clone();
+    let style_prompt_cloned = style_text.clone();
+
+    let updated_icon = tokio::task::spawn_blocking(move || -> Result<BatchIcon, (StatusCode, String)> {
+        let img = image::load_from_memory(&image_bytes).map_err(|e| {
+            error!("Failed to decode icon image: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Image decode error: {e}"))
+        })?;
+
+        let path = batch_dir.join(&filename_clone);
+        img.save(&path).map_err(|e| {
+            error!("Failed to save icon: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}"))
+        })?;
+
+        // Update manifest
+        let data = std::fs::read_to_string(&manifest_path).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Read manifest error: {e}"))
+        })?;
+        let mut manifest: BatchManifest = serde_json::from_str(&data).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse manifest error: {e}"))
+        })?;
+
+        let mut found = false;
+        for icon in &mut manifest.icons {
+            if icon.filename == filename_clone {
+                icon.prompt = full_prompt_cloned.clone();
+                icon.item_prompt = item_prompt_cloned.clone();
+                icon.style_prompt = style_prompt_cloned.clone();
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            return Err((StatusCode::NOT_FOUND, "Icon not found in manifest".to_string()));
+        }
+
+        let updated_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Serialize manifest error: {e}"))
+        })?;
+        std::fs::write(&manifest_path, &updated_json).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Write manifest error: {e}"))
+        })?;
+
+        info!(path = %path.display(), "icon regenerated and manifest updated");
+        Ok(BatchIcon {
+            filename: filename_clone.clone(),
+            prompt: full_prompt_cloned,
+            item_prompt: item_prompt_cloned,
+            style_prompt: style_prompt_cloned,
+            url: format!("/api/icons/{}/{}", batch_id_clone, filename_clone),
+        })
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {e}")))?
+    .map_err(|e| e)?;
+
+    Ok(Json(updated_icon))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportResult {
+    total_icons: usize,
+    total_batches: usize,
+    export_path: String,
+}
+
+/// Export all icon batches into a flat folder + TS registry file.
+/// Icons are copied to game-assets/assets/icons/ with slugified names,
+/// and an index.ts is generated for easy imports.
+async fn export_icons_registry(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let icons_dir = state.icons_dir.clone();
+    let export_dir = state.icons_export_dir.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> Result<ExportResult, String> {
+        // Collect all batch manifests
+        let mut all_manifests: Vec<BatchManifest> = Vec::new();
+
+        if icons_dir.exists() {
+            let dir = std::fs::read_dir(&icons_dir).map_err(|e| format!("read icons dir: {e}"))?;
+            for entry in dir {
+                let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let manifest_path = path.join("manifest.json");
+                if !manifest_path.exists() {
+                    continue;
+                }
+                let data = std::fs::read_to_string(&manifest_path)
+                    .map_err(|e| format!("read manifest: {e}"))?;
+                let manifest: BatchManifest = serde_json::from_str(&data)
+                    .map_err(|e| format!("parse manifest: {e}"))?;
+                all_manifests.push(manifest);
+            }
+        }
+
+        // Sort by created_at so order is stable
+        all_manifests.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+        // Create export directory
+        std::fs::create_dir_all(&export_dir)
+            .map_err(|e| format!("create export dir: {e}"))?;
+
+        let mut ts_entries: Vec<String> = Vec::new();
+        let mut total_icons: usize = 0;
+
+        for manifest in &all_manifests {
+            let mut icon_entries: Vec<String> = Vec::new();
+
+            for icon in &manifest.icons {
+                // Generate a safe key from the prompt
+                let key = slugify_prompt(&icon.prompt);
+                icon_entries.push(format!(
+                    "    {{ key: '{}', prompt: '{}', file: './{}/{}' }}",
+                    key,
+                    icon.prompt.replace('\\', "\\\\").replace('\'', "\\'"),
+                    manifest.batch_id,
+                    icon.filename
+                ));
+                total_icons += 1;
+            }
+
+            let display_name = if manifest.batch_name.is_empty() {
+                manifest.batch_id[..8.min(manifest.batch_id.len())].to_uppercase()
+            } else {
+                manifest.batch_name.clone()
+            };
+            ts_entries.push(format!(
+                "  // {} — {} — {} icons\n  {{\n    batchId: '{}',\n    name: '{}',\n    createdAt: '{}',\n    icons: [\n{}\n    ],\n  }}",
+                display_name,
+                manifest.created_at,
+                manifest.icons.len(),
+                manifest.batch_id,
+                manifest.batch_name.replace('\\', "\\\\").replace('\'', "\\'"),
+                manifest.created_at,
+                icon_entries.join(",\n")
+            ));
+        }
+
+        // Write index.ts
+        let ts_content = format!(
+            "// ──────────────────────────────────────────\n\
+             // AUTO-GENERATED — DO NOT EDIT MANUALLY\n\
+             // Generated by dev-tools icon export\n\
+             // Total: {} icons across {} batches\n\
+             // ──────────────────────────────────────────\n\
+             \n\
+             export interface IconEntry {{\n\
+             \x20 key: string;\n\
+             \x20 prompt: string;\n\
+             \x20 file: string;\n\
+             }}\n\
+             \n\
+             export interface IconBatch {{\n\
+             \x20 batchId: string;\n\
+             \x20 name: string;\n\
+             \x20 createdAt: string;\n\
+             \x20 icons: IconEntry[];\n\
+             }}\n\
+             \n\
+             export const ICON_BATCHES: IconBatch[] = [\n\
+             {}\n\
+             ];\n\
+             \n\
+             /** Flat map of all icons by key for quick lookup. */\n\
+             export const ICONS: Record<string, IconEntry> = Object.fromEntries(\n\
+             \x20 ICON_BATCHES.flatMap(b => b.icons).map(i => [i.key, i])\n\
+             );\n",
+            total_icons,
+            all_manifests.len(),
+            ts_entries.join(",\n")
+        );
+
+        let index_path = export_dir.join("index.ts");
+        std::fs::write(&index_path, ts_content)
+            .map_err(|e| format!("write index.ts: {e}"))?;
+
+        info!(
+            total_icons = total_icons,
+            total_batches = all_manifests.len(),
+            path = %index_path.display(),
+            "icon registry exported"
+        );
+
+        Ok(ExportResult {
+            total_icons,
+            total_batches: all_manifests.len(),
+            export_path: index_path.display().to_string(),
+        })
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(result))
+}
+
+/// Rename a batch: update manifest + rename folder on disk.
+async fn rename_icon_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+    Json(request): Json<RenameBatchRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let new_name = request.new_name.trim().to_string();
+    if new_name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Name cannot be empty".to_string()));
+    }
+
+    let new_batch_id = slugify_prompt(&new_name);
+    let icons_dir = state.icons_dir.clone();
+    let old_dir = icons_dir.join(&batch_id);
+    let new_dir = icons_dir.join(&new_batch_id);
+
+    if !old_dir.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+
+    // If the new name resolves to a different folder that already exists, error
+    if new_batch_id != batch_id && new_dir.exists() {
+        return Err((StatusCode::CONFLICT, format!("A batch named '{}' already exists", new_batch_id)));
+    }
+
+    let result = tokio::task::spawn_blocking(move || -> Result<BatchManifest, String> {
+        // Read current manifest
+        let manifest_path = old_dir.join("manifest.json");
+        let data = std::fs::read_to_string(&manifest_path)
+            .map_err(|e| format!("read manifest: {e}"))?;
+        let mut manifest: BatchManifest = serde_json::from_str(&data)
+            .map_err(|e| format!("parse manifest: {e}"))?;
+
+        // Update manifest fields
+        manifest.batch_name = new_name;
+        manifest.batch_id = new_batch_id.clone();
+
+        // Update icon URLs to reflect the new batch_id
+        for icon in &mut manifest.icons {
+            icon.url = format!("/api/icons/{}/{}", new_batch_id, icon.filename);
+        }
+
+        // Write updated manifest
+        let updated_json = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| format!("serialize manifest: {e}"))?;
+        std::fs::write(&manifest_path, &updated_json)
+            .map_err(|e| format!("write manifest: {e}"))?;
+
+        // Rename folder if batch_id changed
+        if old_dir != new_dir {
+            std::fs::rename(&old_dir, &new_dir)
+                .map_err(|e| format!("rename folder: {e}"))?;
+            info!(
+                old = %old_dir.display(),
+                new = %new_dir.display(),
+                "batch folder renamed"
+            );
+        }
+
+        Ok(manifest)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(result))
+}
+
+/// Turn a prompt into a safe snake_case key.
+fn slugify_prompt(prompt: &str) -> String {
+    let slug: String = prompt
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    // Collapse multiple underscores and trim
+    let mut result = String::new();
+    let mut prev_underscore = false;
+    for c in slug.chars() {
+        if c == '_' {
+            if !prev_underscore && !result.is_empty() {
+                result.push('_');
+            }
+            prev_underscore = true;
+        } else {
+            result.push(c);
+            prev_underscore = false;
+        }
+    }
+    result.trim_end_matches('_').to_string()
 }
