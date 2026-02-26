@@ -250,8 +250,8 @@ export function CharacterBuilderPage() {
                     /* Rarity Styles (Border focused) */
                     .rarity-salvaged { border-color: #d1d5db; --rarity-color: #f3f4f6; }
                     .rarity-reinforced { border-color: #475569; --rarity-color: #94a3b8; }
-                    .rarity-pre-ash { border-color: #0c4a6e; --rarity-color: #0ea5e9; }
-                    .rarity-specialized { border-color: #4c1d95; --rarity-color: #a855f7; }
+                    .rarity-pre-ash { border-color: #e2fcfb; --rarity-color: #e2fcfb; }
+                    .rarity-specialized { border-color: #341539; --rarity-color: #4c1d95; }
                     .rarity-relic { border-color: #92400e; --rarity-color: #f59e0b; }
                     
                     @keyframes ashRipple {
@@ -646,8 +646,8 @@ export function CharacterBuilderPage() {
                                                             <div className={`absolute inset-x-0 bottom-0 h-px opacity-40 z-10 
                                                                 ${itemRarity === 'salvaged' ? 'bg-gray-300' :
                                                                     itemRarity === 'reinforced' ? 'bg-slate-500' :
-                                                                        itemRarity === 'pre-ash' ? 'bg-sky-600' :
-                                                                            itemRarity === 'specialized' ? 'bg-violet-800' :
+                                                                        itemRarity === 'pre-ash' ? 'bg-[#e2fcfb]' : // Synchronized color
+                                                                            itemRarity === 'specialized' ? 'bg-[#341539]' : // Synchronized color
                                                                                 itemRarity === 'relic' ? 'bg-amber-700' :
                                                                                     'bg-red-900'}`}
                                                             />
