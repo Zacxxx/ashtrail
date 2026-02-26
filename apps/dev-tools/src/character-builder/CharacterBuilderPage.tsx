@@ -43,6 +43,7 @@ export function CharacterBuilderPage() {
     const [activeBagIndex, setActiveBagIndex] = useState(0);
     const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, slotIndex: number | null } | null>(null);
+    const [animatingSlot, setAnimatingSlot] = useState<{ index: number, type: 'destroy' | 'throw' } | null>(null);
 
     // Currency Values
     const [gold] = useState(10);
@@ -215,6 +216,35 @@ export function CharacterBuilderPage() {
                     }
                     .animate-ash-settling {
                         animation: ashSettling 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+                    }
+                    @keyframes itemDestroy {
+                        0% { transform: translate(0, 0) scale(1); filter: brightness(1); }
+                        5% { transform: translate(1px, -1px); }
+                        10% { transform: translate(-1px, 1px); filter: brightness(1.2); }
+                        15% { transform: translate(1px, 1px); }
+                        20% { transform: translate(-1px, -1px); clip-path: polygon(0% 0%, 50% 0%, 50% 50%, 0% 50%); }
+                        25% { transform: translate(2px, 0); clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%); }
+                        30% { transform: scale(1.02); filter: contrast(1.5); }
+                        100% { transform: translateY(15px) scale(0.9) rotate(2deg); opacity: 0; filter: brightness(0.2) grayscale(1); }
+                    }
+                    @keyframes itemThrow {
+                        0% { transform: translateX(0) skewX(0); opacity: 1; filter: blur(0); }
+                        20% { transform: translateX(-15px) skewX(10deg); filter: blur(1px); }
+                        100% { transform: translateX(300px) skewX(-30deg); opacity: 0; filter: blur(15px) brightness(3); }
+                    }
+                    @keyframes dustLash {
+                        0% { transform: translateX(-100%) skewX(-20deg); opacity: 0; }
+                        50% { opacity: 0.8; }
+                        100% { transform: translateX(200%) skewX(-20deg); opacity: 0; }
+                    }
+                    .animate-item-destroy {
+                        animation: itemDestroy 0.5s steps(20, end) forwards;
+                    }
+                    .animate-item-throw {
+                        animation: itemThrow 0.6s cubic-bezier(0.44, 0.05, 0.55, 0.95) forwards;
+                    }
+                    .animate-dust-lash {
+                        animation: dustLash 0.6s ease-out forwards;
                     }
                 `}</style>
 
@@ -424,15 +454,15 @@ export function CharacterBuilderPage() {
 
                         {/* ═══ INVENTORY TAB ═══ */}
                         {activeTab === "INVENTORY" && (
-                            <div className="flex flex-col items-center h-full relative font-mono overflow-y-auto custom-scrollbar py-4" onClick={() => setContextMenu(null)}>
+                            <div id="inventory-view-root" className="flex flex-col items-center h-full relative font-mono overflow-y-auto custom-scrollbar py-4" onClick={() => setContextMenu(null)}>
                                 <div className="w-full max-w-[700px] flex flex-col gap-5">
                                     {/* Top Row: Bags & Money */}
-                                    <div className="flex items-start justify-between">
+                                    <div className="flex items-end justify-between">
                                         {/* Tactical Bag Slots */}
                                         <div className="flex flex-col gap-1.5">
                                             <div className="flex items-center gap-1.5 px-1">
                                                 <div className="w-1 h-2.5 bg-[#c2410c]" />
-                                                <label className="text-[9px] text-gray-500 font-black uppercase tracking-widest">MODULES</label>
+                                                <label className="text-[9px] text-gray-500 font-black uppercase tracking-widest">INVENTORY</label>
                                             </div>
                                             <div className="flex gap-1 p-1 bg-black/60 border border-white/5 shadow-xl">
                                                 {[0, 1, 2, 3, 4, 5].map((idx) => (
@@ -461,7 +491,7 @@ export function CharacterBuilderPage() {
                                         </div>
 
                                         {/* Currency - Dossier Style */}
-                                        <div className="flex flex-col items-end gap-1 mt-1">
+                                        <div className="flex flex-col items-end gap-1">
                                             <div className="flex items-center gap-2.5 bg-[#c2410c]/5 border border-[#c2410c]/20 px-3 py-1.5">
                                                 <span className="text-[8px] text-gray-600 font-black uppercase tracking-widest mr-1">CREDITS:</span>
                                                 <span className="text-sm font-black text-[#c2410c]">{totalCredits.toLocaleString()}</span>
@@ -549,10 +579,26 @@ export function CharacterBuilderPage() {
                                                     onClick={() => setSelectedSlotIndex(idx)}
                                                     onContextMenu={(e) => {
                                                         e.preventDefault();
-                                                        setContextMenu({ x: e.clientX + 5, y: e.clientY + 5, slotIndex: idx });
+                                                        const rect = e.currentTarget.getBoundingClientRect();
+                                                        const root = document.getElementById('inventory-view-root');
+                                                        const rootRect = root?.getBoundingClientRect() || { left: 0, top: 0 };
+
+                                                        // Calculate position relative to the scrollable root
+                                                        // We add root.scrollTop to ensure it follows the scrolling if necessary
+                                                        const scrollOffset = root?.scrollTop || 0;
+
+                                                        setContextMenu({
+                                                            x: rect.right - rootRect.left + 1, // Glued: 1px gap
+                                                            y: rect.top - rootRect.top + scrollOffset,
+                                                            slotIndex: idx
+                                                        });
                                                         setSelectedSlotIndex(idx);
                                                     }}
-                                                    className={`aspect-square bg-black/60 border flex items-center justify-center relative group cursor-pointer transition-all ${selectedSlotIndex === idx ? "border-[#c2410c] bg-[#c2410c]/5 shadow-[inset_0_0_8px_rgba(194,65,12,0.1)]" : "border-white/5 hover:border-[#c2410c]/40"}`}
+                                                    className={`aspect-square bg-black/60 border flex items-center justify-center relative group cursor-pointer transition-all
+                                                        ${selectedSlotIndex === idx ? "border-[#c2410c] bg-[#c2410c]/5 shadow-[inset_0_0_8px_rgba(194,65,12,0.1)]" : "border-white/5 hover:border-[#c2410c]/40"}
+                                                        ${animatingSlot?.index === idx && animatingSlot.type === 'destroy' ? 'animate-item-destroy z-50 pointer-events-none' : ''}
+                                                        ${animatingSlot?.index === idx && animatingSlot.type === 'throw' ? 'animate-item-throw z-50 pointer-events-none' : ''}
+                                                    `}
                                                 >
                                                     <div className="absolute top-0 left-0 w-0.5 h-0.5 bg-white/10" />
                                                     <div className="absolute bottom-0 right-0 w-0.5 h-0.5 bg-white/10" />
@@ -564,6 +610,28 @@ export function CharacterBuilderPage() {
                                                     <div className={`text-[8px] font-black transition-colors uppercase ${selectedSlotIndex === idx ? "text-[#c2410c]" : "text-gray-900 group-hover:text-gray-700"}`}>
                                                         {idx < 9 ? `0${idx + 1}` : idx + 1}
                                                     </div>
+
+                                                    {/* Glass Shatter effect overlay */}
+                                                    {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
+                                                        <div className="absolute inset-0 z-50 pointer-events-none opacity-60">
+                                                            <svg viewBox="0 0 100 100" className="w-full h-full stroke-[#c2410c] stroke-[0.5] fill-none">
+                                                                <path d="M0,0 L50,55 L100,20 M50,55 L30,100 M50,55 L100,80 M20,0 L50,55 M0,70 L50,55 M50,55 L80,0" />
+                                                                <circle cx="50" cy="55" r="1.5" className="fill-[#c2410c]" />
+                                                            </svg>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Dust Sweep overlay for Throw effect */}
+                                                    {animatingSlot?.index === idx && animatingSlot.type === 'throw' && (
+                                                        <div
+                                                            className="absolute inset-0 z-50 pointer-events-none animate-dust-lash overflow-hidden"
+                                                            style={{
+                                                                background: 'linear-gradient(90deg, transparent, rgba(194, 65, 12, 0.6), rgba(75, 85, 99, 0.8), transparent)',
+                                                                width: '300%',
+                                                                filter: 'blur(10px)'
+                                                            }}
+                                                        />
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>
@@ -571,20 +639,44 @@ export function CharacterBuilderPage() {
                                     </div>
                                 </div>
 
-                                {/* Context Menu */}
+                                {/* Context Menu - Positioned Absolutely relative to the tab container */}
                                 {contextMenu && (
                                     <div
-                                        className="fixed z-[1000] w-40 bg-[#0d0d0d] border border-[#c2410c]/30 shadow-2xl py-1 animate-in fade-in zoom-in duration-75"
-                                        style={{ top: contextMenu.y, left: contextMenu.x }}
+                                        className="absolute z-[1000] w-36 bg-[#0d0d0d] border border-[#c2410c]/30 shadow-2xl py-0.5 animate-in fade-in zoom-in-95 duration-75 origin-top-left"
+                                        style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
                                         onClick={(e) => e.stopPropagation()}
                                     >
-                                        <div className="px-3 py-1.5 border-b border-white/5 mb-1">
-                                            <span className="text-[8px] font-black text-[#c2410c] uppercase tracking-widest">SLOT {contextMenu.slotIndex! + 1}</span>
+                                        <div className="px-3 py-1 border-b border-white/5 mb-0.5 bg-white/[0.02]">
+                                            <span className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em]">SLOT {contextMenu.slotIndex! + 1}</span>
                                         </div>
-                                        <button className="w-full text-left px-4 py-2 text-[9px] text-gray-400 font-black hover:bg-[#c2410c] hover:text-white transition-all uppercase tracking-widest">USE</button>
-                                        <button className="w-full text-left px-4 py-2 text-[9px] text-gray-400 font-black hover:bg-white/5 hover:text-white transition-all uppercase tracking-widest">THROW AWAY</button>
+                                        <button className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-[#c2410c] hover:text-white transition-all uppercase tracking-widest flex items-center justify-between">
+                                            USE <span>»</span>
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                if (contextMenu.slotIndex !== null) {
+                                                    setAnimatingSlot({ index: contextMenu.slotIndex, type: 'throw' });
+                                                    setTimeout(() => setAnimatingSlot(null), 800);
+                                                    setContextMenu(null);
+                                                }
+                                            }}
+                                            className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-white/5 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
+                                        >
+                                            THROW <span>»</span>
+                                        </button>
                                         <div className="h-px bg-white/5 my-0.5" />
-                                        <button className="w-full text-left px-4 py-2 text-[9px] text-red-600 font-black hover:bg-red-600 hover:text-white transition-all uppercase tracking-widest">DESTROY</button>
+                                        <button
+                                            onClick={() => {
+                                                if (contextMenu.slotIndex !== null) {
+                                                    setAnimatingSlot({ index: contextMenu.slotIndex, type: 'destroy' });
+                                                    setTimeout(() => setAnimatingSlot(null), 600);
+                                                    setContextMenu(null);
+                                                }
+                                            }}
+                                            className="w-full text-left px-3 py-1.5 text-[9px] text-red-600 font-black hover:bg-red-600/20 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
+                                        >
+                                            DESTROY <span>»</span>
+                                        </button>
                                     </div>
                                 )}
                             </div>
