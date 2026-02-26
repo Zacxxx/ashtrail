@@ -694,119 +694,21 @@ export function IconGenPage() {
                                         </div>
 
                                         {/* Prompt label */}
-                                        <div className="flex-1 flex flex-col items-center overflow-visible w-full">
-                                            {editingIconFilename === icon.filename ? (
-                                                <div className="w-[180px] -mx-[30px] flex flex-col gap-3 bg-[#0c121d]/95 backdrop-blur-xl p-4 rounded-xl border border-[#E6E6FA]/30 shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-40 animate-in fade-in zoom-in duration-200">
-                                                    {/* Style Modifier */}
-                                                    <div className="space-y-1.5">
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-1.5">
-                                                                <div className="w-1 h-3 bg-[#E6E6FA] rounded-full" />
-                                                                <label className="text-[10px] text-[#E6E6FA] font-black uppercase tracking-widest">Global Style</label>
-                                                            </div>
-                                                            <div className="relative group/ref">
-                                                                <div
-                                                                    className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden cursor-pointer hover:border-[#E6E6FA]/50 transition-all shadow-inner"
-                                                                    onClick={() => document.getElementById(`local-ref-${icon.filename}`)?.click()}
-                                                                    title="Set reference image"
-                                                                >
-                                                                    {(tempIconRefImage || referenceImage) ? (
-                                                                        <img
-                                                                            src={`data:image/png;base64,${tempIconRefImage || referenceImage}`}
-                                                                            className="w-full h-full object-cover"
-                                                                            alt="ref"
-                                                                        />
-                                                                    ) : (
-                                                                        <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                                                        </svg>
-                                                                    )}
-                                                                </div>
-                                                                {(tempIconRefImage) && (
-                                                                    <button
-                                                                        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold border border-[#0c121d] hover:bg-red-400 transition-colors"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setTempIconRefImage(null);
-                                                                        }}
-                                                                    >
-                                                                        ×
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                        <textarea
-                                                            value={tempIconStyle}
-                                                            onChange={(e) => setTempIconStyle(e.target.value)}
-                                                            className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-2 text-[11px] text-gray-200 font-mono focus:outline-none focus:border-[#E6E6FA]/40 min-h-[50px] resize-none leading-relaxed transition-all placeholder:text-gray-700"
-                                                            placeholder="Style/Background modifier..."
-                                                        />
-                                                        <input
-                                                            id={`local-ref-${icon.filename}`}
-                                                            type="file"
-                                                            className="hidden"
-                                                            accept="image/*"
-                                                            onChange={handleLocalImageUpload}
-                                                        />
-                                                    </div>
-
-                                                    {/* Item Prompt */}
-                                                    <div className="space-y-1.5">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <div className="w-1 h-3 bg-emerald-500 rounded-full" />
-                                                            <label className="text-[10px] text-emerald-400 font-black uppercase tracking-widest">Item Detail</label>
-                                                        </div>
-                                                        <input
-                                                            type="text"
-                                                            value={tempIconItem}
-                                                            onChange={(e) => setTempIconItem(e.target.value)}
-                                                            className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-2 text-[12px] text-[#E6E6FA] font-mono focus:outline-none focus:border-emerald-500/40 transition-all"
-                                                            placeholder="Object name..."
-                                                        />
-                                                    </div>
-
-                                                    {/* Actions */}
-                                                    <div className="flex justify-between items-center mt-2 border-t border-white/5 pt-3">
-                                                        <button
-                                                            onClick={() => setEditingIconFilename(null)}
-                                                            className="text-[10px] text-gray-500 hover:text-gray-300 font-bold uppercase tracking-wider transition-colors"
-                                                        >
-                                                            Cancel
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleRegenerateIcon(icon)}
-                                                            disabled={regeneratingIconFilename === icon.filename || !tempIconItem.trim()}
-                                                            className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-emerald-500 text-[#070b12] text-[10px] font-black uppercase tracking-widest hover:bg-emerald-400 transition-all disabled:opacity-30 disabled:grayscale"
-                                                        >
-                                                            {regeneratingIconFilename === icon.filename ? (
-                                                                <>
-                                                                    <span className="inline-block w-3 h-3 border-2 border-[#070b12]/30 border-t-[#070b12] rounded-full animate-spin" />
-                                                                    WAIT...
-                                                                </>
-                                                            ) : (
-                                                                "⚡ REGEN"
-                                                            )}
-                                                        </button>
-                                                    </div>
+                                        <div className="flex-1 flex flex-col items-center w-full">
+                                            <p className="text-[11px] text-gray-300 text-center leading-snug line-clamp-2 w-full font-mono mb-3 px-1 min-h-[2.4em]">
+                                                {icon.itemPrompt || icon.prompt}
+                                            </p>
+                                            <button
+                                                onClick={() => startEditingIcon(icon)}
+                                                className="group/btn relative px-4 py-2 rounded-lg bg-white/[0.03] border border-white/10 transition-all hover:bg-[#E6E6FA]/10 hover:border-[#E6E6FA]/30 overflow-hidden"
+                                            >
+                                                <div className="flex items-center gap-2 text-[10px] text-[#E6E6FA] font-black uppercase tracking-widest relative z-10">
+                                                    <svg className="w-3.5 h-3.5 group-hover/btn:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                    </svg>
+                                                    Regenerate
                                                 </div>
-                                            ) : (
-                                                <>
-                                                    <p className="text-[11px] text-gray-300 text-center leading-snug line-clamp-2 w-full font-mono mb-3 px-1 min-h-[2.4em]">
-                                                        {icon.itemPrompt || icon.prompt}
-                                                    </p>
-                                                    <button
-                                                        onClick={() => startEditingIcon(icon)}
-                                                        className="group/btn relative px-4 py-2 rounded-lg bg-white/[0.03] border border-white/10 transition-all hover:bg-[#E6E6FA]/10 hover:border-[#E6E6FA]/30 overflow-hidden"
-                                                    >
-                                                        <div className="flex items-center gap-2 text-[10px] text-[#E6E6FA] font-black uppercase tracking-widest relative z-10">
-                                                            <svg className="w-3.5 h-3.5 group-hover/btn:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                                            </svg>
-                                                            Regenerate
-                                                        </div>
-                                                    </button>
-                                                </>
-                                            )}
+                                            </button>
                                         </div>
                                     </div>
                                 ))}
@@ -900,7 +802,107 @@ export function IconGenPage() {
                         </button>
                     </div>
                 </div>
-            </Modal >
-        </div >
+            </Modal>
+
+            {/* ── Icon Regeneration Frameless Overlay ── */}
+            {editingIconFilename && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="relative w-[700px] bg-[#0a1120] rounded-[24px] border border-white/10 shadow-[0_0_100px_rgba(0,0,0,0.8)] overflow-hidden animate-in fade-in zoom-in duration-200">
+                        {/* Close button - Top Right */}
+                        <button
+                            onClick={() => setEditingIconFilename(null)}
+                            className="absolute top-6 right-6 w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all z-20"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+
+                        <div className="flex p-10 gap-10">
+                            {/* Left Column */}
+                            <div className="w-[200px] shrink-0 space-y-8">
+                                <div className="relative aspect-square bg-[#E6E6FA]/5 rounded-[20px] border border-[#E6E6FA]/10 flex items-center justify-center overflow-hidden shadow-inner">
+                                    <div className="absolute inset-0 bg-gradient-to-br from-[#E6E6FA]/10 to-transparent opacity-40" />
+                                    <img
+                                        src={activeBatch?.icons.find(i => i.filename === editingIconFilename)?.url + `?t=${lastRefreshedAt}`}
+                                        className="w-32 h-32 relative z-10 drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)]"
+                                        alt="Current"
+                                    />
+                                </div>
+
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2 px-1">
+                                        <div className="w-1 h-3 bg-emerald-500 rounded-full" />
+                                        <label className="text-[10px] text-emerald-400 font-black uppercase tracking-widest">Subject</label>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        value={tempIconItem}
+                                        onChange={(e) => setTempIconItem(e.target.value)}
+                                        className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white font-medium focus:outline-none focus:border-emerald-500/40 transition-all placeholder:text-white/10"
+                                        placeholder="Item name..."
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Right Column */}
+                            <div className="flex-1 flex flex-col gap-8 pt-2">
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between px-1">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1 h-3 bg-[#E6E6FA] rounded-full" />
+                                            <label className="text-[10px] text-[#E6E6FA] font-black uppercase tracking-widest">Global Style</label>
+                                        </div>
+                                        <div className="relative">
+                                            <div
+                                                className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center cursor-pointer hover:border-[#E6E6FA]/40 hover:bg-white/10 transition-all shadow-lg overflow-hidden group/ref"
+                                                onClick={() => document.getElementById(`modal-ref-upload`)?.click()}
+                                            >
+                                                {(tempIconRefImage || referenceImage) ? (
+                                                    <img src={`data:image/png;base64,${tempIconRefImage || referenceImage}`} className="w-full h-full object-cover" alt="ref" />
+                                                ) : (
+                                                    <svg className="w-4 h-4 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                    </svg>
+                                                )}
+                                            </div>
+                                            <input id="modal-ref-upload" type="file" className="hidden" onChange={handleLocalImageUpload} />
+                                        </div>
+                                    </div>
+                                    <textarea
+                                        value={tempIconStyle}
+                                        onChange={(e) => setTempIconStyle(e.target.value)}
+                                        className="w-full bg-[#070b12]/50 border border-white/10 rounded-2xl px-5 py-4 text-[12px] text-white/50 font-mono focus:outline-none focus:border-[#E6E6FA]/40 min-h-[160px] resize-none leading-relaxed transition-all shadow-inner custom-scrollbar"
+                                        placeholder="Artistic parameters..."
+                                    />
+                                </div>
+
+                                <div className="flex items-center justify-between pt-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-2 h-2 rounded-full ${tempIconItem.trim() ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-white/10'}`} />
+                                        <span className="text-[9px] text-white/20 font-black uppercase tracking-[0.2em]">
+                                            {tempIconItem.trim() ? 'Ready' : 'Awaiting subject'}
+                                        </span>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const icon = activeBatch?.icons.find(i => i.filename === editingIconFilename);
+                                            if (icon) handleRegenerateIcon(icon);
+                                        }}
+                                        disabled={regeneratingIconFilename === editingIconFilename || !tempIconItem.trim()}
+                                        className={`px-10 py-3 rounded-xl text-[11px] font-black uppercase tracking-[0.2em] transition-all ${regeneratingIconFilename === editingIconFilename
+                                            ? "bg-white/5 text-white/10 cursor-not-allowed"
+                                            : "bg-white text-[#070b12] hover:bg-[#E6E6FA] shadow-[0_10px_40px_rgba(255,255,255,0.1)] hover:-translate-y-0.5"
+                                            }`}
+                                    >
+                                        {regeneratingIconFilename === editingIconFilename ? "..." : "⚡ Regenerate"}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 }
