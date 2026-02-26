@@ -67,6 +67,27 @@ export interface Item {
   effects?: GameplayEffect[];
 }
 
+export type SkillTargetType = 'enemy' | 'ally' | 'self' | 'cell';
+export type SkillAreaType = 'single' | 'cross' | 'circle' | 'line';
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  apCost: number;
+  minRange: number;
+  maxRange: number;
+  areaType: SkillAreaType;
+  areaSize: number;       // radius for circle, length for line/cross, 0 for single
+  targetType: SkillTargetType;
+  damage?: number;         // Base damage (scaled by strength)
+  healing?: number;        // Base healing
+  cooldown: number;        // Turns between uses (0 = no cooldown)
+  effectType?: 'physical' | 'magical' | 'support';
+  pushDistance?: number;   // Cells to push target away (Dofus-style displacement)
+  icon?: string;           // Emoji icon for quick display
+}
+
 export interface Character {
   id: string;
   isNPC?: boolean;
@@ -78,6 +99,7 @@ export interface Character {
   portraitUrl?: string;
   stats: Stats;
   traits: Trait[];
+  skills?: Skill[];
   occupation?: Occupation;
   hp: number;
   maxHp: number;

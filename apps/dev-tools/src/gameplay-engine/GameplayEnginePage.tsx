@@ -116,7 +116,7 @@ export function GameplayEnginePage() {
                 </aside>
 
                 {/* Center Canvas Wrapper */}
-                <div className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ${activeStep === "CHARACTER" || activeStep === "COMBAT" ? "ml-[510px]" : "ml-0 justify-center items-center"}`}>
+                <div className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ${activeStep === "CHARACTER" ? "ml-[510px]" : "ml-0 justify-center items-center"}`}>
                     {activeStep === "CHARACTER" && (
                         <div className="w-full h-full bg-[#030508] rounded-xl border border-white/5 overflow-hidden shadow-2xl relative flex flex-col items-center justify-center p-8">
                             {/* Detail View Container */}
