@@ -246,6 +246,24 @@ export function CharacterBuilderPage() {
                     .animate-dust-lash {
                         animation: dustLash 0.6s ease-out forwards;
                     }
+
+                    /* Rarity Styles (Border focused) */
+                    .rarity-salvaged { border-color: #d1d5db; --rarity-color: #f3f4f6; }
+                    .rarity-reinforced { border-color: #475569; --rarity-color: #94a3b8; }
+                    .rarity-pre-ash { border-color: #0c4a6e; --rarity-color: #0ea5e9; }
+                    .rarity-specialized { border-color: #4c1d95; --rarity-color: #a855f7; }
+                    .rarity-relic { border-color: #92400e; --rarity-color: #f59e0b; }
+                    
+                    @keyframes ashRipple {
+                        0% { border-color: #450a0a; box-shadow: inset 0 0 5px rgba(69,10,10,0.4); }
+                        50% { border-color: #991b1b; box-shadow: inset 0 0 12px rgba(153,27,27,0.6); }
+                        100% { border-color: #450a0a; box-shadow: inset 0 0 5px rgba(69,10,10,0.4); }
+                    }
+                    .rarity-ashmarked { 
+                        border-color: #450a0a; 
+                        animation: ashRipple 3s ease-in-out infinite;
+                        --rarity-color: #ef4444;
+                    }
                 `}</style>
 
                 {/* Left: Saved Characters Sidebar */}
@@ -573,67 +591,111 @@ export function CharacterBuilderPage() {
                                             key={activeBagIndex}
                                             className="grid grid-cols-10 gap-2 relative z-10 animate-ash-settling"
                                         >
-                                            {Array.from({ length: 40 }).map((_, idx) => (
-                                                <div
-                                                    key={idx}
-                                                    onClick={() => setSelectedSlotIndex(idx)}
-                                                    onContextMenu={(e) => {
-                                                        e.preventDefault();
-                                                        const rect = e.currentTarget.getBoundingClientRect();
-                                                        const root = document.getElementById('inventory-view-root');
-                                                        const rootRect = root?.getBoundingClientRect() || { left: 0, top: 0 };
+                                            {Array.from({ length: 40 }).map((_, idx) => {
+                                                // Mock Rarity for Testing
+                                                const rarities: ("salvaged" | "reinforced" | "pre-ash" | "specialized" | "relic" | "ashmarked" | "none")[] = [
+                                                    "salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked",
+                                                    "none", "none", "none", "none"
+                                                ];
+                                                const itemRarity = idx < rarities.length ? rarities[idx] : "none";
 
-                                                        // Calculate position relative to the scrollable root
-                                                        // We add root.scrollTop to ensure it follows the scrolling if necessary
-                                                        const scrollOffset = root?.scrollTop || 0;
+                                                const rarityClasses = {
+                                                    salvaged: "rarity-salvaged bg-black/60",
+                                                    reinforced: "rarity-reinforced bg-black/60",
+                                                    "pre-ash": "rarity-pre-ash bg-black/60",
+                                                    specialized: "rarity-specialized bg-black/60",
+                                                    relic: "rarity-relic bg-black/60",
+                                                    ashmarked: "rarity-ashmarked bg-black/60",
+                                                    none: "border-white/5 hover:border-[#c2410c]/40 bg-black/60"
+                                                };
 
-                                                        setContextMenu({
-                                                            x: rect.right - rootRect.left + 1, // Glued: 1px gap
-                                                            y: rect.top - rootRect.top + scrollOffset,
-                                                            slotIndex: idx
-                                                        });
-                                                        setSelectedSlotIndex(idx);
-                                                    }}
-                                                    className={`aspect-square bg-black/60 border flex items-center justify-center relative group cursor-pointer transition-all
-                                                        ${selectedSlotIndex === idx ? "border-[#c2410c] bg-[#c2410c]/5 shadow-[inset_0_0_8px_rgba(194,65,12,0.1)]" : "border-white/5 hover:border-[#c2410c]/40"}
-                                                        ${animatingSlot?.index === idx && animatingSlot.type === 'destroy' ? 'animate-item-destroy z-50 pointer-events-none' : ''}
-                                                        ${animatingSlot?.index === idx && animatingSlot.type === 'throw' ? 'animate-item-throw z-50 pointer-events-none' : ''}
-                                                    `}
-                                                >
-                                                    <div className="absolute top-0 left-0 w-0.5 h-0.5 bg-white/10" />
-                                                    <div className="absolute bottom-0 right-0 w-0.5 h-0.5 bg-white/10" />
+                                                return (
+                                                    <div
+                                                        key={idx}
+                                                        onClick={() => setSelectedSlotIndex(idx)}
+                                                        onContextMenu={(e) => {
+                                                            e.preventDefault();
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            const root = document.getElementById('inventory-view-root');
+                                                            const rootRect = root?.getBoundingClientRect() || { left: 0, top: 0 };
 
-                                                    {selectedSlotIndex === idx && (
-                                                        <div className="absolute inset-x-0 bottom-0 h-0.5 bg-[#c2410c]" />
-                                                    )}
+                                                            const scrollOffset = root?.scrollTop || 0;
 
-                                                    <div className={`text-[8px] font-black transition-colors uppercase ${selectedSlotIndex === idx ? "text-[#c2410c]" : "text-gray-900 group-hover:text-gray-700"}`}>
-                                                        {idx < 9 ? `0${idx + 1}` : idx + 1}
-                                                    </div>
+                                                            setContextMenu({
+                                                                x: rect.right - rootRect.left + 1,
+                                                                y: rect.top - rootRect.top + scrollOffset,
+                                                                slotIndex: idx
+                                                            });
+                                                            setSelectedSlotIndex(idx);
+                                                        }}
+                                                        className={`aspect-square border flex items-center justify-center relative group cursor-pointer transition-all 
+                                                            ${selectedSlotIndex === idx ? "border-[#c2410c] shadow-[inset_0_0_8px_rgba(194,65,12,0.1)]" : rarityClasses[itemRarity]}
+                                                            ${animatingSlot?.index === idx && animatingSlot.type === 'destroy' ? 'animate-item-destroy z-50 pointer-events-none' : ''}
+                                                            ${animatingSlot?.index === idx && animatingSlot.type === 'throw' ? 'animate-item-throw z-50 pointer-events-none' : ''}
+                                                        `}
+                                                    >
+                                                        <div className="absolute top-0 left-0 w-0.5 h-0.5 bg-white/10" />
+                                                        <div className="absolute bottom-0 right-0 w-0.5 h-0.5 bg-white/10" />
 
-                                                    {/* Glass Shatter effect overlay */}
-                                                    {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
-                                                        <div className="absolute inset-0 z-50 pointer-events-none opacity-60">
-                                                            <svg viewBox="0 0 100 100" className="w-full h-full stroke-[#c2410c] stroke-[0.5] fill-none">
-                                                                <path d="M0,0 L50,55 L100,20 M50,55 L30,100 M50,55 L100,80 M20,0 L50,55 M0,70 L50,55 M50,55 L80,0" />
-                                                                <circle cx="50" cy="55" r="1.5" className="fill-[#c2410c]" />
-                                                            </svg>
+                                                        {selectedSlotIndex === idx && (
+                                                            <div className="absolute inset-x-0 bottom-0 h-0.5 bg-[#c2410c] z-20" />
+                                                        )}
+
+                                                        {/* Rarity Bar (Subtle) */}
+                                                        {itemRarity !== "none" && (
+                                                            <div className={`absolute inset-x-0 bottom-0 h-px opacity-40 z-10 
+                                                                ${itemRarity === 'salvaged' ? 'bg-gray-300' :
+                                                                    itemRarity === 'reinforced' ? 'bg-slate-500' :
+                                                                        itemRarity === 'pre-ash' ? 'bg-sky-600' :
+                                                                            itemRarity === 'specialized' ? 'bg-violet-800' :
+                                                                                itemRarity === 'relic' ? 'bg-amber-700' :
+                                                                                    'bg-red-900'}`}
+                                                            />
+                                                        )}
+
+                                                        {/* Ashmarked permanent ripple effect */}
+                                                        {itemRarity === "ashmarked" && (
+                                                            <div className="absolute inset-0 rounded-sm pointer-events-none ashmarked-permanent-ripple opacity-20" />
+                                                        )}
+
+                                                        <div className={`text-[8px] font-black transition-colors uppercase relative z-10 ${selectedSlotIndex === idx ? "text-[#c2410c]" : "text-gray-900 group-hover:text-gray-700"}`}>
+                                                            {idx < 9 ? `0${idx + 1}` : idx + 1}
                                                         </div>
-                                                    )}
 
-                                                    {/* Dust Sweep overlay for Throw effect */}
-                                                    {animatingSlot?.index === idx && animatingSlot.type === 'throw' && (
-                                                        <div
-                                                            className="absolute inset-0 z-50 pointer-events-none animate-dust-lash overflow-hidden"
-                                                            style={{
-                                                                background: 'linear-gradient(90deg, transparent, rgba(194, 65, 12, 0.6), rgba(75, 85, 99, 0.8), transparent)',
-                                                                width: '300%',
-                                                                filter: 'blur(10px)'
-                                                            }}
-                                                        />
-                                                    )}
-                                                </div>
-                                            ))}
+                                                        {/* Fragmentation particles for Destroy effect (Explosion) */}
+                                                        {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
+                                                            <div className="absolute inset-0 z-50 pointer-events-none flex items-center justify-center">
+                                                                <div className="absolute inset-0 bg-white/20 animate-ping duration-300" />
+                                                                <div className="w-full h-full border-4 border-[#c2410c]/40 animate-ping delay-100" />
+                                                                {/* Cracking overlays */}
+                                                                <div className="absolute inset-0 opacity-40 mix-blend-overlay bg-[url('https://www.transparenttextures.com/patterns/pinstriped-suit.png')] animate-pulse" />
+                                                            </div>
+                                                        )}
+
+                                                        {/* Dust Sweep overlay for Throw effect */}
+                                                        {animatingSlot?.index === idx && animatingSlot.type === 'throw' && (
+                                                            <div
+                                                                className="absolute inset-0 z-50 pointer-events-none animate-dust-lash overflow-hidden"
+                                                                style={{
+                                                                    background: 'linear-gradient(90deg, transparent, rgba(194, 65, 12, 0.6), rgba(75, 85, 99, 0.8), transparent)',
+                                                                    width: '300%',
+                                                                    filter: 'blur(10px)'
+                                                                }}
+                                                            />
+                                                        )}
+
+                                                        {/* Glass Shatter effect overlay */}
+                                                        {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
+                                                            <div className="absolute inset-0 z-50 pointer-events-none opacity-60">
+                                                                <svg viewBox="0 0 100 100" className="w-full h-full stroke-[#c2410c] stroke-[0.5] fill-none">
+                                                                    <path d="M0,0 L50,55 L100,20 M50,55 L30,100 M50,55 L100,80 M20,0 L50,55 M0,70 L50,55 M50,55 L80,0" />
+                                                                    <circle cx="50" cy="55" r="1.5" className="fill-[#c2410c]" />
+                                                                </svg>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                         <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%)] bg-[size:100%_2px] z-20 opacity-10" />
                                     </div>
