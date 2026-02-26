@@ -17,6 +17,38 @@ const TOOLS = [
         status: "WIP",
         color: "bg-amber-500",
     },
+    {
+        id: "travel",
+        name: "Node Travel",
+        description: "Explore the connected graph of system nodes, packets, and jump gates.",
+        icon: "🚀",
+        status: "PLANNED",
+        color: "bg-indigo-500",
+    },
+    {
+        id: "gallery",
+        name: "Planet Explorer",
+        description: "Explore locally generated planets, inspect history, and extract raw assets.",
+        icon: "🌌",
+        status: "STABLE",
+        color: "bg-teal-500",
+    },
+    {
+        id: "gameplay-engine",
+        name: "Gameplay Engine",
+        description: "Explore and define the rules for Exploration, Events, Combat, and Character.",
+        icon: "⚙️",
+        status: "WIP",
+        color: "bg-orange-500",
+    },
+    {
+        id: "character-builder",
+        name: "Character Builder",
+        description: "Create, edit, and export characters, NPCs, and archetypes.",
+        icon: "👤",
+        status: "WIP",
+        color: "bg-indigo-500",
+    }
 ];
 
 export function App() {

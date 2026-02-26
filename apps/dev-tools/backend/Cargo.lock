@@ -450,6 +450,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "worldgen-core",
 ]
 
 [[package]]
@@ -3023,6 +3024,18 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser",
+]
+
+[[package]]
+name = "worldgen-core"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "rand 0.8.5",
+ "rand_pcg",
+ "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

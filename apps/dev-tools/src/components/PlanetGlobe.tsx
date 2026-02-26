@@ -147,51 +147,71 @@ export function PlanetGlobe({ world, onCellHover, onCellClick, showHexGrid }: Pl
       const imageData = ctx.getImageData(0, 0, w, h);
       const src = imageData.data;
 
-      // Convert color → elevation heuristic:
-      // Deep ocean (blue-dominant) → 0.0
-      // Shallow water → 0.15
-      // Lowland green → 0.3
-      // Highland brown → 0.55
-      // Mountain gray → 0.75
-      // Snow/ice white → 0.95
-      for (let i = 0; i < src.length; i += 4) {
-        const r = src[i] / 255;
-        const g = src[i + 1] / 255;
-        const b = src[i + 2] / 255;
-        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+      const rawElevations = new Float32Array(w * h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const r = src[i] / 255;
+          const g = src[i + 1] / 255;
+          const b = src[i + 2] / 255;
+          const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+          let elevation: number;
 
-        let elevation: number;
-
-        // Ocean detection: blue is dominant channel
-        const isWater = b > r * 1.15 && b > g * 1.05 && luminance < 0.55;
-        if (isWater) {
-          // Map deep blue → 0.0, lighter blue → 0.15
-          elevation = luminance * 0.3;
-        } else {
-          // Land: use luminance but boost contrast
-          // Green lowlands → mid, brown highlands → higher, white peaks → highest
-          const greenness = g - Math.max(r, b);
-          if (greenness > 0.05) {
-            // Vegetation: moderate elevation
-            elevation = 0.25 + luminance * 0.35;
-          } else if (luminance > 0.75) {
-            // Snow/ice/peaks
-            elevation = 0.7 + (luminance - 0.75) * 1.2;
+          const isWater = b > r * 1.15 && b > g * 1.05 && luminance < 0.55;
+          if (isWater) {
+            elevation = 0.1 + luminance * 0.15;
           } else {
-            // Brown/gray terrain
-            elevation = 0.3 + luminance * 0.5;
+            const greenness = g - Math.max(r, b);
+            if (greenness > 0.05) {
+              elevation = 0.2 + luminance * 0.2;
+            } else if (luminance > 0.7) {
+              elevation = 0.35 + (luminance - 0.7) * 0.4;
+            } else {
+              elevation = 0.25 + luminance * 0.25;
+            }
           }
+          rawElevations[y * w + x] = elevation;
         }
-
-        const v = Math.min(255, Math.max(0, Math.round(elevation * 255)));
-        src[i] = v;
-        src[i + 1] = v;
-        src[i + 2] = v;
-        // alpha stays 255
       }
 
+      // Write the raw unblurred elevations back to the canvas
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const elevation = rawElevations[y * w + x];
+          const v = Math.min(255, Math.max(0, Math.round(elevation * 255)));
+          const i = (y * w + x) * 4;
+          src[i] = v;
+          src[i + 1] = v;
+          src[i + 2] = v;
+          src[i + 3] = 255;
+        }
+      }
       ctx.putImageData(imageData, 0, 0);
-      const tex = new THREE.CanvasTexture(canvas);
+
+      // Create a seamless wrapping canvas for blur to prevent globe seams
+      const wrapCanvas = document.createElement("canvas");
+      wrapCanvas.width = w * 3;
+      wrapCanvas.height = h;
+      const wctx = wrapCanvas.getContext("2d")!;
+      wctx.drawImage(canvas, 0, 0);
+      wctx.drawImage(canvas, w, 0);
+      wctx.drawImage(canvas, w * 2, 0);
+
+      const blurCanvas = document.createElement("canvas");
+      blurCanvas.width = w * 3;
+      blurCanvas.height = h;
+      const bctx = blurCanvas.getContext("2d")!;
+      bctx.filter = "blur(12px)";
+      bctx.drawImage(wrapCanvas, 0, 0);
+
+      // Extract only the middle segment (the blurred original bounds)
+      const finalCanvas = document.createElement("canvas");
+      finalCanvas.width = w;
+      finalCanvas.height = h;
+      const fctx = finalCanvas.getContext("2d")!;
+      fctx.drawImage(blurCanvas, -w, 0);
+
+      const tex = new THREE.CanvasTexture(finalCanvas);
       tex.wrapS = THREE.RepeatWrapping;
       tex.wrapT = THREE.ClampToEdgeWrapping;
       tex.needsUpdate = true;
@@ -205,16 +225,27 @@ export function PlanetGlobe({ world, onCellHover, onCellClick, showHexGrid }: Pl
       const loader = new THREE.TextureLoader();
       loader.setCrossOrigin("anonymous");
       const texture = loader.load(world.textureUrl, (loadedTex) => {
-        // Once the color texture is loaded, derive the heightmap from it
-        try {
-          const heightmap = generateHeightmapFromImage(loadedTex.image);
-          globeMaterial.displacementMap = heightmap;
-          globeMaterial.displacementScale = 0.06;
-          globeMaterial.bumpMap = heightmap;
-          globeMaterial.bumpScale = 0.04;
-          globeMaterial.needsUpdate = true;
-        } catch (e) {
-          console.warn("Failed to generate heightmap due to CORS or tainted canvas:", e);
+        if (world.heightmapUrl) {
+          loader.load(world.heightmapUrl, (heightTex) => {
+            heightTex.colorSpace = THREE.LinearSRGBColorSpace;
+            globeMaterial.displacementMap = heightTex;
+            globeMaterial.displacementScale = 0.3; // Exaggerate true topo slightly
+            globeMaterial.bumpMap = heightTex;
+            globeMaterial.bumpScale = 0.05;
+            globeMaterial.needsUpdate = true;
+          });
+        } else {
+          // Once the color texture is loaded, derive the heightmap from it
+          try {
+            const heightmap = generateHeightmapFromImage(loadedTex.image);
+            globeMaterial.displacementMap = heightmap;
+            globeMaterial.displacementScale = 0.06;
+            globeMaterial.bumpMap = heightmap;
+            globeMaterial.bumpScale = 0.04;
+            globeMaterial.needsUpdate = true;
+          } catch (e) {
+            console.warn("Failed to generate heightmap due to CORS or tainted canvas:", e);
+          }
         }
       });
       texture.colorSpace = THREE.SRGBColorSpace;

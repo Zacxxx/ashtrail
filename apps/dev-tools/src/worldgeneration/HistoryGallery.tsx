@@ -80,9 +80,14 @@ export function HistoryGallery({
                             <p className="text-[10px] text-gray-200 line-clamp-2 font-medium leading-relaxed drop-shadow-md">{item.prompt}</p>
                             <div className="flex justify-between items-center mt-2">
                                 <p className="text-[8px] font-bold tracking-widest text-gray-400">{new Date(item.timestamp).toLocaleDateString()}</p>
-                                <p className="text-[8px] font-bold tracking-widest text-[#E6E6FA] bg-black/50 px-2 py-0.5 rounded">
-                                    {1 + (textureVariants.get(item.id)?.length || 0)} Textures
-                                </p>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-[8px] font-mono tracking-widest text-[#E6E6FA] bg-black/50 px-2 py-0.5 rounded opacity-70">
+                                        ID: {item.id.substring(0, 8)}
+                                    </p>
+                                    <p className="text-[8px] font-bold tracking-widest text-[#E6E6FA] bg-black/50 px-2 py-0.5 rounded">
+                                        {1 + (textureVariants.get(item.id)?.length || 0)} Textures
+                                    </p>
+                                </div>
                             </div>
                         </div>
                         <button
@@ -114,7 +119,10 @@ export function HistoryGallery({
                         )}
                         <div className="relative p-3 bg-black/70 backdrop-blur-sm pointer-events-none mt-auto">
                             <p className="text-[10px] text-gray-200 truncate">{variant.prompt || "Upscaled Variant"}</p>
-                            <p className="text-[8px] font-bold tracking-widest text-gray-500 mt-1">{new Date(variant.timestamp).toLocaleDateString()}</p>
+                            <div className="flex justify-between items-center mt-1">
+                                <p className="text-[8px] font-bold tracking-widest text-gray-500">{new Date(variant.timestamp).toLocaleDateString()}</p>
+                                <p className="text-[8px] font-mono tracking-widest text-gray-400 opacity-70">ID: {variant.id.substring(0, 8)}</p>
+                            </div>
                         </div>
                     </div>
                 ))}

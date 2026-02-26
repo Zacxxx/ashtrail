@@ -25,6 +25,7 @@ pub struct GenerateTerrainResponse {
     pub cell_data: Vec<TerrainCell>,
     pub cell_colors: Vec<String>,
     pub texture_url: Option<String>,
+    pub heightmap_url: Option<String>,
 }
 
 pub fn request_cache_key(request: &GenerateTerrainRequest) -> Result<String, String> {
@@ -102,6 +103,7 @@ where
         cell_data: world.cells,
         cell_colors,
         texture_url: None, // Used in hybrid
+        heightmap_url: None,
     })
 }
 
@@ -144,5 +146,6 @@ where
         cell_data: world.cells,
         cell_colors,
         texture_url: Some(data_url),
+        heightmap_url: None, // Will be filled dynamically by the API
     })
 }

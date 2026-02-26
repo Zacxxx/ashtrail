@@ -26,6 +26,15 @@ export interface Stats {
   charisma: number;
 }
 
+export type EffectType = 'STAT_MODIFIER' | 'COMBAT_BONUS' | 'RESOURCE_MODIFIER' | 'EXPLORATION_BONUS';
+
+export interface GameplayEffect {
+  type: EffectType;
+  target?: string; // e.g. 'maxHp', 'strength', 'evasion', 'food'
+  value: number;
+  trigger?: 'passive' | 'on_hit' | 'on_turn_start' | 'on_defend';
+}
+
 export interface Trait {
   id: string;
   name: string;
@@ -33,6 +42,7 @@ export interface Trait {
   cost: number; // Positive costs points, negative gives points (negative cost)
   type: 'positive' | 'negative' | 'neutral';
   impact?: string;
+  effects?: GameplayEffect[];
 }
 
 export type OccupationCategory = 'SECURITY' | 'TECHNICAL' | 'CRAFT' | 'ADMIN' | 'SOCIAL' | 'FIELD';
@@ -46,15 +56,20 @@ export interface Occupation {
   perks: string[];
 }
 
+export type ItemCategory = "weapon" | "tool" | "armor" | "consumable" | "relic";
+
 export interface Item {
   id: string;
   name: string;
-  type: 'weapon' | 'tool' | 'armor' | 'consumable' | 'relic';
+  category: ItemCategory;
   description: string;
-  effect?: string;
+  cost: number;
+  effects?: GameplayEffect[];
 }
 
-export interface Player {
+export interface Character {
+  id: string;
+  isNPC?: boolean;
   name: string;
   age: number;
   gender: string;
@@ -70,6 +85,9 @@ export interface Player {
   level: number;
   inventory: Item[];
 }
+
+/** @deprecated Use `Character` instead. Kept for backward compatibility. */
+export type Player = Character;
 
 export interface CrewMember {
   id: string;
@@ -125,7 +143,7 @@ export interface GameState {
   day: number;
   ap: number;
   maxAp: number;
-  player: Player;
+  player: Character;
   resources: Resources;
   heat: number;
   location: Node;

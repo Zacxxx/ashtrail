@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { PlanetGlobe } from "../components/PlanetGlobe";
+import { PlanetMap3D } from "../components/PlanetMap3D";
 import { PlanetMap2D, type MapTransform } from "../components/PlanetMap2D";
 import type { TerrainCell } from "../modules/geo/types";
 import type { PlanetWorld, ViewMode, WorkflowStep, GeographyTool, RegionType, GeoRegion } from "./types";
-import { RegionOverlay } from "./RegionOverlay";
+import { ProvinceMapView } from "./ProvinceMapView";
 
 interface GeographyHook {
     regions: GeoRegion[];
@@ -25,9 +26,16 @@ interface WorldCanvasProps {
     geographyTool?: GeographyTool;
     activeRegionType?: RegionType;
     geography?: GeographyHook;
-    geographyTab?: "regions" | "cells";
+    geographyTab?: "regions" | "cells" | "pipeline" | "inspector";
+    geoHoveredId?: number | null;
+    geoSelectedId?: number | null;
+    setGeoHoveredId?: (id: number | null) => void;
+    setGeoSelectedId?: (id: number | null) => void;
+    inspectorLayer?: any;
+    setInspectorLayer?: (layer: any) => void;
     isMaxView?: boolean;
     setIsMaxView?: (v: boolean) => void;
+    activeHistoryId?: string | null;
 }
 
 export function WorldCanvas({
@@ -41,10 +49,16 @@ export function WorldCanvas({
     activeRegionType = "continent",
     geography,
     geographyTab = "regions",
+    geoHoveredId,
+    geoSelectedId,
+    setGeoHoveredId,
+    setGeoSelectedId,
+    inspectorLayer,
+    setInspectorLayer,
     isMaxView = false,
     setIsMaxView,
+    activeHistoryId,
 }: WorldCanvasProps) {
-    const showGeographyOverlay = activeStep === "GEOGRAPHY" && viewMode === "2d" && globeWorld && geography && geographyTab === "regions";
     const [mapTransform, setMapTransform] = useState<MapTransform>({ x: 0, y: 0, scale: 1 });
 
     // Helper block to keep JSX clean
@@ -83,24 +97,6 @@ export function WorldCanvas({
                     onCellHover={onCellHover}
                     onCellClick={onCellClick}
                 />
-                {/* Geography Region Overlay */}
-                {showGeographyOverlay && (
-                    <RegionOverlay
-                        regions={geography.regions}
-                        activeTool={geographyTool}
-                        activeRegionType={activeRegionType}
-                        selectedRegionId={geography.selectedRegionId}
-                        hoveredRegionId={geography.hoveredRegionId}
-                        onAddRegion={geography.addRegion}
-                        onSelectRegion={geography.setSelectedRegionId}
-                        onHoverRegion={geography.setHoveredRegionId}
-                        findRegionAtPoint={geography.findRegionAtPoint}
-                        transform={mapTransform}
-                        originalWidth={globeWorld.cols}
-                        originalHeight={globeWorld.rows}
-                        textureUrl={globeWorld.textureUrl}
-                    />
-                )}
             </div>
         );
     };
@@ -134,12 +130,47 @@ export function WorldCanvas({
         );
     };
 
+    const renderPlane3DMap = () => {
+        if (!globeWorld) {
+            return (
+                <div className="w-full h-full rounded-2xl border border-white/5 bg-[#1e1e1e]/40 backdrop-blur-md flex flex-col items-center justify-center text-[10px] tracking-widest text-gray-500 gap-4">
+                    <div className="w-24 h-24 border border-white/5 rounded-full flex items-center justify-center">
+                        <div className="w-16 h-16 border border-white/10 rounded-full animate-[spin_10s_linear_infinite]" />
+                    </div>
+                    INITIALIZE GENERATOR ENGINE
+                </div>
+            );
+        }
+
+        return (
+            <div className="w-full h-full rounded-2xl border border-white/5 overflow-hidden relative bg-black/50 shadow-2xl">
+                <PlanetMap3D world={globeWorld} onCellHover={onCellHover} onCellClick={onCellClick} showHexGrid={showHexGrid} />
+            </div>
+        );
+    };
+
+    const renderProvinceMap = () => {
+        return (
+            <ProvinceMapView
+                planetId={activeHistoryId || null}
+                baseTextureUrl={globeWorld?.textureUrl || null}
+                geographyTab={geographyTab}
+                hoveredId={geoHoveredId ?? null}
+                selectedId={geoSelectedId ?? null}
+                onHover={setGeoHoveredId}
+                onClick={setGeoSelectedId}
+                activeLayer={inspectorLayer}
+                onLayerChange={setInspectorLayer}
+            />
+        );
+    };
+
     return (
         <main className="flex-1 flex flex-col relative bg-transparent rounded-3xl m-4 overflow-hidden shadow-2xl border border-white/5 z-0">
             <div className="absolute inset-0 bg-[#1e1e1e]" />
 
             <div className="flex-1 flex p-2 transition-all overflow-hidden z-10 w-full h-full">
-                {viewMode === "2d" ? render2DMap() : render3DGlobe()}
+                {viewMode === "2d" ? render2DMap() : viewMode === "map3d" ? renderPlane3DMap() : viewMode === "provinces" ? renderProvinceMap() : render3DGlobe()}
             </div>
         </main>
     );

@@ -4,11 +4,19 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { App } from "./App";
 import { WorldGenPage } from "./worldgeneration";
 import { IconGenPage } from "./icongen";
+import { TravelPage } from "./travel";
+import { GalleryPage } from "./gallery";
+import { GameplayEnginePage } from "./gameplay-engine";
+import { CharacterBuilderPage } from "./character-builder";
 
 const router = createBrowserRouter([
     { path: "/", element: <App /> },
     { path: "/worldgen", element: <WorldGenPage /> },
     { path: "/icon-generation", element: <IconGenPage /> },
+    { path: "/travel", element: <TravelPage /> },
+    { path: "/gallery", element: <GalleryPage /> },
+    { path: "/gameplay-engine", element: <GameplayEnginePage /> },
+    { path: "/character-builder", element: <CharacterBuilderPage /> },
 ]);
 
 createRoot(document.getElementById("root")!).render(
