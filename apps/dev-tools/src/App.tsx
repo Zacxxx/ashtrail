@@ -33,6 +33,14 @@ const TOOLS = [
         status: "STABLE",
         color: "bg-teal-500",
     },
+    {
+        id: "gameplay-engine",
+        name: "Gameplay Engine",
+        description: "Explore and define the rules for Exploration, Events, Combat, and Character.",
+        icon: "⚙️",
+        status: "WIP",
+        color: "bg-orange-500",
+    }
 ];
 
 export function App() {

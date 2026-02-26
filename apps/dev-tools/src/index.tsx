@@ -6,6 +6,7 @@ import { WorldGenPage } from "./worldgeneration";
 import { IconGenPage } from "./icongen";
 import { TravelPage } from "./travel";
 import { GalleryPage } from "./gallery";
+import { GameplayEnginePage } from "./gameplay-engine";
 
 const router = createBrowserRouter([
     { path: "/", element: <App /> },
@@ -13,6 +14,7 @@ const router = createBrowserRouter([
     { path: "/icon-generation", element: <IconGenPage /> },
     { path: "/travel", element: <TravelPage /> },
     { path: "/gallery", element: <GalleryPage /> },
+    { path: "/gameplay-engine", element: <GameplayEnginePage /> },
 ]);
 
 createRoot(document.getElementById("root")!).render(
