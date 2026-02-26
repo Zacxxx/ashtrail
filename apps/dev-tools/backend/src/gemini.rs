@@ -84,7 +84,7 @@ struct GeminiError {
     message: String,
 }
 
-pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>, cols: u32, rows: u32) -> Result<Vec<u8>, (StatusCode, String)> {
+pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>, cols: u32, rows: u32, aspect_ratio: Option<&str>) -> Result<Vec<u8>, (StatusCode, String)> {
     let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
         let msg = "GEMINI_API_KEY environment variable not set";
         error!(msg);
@@ -116,7 +116,7 @@ pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>, cols: 
             response_modalities: vec!["IMAGE".to_string()],
             temperature,
             image_config: Some(ImageConfig {
-                aspect_ratio: None,
+                aspect_ratio: aspect_ratio.map(|s| s.to_string()),
                 image_size: Some(image_size),
             }),
         },
@@ -246,7 +246,7 @@ pub async fn generate_text(prompt: &str) -> Result<String, (StatusCode, String)>
     ))
 }
 
-pub async fn generate_image_edit_bytes(prompt: &str, image_base64: &str, mime_type: &str, temperature: Option<f32>) -> Result<Vec<u8>, (StatusCode, String)> {
+pub async fn generate_image_edit_bytes(prompt: &str, image_base64: &str, mime_type: &str, temperature: Option<f32>, aspect_ratio: Option<&str>) -> Result<Vec<u8>, (StatusCode, String)> {
     let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
         let msg = "GEMINI_API_KEY environment variable not set";
         error!(msg);
@@ -279,7 +279,10 @@ pub async fn generate_image_edit_bytes(prompt: &str, image_base64: &str, mime_ty
         generation_config: GenerationConfig {
             response_modalities: vec!["IMAGE".to_string()],
             temperature,
-            image_config: None,
+            image_config: Some(ImageConfig {
+                aspect_ratio: aspect_ratio.map(|s| s.to_string()),
+                image_size: None,
+            }),
         },
     };
 

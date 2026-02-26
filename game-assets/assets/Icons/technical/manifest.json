@@ -1,0 +1,37 @@
+{
+  "batchId": "technical",
+  "batchName": "Technical",
+  "createdAt": "2026-02-25T16:13:20.780416600+00:00",
+  "icons": [
+    {
+      "filename": "000.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns engine cog",
+      "url": "/api/icons/technical/000.png"
+    },
+    {
+      "filename": "001.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns blueprint gear",
+      "url": "/api/icons/technical/001.png"
+    },
+    {
+      "filename": "002.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns power core",
+      "url": "/api/icons/technical/002.png"
+    },
+    {
+      "filename": "003.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns welding torch",
+      "url": "/api/icons/technical/003.png"
+    },
+    {
+      "filename": "004.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns crushed engine",
+      "url": "/api/icons/technical/004.png"
+    },
+    {
+      "filename": "005.png",
+      "prompt": "minimalist monochrome post-apocalyptic emblem, flat vector, high contrast, symmetrical, single central symbol, isolated icon, transparent edges, solid background color #1e1e1e, uniform icon scale, consistent sizing, centered composition, clean negative space, no sacred geometry, no mandala, no decorative circles, no runes, no glyphs, no glow, no gradients, no shadows, no background patterns reinforced brick",
+      "url": "/api/icons/technical/005.png"
+    }
+  ]
+}
