@@ -1,0 +1,80 @@
+{
+  "age": 1843,
+  "appearancePrompt": "An old dude with a big dick",
+  "gender": "Male",
+  "history": "has a really long shlong",
+  "hp": 60,
+  "id": "char-1772132324815",
+  "inventory": [],
+  "isNPC": true,
+  "level": 1,
+  "maxHp": 60,
+  "name": "John Mc Cockblock",
+  "occupation": {
+    "category": "SECURITY",
+    "description": "Served in an organized fighting force before the collapse. Knows formations, weapon maintenance, and how to follow orders under fire. Discipline is second nature.",
+    "id": "occ-soldier",
+    "name": "Soldier",
+    "perks": [
+      "Increased accuracy under suppressive fire",
+      "Faster weapon handling",
+      "Bonus morale in combat situations"
+    ],
+    "shortDescription": "Trained combatant with military discipline."
+  },
+  "stats": {
+    "agility": 3,
+    "charisma": 3,
+    "endurance": 10,
+    "intelligence": 3,
+    "strength": 14,
+    "wisdom": 3
+  },
+  "traits": [
+    {
+      "cost": 10,
+      "description": "You can actually read the old manuals. +15% XP Gain.",
+      "id": "t-scholar",
+      "name": "Pre-Ash Scholar",
+      "type": "positive"
+    },
+    {
+      "cost": -10,
+      "description": "A weak frame plagued by old injuries. -15 Max HP.",
+      "effects": [
+        {
+          "target": "maxHp",
+          "trigger": "passive",
+          "type": "STAT_MODIFIER",
+          "value": -15
+        }
+      ],
+      "id": "t-frail",
+      "name": "Frail",
+      "type": "negative"
+    },
+    {
+      "cost": 7,
+      "description": "Quick reflexes honed by dodging falling debris. +10% Evasion in combat.",
+      "effects": [
+        {
+          "target": "evasion",
+          "trigger": "passive",
+          "type": "COMBAT_BONUS",
+          "value": 10
+        }
+      ],
+      "id": "t-nimble",
+      "name": "Nimble",
+      "type": "positive"
+    },
+    {
+      "cost": 7,
+      "description": "Charisma that works even in the Ash. Better rates with all traders.",
+      "id": "t21",
+      "name": "Silver Tongue",
+      "type": "positive"
+    }
+  ],
+  "xp": 0
+}

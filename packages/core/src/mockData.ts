@@ -1,5 +1,50 @@
 
-import { ResourceType, Node, CrewMember, Resources, Trait, Occupation, OccupationCategory } from './types';
+import { ResourceType, Node, CrewMember, Resources, Trait, Occupation, OccupationCategory, Skill } from './types';
+
+// ── Combat Skills ──
+
+export const ALL_SKILLS: Skill[] = [
+  {
+    id: 'slash', name: 'Slash', description: 'A quick melee strike.', icon: '🗡️',
+    apCost: 3, minRange: 1, maxRange: 1, areaType: 'single', areaSize: 0,
+    targetType: 'enemy', damage: 10, cooldown: 0, effectType: 'physical',
+  },
+  {
+    id: 'power-strike', name: 'Power Strike', description: 'Heavy two-handed blow dealing massive damage.', icon: '⚔️',
+    apCost: 5, minRange: 1, maxRange: 1, areaType: 'single', areaSize: 0,
+    targetType: 'enemy', damage: 20, cooldown: 2, effectType: 'physical',
+  },
+  {
+    id: 'first-aid', name: 'First Aid', description: 'Patch up wounds, restoring HP.', icon: '🩹',
+    apCost: 3, minRange: 0, maxRange: 0, areaType: 'single', areaSize: 0,
+    targetType: 'self', healing: 15, cooldown: 2, effectType: 'support',
+  },
+  {
+    id: 'fireball', name: 'Fireball', description: 'Hurl a ball of flame at range 2-4.', icon: '🔥',
+    apCost: 4, minRange: 2, maxRange: 4, areaType: 'single', areaSize: 0,
+    targetType: 'enemy', damage: 14, cooldown: 1, effectType: 'magical',
+  },
+  {
+    id: 'shove', name: 'Shove', description: 'Push an adjacent enemy back 2 cells.', icon: '🫸',
+    apCost: 2, minRange: 1, maxRange: 1, areaType: 'single', areaSize: 0,
+    targetType: 'enemy', damage: 3, cooldown: 1, effectType: 'physical', pushDistance: 2,
+  },
+  {
+    id: 'quick-shot', name: 'Quick Shot', description: 'Fast ranged attack at low cost.', icon: '🏹',
+    apCost: 2, minRange: 2, maxRange: 3, areaType: 'single', areaSize: 0,
+    targetType: 'enemy', damage: 6, cooldown: 0, effectType: 'physical',
+  },
+  {
+    id: 'war-cry', name: 'War Cry', description: 'Intimidate enemies in a 2-cell radius (damage).', icon: '📯',
+    apCost: 4, minRange: 0, maxRange: 0, areaType: 'circle', areaSize: 2,
+    targetType: 'enemy', damage: 5, cooldown: 3, effectType: 'physical',
+  },
+  {
+    id: 'healing-pulse', name: 'Healing Pulse', description: 'Heal an ally within range 3.', icon: '💚',
+    apCost: 4, minRange: 1, maxRange: 3, areaType: 'single', areaSize: 0,
+    targetType: 'ally', healing: 20, cooldown: 2, effectType: 'support',
+  },
+];
 
 export const INITIAL_RESOURCES: Resources = {
   [ResourceType.FOOD]: 20,
