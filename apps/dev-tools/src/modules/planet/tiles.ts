@@ -9,6 +9,7 @@ export interface PlanetWorldData {
   rows: number;
   cellData: PlanetCellLike[];
   textureUrl?: string;
+  heightmapUrl?: string;
 }
 
 export interface PlanetTile {

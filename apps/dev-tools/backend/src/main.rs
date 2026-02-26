@@ -2,6 +2,8 @@ mod cell_analyzer;
 mod generator;
 mod hierarchy;
 mod gemini;
+mod worldgen_pipeline;
+mod cms;
 
 use axum::{
     extract::{Path, State},
@@ -275,7 +277,16 @@ async fn main() {
         .route("/api/icons/batches/{batch_id}/rename", axum::routing::put(rename_icon_batch))
         .route("/api/icons/batches/{batch_id}/icons/{filename}/regenerate", post(regenerate_icon))
         .route("/api/icons/export", post(export_icons_registry))
+        // ── Worldgen Pipeline ──
+        .route("/api/worldgen/{planet_id}/status", get(worldgen_pipeline::get_pipeline_status))
+        .route("/api/worldgen/{planet_id}/run/{stage_name}", post(worldgen_pipeline::run_pipeline_stage))
+        .route("/api/worldgen/{planet_id}/job/{job_id}", get(worldgen_pipeline::get_worldgen_job_status))
+        .route("/api/worldgen/{planet_id}/clear", delete(worldgen_pipeline::clear_pipeline))
         // Static file serving for all planet textures
+        .route("/api/data/traits", get(cms::get_traits).post(cms::save_traits))
+        .route("/api/data/occupations", get(cms::get_occupations).post(cms::save_occupations))
+        .route("/api/data/items", get(cms::get_items).post(cms::save_items))
+        .route("/api/data/characters", get(cms::get_characters).post(cms::save_character))
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .with_state(state)
@@ -808,6 +819,8 @@ async fn run_hybrid_generation_job(
             // The original Gemini JPEG was already saved to disk before geometry generation.
             // Just override texture_url to point at the static file URL.
             response.texture_url = Some(texture_url.clone());
+            let heightmap_url = format!("/planet/{}/worldgen/height16.png", log_job_id2);
+            response.heightmap_url = Some(heightmap_url.clone());
 
             let world_data_path = planet_dir.join("world_data.json");
             match std::fs::File::create(&world_data_path) {
@@ -832,6 +845,7 @@ async fn run_hybrid_generation_job(
                 cell_data: Vec::new(),
                 cell_colors: Vec::new(),
                 texture_url: response.texture_url.clone(),
+                heightmap_url: response.heightmap_url.clone(),
             };
 
             if let Ok(mut map) = jobs.lock() {
@@ -1369,6 +1383,7 @@ async fn run_upscale_job(
             return;
         }
     };
+    let heightmap_url = item.get("heightmapUrl").and_then(|t| t.as_str()).map(|s| s.to_string());
     
     let file_name = texture_url.split('/').last().unwrap_or("");
     let textures_dir = planet_dir.join("textures");
@@ -1449,6 +1464,10 @@ async fn run_upscale_job(
         obj.insert("timestamp".to_string(), serde_json::Value::Number(serde_json::Number::from(
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
         )));
+        // Also preserve heightmapUrl if it existed
+        if let Some(ref h_url) = heightmap_url {
+            obj.insert("heightmapUrl".to_string(), serde_json::Value::String(h_url.clone()));
+        }
     }
     
     // Save new item directly as its own planet dir (for now, to maintain API compatibility until frontend update)
@@ -1470,6 +1489,7 @@ async fn run_upscale_job(
                 cell_data: Vec::new(),
                 cell_colors: Vec::new(),
                 texture_url: Some(new_texture_url.clone()),
+                heightmap_url: heightmap_url.clone(), // preserve upscaled heightmap if exists
             });
             job.error = None;
         }
@@ -1586,6 +1606,7 @@ async fn run_image_edit_job(
         cell_data: vec![],
         cell_colors: vec![],
         texture_url: Some(format!("/api/planets/{}/textures/base.jpg", request_key)),
+        heightmap_url: None,
     };
 
     let world_data_path = planet_dir.join("world_data.json");
@@ -1807,6 +1828,7 @@ async fn run_cells_job(
                         cell_data: Vec::new(),
                         cell_colors: Vec::new(),
                         texture_url: Some(format!("/api/planets/{}/textures/base.jpg", history_id)),
+                        heightmap_url: None, // Cells analysis doesn't generate heightmap
                     });
                 }
             }

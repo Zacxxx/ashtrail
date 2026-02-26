@@ -163,6 +163,8 @@ const nodeTypes = { talent: TalentNode };
 interface CharacterCreationScreenProps {
   onComplete: (player: Player) => void;
   onBack: () => void;
+  customTraits?: Trait[];
+  customOccupations?: Occupation[];
 }
 
 type CreationTab = 'IDENTITY' | 'TRAITS' | 'STATS';
@@ -286,7 +288,9 @@ const CustomDropdown: React.FC<{
   );
 };
 
-export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = ({ onComplete, onBack }) => {
+export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = ({ onComplete, onBack, customTraits, customOccupations }) => {
+  const traitsList = customTraits || ALL_TRAITS;
+  const occupationsList = customOccupations || ALL_OCCUPATIONS;
   const [activeTab, setActiveTab] = useState<CreationTab>('IDENTITY');
   const [name, setName] = useState('');
   const [age, setAge] = useState(25);
@@ -359,9 +363,9 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
   const intrinsicModifiers = useMemo(() => {
     const mods = [];
-    if (age < 20) mods.push(ALL_TRAITS.find(t => t.id === 'age-juvenile')!);
-    else if (age > 55) mods.push(ALL_TRAITS.find(t => t.id === 'age-elder')!);
-    else mods.push(ALL_TRAITS.find(t => t.id === 'age-prime')!);
+    if (age < 20) mods.push(traitsList.find(t => t.id === 'age-juvenile')!);
+    else if (age > 55) mods.push(traitsList.find(t => t.id === 'age-elder')!);
+    else mods.push(traitsList.find(t => t.id === 'age-prime')!);
     return mods.filter(Boolean);
   }, [age]);
 
@@ -411,7 +415,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
   const filteredTraits = useMemo(() => {
     const searchLower = traitSearch.toLowerCase();
-    const available = ALL_TRAITS.filter(t =>
+    const available = traitsList.filter(t =>
       !t.id.startsWith('age-') &&
       !selectedTraits.some(st => st.id === t.id)
     );
@@ -901,7 +905,7 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[240px] overflow-y-auto pr-2 custom-scrollbar">
-                      {ALL_OCCUPATIONS
+                      {occupationsList
                         .filter(occ => {
                           const search = occupationSearch.toLowerCase();
                           const matchesSearch = occ.name.toLowerCase().includes(search) || occ.description.toLowerCase().includes(search);
