@@ -143,10 +143,10 @@ export function getAttackableCells(grid: Grid, row: number, col: number, minRang
 
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
+            if (!grid[r][c].walkable) continue; // Skip obstacles
+
             const dist = Math.abs(r - row) + Math.abs(c - col);
             if (dist >= minRange && dist <= maxRange) {
-                // Simple LoS: for now just check manhattan distance
-                // A proper LoS algorithm (Bresenham) can be added later
                 results.push(grid[r][c]);
             }
         }
