@@ -37,6 +37,19 @@ export function CharacterBuilderPage() {
     // Load character for editing
     const [editingId, setEditingId] = useState<string | null>(null);
 
+    // Inventory State
+    const [inventorySearch, setInventorySearch] = useState("");
+    const [inventoryFilter, setInventoryFilter] = useState("ALL");
+    const [activeBagIndex, setActiveBagIndex] = useState(0);
+    const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, slotIndex: number | null } | null>(null);
+
+    // Currency Values
+    const [gold] = useState(10);
+    const [silver] = useState(24);
+    const [copper] = useState(0);
+    const totalCredits = (gold * 100) + (silver * 10) + copper;
+
     useEffect(() => {
         async function load() {
             await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
@@ -186,35 +199,56 @@ export function CharacterBuilderPage() {
 
             {/* ══ Main Layout ══ */}
             <div className="flex-1 flex overflow-hidden relative z-10 pt-[80px] pb-6 px-6 gap-6">
+                <style>{`
+                    @keyframes dustSweep {
+                        0% { transform: translateX(-100%) skewX(-20deg); opacity: 0; }
+                        20% { opacity: 0.7; }
+                        80% { opacity: 0.7; }
+                        100% { transform: translateX(180%) skewX(-20deg); opacity: 0; }
+                    }
+                    @keyframes ashSettling {
+                        0% { opacity: 0; transform: scale(0.98); filter: brightness(0.2) contrast(1.2); }
+                        100% { opacity: 1; transform: scale(1); filter: brightness(1) contrast(1); }
+                    }
+                    .animate-dust-sweep {
+                        animation: dustSweep 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                    }
+                    .animate-ash-settling {
+                        animation: ashSettling 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+                    }
+                `}</style>
+
                 {/* Left: Saved Characters Sidebar */}
-                <aside className="w-[260px] flex flex-col gap-4 shrink-0">
-                    <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
-                        <h3 className="text-[10px] font-black text-indigo-500/70 uppercase tracking-widest border-b border-indigo-900/30 pb-2">
-                            Saved Characters ({savedCharacters.length})
-                        </h3>
-                        <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar">
-                            {savedCharacters.map(c => (
-                                <button
-                                    key={c.id}
-                                    onClick={() => loadCharacter(c)}
-                                    className={`w-full text-left p-3 border rounded-lg flex flex-col gap-1 transition-all ${editingId === c.id
-                                        ? "bg-indigo-500/20 border-indigo-500"
-                                        : "bg-black/40 border-white/5 hover:border-white/20"
-                                        }`}
-                                >
-                                    <div className="flex justify-between items-center w-full">
-                                        <span className="text-[11px] font-bold uppercase text-indigo-400 line-clamp-1">{c.name}</span>
-                                        {c.isNPC && <span className="text-[8px] bg-red-500/20 text-red-300 px-1 py-0.5 rounded uppercase">NPC</span>}
-                                    </div>
-                                    <p className="text-[10px] text-gray-500">Lvl {c.level} | {c.occupation?.name || "None"}</p>
-                                </button>
-                            ))}
-                            {savedCharacters.length === 0 && (
-                                <p className="text-xs text-gray-600 italic text-center py-4">No characters saved yet.</p>
-                            )}
+                {activeTab !== "INVENTORY" && (
+                    <aside className="w-[260px] flex flex-col gap-4 shrink-0">
+                        <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
+                            <h3 className="text-[10px] font-black text-indigo-500/70 uppercase tracking-widest border-b border-indigo-900/30 pb-2">
+                                Saved Characters ({savedCharacters.length})
+                            </h3>
+                            <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar">
+                                {savedCharacters.map(c => (
+                                    <button
+                                        key={c.id}
+                                        onClick={() => loadCharacter(c)}
+                                        className={`w-full text-left p-3 border rounded-lg flex flex-col gap-1 transition-all ${editingId === c.id
+                                            ? "bg-indigo-500/20 border-indigo-500"
+                                            : "bg-black/40 border-white/5 hover:border-white/20"
+                                            }`}
+                                    >
+                                        <div className="flex justify-between items-center w-full">
+                                            <span className="text-[11px] font-bold uppercase text-indigo-400 line-clamp-1">{c.name}</span>
+                                            {c.isNPC && <span className="text-[8px] bg-red-500/20 text-red-300 px-1 py-0.5 rounded uppercase">NPC</span>}
+                                        </div>
+                                        <p className="text-[10px] text-gray-500">Lvl {c.level} | {c.occupation?.name || "None"}</p>
+                                    </button>
+                                ))}
+                                {savedCharacters.length === 0 && (
+                                    <p className="text-xs text-gray-600 italic text-center py-4">No characters saved yet.</p>
+                                )}
+                            </div>
                         </div>
-                    </div>
-                </aside>
+                    </aside>
+                )}
 
                 {/* Center: Builder Form */}
                 <div className="flex-1 flex flex-col gap-4 overflow-hidden">
@@ -388,14 +422,171 @@ export function CharacterBuilderPage() {
                             </div>
                         )}
 
-                        {/* ═══ INVENTORY TAB (WIP) ═══ */}
+                        {/* ═══ INVENTORY TAB ═══ */}
                         {activeTab === "INVENTORY" && (
-                            <div className="flex flex-col items-center justify-center h-full text-center py-20">
-                                <div className="text-4xl mb-4 opacity-50">🎒</div>
-                                <h2 className="text-lg font-black tracking-widest text-yellow-500/50 uppercase mb-2">Inventory</h2>
-                                <p className="text-sm text-gray-500 max-w-md">
-                                    Starting inventory management is coming soon. This will integrate with the Items registry to allow assigning equipment and consumables to characters.
-                                </p>
+                            <div className="flex flex-col items-center h-full relative font-mono overflow-y-auto custom-scrollbar py-4" onClick={() => setContextMenu(null)}>
+                                <div className="w-full max-w-[700px] flex flex-col gap-5">
+                                    {/* Top Row: Bags & Money */}
+                                    <div className="flex items-start justify-between">
+                                        {/* Tactical Bag Slots */}
+                                        <div className="flex flex-col gap-1.5">
+                                            <div className="flex items-center gap-1.5 px-1">
+                                                <div className="w-1 h-2.5 bg-[#c2410c]" />
+                                                <label className="text-[9px] text-gray-500 font-black uppercase tracking-widest">MODULES</label>
+                                            </div>
+                                            <div className="flex gap-1 p-1 bg-black/60 border border-white/5 shadow-xl">
+                                                {[0, 1, 2, 3, 4, 5].map((idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        onClick={() => setActiveBagIndex(idx)}
+                                                        className={`w-11 h-11 border flex items-center justify-center relative group cursor-pointer transition-all ${activeBagIndex === idx ? "bg-[#c2410c]/20 border-[#c2410c] shadow-[0_0_10px_rgba(194,65,12,0.1)]" : "bg-white/[0.01] border-white/10 hover:border-[#c2410c]/30 hover:bg-white/[0.03]"}`}
+                                                    >
+                                                        {idx === 5 ? (
+                                                            <svg className="w-5 h-5 text-gray-500 group-hover:text-gray-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                                                            </svg>
+                                                        ) : (
+                                                            <svg className="w-5 h-5 text-gray-600 group-hover:text-gray-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                                                            </svg>
+                                                        )}
+
+                                                        <div className="absolute bottom-0.5 right-0.5 flex gap-0.5 scale-75">
+                                                            <div className={`w-1 h-2.5 ${idx === 3 ? "bg-red-900/40" : "bg-[#c2410c]/40"}`} />
+                                                            <div className={`w-1 h-2.5 ${idx === 3 ? "bg-red-600" : "bg-[#c2410c]"}`} />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Currency - Dossier Style */}
+                                        <div className="flex flex-col items-end gap-1 mt-1">
+                                            <div className="flex items-center gap-2.5 bg-[#c2410c]/5 border border-[#c2410c]/20 px-3 py-1.5">
+                                                <span className="text-[8px] text-gray-600 font-black uppercase tracking-widest mr-1">CREDITS:</span>
+                                                <span className="text-sm font-black text-[#c2410c]">{totalCredits.toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex gap-2 pr-1 scale-90">
+                                                <div className="flex items-center gap-1 opacity-50">
+                                                    <span className="text-[9px] text-white font-bold">{gold.toString().padStart(2, '0')}</span>
+                                                    <div className="w-2 h-2 rounded-full bg-yellow-600" />
+                                                </div>
+                                                <div className="flex items-center gap-1 opacity-50">
+                                                    <span className="text-[9px] text-white font-bold">{silver.toString().padStart(2, '0')}</span>
+                                                    <div className="w-2 h-2 rounded-full bg-slate-400" />
+                                                </div>
+                                                <div className="flex items-center gap-1 opacity-50">
+                                                    <span className="text-[9px] text-white font-bold">{copper.toString().padStart(2, '0')}</span>
+                                                    <div className="w-2 h-2 rounded-full bg-orange-700" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Controls Module */}
+                                    <div className="flex flex-col gap-3 bg-black/20 p-3 border border-white/5">
+                                        <div className="flex items-center justify-between gap-4">
+                                            <div className="flex-1 flex items-center bg-black/60 border border-white/10 focus-within:border-[#c2410c]/30 transition-all">
+                                                <div className="pl-3 text-gray-700">
+                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                                    </svg>
+                                                </div>
+                                                <input
+                                                    value={inventorySearch}
+                                                    onChange={e => setInventorySearch(e.target.value)}
+                                                    placeholder="SEARCH DATA..."
+                                                    className="w-full bg-transparent px-3 py-2 text-[10px] text-white placeholder:text-gray-800 outline-none uppercase tracking-widest"
+                                                />
+                                            </div>
+
+                                            <div className="flex items-center bg-black/40 border border-white/10">
+                                                {(["ALL", "WEAPON", "CONSUMABLE", "RESOURCE", "JUNK"] as const).map(f => (
+                                                    <button
+                                                        key={f}
+                                                        onClick={() => setInventoryFilter(f)}
+                                                        className={`px-2.5 py-1 text-[8px] font-black uppercase tracking-widest transition-all ${inventoryFilter === f ? "bg-[#c2410c] text-white" : "text-gray-600 hover:text-gray-300"}`}
+                                                    >
+                                                        {f}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 scale-95 origin-left">
+                                            <div className="text-[8px] text-gray-700 uppercase tracking-widest mr-1">SORT:</div>
+                                            <button className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest">
+                                                VALUE
+                                            </button>
+                                            <button className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest">
+                                                RARITY
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Main Storage Unit */}
+                                    <div className="bg-black/40 border border-white/5 p-5 relative overflow-hidden group">
+                                        <div className="absolute inset-0 bg-[linear-gradient(rgba(194,65,12,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(194,65,12,0.02)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
+
+                                        {/* Bag Switch Dust Sweep Effect */}
+                                        <div
+                                            key={`dust-${activeBagIndex}`}
+                                            className="absolute inset-0 z-30 pointer-events-none animate-dust-sweep"
+                                            style={{
+                                                background: 'linear-gradient(90deg, transparent, rgba(161, 98, 7, 0.1), rgba(194, 65, 12, 0.3), rgba(75, 85, 99, 0.5), transparent)',
+                                                width: '200%',
+                                                filter: 'blur(30px) contrast(1.2)'
+                                            }}
+                                        />
+
+                                        <div
+                                            key={activeBagIndex}
+                                            className="grid grid-cols-10 gap-2 relative z-10 animate-ash-settling"
+                                        >
+                                            {Array.from({ length: 40 }).map((_, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    onClick={() => setSelectedSlotIndex(idx)}
+                                                    onContextMenu={(e) => {
+                                                        e.preventDefault();
+                                                        setContextMenu({ x: e.clientX + 5, y: e.clientY + 5, slotIndex: idx });
+                                                        setSelectedSlotIndex(idx);
+                                                    }}
+                                                    className={`aspect-square bg-black/60 border flex items-center justify-center relative group cursor-pointer transition-all ${selectedSlotIndex === idx ? "border-[#c2410c] bg-[#c2410c]/5 shadow-[inset_0_0_8px_rgba(194,65,12,0.1)]" : "border-white/5 hover:border-[#c2410c]/40"}`}
+                                                >
+                                                    <div className="absolute top-0 left-0 w-0.5 h-0.5 bg-white/10" />
+                                                    <div className="absolute bottom-0 right-0 w-0.5 h-0.5 bg-white/10" />
+
+                                                    {selectedSlotIndex === idx && (
+                                                        <div className="absolute inset-x-0 bottom-0 h-0.5 bg-[#c2410c]" />
+                                                    )}
+
+                                                    <div className={`text-[8px] font-black transition-colors uppercase ${selectedSlotIndex === idx ? "text-[#c2410c]" : "text-gray-900 group-hover:text-gray-700"}`}>
+                                                        {idx < 9 ? `0${idx + 1}` : idx + 1}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%)] bg-[size:100%_2px] z-20 opacity-10" />
+                                    </div>
+                                </div>
+
+                                {/* Context Menu */}
+                                {contextMenu && (
+                                    <div
+                                        className="fixed z-[1000] w-40 bg-[#0d0d0d] border border-[#c2410c]/30 shadow-2xl py-1 animate-in fade-in zoom-in duration-75"
+                                        style={{ top: contextMenu.y, left: contextMenu.x }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <div className="px-3 py-1.5 border-b border-white/5 mb-1">
+                                            <span className="text-[8px] font-black text-[#c2410c] uppercase tracking-widest">SLOT {contextMenu.slotIndex! + 1}</span>
+                                        </div>
+                                        <button className="w-full text-left px-4 py-2 text-[9px] text-gray-400 font-black hover:bg-[#c2410c] hover:text-white transition-all uppercase tracking-widest">USE</button>
+                                        <button className="w-full text-left px-4 py-2 text-[9px] text-gray-400 font-black hover:bg-white/5 hover:text-white transition-all uppercase tracking-widest">THROW AWAY</button>
+                                        <div className="h-px bg-white/5 my-0.5" />
+                                        <button className="w-full text-left px-4 py-2 text-[9px] text-red-600 font-black hover:bg-red-600 hover:text-white transition-all uppercase tracking-widest">DESTROY</button>
+                                    </div>
+                                )}
                             </div>
                         )}
 
