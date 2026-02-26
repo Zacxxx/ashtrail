@@ -125,8 +125,8 @@ export function TacticalArena({
                                 <div
                                     key={id}
                                     className={`flex items-center gap-2 px-2 py-1.5 rounded transition-all text-xs ${isDead ? 'opacity-30 line-through' :
-                                            isActive ? 'bg-orange-500/20 border border-orange-500/50' :
-                                                'border border-transparent hover:bg-white/5'
+                                        isActive ? 'bg-orange-500/20 border border-orange-500/50' :
+                                            'border border-transparent hover:bg-white/5'
                                         }`}
                                 >
                                     <div className={`w-2 h-2 rounded-full shrink-0 ${entity.isPlayer ? 'bg-blue-500' : 'bg-red-500'}`} />
@@ -172,10 +172,10 @@ export function TacticalArena({
                                             disabled={!canUse}
                                             title={`${skill.description}\nAP: ${skill.apCost} | Range: ${skill.minRange}-${skill.maxRange}${cd > 0 ? `\nCooldown: ${cd} turns` : ''}`}
                                             className={`text-left p-2 rounded-lg border text-[10px] transition-all ${isSelected
-                                                    ? 'bg-orange-500/30 border-orange-500 text-orange-300'
-                                                    : canUse
-                                                        ? 'bg-black/40 border-white/10 hover:border-white/30 text-gray-300'
-                                                        : 'bg-black/20 border-white/5 text-gray-600 opacity-50'
+                                                ? 'bg-orange-500/30 border-orange-500 text-orange-300'
+                                                : canUse
+                                                    ? 'bg-black/40 border-white/10 hover:border-white/30 text-gray-300'
+                                                    : 'bg-black/20 border-white/5 text-gray-600 opacity-50'
                                                 }`}
                                         >
                                             <div className="flex items-center justify-between gap-1">
@@ -224,8 +224,8 @@ export function TacticalArena({
                     <div className="flex-1 overflow-y-auto space-y-0.5 pr-2 custom-scrollbar">
                         {logs.map(log => (
                             <div key={log.id} className={`py-0.5 ${log.type === 'system' ? 'text-teal-400 font-bold' :
-                                    log.type === 'damage' ? 'text-red-400' :
-                                        log.type === 'heal' ? 'text-green-400' : 'text-gray-400'
+                                log.type === 'damage' ? 'text-red-400' :
+                                    log.type === 'heal' ? 'text-green-400' : 'text-gray-400'
                                 }`}>
                                 <span className="text-gray-600 mr-1.5">»</span>
                                 {log.message}
@@ -293,22 +293,31 @@ function IsometricTile({ cell, x, y, entity, isActive, onClick }: IsometricTileP
 
     return (
         <div
-            className="absolute cursor-pointer group"
-            style={{ left: x, top: y, width: TILE_WIDTH, height: TILE_HEIGHT }}
-            onClick={onClick}
+            className="absolute"
+            style={{
+                left: x,
+                top: y,
+                width: TILE_WIDTH,
+                height: TILE_HEIGHT,
+                zIndex: cell.row + cell.col,
+            }}
         >
-            <svg width={TILE_WIDTH} height={TILE_HEIGHT} className="absolute inset-0">
+            {/* Clickable diamond — only the SVG path receives pointer events */}
+            <svg width={TILE_WIDTH} height={TILE_HEIGHT} className="absolute inset-0 cursor-pointer"
+                style={{ zIndex: 1 }}
+                onClick={onClick}
+            >
                 <path
                     d={diamondPath}
                     fill={fillColor}
                     stroke={strokeColor}
                     strokeWidth={strokeWidth}
-                    className="transition-all duration-150 group-hover:brightness-150"
+                    className="transition-all duration-150 hover:brightness-150"
                 />
             </svg>
 
             {!cell.walkable && (
-                <svg width={TILE_WIDTH} height={TILE_HEIGHT + 8} className="absolute" style={{ top: -8 }}>
+                <svg width={TILE_WIDTH} height={TILE_HEIGHT + 8} className="absolute pointer-events-none" style={{ top: -8, zIndex: 0 }}>
                     <path d={`M ${halfW} 0 L ${TILE_WIDTH} ${halfH} L ${halfW} ${TILE_HEIGHT} L 0 ${halfH} Z`}
                         fill="rgba(25, 30, 40, 0.95)" stroke="rgba(255,255,255,0.05)" strokeWidth={0.5}
                         style={{ transform: 'translateY(-4px)' }}
@@ -323,7 +332,7 @@ function IsometricTile({ cell, x, y, entity, isActive, onClick }: IsometricTileP
             )}
 
             {entity && !isDead && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ top: -12 }}>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ top: -12, zIndex: 2 }}>
                     <div className={`
                         w-7 h-7 rounded-full border-2 flex items-center justify-center text-[10px] font-black
                         shadow-lg transition-all duration-300

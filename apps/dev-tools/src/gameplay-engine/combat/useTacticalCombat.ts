@@ -6,7 +6,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Trait, Skill } from '@ashtrail/core';
 import {
     Grid, GridCell,
-    generateGrid, getReachableCells, getAttackableCells,
+    generateGrid, getReachableCells, getAttackableCells, getNeighbors,
     findPath, moveEntityOnGrid, placeEntity, removeEntity,
     clearHighlights, highlightCells,
 } from './tacticalGrid';
@@ -98,6 +98,33 @@ export function createTacticalEntity(
 
 // ── The Hook ──
 
+function calculateTackleCost(grid: Grid, entities: Map<string, TacticalEntity>, entityId: string): number {
+    const entity = entities.get(entityId);
+    if (!entity) return 0;
+
+    const neighbors = getNeighbors(grid, entity.gridPos.row, entity.gridPos.col);
+    let enemyAgilitySum = 0;
+    let adjacentEnemies = 0;
+
+    for (const cell of neighbors) {
+        if (cell.occupantId) {
+            const occupant = entities.get(cell.occupantId);
+            if (occupant && occupant.hp > 0 && occupant.isPlayer !== entity.isPlayer) {
+                enemyAgilitySum += occupant.agility;
+                adjacentEnemies++;
+            }
+        }
+    }
+
+    if (adjacentEnemies === 0) return 0;
+
+    // If our agility is 1.5x or more than the sum of enemy agility, we escape freely
+    if (entity.agility * 1.5 >= enemyAgilitySum) return 0;
+
+    // Otherwise it costs AP to break away
+    return Math.max(1, Math.floor(enemyAgilitySum / Math.max(1, entity.agility)));
+}
+
 export function useTacticalCombat(
     playerEntities: TacticalEntity[],
     enemyEntities: TacticalEntity[],
@@ -112,15 +139,20 @@ export function useTacticalCombat(
             ? initialGrid.map(row => row.map(cell => ({ ...cell })))
             : generateGrid(gridRows, gridCols, 0.12);
         // Place player entities
-        const playerSpawns = g.flatMap(row => row.filter(c => c.isSpawnZone === 'player' && c.walkable && !c.occupantId));
+        const playerSpawns = g.flatMap(row => row.filter(c => c.isSpawnZone === 'player' && c.walkable && !c.occupantId))
+            .sort(() => Math.random() - 0.5); // Shuffle spawns
+
         playerEntities.forEach((e, i) => {
             if (i < playerSpawns.length) {
                 g = placeEntity(g, e.id, playerSpawns[i].row, playerSpawns[i].col);
                 e.gridPos = { row: playerSpawns[i].row, col: playerSpawns[i].col };
             }
         });
+
         // Place enemy entities
-        const enemySpawns = g.flatMap(row => row.filter(c => c.isSpawnZone === 'enemy' && c.walkable && !c.occupantId));
+        const enemySpawns = g.flatMap(row => row.filter(c => c.isSpawnZone === 'enemy' && c.walkable && !c.occupantId))
+            .sort(() => Math.random() - 0.5); // Shuffle spawns
+
         enemyEntities.forEach((e, i) => {
             if (i < enemySpawns.length) {
                 g = placeEntity(g, e.id, enemySpawns[i].row, enemySpawns[i].col);
@@ -356,23 +388,39 @@ export function useTacticalCombat(
 
         // Skill targeting mode
         if (playerAction === 'targeting_skill' && selectedSkill) {
+            if (!cell.walkable) {
+                addLog('Cannot target obstacles.', 'info');
+                setSelectedSkill(null);
+                setPlayerAction('idle');
+                return;
+            }
+
+            const dist = Math.abs(row - activeEntity.gridPos.row) + Math.abs(col - activeEntity.gridPos.col);
+            if (dist < selectedSkill.minRange || dist > selectedSkill.maxRange) {
+                // Clicking outside valid range cancels targeting
+                setSelectedSkill(null);
+                setPlayerAction('idle');
+                return;
+            }
+
             if (cell.occupantId) {
                 const target = entities.get(cell.occupantId);
-                if (target) {
-                    const dist = Math.abs(row - activeEntity.gridPos.row) + Math.abs(col - activeEntity.gridPos.col);
-                    if (dist >= selectedSkill.minRange && dist <= selectedSkill.maxRange) {
-                        // Validate target type
-                        if (
-                            (selectedSkill.targetType === 'enemy' && !target.isPlayer && target.hp > 0) ||
-                            (selectedSkill.targetType === 'ally' && target.isPlayer && target.hp > 0)
-                        ) {
-                            executeSkill(activeEntity.id, cell.occupantId, selectedSkill);
-                            return;
-                        }
+                if (target && target.hp > 0) {
+                    if (
+                        (selectedSkill.targetType === 'enemy' && !target.isPlayer) ||
+                        (selectedSkill.targetType === 'ally' && target.isPlayer)
+                    ) {
+                        executeSkill(activeEntity.id, cell.occupantId, selectedSkill);
+                        return; // execution finished, handlers reset state inside executeSkill
+                    } else {
+                        addLog(`Invalid target for ${selectedSkill.name}.`, 'info');
                     }
                 }
+            } else {
+                addLog(`${selectedSkill.name} requires an occupant as a target.`, 'info');
             }
-            // Clicking elsewhere cancels targeting
+
+            // Clicked in range but invalid target: cancel targeting
             setSelectedSkill(null);
             setPlayerAction('idle');
             return;
@@ -395,7 +443,12 @@ export function useTacticalCombat(
             if (cell.walkable && !cell.occupantId && activeEntity.mp > 0) {
                 const path = findPath(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, row, col);
                 if (path && path.length <= activeEntity.mp) {
-                    performMove(activeEntity.id, row, col, path.length);
+                    const tackleCost = calculateTackleCost(grid, entities, activeEntity.id);
+                    if (activeEntity.ap < tackleCost) {
+                        addLog(`💢 ${activeEntity.name} is tackled and needs ${tackleCost} AP to escape!`, 'info');
+                        return;
+                    }
+                    performMove(activeEntity.id, row, col, path.length, tackleCost);
                     return;
                 }
             }
@@ -403,9 +456,9 @@ export function useTacticalCombat(
     }, [grid, entities, activeEntity, isPlayerTurn, playerAction, phase, selectedSkill, executeSkill]);
 
     // ── Move ──
-    const performMove = useCallback((entityId: string, toRow: number, toCol: number, cost: number) => {
+    const performMove = useCallback((entityId: string, toRow: number, toCol: number, mapCost: number, tackleCost: number = 0) => {
         const entity = entities.get(entityId);
-        if (!entity || entity.mp < cost) return;
+        if (!entity || entity.mp < mapCost || entity.ap < tackleCost) return;
 
         setGrid(prev => {
             const newGrid = moveEntityOnGrid(prev, entityId, entity.gridPos.row, entity.gridPos.col, toRow, toCol);
@@ -416,12 +469,17 @@ export function useTacticalCombat(
             const next = new Map(prev);
             const e = { ...next.get(entityId)! };
             e.gridPos = { row: toRow, col: toCol };
-            e.mp -= cost;
+            e.mp -= mapCost;
+            e.ap -= tackleCost;
             next.set(entityId, e);
             return next;
         });
 
-        addLog(`${entity.name} moves to [${toRow}, ${toCol}] (-${cost} MP)`, 'info');
+        if (tackleCost > 0) {
+            addLog(`💢 ${entity.name} breaks tackle (-${tackleCost} AP) and moves (-${mapCost} MP)`, 'info');
+        } else {
+            addLog(`${entity.name} moves to [${toRow}, ${toCol}] (-${mapCost} MP)`, 'info');
+        }
 
         // Re-highlight after move
         setTimeout(() => {
@@ -580,16 +638,19 @@ export function useTacticalCombat(
 
             // 3. Move closer if needed
             if (ai.mp > 0 && closestDist > MELEE_RANGE) {
-                const reachable = getReachableCells(currentGrid, ai.gridPos.row, ai.gridPos.col, ai.mp);
-                let bestCell = null as GridCell | null;
-                let bestDist = closestDist;
-                for (const cell of reachable) {
-                    const d = Math.abs(cell.row - closestTarget.gridPos.row) + Math.abs(cell.col - closestTarget.gridPos.col);
-                    if (d < bestDist) { bestDist = d; bestCell = cell; }
-                }
-                if (bestCell) {
-                    const path = findPath(currentGrid, ai.gridPos.row, ai.gridPos.col, bestCell.row, bestCell.col);
-                    if (path) performMove(ai.id, bestCell.row, bestCell.col, path.length);
+                const tackleCost = calculateTackleCost(currentGrid, currentEntities, ai.id);
+                if (ai.ap >= tackleCost) {
+                    const reachable = getReachableCells(currentGrid, ai.gridPos.row, ai.gridPos.col, ai.mp);
+                    let bestCell = null as GridCell | null;
+                    let bestDist = closestDist;
+                    for (const cell of reachable) {
+                        const d = Math.abs(cell.row - closestTarget.gridPos.row) + Math.abs(cell.col - closestTarget.gridPos.col);
+                        if (d < bestDist) { bestDist = d; bestCell = cell; }
+                    }
+                    if (bestCell) {
+                        const path = findPath(currentGrid, ai.gridPos.row, ai.gridPos.col, bestCell.row, bestCell.col);
+                        if (path) performMove(ai.id, bestCell.row, bestCell.col, path.length, tackleCost);
+                    }
                 }
             }
 
