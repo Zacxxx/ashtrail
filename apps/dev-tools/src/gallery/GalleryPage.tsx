@@ -5,12 +5,70 @@ import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
 
+interface CloudObject {
+    path: string;
+    name: string;
+    sizeBytes?: number;
+    updatedAt?: string;
+    publicUrl: string;
+}
+
 export function GalleryPage() {
     const { history, deleteFromHistory } = useGenerationHistory();
     const [activePlanetId, setActivePlanetId] = useState<string | null>(null);
     const [previewTexture, setPreviewTexture] = useState<{ url: string, planetId: string } | null>(null);
+    const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+    const [syncResult, setSyncResult] = useState<string | null>(null);
+    const [cloudError, setCloudError] = useState<string | null>(null);
+    const [cloudObjects, setCloudObjects] = useState<CloudObject[]>([]);
+    const [showCloudBrowser, setShowCloudBrowser] = useState(false);
+    const [isLoadingCloudBrowser, setIsLoadingCloudBrowser] = useState(false);
 
     const activePlanet = useMemo(() => history.find(h => h.id === activePlanetId), [history, activePlanetId]);
+
+    const syncCloudStorage = async () => {
+        setIsSyncingCloud(true);
+        setCloudError(null);
+        setSyncResult(null);
+        try {
+            const res = await fetch("/api/storage/supabase/sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ direction: "both", imagesOnly: false }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(payload?.error || "Cloud sync failed");
+            }
+            setSyncResult(
+                `Sync done - uploaded: ${payload.uploaded ?? 0}, downloaded: ${payload.downloaded ?? 0}, skipped: ${payload.skipped ?? 0}, failed: ${payload.failed ?? 0}`
+            );
+        } catch (e) {
+            const message = e instanceof Error ? e.message : "Cloud sync failed";
+            setCloudError(message);
+        } finally {
+            setIsSyncingCloud(false);
+        }
+    };
+
+    const openCloudBrowser = async () => {
+        setShowCloudBrowser(true);
+        setIsLoadingCloudBrowser(true);
+        setCloudError(null);
+        try {
+            const res = await fetch("/api/storage/supabase/browse?imagesOnly=true");
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(payload?.error || "Failed to browse cloud bucket");
+            }
+            setCloudObjects(Array.isArray(payload.objects) ? payload.objects : []);
+        } catch (e) {
+            const message = e instanceof Error ? e.message : "Failed to browse cloud bucket";
+            setCloudError(message);
+        } finally {
+            setIsLoadingCloudBrowser(false);
+        }
+    };
 
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
@@ -30,11 +88,30 @@ export function GalleryPage() {
                     </div>
                     {/* Right: Actions */}
                     <div className="flex items-center gap-4">
+                        <button
+                            onClick={openCloudBrowser}
+                            className="px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-100"
+                        >
+                            BROWSE BUCKET
+                        </button>
+                        <button
+                            onClick={syncCloudStorage}
+                            disabled={isSyncingCloud}
+                            className="px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isSyncingCloud ? "SYNCING..." : "SYNC CLOUD <-> LOCAL"}
+                        </button>
                         <Link to="/worldgen" className="px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white">
                             RETURN TO WORLDGEN
                         </Link>
                     </div>
                 </div>
+                {(syncResult || cloudError) && (
+                    <div className="px-6 pb-3 text-[10px] font-mono tracking-wide">
+                        {syncResult && <p className="text-emerald-300">{syncResult}</p>}
+                        {cloudError && <p className="text-red-300">{cloudError}</p>}
+                    </div>
+                )}
             </header>
 
             {/* ══ Main Layout ══ */}
@@ -45,6 +122,7 @@ export function GalleryPage() {
                     <HistoryGallery
                         history={history}
                         activePlanetId={activePlanetId}
+                        showExtendedTabs={true}
                         deleteFromHistory={(id) => {
                             deleteFromHistory(id);
                             if (activePlanetId === id) setActivePlanetId(null);
@@ -155,6 +233,36 @@ export function GalleryPage() {
                         </div>
                     </div>
                 )}
+            </Modal>
+
+            <Modal open={showCloudBrowser} onClose={() => setShowCloudBrowser(false)} title="SUPABASE BUCKET BROWSER">
+                <div className="p-4 bg-black/80 rounded-xl border border-white/10 max-h-[75vh] overflow-y-auto">
+                    {isLoadingCloudBrowser && (
+                        <p className="text-xs text-gray-400">Loading cloud assets...</p>
+                    )}
+                    {!isLoadingCloudBrowser && cloudObjects.length === 0 && (
+                        <p className="text-xs text-gray-500">No cloud images found for the configured Supabase prefix.</p>
+                    )}
+                    {!isLoadingCloudBrowser && cloudObjects.length > 0 && (
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            {cloudObjects.map((obj) => (
+                                <a
+                                    key={obj.path}
+                                    href={obj.publicUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="group block bg-white/5 border border-white/10 rounded-lg overflow-hidden hover:border-cyan-400/50 transition-colors"
+                                >
+                                    <img src={obj.publicUrl} alt={obj.name} className="w-full h-28 object-cover bg-black/40" />
+                                    <div className="p-2">
+                                        <p className="text-[10px] text-gray-200 truncate">{obj.name}</p>
+                                        <p className="text-[9px] text-gray-500 truncate">{obj.path}</p>
+                                    </div>
+                                </a>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </Modal>
         </div>
     );

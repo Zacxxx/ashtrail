@@ -6,7 +6,7 @@ mod worldgen_pipeline;
 mod cms;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post, delete},
@@ -30,6 +30,7 @@ use tower_http::services::ServeDir;
 use base64::Engine as _;
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
 
 #[derive(Clone)]
 struct AppState {
@@ -38,6 +39,15 @@ struct AppState {
     planet_root: PathBuf,
     icons_dir: PathBuf,
     icons_export_dir: PathBuf,
+    supabase: Option<SupabaseStorageConfig>,
+}
+
+#[derive(Clone)]
+struct SupabaseStorageConfig {
+    url: String,
+    service_role_key: String,
+    bucket: String,
+    prefix: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -192,6 +202,82 @@ struct BatchSummary {
     thumbnail_url: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SupabaseBrowseQuery {
+    prefix: Option<String>,
+    images_only: Option<bool>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupabaseObjectInfo {
+    path: String,
+    name: String,
+    size_bytes: Option<u64>,
+    updated_at: Option<String>,
+    public_url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupabaseBrowseResponse {
+    prefix: String,
+    objects: Vec<SupabaseObjectInfo>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct SupabaseSyncRequest {
+    direction: Option<String>,
+    images_only: Option<bool>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupabaseSyncResponse {
+    direction: String,
+    uploaded: usize,
+    downloaded: usize,
+    skipped: usize,
+    failed: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HierarchyReassignRequest {
+    entity_type: String,
+    entity_id: u32,
+    target_id: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HierarchyReassignResponse {
+    success: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HierarchyRenameRequest {
+    entity_type: String,
+    entity_id: u32,
+    name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HierarchyRenameResponse {
+    success: bool,
+}
+
+#[derive(Clone)]
+struct RemoteObject {
+    path: String,
+    updated_at: Option<String>,
+    size_bytes: Option<u64>,
+}
+
 /// List saved planet cache entries.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -234,12 +320,18 @@ async fn main() {
     let icons_export_dir = PathBuf::from("../../game-assets/assets/Icons");
     std::fs::create_dir_all(&icons_export_dir).expect("failed to create game-assets/assets/Icons directory");
 
+    let supabase = load_supabase_storage_config();
+    if supabase.is_none() {
+        warn!("Supabase storage sync disabled (missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)");
+    }
+
     let state = AppState {
         jobs: Arc::new(Mutex::new(HashMap::new())),
         planets_dir,
         planet_root: PathBuf::from("generated/planet"), // For the hierarchical generator
         icons_dir: icons_dir.clone(),
         icons_export_dir,
+        supabase,
     };
 
     let app = Router::new()
@@ -277,16 +369,21 @@ async fn main() {
         .route("/api/icons/batches/{batch_id}/rename", axum::routing::put(rename_icon_batch))
         .route("/api/icons/batches/{batch_id}/icons/{filename}/regenerate", post(regenerate_icon))
         .route("/api/icons/export", post(export_icons_registry))
+        .route("/api/storage/supabase/browse", get(browse_supabase_objects))
+        .route("/api/storage/supabase/sync", post(sync_supabase_storage))
         // ── Worldgen Pipeline ──
         .route("/api/worldgen/{planet_id}/status", get(worldgen_pipeline::get_pipeline_status))
         .route("/api/worldgen/{planet_id}/run/{stage_name}", post(worldgen_pipeline::run_pipeline_stage))
         .route("/api/worldgen/{planet_id}/job/{job_id}", get(worldgen_pipeline::get_worldgen_job_status))
         .route("/api/worldgen/{planet_id}/clear", delete(worldgen_pipeline::clear_pipeline))
+        .route("/api/worldgen/{planet_id}/hierarchy/reassign", post(reassign_worldgen_hierarchy))
+        .route("/api/worldgen/{planet_id}/hierarchy/rename", post(rename_worldgen_hierarchy))
         // Static file serving for all planet textures
         .route("/api/data/traits", get(cms::get_traits).post(cms::save_traits))
         .route("/api/data/occupations", get(cms::get_occupations).post(cms::save_occupations))
         .route("/api/data/items", get(cms::get_items).post(cms::save_items))
         .route("/api/data/characters", get(cms::get_characters).post(cms::save_character))
+        .route("/api/data/skills", get(cms::get_skills).post(cms::save_skill))
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .with_state(state)
@@ -1275,6 +1372,256 @@ async fn get_cell_features(
         }
     }
     (StatusCode::OK, Json(serde_json::json!(null))).into_response()
+}
+
+async fn reassign_worldgen_hierarchy(
+    State(state): State<AppState>,
+    Path(planet_id): Path<String>,
+    Json(request): Json<HierarchyReassignRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let planets_dir = state.planets_dir.clone();
+
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let worldgen_dir = planets_dir.join(&planet_id).join("worldgen");
+        if !worldgen_dir.exists() {
+            return Err("Worldgen directory not found. Run the pipeline first.".to_string());
+        }
+
+        let provinces_path = worldgen_dir.join("provinces.json");
+        let duchies_path = worldgen_dir.join("duchies.json");
+        let kingdoms_path = worldgen_dir.join("kingdoms.json");
+        let province_id_path = worldgen_dir.join("province_id.png");
+
+        let provinces_text = std::fs::read_to_string(&provinces_path)
+            .map_err(|e| format!("Failed to read provinces.json: {e}"))?;
+        let duchies_text = std::fs::read_to_string(&duchies_path)
+            .map_err(|e| format!("Failed to read duchies.json: {e}"))?;
+        let kingdoms_text = std::fs::read_to_string(&kingdoms_path)
+            .map_err(|e| format!("Failed to read kingdoms.json: {e}"))?;
+
+        let mut provinces: Vec<ProvinceRecord> = serde_json::from_str(&provinces_text)
+            .map_err(|e| format!("Failed to parse provinces.json: {e}"))?;
+        let mut duchies: Vec<DuchyRecord> = serde_json::from_str(&duchies_text)
+            .map_err(|e| format!("Failed to parse duchies.json: {e}"))?;
+        let mut kingdoms: Vec<KingdomRecord> = serde_json::from_str(&kingdoms_text)
+            .map_err(|e| format!("Failed to parse kingdoms.json: {e}"))?;
+
+        let entity_type = request.entity_type.trim().to_ascii_lowercase();
+        match entity_type.as_str() {
+            "province" => {
+                let Some(new_duchy_index) = duchies.iter().position(|d| d.id == request.target_id) else {
+                    return Err(format!("Target duchy {} not found", request.target_id));
+                };
+
+                let Some(province_index) = provinces.iter().position(|p| p.id == request.entity_id) else {
+                    return Err(format!("Province {} not found", request.entity_id));
+                };
+
+                let old_duchy_id = provinces[province_index].duchy_id;
+                let new_duchy_id = duchies[new_duchy_index].id;
+                let new_kingdom_id = duchies[new_duchy_index].kingdom_id;
+
+                if old_duchy_id != new_duchy_id {
+                    if let Some(old_duchy_index) = duchies.iter().position(|d| d.id == old_duchy_id) {
+                        duchies[old_duchy_index]
+                            .province_ids
+                            .retain(|&pid| pid != request.entity_id);
+                    }
+                    if !duchies[new_duchy_index].province_ids.contains(&request.entity_id) {
+                        duchies[new_duchy_index].province_ids.push(request.entity_id);
+                    }
+                }
+
+                provinces[province_index].duchy_id = new_duchy_id;
+                provinces[province_index].kingdom_id = new_kingdom_id;
+            }
+            "duchy" => {
+                let Some(new_kingdom_index) = kingdoms.iter().position(|k| k.id == request.target_id) else {
+                    return Err(format!("Target kingdom {} not found", request.target_id));
+                };
+
+                let Some(duchy_index) = duchies.iter().position(|d| d.id == request.entity_id) else {
+                    return Err(format!("Duchy {} not found", request.entity_id));
+                };
+
+                let old_kingdom_id = duchies[duchy_index].kingdom_id;
+                let duchy_id = duchies[duchy_index].id;
+                let new_kingdom_id = kingdoms[new_kingdom_index].id;
+
+                if old_kingdom_id != new_kingdom_id {
+                    if let Some(old_kingdom_index) = kingdoms.iter().position(|k| k.id == old_kingdom_id) {
+                        kingdoms[old_kingdom_index]
+                            .duchy_ids
+                            .retain(|&did| did != duchy_id);
+                    }
+                    if !kingdoms[new_kingdom_index].duchy_ids.contains(&duchy_id) {
+                        kingdoms[new_kingdom_index].duchy_ids.push(duchy_id);
+                    }
+                }
+
+                duchies[duchy_index].kingdom_id = new_kingdom_id;
+                for province in &mut provinces {
+                    if province.duchy_id == duchy_id {
+                        province.kingdom_id = new_kingdom_id;
+                    }
+                }
+            }
+            _ => {
+                return Err("entityType must be either 'province' or 'duchy'".to_string());
+            }
+        }
+
+        // Rebuild parent-child lists from authoritative links to avoid stale memberships.
+        for duchy in &mut duchies {
+            duchy.province_ids.clear();
+        }
+        for province in &provinces {
+            if let Some(duchy_index) = duchies.iter().position(|d| d.id == province.duchy_id) {
+                duchies[duchy_index].province_ids.push(province.id);
+            }
+        }
+
+        for kingdom in &mut kingdoms {
+            kingdom.duchy_ids.clear();
+        }
+        for duchy in &duchies {
+            if let Some(kingdom_index) = kingdoms.iter().position(|k| k.id == duchy.kingdom_id) {
+                kingdoms[kingdom_index].duchy_ids.push(duchy.id);
+            }
+        }
+
+        // Keep IDs unique and deterministic in arrays.
+        for duchy in &mut duchies {
+            duchy.province_ids.sort_unstable();
+            duchy.province_ids.dedup();
+        }
+        for kingdom in &mut kingdoms {
+            kingdom.duchy_ids.sort_unstable();
+            kingdom.duchy_ids.dedup();
+        }
+
+        let provinces_json = serde_json::to_string_pretty(&provinces)
+            .map_err(|e| format!("Failed to serialize provinces: {e}"))?;
+        let duchies_json = serde_json::to_string_pretty(&duchies)
+            .map_err(|e| format!("Failed to serialize duchies: {e}"))?;
+        let kingdoms_json = serde_json::to_string_pretty(&kingdoms)
+            .map_err(|e| format!("Failed to serialize kingdoms: {e}"))?;
+
+        std::fs::write(&provinces_path, provinces_json)
+            .map_err(|e| format!("Failed to write provinces.json: {e}"))?;
+        std::fs::write(&duchies_path, duchies_json)
+            .map_err(|e| format!("Failed to write duchies.json: {e}"))?;
+        std::fs::write(&kingdoms_path, kingdoms_json)
+            .map_err(|e| format!("Failed to write kingdoms.json: {e}"))?;
+
+        // Rebuild duchy/kingdom ID textures from province labels + updated mappings.
+        let province_img = image::open(&province_id_path)
+            .map_err(|e| format!("Failed to open province_id.png: {e}"))?
+            .to_rgb8();
+        let (w, h) = province_img.dimensions();
+        let labels_len = (w * h) as usize;
+
+        let province_to_duchy: HashMap<u32, u32> = provinces.iter().map(|p| (p.id, p.duchy_id)).collect();
+        let duchy_to_kingdom: HashMap<u32, u32> = duchies.iter().map(|d| (d.id, d.kingdom_id)).collect();
+
+        let mut duchy_labels = vec![0u32; labels_len];
+        let mut kingdom_labels = vec![0u32; labels_len];
+
+        for (i, pixel) in province_img.pixels().enumerate() {
+            let province_id = pixel[0] as u32 | ((pixel[1] as u32) << 8) | ((pixel[2] as u32) << 16);
+            let duchy_id = province_to_duchy.get(&province_id).copied().unwrap_or(0);
+            let kingdom_id = duchy_to_kingdom.get(&duchy_id).copied().unwrap_or(0);
+            duchy_labels[i] = duchy_id;
+            kingdom_labels[i] = kingdom_id;
+        }
+
+        worldgen_core::export::write_id_texture(&duchy_labels, w, h, &worldgen_dir.join("duchy_id.png"))?;
+        worldgen_core::export::write_id_texture(&kingdom_labels, w, h, &worldgen_dir.join("kingdom_id.png"))?;
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    Ok(Json(HierarchyReassignResponse { success: true }))
+}
+
+async fn rename_worldgen_hierarchy(
+    State(state): State<AppState>,
+    Path(planet_id): Path<String>,
+    Json(request): Json<HierarchyRenameRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let planets_dir = state.planets_dir.clone();
+
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let worldgen_dir = planets_dir.join(&planet_id).join("worldgen");
+        if !worldgen_dir.exists() {
+            return Err("Worldgen directory not found. Run the pipeline first.".to_string());
+        }
+
+        let clean_name = request.name.trim();
+        if clean_name.is_empty() {
+            return Err("Name cannot be empty".to_string());
+        }
+
+        let entity_type = request.entity_type.trim().to_ascii_lowercase();
+        match entity_type.as_str() {
+            "province" => {
+                let provinces_path = worldgen_dir.join("provinces.json");
+                let provinces_text = std::fs::read_to_string(&provinces_path)
+                    .map_err(|e| format!("Failed to read provinces.json: {e}"))?;
+                let mut provinces: Vec<ProvinceRecord> = serde_json::from_str(&provinces_text)
+                    .map_err(|e| format!("Failed to parse provinces.json: {e}"))?;
+                let Some(index) = provinces.iter().position(|p| p.id == request.entity_id) else {
+                    return Err(format!("Province {} not found", request.entity_id));
+                };
+                provinces[index].name = clean_name.to_string();
+                let payload = serde_json::to_string_pretty(&provinces)
+                    .map_err(|e| format!("Failed to serialize provinces: {e}"))?;
+                std::fs::write(&provinces_path, payload)
+                    .map_err(|e| format!("Failed to write provinces.json: {e}"))?;
+            }
+            "duchy" => {
+                let duchies_path = worldgen_dir.join("duchies.json");
+                let duchies_text = std::fs::read_to_string(&duchies_path)
+                    .map_err(|e| format!("Failed to read duchies.json: {e}"))?;
+                let mut duchies: Vec<DuchyRecord> = serde_json::from_str(&duchies_text)
+                    .map_err(|e| format!("Failed to parse duchies.json: {e}"))?;
+                let Some(index) = duchies.iter().position(|d| d.id == request.entity_id) else {
+                    return Err(format!("Duchy {} not found", request.entity_id));
+                };
+                duchies[index].name = clean_name.to_string();
+                let payload = serde_json::to_string_pretty(&duchies)
+                    .map_err(|e| format!("Failed to serialize duchies: {e}"))?;
+                std::fs::write(&duchies_path, payload)
+                    .map_err(|e| format!("Failed to write duchies.json: {e}"))?;
+            }
+            "kingdom" => {
+                let kingdoms_path = worldgen_dir.join("kingdoms.json");
+                let kingdoms_text = std::fs::read_to_string(&kingdoms_path)
+                    .map_err(|e| format!("Failed to read kingdoms.json: {e}"))?;
+                let mut kingdoms: Vec<KingdomRecord> = serde_json::from_str(&kingdoms_text)
+                    .map_err(|e| format!("Failed to parse kingdoms.json: {e}"))?;
+                let Some(index) = kingdoms.iter().position(|k| k.id == request.entity_id) else {
+                    return Err(format!("Kingdom {} not found", request.entity_id));
+                };
+                kingdoms[index].name = clean_name.to_string();
+                let payload = serde_json::to_string_pretty(&kingdoms)
+                    .map_err(|e| format!("Failed to serialize kingdoms: {e}"))?;
+                std::fs::write(&kingdoms_path, payload)
+                    .map_err(|e| format!("Failed to write kingdoms.json: {e}"))?;
+            }
+            _ => return Err("entityType must be one of: province, duchy, kingdom".to_string()),
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    Ok(Json(HierarchyRenameResponse { success: true }))
 }
 
 #[derive(Deserialize)]
@@ -2359,6 +2706,473 @@ async fn rename_icon_batch(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(result))
+}
+
+fn load_supabase_storage_config() -> Option<SupabaseStorageConfig> {
+    let url = std::env::var("SUPABASE_URL").ok()?.trim().trim_end_matches('/').to_string();
+    let service_role_key = std::env::var("SUPABASE_SERVICE_ROLE_KEY").ok()?.trim().to_string();
+    let bucket = std::env::var("SUPABASE_BUCKET").ok()?.trim().to_string();
+
+    if url.is_empty() || service_role_key.is_empty() || bucket.is_empty() {
+        return None;
+    }
+
+    let prefix = std::env::var("SUPABASE_STORAGE_PREFIX")
+        .ok()
+        .map(|v| v.trim().trim_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "ashtrail".to_string());
+
+    Some(SupabaseStorageConfig {
+        url,
+        service_role_key,
+        bucket,
+        prefix,
+    })
+}
+
+fn normalize_slashes(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn is_image_file(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".webp")
+        || lower.ends_with(".gif")
+}
+
+fn guess_content_type(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".json") {
+        "application/json"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+fn collect_files_recursive(root: &std::path::Path, out: &mut Vec<PathBuf>) {
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_files_recursive(&path, out);
+            } else if path.is_file() {
+                out.push(path);
+            }
+        }
+    }
+}
+
+fn local_to_cloud_key(state: &AppState, cfg: &SupabaseStorageConfig, local_path: &std::path::Path) -> Option<String> {
+    if let Ok(rel) = local_path.strip_prefix(&state.planets_dir) {
+        return Some(format!("{}/planets/{}", cfg.prefix, normalize_slashes(rel)));
+    }
+    if let Ok(rel) = local_path.strip_prefix(&state.icons_dir) {
+        return Some(format!("{}/icons/{}", cfg.prefix, normalize_slashes(rel)));
+    }
+    None
+}
+
+fn cloud_key_to_local(state: &AppState, cfg: &SupabaseStorageConfig, key: &str) -> Option<PathBuf> {
+    let planets_prefix = format!("{}/planets/", cfg.prefix);
+    let icons_prefix = format!("{}/icons/", cfg.prefix);
+    if let Some(rel) = key.strip_prefix(&planets_prefix) {
+        return Some(state.planets_dir.join(rel));
+    }
+    if let Some(rel) = key.strip_prefix(&icons_prefix) {
+        return Some(state.icons_dir.join(rel));
+    }
+    None
+}
+
+fn local_modified_at(path: &std::path::Path) -> Option<chrono::DateTime<chrono::Utc>> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    Some(chrono::DateTime::<chrono::Utc>::from(modified))
+}
+
+fn remote_updated_at(updated_at: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
+    let raw = updated_at?;
+    chrono::DateTime::parse_from_rfc3339(raw).ok().map(|dt| dt.with_timezone(&chrono::Utc))
+}
+
+async fn list_supabase_objects_recursive(
+    client: &reqwest::Client,
+    cfg: &SupabaseStorageConfig,
+    prefix: &str,
+) -> Result<Vec<RemoteObject>, String> {
+    let mut folders = vec![prefix.trim_matches('/').to_string()];
+    let mut files: Vec<RemoteObject> = Vec::new();
+
+    while let Some(current_prefix) = folders.pop() {
+        let list_url = format!("{}/storage/v1/object/list/{}", cfg.url, cfg.bucket);
+        let response = client
+            .post(&list_url)
+            .header("Authorization", format!("Bearer {}", cfg.service_role_key))
+            .header("apikey", &cfg.service_role_key)
+            .json(&serde_json::json!({
+                "prefix": current_prefix,
+                "limit": 1000,
+                "offset": 0,
+                "sortBy": { "column": "name", "order": "asc" }
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("supabase list request failed: {e}"))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("supabase list failed ({}): {}", status, body));
+        }
+
+        let entries = response
+            .json::<Vec<serde_json::Value>>()
+            .await
+            .map_err(|e| format!("supabase list parse failed: {e}"))?;
+
+        for entry in entries {
+            let Some(name) = entry.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let full_path = if current_prefix.is_empty() {
+                name.to_string()
+            } else {
+                format!("{}/{}", current_prefix, name)
+            };
+            let is_folder = entry.get("id").and_then(|v| v.as_str()).is_none();
+            if is_folder {
+                folders.push(full_path);
+                continue;
+            }
+            files.push(RemoteObject {
+                path: full_path,
+                updated_at: entry.get("updated_at").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                size_bytes: entry
+                    .get("metadata")
+                    .and_then(|m| m.get("size"))
+                    .and_then(|s| s.as_u64()),
+            });
+        }
+    }
+
+    Ok(files)
+}
+
+async fn ensure_supabase_bucket_exists(
+    client: &reqwest::Client,
+    cfg: &SupabaseStorageConfig,
+) -> Result<(), String> {
+    let get_url = format!("{}/storage/v1/bucket/{}", cfg.url, cfg.bucket);
+    let get_response = client
+        .get(get_url)
+        .header("Authorization", format!("Bearer {}", cfg.service_role_key))
+        .header("apikey", &cfg.service_role_key)
+        .send()
+        .await
+        .map_err(|e| format!("bucket existence check failed: {e}"))?;
+
+    let get_status = get_response.status();
+    if get_status.is_success() {
+        return Ok(());
+    }
+
+    if get_status != StatusCode::NOT_FOUND {
+        let body = get_response.text().await.unwrap_or_default();
+        return Err(format!("bucket check failed ({}): {}", get_status, body));
+    }
+
+    let create_url = format!("{}/storage/v1/bucket", cfg.url);
+    let create_response = client
+        .post(create_url)
+        .header("Authorization", format!("Bearer {}", cfg.service_role_key))
+        .header("apikey", &cfg.service_role_key)
+        .json(&serde_json::json!({
+            "id": cfg.bucket,
+            "name": cfg.bucket,
+            "public": true
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("bucket create request failed: {e}"))?;
+
+    let create_status = create_response.status();
+    if create_status.is_success() || create_status == StatusCode::CONFLICT {
+        Ok(())
+    } else {
+        let body = create_response.text().await.unwrap_or_default();
+        Err(format!("bucket create failed ({}): {}", create_status, body))
+    }
+}
+
+async fn upload_to_supabase(
+    client: &reqwest::Client,
+    cfg: &SupabaseStorageConfig,
+    key: &str,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    let upload_url = format!("{}/storage/v1/object/{}/{}", cfg.url, cfg.bucket, key);
+    let response = client
+        .post(upload_url)
+        .header("Authorization", format!("Bearer {}", cfg.service_role_key))
+        .header("apikey", &cfg.service_role_key)
+        .header("x-upsert", "true")
+        .header("Content-Type", guess_content_type(key))
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| format!("upload request failed: {e}"))?;
+
+    let status = response.status();
+    if status.is_success() {
+        Ok(())
+    } else {
+        let body = response.text().await.unwrap_or_default();
+        Err(format!("upload failed ({}): {}", status, body))
+    }
+}
+
+async fn download_from_supabase(
+    client: &reqwest::Client,
+    cfg: &SupabaseStorageConfig,
+    key: &str,
+) -> Result<Vec<u8>, String> {
+    let download_url = format!("{}/storage/v1/object/{}/{}", cfg.url, cfg.bucket, key);
+    let response = client
+        .get(download_url)
+        .header("Authorization", format!("Bearer {}", cfg.service_role_key))
+        .header("apikey", &cfg.service_role_key)
+        .send()
+        .await
+        .map_err(|e| format!("download request failed: {e}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("download failed ({}): {}", status, body));
+    }
+
+    response
+        .bytes()
+        .await
+        .map(|b| b.to_vec())
+        .map_err(|e| format!("download bytes failed: {e}"))
+}
+
+async fn browse_supabase_objects(
+    State(state): State<AppState>,
+    Query(query): Query<SupabaseBrowseQuery>,
+) -> impl IntoResponse {
+    let Some(cfg) = state.supabase.as_ref() else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Supabase storage is not configured. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET."
+            })),
+        )
+            .into_response();
+    };
+
+    let normalized_prefix = query
+        .prefix
+        .as_deref()
+        .map(|p| p.trim().trim_matches('/').to_string())
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| cfg.prefix.clone());
+    let images_only = query.images_only.unwrap_or(true);
+
+    let client = reqwest::Client::new();
+    if let Err(err) = ensure_supabase_bucket_exists(&client, cfg).await {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": err })),
+        )
+            .into_response();
+    }
+
+    match list_supabase_objects_recursive(&client, cfg, &normalized_prefix).await {
+        Ok(mut objects) => {
+            objects.sort_by(|a, b| b.path.cmp(&a.path));
+            let items = objects
+                .into_iter()
+                .filter(|o| !images_only || is_image_file(&o.path))
+                .map(|o| SupabaseObjectInfo {
+                    name: o.path.split('/').last().unwrap_or("").to_string(),
+                    path: o.path.clone(),
+                    size_bytes: o.size_bytes,
+                    updated_at: o.updated_at.clone(),
+                    public_url: format!("{}/storage/v1/object/public/{}/{}", cfg.url, cfg.bucket, o.path),
+                })
+                .collect::<Vec<_>>();
+
+            (StatusCode::OK, Json(SupabaseBrowseResponse { prefix: normalized_prefix, objects: items })).into_response()
+        }
+        Err(err) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": err })),
+        )
+            .into_response(),
+    }
+}
+
+async fn sync_supabase_storage(
+    State(state): State<AppState>,
+    Json(request): Json<SupabaseSyncRequest>,
+) -> impl IntoResponse {
+    let Some(cfg) = state.supabase.as_ref() else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Supabase storage is not configured. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET."
+            })),
+        )
+            .into_response();
+    };
+
+    let direction = request.direction.unwrap_or_else(|| "both".to_string()).to_lowercase();
+    if direction != "push" && direction != "pull" && direction != "both" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "direction must be one of: push, pull, both" })),
+        )
+            .into_response();
+    }
+    let images_only = request.images_only.unwrap_or(false);
+
+    let client = reqwest::Client::new();
+    if let Err(err) = ensure_supabase_bucket_exists(&client, cfg).await {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": err })),
+        )
+            .into_response();
+    }
+
+    let mut uploaded = 0usize;
+    let mut downloaded = 0usize;
+    let mut skipped = 0usize;
+    let mut failed = 0usize;
+
+    let planets_prefix = format!("{}/planets", cfg.prefix);
+    let icons_prefix = format!("{}/icons", cfg.prefix);
+    let remote_planets = match list_supabase_objects_recursive(&client, cfg, &planets_prefix).await {
+        Ok(v) => v,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": err })),
+            )
+                .into_response();
+        }
+    };
+    let remote_icons = match list_supabase_objects_recursive(&client, cfg, &icons_prefix).await {
+        Ok(v) => v,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": err })),
+            )
+                .into_response();
+        }
+    };
+    let remote_files = remote_planets.into_iter().chain(remote_icons.into_iter()).collect::<Vec<_>>();
+    let remote_map = remote_files
+        .iter()
+        .map(|o| (o.path.clone(), o.clone()))
+        .collect::<HashMap<_, _>>();
+
+    let mut local_files = Vec::new();
+    collect_files_recursive(&state.planets_dir, &mut local_files);
+    collect_files_recursive(&state.icons_dir, &mut local_files);
+
+    if direction == "push" || direction == "both" {
+        for local_path in &local_files {
+            let Some(cloud_key) = local_to_cloud_key(&state, cfg, local_path) else {
+                continue;
+            };
+            if images_only && !is_image_file(&cloud_key) {
+                continue;
+            }
+
+            let local_time = local_modified_at(local_path);
+            let remote_time = remote_map
+                .get(&cloud_key)
+                .and_then(|o| remote_updated_at(o.updated_at.as_deref()));
+
+            if remote_time.is_some() && local_time.is_some() && remote_time >= local_time {
+                skipped += 1;
+                continue;
+            }
+
+            match std::fs::read(local_path) {
+                Ok(bytes) => {
+                    if upload_to_supabase(&client, cfg, &cloud_key, bytes).await.is_ok() {
+                        uploaded += 1;
+                    } else {
+                        failed += 1;
+                    }
+                }
+                Err(_) => failed += 1,
+            }
+        }
+    }
+
+    if direction == "pull" || direction == "both" {
+        for remote in &remote_files {
+            if images_only && !is_image_file(&remote.path) {
+                continue;
+            }
+            let Some(local_path) = cloud_key_to_local(&state, cfg, &remote.path) else {
+                continue;
+            };
+
+            let local_time = local_modified_at(&local_path);
+            let remote_time = remote_updated_at(remote.updated_at.as_deref());
+            if local_time.is_some() && remote_time.is_some() && local_time >= remote_time {
+                skipped += 1;
+                continue;
+            }
+
+            match download_from_supabase(&client, cfg, &remote.path).await {
+                Ok(bytes) => {
+                    if let Some(parent) = local_path.parent() {
+                        if std::fs::create_dir_all(parent).is_err() {
+                            failed += 1;
+                            continue;
+                        }
+                    }
+                    if std::fs::write(&local_path, bytes).is_ok() {
+                        downloaded += 1;
+                    } else {
+                        failed += 1;
+                    }
+                }
+                Err(_) => failed += 1,
+            }
+        }
+    }
+
+    (
+        StatusCode::OK,
+        Json(SupabaseSyncResponse {
+            direction,
+            uploaded,
+            downloaded,
+            skipped,
+            failed,
+        }),
+    )
+        .into_response()
 }
 
 /// Turn a prompt into a safe snake_case key.

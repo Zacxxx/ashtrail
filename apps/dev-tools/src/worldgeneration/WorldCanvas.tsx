@@ -29,10 +29,14 @@ interface WorldCanvasProps {
     geographyTab?: "regions" | "cells" | "pipeline" | "inspector";
     geoHoveredId?: number | null;
     geoSelectedId?: number | null;
+    geoBulkSelectedIds?: number[];
+    geoBulkMode?: boolean;
     setGeoHoveredId?: (id: number | null) => void;
     setGeoSelectedId?: (id: number | null) => void;
+    onGeoBulkToggleId?: (id: number | null) => void;
     inspectorLayer?: any;
     setInspectorLayer?: (layer: any) => void;
+    provinceTextureVersion?: number;
     isMaxView?: boolean;
     setIsMaxView?: (v: boolean) => void;
     activeHistoryId?: string | null;
@@ -51,10 +55,14 @@ export function WorldCanvas({
     geographyTab = "regions",
     geoHoveredId,
     geoSelectedId,
+    geoBulkSelectedIds = [],
+    geoBulkMode = false,
     setGeoHoveredId,
     setGeoSelectedId,
+    onGeoBulkToggleId,
     inspectorLayer,
     setInspectorLayer,
+    provinceTextureVersion = 0,
     isMaxView = false,
     setIsMaxView,
     activeHistoryId,
@@ -157,10 +165,14 @@ export function WorldCanvas({
                 geographyTab={geographyTab}
                 hoveredId={geoHoveredId ?? null}
                 selectedId={geoSelectedId ?? null}
+                bulkSelectedIds={geoBulkSelectedIds}
+                bulkSelectActive={geoBulkMode}
                 onHover={setGeoHoveredId}
                 onClick={setGeoSelectedId}
+                onBulkToggle={onGeoBulkToggleId}
                 activeLayer={inspectorLayer}
                 onLayerChange={setInspectorLayer}
+                refreshToken={provinceTextureVersion}
             />
         );
     };

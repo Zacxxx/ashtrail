@@ -2,9 +2,9 @@
 // TacticalArena.tsx — Dofus-style isometric combat arena
 // ═══════════════════════════════════════════════════════════
 
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Skill } from '@ashtrail/core';
-import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen } from './tacticalGrid';
+import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells } from './tacticalGrid';
 import { TacticalEntity, CombatPhase, PlayerAction } from './useTacticalCombat';
 import { CombatLogMessage } from './useCombatEngine';
 
@@ -54,6 +54,27 @@ export function TacticalArena({
         return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
     }, [grid]);
 
+    const [hoveredCell, setHoveredCell] = useState<{ row: number, col: number } | null>(null);
+
+    const aoeSet = useMemo(() => {
+        if (!selectedSkill || !hoveredCell || !activeEntity || phase !== 'combat' || playerAction !== 'targeting_skill') return new Set<string>();
+
+        const dr = hoveredCell.row - activeEntity.gridPos.row;
+        const dc = hoveredCell.col - activeEntity.gridPos.col;
+
+        let dirR = 0; let dirC = 0;
+        if (selectedSkill.areaType === 'line') {
+            if (Math.abs(dr) > Math.abs(dc)) dirR = dr > 0 ? 1 : -1;
+            else if (Math.abs(dc) > Math.abs(dr)) dirC = dc > 0 ? 1 : -1;
+            else { dirR = dr > 0 ? 1 : -1; dirC = 0; } // fallback
+        }
+
+        const aoe = getAoECells(grid, hoveredCell.row, hoveredCell.col, selectedSkill.areaType, selectedSkill.areaSize || 0, dirR, dirC);
+        const set = new Set<string>();
+        aoe.forEach(c => set.add(`${c.row},${c.col}`));
+        return set;
+    }, [selectedSkill, hoveredCell, activeEntity, grid, phase, playerAction]);
+
     return (
         <div className="w-full h-full flex flex-col gap-0 overflow-hidden">
             {/* Top Bar: Turn info + Phase */}
@@ -102,7 +123,10 @@ export function TacticalArena({
                                         y={y}
                                         entity={cell.occupantId ? entities.get(cell.occupantId) : undefined}
                                         isActive={cell.occupantId === activeEntityId}
+                                        isAoe={aoeSet.has(`${r},${c}`)}
                                         onClick={() => onCellClick(r, c)}
+                                        onHover={() => setHoveredCell({ row: r, col: c })}
+                                        onLeave={() => setHoveredCell(null)}
                                     />
                                 );
                             })
@@ -249,10 +273,13 @@ interface IsometricTileProps {
     y: number;
     entity?: TacticalEntity;
     isActive: boolean;
+    isAoe?: boolean;
     onClick: () => void;
+    onHover?: () => void;
+    onLeave?: () => void;
 }
 
-function IsometricTile({ cell, x, y, entity, isActive, onClick }: IsometricTileProps) {
+function IsometricTile({ cell, x, y, entity, isActive, isAoe, onClick, onHover, onLeave }: IsometricTileProps) {
     const isDead = entity && entity.hp <= 0;
 
     const halfW = TILE_WIDTH / 2;
@@ -291,6 +318,13 @@ function IsometricTile({ cell, x, y, entity, isActive, onClick }: IsometricTileP
         strokeWidth = 2;
     }
 
+    // AoE overrides previous highlights to pop out
+    if (isAoe) {
+        fillColor = 'rgba(239, 68, 68, 0.6)';
+        strokeColor = 'rgba(255, 100, 100, 1)';
+        strokeWidth = 2;
+    }
+
     return (
         <div
             className="absolute"
@@ -306,6 +340,8 @@ function IsometricTile({ cell, x, y, entity, isActive, onClick }: IsometricTileP
             <svg width={TILE_WIDTH} height={TILE_HEIGHT} className="absolute inset-0 cursor-pointer"
                 style={{ zIndex: 1 }}
                 onClick={onClick}
+                onMouseEnter={onHover}
+                onMouseLeave={onLeave}
             >
                 <path
                     d={diamondPath}
@@ -347,7 +383,7 @@ function IsometricTile({ cell, x, y, entity, isActive, onClick }: IsometricTileP
                     <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-black/80 rounded-full overflow-hidden">
                         <div
                             className={`h-full rounded-full transition-all duration-300 ${entity.hp / entity.maxHp > 0.5 ? 'bg-green-500' :
-                                    entity.hp / entity.maxHp > 0.25 ? 'bg-yellow-500' : 'bg-red-500'
+                                entity.hp / entity.maxHp > 0.25 ? 'bg-yellow-500' : 'bg-red-500'
                                 }`}
                             style={{ width: `${Math.max(0, (entity.hp / entity.maxHp) * 100)}%` }}
                         />

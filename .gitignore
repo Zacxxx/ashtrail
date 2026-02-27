@@ -23,6 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 .env
+.firebase/
+.firebaserc
 target/
 pkg/
 

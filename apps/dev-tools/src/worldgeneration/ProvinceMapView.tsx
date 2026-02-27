@@ -172,10 +172,14 @@ interface ProvinceMapViewProps {
     geographyTab?: "regions" | "cells" | "pipeline" | "inspector";
     hoveredId?: number | null;
     selectedId?: number | null;
+    bulkSelectedIds?: number[];
+    bulkSelectActive?: boolean;
     onHover?: (id: number | null) => void;
     onClick?: (id: number | null) => void;
+    onBulkToggle?: (id: number | null) => void;
     activeLayer?: any;
     onLayerChange?: (layer: any) => void;
+    refreshToken?: number;
 }
 
 const LAYER_INDEX: Record<ProvinceLayer, number> = {
@@ -190,7 +194,7 @@ const LAYER_INDEX: Record<ProvinceLayer, number> = {
 const API_BASE = "http://127.0.0.1:8787";
 
 export function ProvinceMapView({
-    planetId, baseTextureUrl, geographyTab, hoveredId, selectedId, onHover, onClick, activeLayer, onLayerChange
+    planetId, baseTextureUrl, geographyTab, hoveredId, selectedId, bulkSelectedIds = [], bulkSelectActive = false, onHover, onClick, onBulkToggle, activeLayer, onLayerChange, refreshToken = 0
 }: ProvinceMapViewProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const glRef = useRef<WebGLRenderingContext | null>(null);
@@ -318,15 +322,18 @@ export function ProvinceMapView({
 
         // Load all textures
         const worldgenBase = `${API_BASE}/api/planets/${planetId}/worldgen`;
+        const cacheBuster = `v=${refreshToken}`;
+        setLoaded(false);
+        setLoadError(null);
         const loadTextures = async () => {
             try {
-                await loadTexture(gl, baseTextureUrl, "base");
-                await loadTexture(gl, `${worldgenBase}/province_id.png`, "province_id");
-                await loadTexture(gl, `${worldgenBase}/duchy_id.png`, "duchy_id");
-                await loadTexture(gl, `${worldgenBase}/kingdom_id.png`, "kingdom_id");
-                await loadTexture(gl, `${worldgenBase}/height16.png`, "height");
-                await loadTexture(gl, `${worldgenBase}/biome.png`, "biome");
-                await loadTexture(gl, `${worldgenBase}/landmask.png`, "landmask");
+                await loadTexture(gl, `${baseTextureUrl}${baseTextureUrl.includes("?") ? "&" : "?"}${cacheBuster}`, "base");
+                await loadTexture(gl, `${worldgenBase}/province_id.png?${cacheBuster}`, "province_id");
+                await loadTexture(gl, `${worldgenBase}/duchy_id.png?${cacheBuster}`, "duchy_id");
+                await loadTexture(gl, `${worldgenBase}/kingdom_id.png?${cacheBuster}`, "kingdom_id");
+                await loadTexture(gl, `${worldgenBase}/height16.png?${cacheBuster}`, "height");
+                await loadTexture(gl, `${worldgenBase}/biome.png?${cacheBuster}`, "biome");
+                await loadTexture(gl, `${worldgenBase}/landmask.png?${cacheBuster}`, "landmask");
                 setLoaded(true);
                 setLoadError(null);
             } catch (err: any) {
@@ -344,7 +351,7 @@ export function ProvinceMapView({
             texturesRef.current = {};
             gl.deleteProgram(program);
         };
-    }, [planetId, baseTextureUrl, compileShader, loadTexture]);
+    }, [planetId, baseTextureUrl, compileShader, loadTexture, refreshToken]);
 
     // ── Render loop ──
     useEffect(() => {
@@ -415,10 +422,12 @@ export function ProvinceMapView({
 
             // Apply specific highlight ID from parent props
             const targetHighlightId = selectedId !== null ? selectedId : hoveredId;
-            if (targetHighlightId !== null) {
-                const r = targetHighlightId & 0xff;
-                const g = (targetHighlightId >> 8) & 0xff;
-                const b = (targetHighlightId >> 16) & 0xff;
+            const bulkTarget = bulkSelectedIds.length > 0 ? bulkSelectedIds[bulkSelectedIds.length - 1] : null;
+            const effectiveHighlightId = targetHighlightId !== null ? targetHighlightId : bulkTarget;
+            if (effectiveHighlightId !== null) {
+                const r = effectiveHighlightId & 0xff;
+                const g = (effectiveHighlightId >> 8) & 0xff;
+                const b = (effectiveHighlightId >> 16) & 0xff;
                 gl.uniform3f(gl.getUniformLocation(program, "u_highlightId"), r, g, b);
                 gl.uniform1i(gl.getUniformLocation(program, "u_hasHighlight"), 1);
             } else {
@@ -453,7 +462,7 @@ export function ProvinceMapView({
 
         rafRef.current = requestAnimationFrame(render);
         return () => cancelAnimationFrame(rafRef.current);
-    }, [loaded, layer, opacity, borderWidth, hoveredId, selectedId]);
+    }, [loaded, layer, opacity, borderWidth, hoveredId, selectedId, bulkSelectedIds]);
 
     // ── Interaction: Wheel zoom ──
     const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -566,9 +575,17 @@ export function ProvinceMapView({
         const dx = Math.abs((e.clientX - dragRef.current.startX) * dpr);
         const dy = Math.abs((e.clientY - dragRef.current.startY) * dpr);
         if (dx < 5 && dy < 5 && geographyTab === "inspector") {
+            if (bulkSelectActive) {
+                onBulkToggle?.(hoveredId !== undefined ? hoveredId : null);
+                return;
+            }
+            if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                onBulkToggle?.(hoveredId !== undefined ? hoveredId : null);
+                return;
+            }
             onClick?.(hoveredId !== undefined ? hoveredId : null);
         }
-    }, [geographyTab, hoveredId, onClick]);
+    }, [geographyTab, hoveredId, onClick, onBulkToggle, bulkSelectActive]);
 
     // ── No planet data ──
     if (!planetId || !baseTextureUrl) {

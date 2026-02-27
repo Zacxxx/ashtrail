@@ -43,6 +43,7 @@ export interface Trait {
   type: 'positive' | 'negative' | 'neutral';
   impact?: string;
   effects?: GameplayEffect[];
+  icon?: string;           // Emoji or gallery path
 }
 
 export type OccupationCategory = 'SECURITY' | 'TECHNICAL' | 'CRAFT' | 'ADMIN' | 'SOCIAL' | 'FIELD';
@@ -54,6 +55,7 @@ export interface Occupation {
   description: string;
   shortDescription: string;
   perks: string[];
+  icon?: string;           // Emoji or gallery path
 }
 
 export type ItemCategory = "weapon" | "tool" | "armor" | "consumable" | "relic" | "resource" | "junk";
@@ -70,15 +72,19 @@ export interface Item {
   bagIndex?: number;
   slotIndex?: number;
   effects?: GameplayEffect[];
+  icon?: string;           // Emoji or gallery path
 }
 
 export type SkillTargetType = 'enemy' | 'ally' | 'self' | 'cell';
 export type SkillAreaType = 'single' | 'cross' | 'circle' | 'line';
 
+export type SkillCategory = 'occupation' | 'base' | 'unique';
+
 export interface Skill {
   id: string;
   name: string;
   description: string;
+  category: SkillCategory;
   apCost: number;
   minRange: number;
   maxRange: number;

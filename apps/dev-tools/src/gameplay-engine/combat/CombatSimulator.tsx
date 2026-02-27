@@ -3,25 +3,31 @@ import { GameRegistry, Character, Skill, ALL_SKILLS } from '@ashtrail/core';
 import { TacticalArena } from './TacticalArena';
 import { useTacticalCombat, createTacticalEntity, TacticalEntity, CombatConfig } from './useTacticalCombat';
 import { Grid, buildMapPrompt, parseAIGridResponse } from './tacticalGrid';
+import { GameRulesManager } from '../rules/useGameRules';
 
 // ── Default skills given to characters without their own ──
-const DEFAULT_PLAYER_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'first-aid', 'fireball', 'shove'].includes(s.id));
-const DEFAULT_ENEMY_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'quick-shot', 'power-strike'].includes(s.id));
+const DEFAULT_PLAYER_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot'].includes(s.id));
+const DEFAULT_ENEMY_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number): TacticalEntity {
     const skills = char.skills && char.skills.length > 0
         ? char.skills
         : isPlayer ? DEFAULT_PLAYER_SKILLS : DEFAULT_ENEMY_SKILLS;
+
     return createTacticalEntity(
         `${char.id}_${isPlayer ? 'p' : 'e'}${index}`,
         isPlayer,
         char.name,
         char.stats.strength,
         char.stats.agility,
-        5 + Math.floor(char.stats.agility / 2),
-        Math.floor(char.stats.endurance / 2),
-        char.maxHp,
-        char.maxHp,
+        char.stats.endurance,
+        char.stats.intelligence,
+        char.stats.wisdom,
+        char.stats.charisma,
+        Math.floor(char.stats.agility / 4), // Evasion from AGI
+        Math.floor(char.stats.endurance / 2), // Defense from END
+        0, // hp (engine will calculate)
+        0, // maxHp (engine will calculate)
         char.traits,
         skills,
         { row: 0, col: 0 }
@@ -36,12 +42,15 @@ function getMockTactical(isPlayer: boolean, index: number): TacticalEntity {
         `mock_${isPlayer ? 'p' : 'e'}${index}`,
         isPlayer,
         names[index % names.length],
-        isPlayer ? 12 : 10,
-        isPlayer ? 15 : 12,
-        5,
-        isPlayer ? 2 : 1,
-        isPlayer ? 100 : 80,
-        isPlayer ? 100 : 80,
+        isPlayer ? 12 : 10,  // strength
+        isPlayer ? 15 : 12,  // agility
+        isPlayer ? 14 : 10,  // endurance
+        isPlayer ? 10 : 8,   // intelligence
+        isPlayer ? 8 : 10,   // wisdom
+        isPlayer ? 12 : 8,   // charisma
+        isPlayer ? 5 : 2,    // evasion
+        isPlayer ? 2 : 1,    // defense
+        0, 0, // hp, maxHp (engine will calc)
         [],
         isPlayer ? DEFAULT_PLAYER_SKILLS : DEFAULT_ENEMY_SKILLS,
         { row: 0, col: 0 }

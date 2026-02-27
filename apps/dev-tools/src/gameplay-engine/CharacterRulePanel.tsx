@@ -62,9 +62,9 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                         <div className="space-y-4">
                             <button
                                 onClick={handleAddMockTrait}
-                                className="w-full py-2 bg-orange-500/10 text-orange-500 border border-orange-500/20 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-orange-500/20 transition-all font-mono"
+                                className="w-full py-2 bg-orange-500/10 text-orange-500 border border-orange-500/20 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] hover:bg-orange-500/20 transition-all"
                             >
-                                + Add Mock Trait
+                                + Create New Trait
                             </button>
                             <div className="space-y-6 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
                                 {(['positive', 'negative', 'neutral'] as const).map(type => {
@@ -92,7 +92,14 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                                                             }`}
                                                     >
                                                         <div className="flex justify-between items-center w-full">
-                                                            <span className={`text-[11px] font-bold uppercase ${t.type === 'positive' ? 'text-blue-400' : t.type === 'negative' ? 'text-red-400' : 'text-gray-400'}`}>{t.name}</span>
+                                                            <div className="flex items-center gap-2">
+                                                                {t.icon?.startsWith("/api/icons/") ? (
+                                                                    <img src={t.icon} alt="" className="w-5 h-5 rounded object-cover border border-white/10" />
+                                                                ) : (
+                                                                    <span className="text-sm">{t.icon || "🧬"}</span>
+                                                                )}
+                                                                <span className={`text-[11px] font-bold uppercase ${t.type === 'positive' ? 'text-blue-400' : t.type === 'negative' ? 'text-red-400' : 'text-gray-400'}`}>{t.name}</span>
+                                                            </div>
                                                             <span className="text-[9px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300 font-mono">Cost: {t.cost}</span>
                                                         </div>
                                                         <p className="text-[10px] text-gray-500 leading-snug line-clamp-2 mt-1">{t.description}</p>
@@ -108,6 +115,23 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
 
                     {activeTab === "occupations" && (
                         <div className="space-y-4">
+                            <button
+                                onClick={() => {
+                                    const newOcc: Occupation = {
+                                        id: `occ-${Date.now()}`,
+                                        name: "New Occupation",
+                                        category: "FIELD",
+                                        description: "",
+                                        shortDescription: "",
+                                        perks: [],
+                                    };
+                                    setOccupations(prev => [newOcc, ...prev]);
+                                    setSelectedOccupation(newOcc);
+                                }}
+                                className="w-full py-2 bg-teal-500/10 text-teal-400 border border-teal-500/20 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] hover:bg-teal-500/20 transition-all"
+                            >
+                                + Create New Occupation
+                            </button>
                             <div className="space-y-6 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
                                 {(['SECURITY', 'TECHNICAL', 'CRAFT', 'ADMIN', 'SOCIAL', 'FIELD'] as const).map(category => {
                                     const categoryOccs = occupations.filter(o => o.category === category);
@@ -128,7 +152,12 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                                                             : 'bg-black/40 border-white/5 hover:border-white/20'
                                                             }`}
                                                     >
-                                                        <div className="flex flex-col gap-0.5 w-full">
+                                                        <div className="flex items-center gap-2 w-full">
+                                                            {o.icon?.startsWith("/api/icons/") ? (
+                                                                <img src={o.icon} alt="" className="w-5 h-5 rounded object-cover border border-white/10" />
+                                                            ) : (
+                                                                <span className="text-sm">{o.icon || "⚙️"}</span>
+                                                            )}
                                                             <span className="text-[11px] font-bold uppercase text-orange-400 line-clamp-1">{o.name}</span>
                                                         </div>
                                                         <p className="text-[10px] text-gray-500 leading-snug line-clamp-2 mt-1">{o.description}</p>
@@ -175,6 +204,22 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
 
                     {activeTab === "items" && (
                         <div className="space-y-4">
+                            <button
+                                onClick={() => {
+                                    const newItem: Item = {
+                                        id: `item-${Date.now()}`,
+                                        name: "New Item",
+                                        category: "weapon",
+                                        description: "",
+                                        cost: 0,
+                                    };
+                                    setItems(prev => [newItem, ...prev]);
+                                    setSelectedItem(newItem);
+                                }}
+                                className="w-full py-2 bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] hover:bg-yellow-500/20 transition-all"
+                            >
+                                + Create New Item
+                            </button>
                             <div className="space-y-6 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
                                 {(['weapon', 'armor', 'consumable', 'tool', 'relic'] as const).map(category => {
                                     const categoryItems = items.filter(i => i.category === category);
@@ -196,7 +241,14 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                                                             }`}
                                                     >
                                                         <div className="flex justify-between items-center w-full">
-                                                            <span className="text-[11px] font-bold uppercase text-yellow-400 line-clamp-1">{i.name}</span>
+                                                            <div className="flex items-center gap-2">
+                                                                {i.icon?.startsWith("/api/icons/") ? (
+                                                                    <img src={i.icon} alt="" className="w-5 h-5 rounded object-cover border border-white/10" />
+                                                                ) : (
+                                                                    <span className="text-sm">{i.icon || "📦"}</span>
+                                                                )}
+                                                                <span className="text-[11px] font-bold uppercase text-yellow-400 line-clamp-1">{i.name}</span>
+                                                            </div>
                                                             <span className="text-[9px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300 font-mono">Cost: {i.cost}</span>
                                                         </div>
                                                         <p className="text-[10px] text-gray-500 leading-snug line-clamp-2 mt-1">{i.description}</p>

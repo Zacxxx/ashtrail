@@ -7,9 +7,11 @@ import { OccupationsView } from "./OccupationsView";
 import { CharactersView } from "./CharactersView";
 import { ItemsView } from "./ItemsView";
 import { CombatSimulator } from "./combat/CombatSimulator";
+import { SkillBuilder } from "./SkillBuilder";
+import { GameRulesView } from "./GameRulesView";
 import { GameRegistry, Trait, Occupation, Character, Item } from "@ashtrail/core";
 
-export type GameplayStep = "EXPLORATION" | "EVENTS" | "COMBAT" | "CHARACTER";
+export type GameplayStep = "RULES" | "EXPLORATION" | "EVENTS" | "COMBAT" | "CHARACTER" | "SKILLS";
 
 export function GameplayEnginePage() {
     const [activeStep, setActiveStep] = useState<GameplayStep>("CHARACTER");
@@ -59,7 +61,7 @@ export function GameplayEnginePage() {
                     {/* Center: Stage Navigation */}
                     <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center">
                         <div className="flex bg-[#1e1e1e]/60 border border-white/5 rounded-full p-1 shadow-lg backdrop-blur-md">
-                            {(["EXPLORATION", "EVENTS", "COMBAT", "CHARACTER"] as GameplayStep[]).map((step) => (
+                            {(["RULES", "EXPLORATION", "EVENTS", "COMBAT", "CHARACTER", "SKILLS"] as GameplayStep[]).map((step) => (
                                 <button
                                     key={step}
                                     onClick={() => setActiveStep(step)}
@@ -80,11 +82,11 @@ export function GameplayEnginePage() {
             </header>
 
             {/* ══ Main Layout ══ */}
-            <div className="flex-1 flex overflow-hidden relative z-10 pt-[80px] pb-12">
+            <div className="flex-1 flex overflow-hidden relative z-10 pt-[80px] pb-12 px-6 gap-6">
                 {/* Left Sidebar Flow */}
-                {activeStep !== "COMBAT" && (
-                    <aside className="absolute left-4 top-[80px] bottom-12 w-[480px] z-20 flex flex-col gap-4 overflow-y-auto scrollbar-none transition-transform duration-500 ease-in-out translate-x-0">
-                        {activeStep === "CHARACTER" && !isLoading && (
+                {activeStep === "CHARACTER" && (
+                    <aside className="w-[360px] h-full flex flex-col gap-4 shrink-0 transition-transform duration-500 ease-in-out">
+                        {!isLoading && (
                             <CharacterRulePanel
                                 traits={customTraits}
                                 setTraits={setCustomTraits}
@@ -106,27 +108,30 @@ export function GameplayEnginePage() {
                                 setActiveTab={setActiveDetailTab}
                             />
                         )}
-                        {activeStep !== "CHARACTER" && (
-                            <div className="flex flex-col gap-4 h-full w-[480px]">
-                                <div className="flex-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-6 flex flex-col items-center justify-center text-center">
-                                    <h2 className="text-orange-500 font-black tracking-widest text-lg mb-2">{activeStep}</h2>
-                                    <p className="text-gray-500 text-sm">Under Construction</p>
-                                </div>
-                            </div>
-                        )}
                     </aside>
                 )}
 
                 {/* Center Canvas Wrapper */}
-                <div className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ${activeStep === "CHARACTER" ? "ml-[510px]" : "ml-0"} ${activeStep !== "CHARACTER" && activeStep !== "COMBAT" ? "justify-center items-center" : ""}`}>
+                <div className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ${activeStep !== "CHARACTER" && activeStep !== "COMBAT" && activeStep !== "SKILLS" && activeStep !== "RULES" ? "justify-center items-center" : ""}`}>
                     {activeStep === "CHARACTER" && (
-                        <div className="w-full h-full bg-[#030508] rounded-xl border border-white/5 overflow-hidden shadow-2xl relative flex flex-col items-center justify-center p-8">
-                            {/* Detail View Container */}
-                            <div className="w-full h-full max-w-[1200px] flex items-center justify-center relative">
-                                {activeDetailTab === "traits" && <TraitsView trait={selectedTrait} />}
-                                {activeDetailTab === "occupations" && <OccupationsView occupation={selectedOccupation} />}
-                                {activeDetailTab === "characters" && <CharactersView character={selectedCharacter} />}
-                                {activeDetailTab === "items" && <ItemsView item={selectedItem} />}
+                        <div className="w-full h-full flex items-center justify-center relative">
+                            {activeDetailTab === "traits" && <TraitsView trait={selectedTrait} />}
+                            {activeDetailTab === "occupations" && <OccupationsView occupation={selectedOccupation} />}
+                            {activeDetailTab === "characters" && <CharactersView character={selectedCharacter} />}
+                            {activeDetailTab === "items" && <ItemsView item={selectedItem} />}
+                        </div>
+                    )}
+
+                    {activeStep === "SKILLS" && (
+                        <div className="w-full h-full">
+                            <SkillBuilder />
+                        </div>
+                    )}
+
+                    {activeStep === "RULES" && (
+                        <div className="w-full h-full p-8 flex justify-center items-center">
+                            <div className="w-full h-full max-w-[1000px]">
+                                <GameRulesView />
                             </div>
                         </div>
                     )}
