@@ -35,6 +35,7 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
     const [description, setDescription] = useState("");
     const [cost, setCost] = useState(0);
     const [icon, setIcon] = useState("📦");
+    const [effects, setEffects] = useState<any[]>([]);
 
     // Gallery State
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -49,6 +50,7 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
             setDescription(item.description);
             setCost(item.cost);
             setIcon(item.icon || "📦");
+            setEffects(item.effects || []);
         } else {
             setEditingItem(null);
         }
@@ -63,7 +65,7 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
             description,
             cost,
             icon,
-            effects: item?.effects,
+            effects,
         };
 
         try {
@@ -260,27 +262,148 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                 </div>
 
                 {/* Mechanical Effects Section */}
-                {item.effects && item.effects.length > 0 && (
-                    <div className="space-y-4 pt-4 border-t border-white/5">
-                        <label className="text-[9px] font-black text-teal-600 uppercase tracking-widest pl-1 flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 bg-teal-600" /> MECHANICAL LOADOUT
-                        </label>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            {item.effects.map((eff, i) => (
-                                <div key={i} className="p-4 bg-black/40 border border-white/5 rounded-xl flex items-center justify-between group hover:border-teal-900/40 transition-all">
-                                    <div className="flex flex-col gap-1">
-                                        <span className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Effect Type</span>
-                                        <span className="text-[10px] font-bold text-teal-500 uppercase tracking-widest truncate">{eff.type.replace('_', ' ')}</span>
-                                    </div>
-                                    <div className="flex flex-col items-end gap-1">
-                                        <span className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Magnitude</span>
-                                        <span className="text-sm font-black text-white">{eff.value > 0 ? '+' : ''}{eff.value}</span>
+                <div className="space-y-6 pt-6 border-t border-white/5">
+                    <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <div className="w-1.5 h-6 bg-orange-500 rounded-full" />
+                            <h3 className="text-[11px] font-black text-white uppercase tracking-[0.2em]">MECHANICAL LOADOUT</h3>
+                        </div>
+                        <button
+                            onClick={() => setEffects([...effects, { type: 'STAT_MODIFIER', target: 'strength', value: 1 }])}
+                            className="px-4 py-1.5 bg-orange-950/20 hover:bg-orange-900/40 border border-orange-900/30 text-orange-500 text-[10px] font-black uppercase tracking-widest rounded transition-all flex items-center gap-2"
+                        >
+                            <span>+</span> INSTALL MOD
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {effects.map((eff, i) => {
+                            const magnitudeLabel = `${eff.value >= 0 ? '+' : ''}${eff.value}`;
+                            const targetLabel = (eff.target || "").charAt(0).toUpperCase() + (eff.target || "").slice(1);
+
+                            return (
+                                <div key={i} className="bg-[#111111] border border-white/5 rounded-2xl p-5 relative group hover:border-orange-500/30 transition-all shadow-xl">
+                                    <button
+                                        onClick={() => setEffects(effects.filter((_, idx) => idx !== i))}
+                                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-950 text-red-500 rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-all border border-red-900/50 hover:bg-red-900 hover:text-white z-10"
+                                    >
+                                        ✕
+                                    </button>
+
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-1.5">
+                                                <label className="text-[8px] font-black text-gray-600 uppercase tracking-widest pl-1">MOD TYPE</label>
+                                                <div className="relative">
+                                                    <select
+                                                        value={eff.type}
+                                                        onChange={e => {
+                                                            const next = [...effects];
+                                                            next[i] = { ...eff, type: e.target.value };
+                                                            setEffects(next);
+                                                        }}
+                                                        className="w-full bg-black/60 border border-white/5 text-orange-400 text-[10px] font-bold uppercase rounded-xl px-3 py-2.5 outline-none appearance-none cursor-pointer focus:border-orange-500/30 transition-all"
+                                                    >
+                                                        <option value="STAT_MODIFIER">STAT MOD</option>
+                                                        <option value="COMBAT_BONUS">COMBAT</option>
+                                                        <option value="RESOURCE_MODIFIER">RESOURCE</option>
+                                                        <option value="EXPLORATION_BONUS">EXPLOR</option>
+                                                    </select>
+                                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[8px] text-orange-900">▼</div>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-1.5">
+                                                <label className="text-[8px] font-black text-gray-600 uppercase tracking-widest pl-1">TARGET KEY</label>
+                                                <div className="relative">
+                                                    <select
+                                                        value={eff.target || "strength"}
+                                                        onChange={e => {
+                                                            const next = [...effects];
+                                                            next[i] = { ...eff, target: e.target.value };
+                                                            setEffects(next);
+                                                        }}
+                                                        className="w-full bg-black/60 border border-white/5 text-white text-[10px] font-bold uppercase rounded-xl px-3 py-2.5 outline-none appearance-none cursor-pointer focus:border-orange-500/30 transition-all"
+                                                    >
+                                                        <optgroup label="CORE STATS" className="bg-black text-[10px]">
+                                                            <option value="strength">Strength</option>
+                                                            <option value="agility">Agility</option>
+                                                            <option value="intelligence">Intelligence</option>
+                                                            <option value="wisdom">Wisdom</option>
+                                                            <option value="endurance">Endurance</option>
+                                                            <option value="charisma">Charisma</option>
+                                                        </optgroup>
+                                                        <optgroup label="COMBAT" className="bg-black text-[10px]">
+                                                            <option value="hp">Health Points</option>
+                                                            <option value="maxHp">Max Health</option>
+                                                            <option value="ap">Action Points</option>
+                                                            <option value="evasion">Evasion</option>
+                                                            <option value="crit_rate">Crit Rate</option>
+                                                        </optgroup>
+                                                        <optgroup label="RESOURCES" className="bg-black text-[10px]">
+                                                            <option value="food">Food Supply</option>
+                                                            <option value="water">Water Supply</option>
+                                                            <option value="fuel">Fuel Status</option>
+                                                            <option value="parts">Mechanical Parts</option>
+                                                            <option value="ammo">Ammunition</option>
+                                                            <option value="meds">Medical Supplies</option>
+                                                        </optgroup>
+                                                    </select>
+                                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[8px] text-gray-700">▼</div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                            <div className="flex justify-between items-center px-1">
+                                                <label className="text-[8px] font-black text-gray-600 uppercase tracking-widest">MAGNITUDE</label>
+                                                <span className={`text-[9px] font-black uppercase tracking-widest ${eff.value >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                    {magnitudeLabel} {targetLabel}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <input
+                                                    type="number"
+                                                    value={eff.value}
+                                                    onChange={e => {
+                                                        const next = [...effects];
+                                                        next[i] = { ...eff, value: Number(e.target.value) };
+                                                        setEffects(next);
+                                                    }}
+                                                    className="w-full bg-black/60 border border-white/5 text-orange-500 text-lg font-black rounded-xl px-4 py-2 outline-none focus:border-orange-500/30 transition-all placeholder:text-gray-800"
+                                                />
+                                                <div className="flex flex-col gap-1">
+                                                    <button onClick={() => {
+                                                        const next = [...effects];
+                                                        next[i] = { ...eff, value: eff.value + 1 };
+                                                        setEffects(next);
+                                                    }} className="w-8 h-6 bg-white/5 hover:bg-orange-500/20 rounded flex items-center justify-center text-[10px] transition-all text-white">▲</button>
+                                                    <button onClick={() => {
+                                                        const next = [...effects];
+                                                        next[i] = { ...eff, value: eff.value - 1 };
+                                                        setEffects(next);
+                                                    }} className="w-8 h-6 bg-white/5 hover:bg-orange-500/20 rounded flex items-center justify-center text-[10px] transition-all text-white">▼</button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
+                            );
+                        })}
                     </div>
-                )}
+
+                    {effects.length === 0 && (
+                        <div className="group cursor-pointer py-10 border border-dashed border-white/5 rounded-2xl flex flex-col items-center justify-center gap-3 hover:bg-white/[0.02] hover:border-orange-500/20 transition-all"
+                            onClick={() => setEffects([{ type: 'STAT_MODIFIER', target: 'strength', value: 1 }])}>
+                            <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-gray-600 group-hover:text-orange-500 transition-all">
+                                <span className="text-xl">+</span>
+                            </div>
+                            <span className="text-[10px] font-black text-gray-600 uppercase tracking-[0.3em] group-hover:text-orange-900 transition-all italic">
+                                NO MECHANICAL MODS INSTALLED
+                            </span>
+                        </div>
+                    )}
+                </div>
 
                 {/* Icon Selection Toggle */}
                 <div className="pt-4 flex justify-end">

@@ -1074,6 +1074,22 @@ export function CharacterBuilderPage() {
                                                         </p>
                                                     </div>
                                                 )}
+
+                                                {hoverInfo.item.effects && hoverInfo.item.effects.length > 0 && (
+                                                    <div className="mt-2 pt-2 border-t border-white/5 space-y-1">
+                                                        <div className="text-[6px] font-black text-orange-500/70 uppercase tracking-widest mb-1">Effects:</div>
+                                                        {hoverInfo.item.effects.map((eff: any, idx: number) => (
+                                                            <div key={idx} className="flex justify-between items-center bg-white/[0.02] px-1.5 py-1 rounded border border-white/5">
+                                                                <span className="text-[7px] font-black text-gray-500 uppercase tracking-widest truncate max-w-[80px]">
+                                                                    {eff.target}
+                                                                </span>
+                                                                <span className={`text-[8px] font-black ${eff.value >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                                    {eff.value >= 0 ? '+' : ''}{eff.value}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     )}

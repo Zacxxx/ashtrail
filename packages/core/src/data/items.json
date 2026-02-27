@@ -3,6 +3,13 @@
     "category": "consumable",
     "cost": 1000,
     "description": "A potion tainted by ashes that regenerates your health when you drink it. \nBeware of the mutation side effect. ",
+    "effects": [
+      {
+        "target": "hp",
+        "type": "RESOURCE_MODIFIER",
+        "value": 20
+      }
+    ],
     "icon": "📦",
     "id": "item-1772207659997",
     "name": "Ember potion",
@@ -12,9 +19,42 @@
     "category": "armor",
     "cost": 0,
     "description": "There's no way that you can equip sterling's set ? WTF ? ",
+    "effects": [
+      {
+        "target": "intelligence",
+        "type": "STAT_MODIFIER",
+        "value": 4
+      },
+      {
+        "target": "strength",
+        "type": "STAT_MODIFIER",
+        "value": -4
+      }
+    ],
     "icon": "📦",
     "id": "item-1772208031388",
     "name": "Sterling's helmet",
+    "rarity": "ashmarked"
+  },
+  {
+    "category": "weapon",
+    "cost": 0,
+    "description": "Un gros gourdin appartenant a Alexandre François avant la chute.\nMefiez-vous du gros gourdin ainsi que de son propriétaire. ",
+    "effects": [
+      {
+        "target": "strength",
+        "type": "STAT_MODIFIER",
+        "value": 200
+      },
+      {
+        "target": "intelligence",
+        "type": "STAT_MODIFIER",
+        "value": -20
+      }
+    ],
+    "icon": "📦",
+    "id": "item-1772210100258",
+    "name": "Le gourdin d'AF",
     "rarity": "ashmarked"
   }
 ]

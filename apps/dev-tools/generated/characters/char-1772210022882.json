@@ -1,0 +1,180 @@
+{
+  "age": 23,
+  "appearancePrompt": "Un homme immense a l'allure ronde ",
+  "gender": "Non-Binary",
+  "history": "Un jeune étudiant en faculté d'informatique avant la chute du monde. ",
+  "hp": 45,
+  "id": "char-1772210022882",
+  "inventory": [
+    {
+      "bagIndex": 0,
+      "category": "armor",
+      "cost": 0,
+      "description": "There's no way that you can equip sterling's set ? WTF ? ",
+      "effects": [
+        {
+          "target": "intelligence",
+          "type": "STAT_MODIFIER",
+          "value": 4
+        },
+        {
+          "target": "strength",
+          "type": "STAT_MODIFIER",
+          "value": -4
+        }
+      ],
+      "icon": "📦",
+      "id": "item-1772208031388-1772210026373",
+      "name": "Sterling's helmet",
+      "rarity": "ashmarked"
+    },
+    {
+      "bagIndex": 0,
+      "category": "weapon",
+      "cost": 0,
+      "description": "Un gros gourdin appartenant a Alexandre François avant la chute.\nMefiez-vous du gros gourdin ainsi que de son propriétaire. ",
+      "effects": [
+        {
+          "target": "strength",
+          "type": "STAT_MODIFIER",
+          "value": 200
+        },
+        {
+          "target": "intelligence",
+          "type": "STAT_MODIFIER",
+          "value": -20
+        }
+      ],
+      "icon": "📦",
+      "id": "item-1772210100258-1772210190577",
+      "name": "Le gourdin d'AF",
+      "rarity": "ashmarked"
+    }
+  ],
+  "isNPC": false,
+  "level": 1,
+  "maxHp": 45,
+  "name": "AF",
+  "occupation": {
+    "category": "SECURITY",
+    "description": "Not a professional soldier, but picked up a weapon when it mattered. Learned to fight from necessity, not training. Good instincts, rough technique.",
+    "id": "occ-militia",
+    "name": "Militia Member",
+    "perks": [
+      "Bonus morale when defending settlements",
+      "Slightly faster melee attacks",
+      "Crew rallies faster after losses"
+    ],
+    "shortDescription": "Civilian fighter defending the community."
+  },
+  "stats": {
+    "agility": 7,
+    "charisma": 1,
+    "endurance": 7,
+    "intelligence": 8,
+    "strength": 12,
+    "wisdom": 1
+  },
+  "traits": [
+    {
+      "cost": 10,
+      "description": "A rugged constitution that refuses to break. +15 Max HP.",
+      "effects": [
+        {
+          "target": "maxHp",
+          "trigger": "passive",
+          "type": "STAT_MODIFIER",
+          "value": 15
+        }
+      ],
+      "id": "t-hardy",
+      "name": "Hardy",
+      "type": "positive"
+    },
+    {
+      "cost": -8,
+      "description": "Wounds take a long time to clot. Bleeding effects last twice as long.",
+      "id": "t-anemic",
+      "name": "Anemic",
+      "type": "negative"
+    },
+    {
+      "cost": -5,
+      "description": "10% chance to fail complex manual tasks and waste resources.",
+      "id": "t48",
+      "name": "Clumsy",
+      "type": "negative"
+    },
+    {
+      "cost": -5,
+      "description": "Obsessive focus. Misses secondary objectives more often.",
+      "id": "t-tunnel-vision",
+      "name": "Tunnel Vision",
+      "type": "negative"
+    },
+    {
+      "cost": -5,
+      "description": "Hears voices in radio static. Random morale fluctuations.",
+      "id": "t-static-whispers",
+      "name": "Static Whispers",
+      "type": "negative"
+    },
+    {
+      "cost": 6,
+      "description": "Massive resistance to food poisoning and radiation sickness from water.",
+      "id": "t9",
+      "name": "Iron Gut",
+      "type": "positive"
+    },
+    {
+      "cost": 6,
+      "description": "Broad shoulders meant for heavy lifting. +20% Inventory capacity.",
+      "id": "t-stout",
+      "name": "Stout",
+      "type": "positive"
+    },
+    {
+      "cost": 10,
+      "description": "Less likely to bleed from minor wounds and environment hazards.",
+      "id": "t3",
+      "name": "Thick Skinned",
+      "type": "positive"
+    },
+    {
+      "cost": 0,
+      "description": "Enjoys socializing with crew. Boosts others morale slightly, but uses 10% more water.",
+      "id": "t82",
+      "name": "Talkative",
+      "type": "neutral"
+    },
+    {
+      "cost": 0,
+      "description": "Rarely shares details. Harder for enemies to read you, but crew trust grows slowly.",
+      "id": "t88",
+      "name": "Mysterious",
+      "type": "neutral"
+    },
+    {
+      "cost": 0,
+      "description": "The world broke you long ago. Immune to Morale shifts (positive or negative).",
+      "id": "t-stoic",
+      "name": "Stoic Outcast",
+      "type": "neutral"
+    },
+    {
+      "cost": -4,
+      "description": "Quickly becomes panicked when HP drops below 40%.",
+      "id": "t50",
+      "name": "Cowardly",
+      "type": "negative"
+    },
+    {
+      "cost": 10,
+      "description": "You can actually read the old manuals. +15% XP Gain.",
+      "id": "t-scholar",
+      "name": "Pre-Ash Scholar",
+      "type": "positive"
+    }
+  ],
+  "xp": 0
+}

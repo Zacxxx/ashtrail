@@ -213,6 +213,7 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                                         rarity: "salvaged",
                                         description: "",
                                         cost: 0,
+                                        effects: [],
                                     };
                                     setItems(prev => [newItem, ...prev]);
                                     setSelectedItem(newItem);
