@@ -43,6 +43,7 @@ export interface Trait {
   type: 'positive' | 'negative' | 'neutral';
   impact?: string;
   effects?: GameplayEffect[];
+  icon?: string;           // Emoji or gallery path
 }
 
 export type OccupationCategory = 'SECURITY' | 'TECHNICAL' | 'CRAFT' | 'ADMIN' | 'SOCIAL' | 'FIELD';
@@ -54,17 +55,48 @@ export interface Occupation {
   description: string;
   shortDescription: string;
   perks: string[];
+  icon?: string;           // Emoji or gallery path
 }
 
-export type ItemCategory = "weapon" | "tool" | "armor" | "consumable" | "relic";
+export type ItemCategory = "weapon" | "tool" | "armor" | "consumable" | "relic" | "resource" | "junk";
+
+export type ItemRarity = "salvaged" | "reinforced" | "pre-ash" | "specialized" | "relic" | "ashmarked";
 
 export interface Item {
   id: string;
   name: string;
   category: ItemCategory;
+  rarity: ItemRarity;
   description: string;
   cost: number;
+  bagIndex?: number;
+  slotIndex?: number;
   effects?: GameplayEffect[];
+  icon?: string;           // Emoji or gallery path
+}
+
+export type SkillTargetType = 'enemy' | 'ally' | 'self' | 'cell';
+export type SkillAreaType = 'single' | 'cross' | 'circle' | 'line';
+
+export type SkillCategory = 'occupation' | 'base' | 'unique';
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  category: SkillCategory;
+  apCost: number;
+  minRange: number;
+  maxRange: number;
+  areaType: SkillAreaType;
+  areaSize: number;       // radius for circle, length for line/cross, 0 for single
+  targetType: SkillTargetType;
+  damage?: number;         // Base damage (scaled by strength)
+  healing?: number;        // Base healing
+  cooldown: number;        // Turns between uses (0 = no cooldown)
+  effectType?: 'physical' | 'magical' | 'support';
+  pushDistance?: number;   // Cells to push target away (Dofus-style displacement)
+  icon?: string;           // Emoji icon for quick display
 }
 
 export interface Character {
@@ -78,6 +110,7 @@ export interface Character {
   portraitUrl?: string;
   stats: Stats;
   traits: Trait[];
+  skills?: Skill[];
   occupation?: Occupation;
   hp: number;
   maxHp: number;

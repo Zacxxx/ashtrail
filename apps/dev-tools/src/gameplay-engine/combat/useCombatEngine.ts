@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Trait } from '@ashtrail/core';
+import { GameRulesManager } from "../rules/useGameRules";
 
 export interface CombatEntity {
     id: string;
@@ -7,8 +8,18 @@ export interface CombatEntity {
     name: string;
     hp: number;
     maxHp: number;
+    ap: number;
+    maxAp: number;
+    mp: number;
+    maxMp: number;
     strength: number;
     agility: number;
+    intelligence: number;
+    wisdom: number;
+    charisma: number;
+    critChance: number;
+    resistance: number;
+    socialBonus: number;
     evasion: number;
     defense: number;
     traits: Trait[];
@@ -21,34 +32,65 @@ export interface CombatLogMessage {
 }
 
 export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, traits: Trait[] = []): CombatEntity {
+    const rules = GameRulesManager.get();
+
     // Start with base stats
-    const effective: CombatEntity = {
-        id: baseEntity.id || Math.random().toString(36).substring(7),
-        isPlayer: baseEntity.isPlayer || false,
-        name: baseEntity.name || 'Unknown Entity',
-        hp: baseEntity.hp || 100,
-        maxHp: baseEntity.maxHp || 100,
+    const stats = {
         strength: baseEntity.strength || 10,
         agility: baseEntity.agility || 10,
-        evasion: baseEntity.evasion || 5,
-        defense: baseEntity.defense || 0,
-        traits: traits
+        endurance: (baseEntity as any).endurance || 10,
+        intelligence: baseEntity.intelligence || 10,
+        wisdom: baseEntity.wisdom || 10,
+        charisma: baseEntity.charisma || 10,
     };
+
+    // Derived from rules
+    let maxHp = rules.core.hpBase + (stats.endurance * rules.core.hpPerEndurance);
+    const maxAp = rules.core.apBase + Math.floor(stats.agility / rules.core.apAgilityDivisor);
+    const maxMp = rules.core.mpBase;
 
     // Apply trait effects
     traits.forEach(trait => {
         if (!trait.effects) return;
         trait.effects.forEach(effect => {
-            // Right now we only parse passive stat blocks at Init
             if (effect.trigger !== 'passive') return;
 
             if (effect.type === 'STAT_MODIFIER' || effect.type === 'COMBAT_BONUS') {
-                if (effect.target && effect.target in effective) {
-                    (effective as any)[effect.target] += effect.value;
+                if (effect.target === 'maxHp') {
+                    maxHp += effect.value;
+                } else if (effect.target && effect.target in stats) {
+                    (stats as any)[effect.target] += effect.value;
                 }
             }
         });
     });
+
+    const critChance = stats.intelligence * rules.core.critPerIntelligence;
+    const resistance = stats.wisdom * rules.core.resistPerWisdom;
+    const socialBonus = stats.charisma * rules.core.charismaBonusPerCharisma;
+
+    const effective: CombatEntity = {
+        id: baseEntity.id || Math.random().toString(36).substring(7),
+        isPlayer: baseEntity.isPlayer || false,
+        name: baseEntity.name || 'Unknown Entity',
+        hp: baseEntity.hp || maxHp,
+        maxHp: maxHp,
+        ap: baseEntity.ap || maxAp,
+        maxAp: maxAp,
+        mp: baseEntity.mp || maxMp,
+        maxMp: maxMp,
+        strength: stats.strength,
+        agility: stats.agility,
+        intelligence: stats.intelligence,
+        wisdom: stats.wisdom,
+        charisma: stats.charisma,
+        critChance,
+        resistance,
+        socialBonus,
+        evasion: baseEntity.evasion || 5, // Evasion still from baseEntity or could be agility based?
+        defense: baseEntity.defense || 0,
+        traits: traits
+    };
 
     // Clamp HP if MaxHP was modified
     if (effective.hp > effective.maxHp) {
@@ -98,10 +140,21 @@ export function useCombatEngine(initialPlayer: CombatEntity, initialEnemy: Comba
             return 0; // Miss
         }
 
+        // Critical Hit check
+        const critRoll = Math.random();
+        const isCrit = critRoll < attacker.critChance;
+
         // Damage Calculation
         // Base damage = strength with +/- 20% variance. Minus flat defense.
-        const variance = 0.8 + (Math.random() * 0.4);
-        const rawDamage = Math.floor(attacker.strength * variance);
+        const rules = GameRulesManager.get();
+        const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
+        let rawDamage = Math.floor(attacker.strength * variance);
+
+        if (isCrit) {
+            rawDamage = Math.floor(rawDamage * 1.5); // 50% bonus for crit
+            addLog(`CRITICAL HIT!`, 'info');
+        }
+
         const actualDamage = Math.max(1, rawDamage - defender.defense); // Always deal at least 1 dmg on a hit
 
         addLog(`${attacker.name} strikes for ${actualDamage} damage!`, 'damage');

@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Button, Slider, Card, CardHeader, CardContent, Modal } from "@ashtrail/ui";
+import { GameRegistry } from "@ashtrail/core";
 
 // Presets removed; reference image serves as style
 
@@ -26,6 +27,84 @@ interface BatchSummary {
     createdAt: string;
     thumbnailUrl: string | null;
 }
+
+const IconCard = React.memo(function IconCard({
+    icon,
+    lastRefreshedAt,
+    setHoveredIcon,
+    downloadIcon,
+    setAssigningIcon,
+    startEditingIcon
+}: {
+    icon: BatchIcon;
+    lastRefreshedAt: number;
+    setHoveredIcon: (icon: BatchIcon | null) => void;
+    downloadIcon: (url: string) => void;
+    setAssigningIcon: (icon: BatchIcon | null) => void;
+    startEditingIcon: (icon: BatchIcon) => void;
+}) {
+    return (
+        <div
+            className="group relative flex flex-col items-center justify-start bg-[#0f1520] border border-white/5 rounded-xl p-4 hover:border-[#E6E6FA]/20 transition-all h-full"
+            onMouseEnter={() => setHoveredIcon(icon)}
+            onMouseLeave={() => setHoveredIcon(null)}
+        >
+            {/* Download */}
+            <button
+                onClick={() => downloadIcon(icon.url)}
+                className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-lg bg-white/10 backdrop-blur-md text-white border border-white/10 hover:bg-[#E6E6FA] hover:text-[#070b12] transition-all z-20"
+                title="Download Icon"
+            >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+            </button>
+
+            {/* Icon image */}
+            <div className="relative mb-4 flex-shrink-0 group/img shadow-2xl shadow-black/40 rounded-lg overflow-hidden">
+                <img
+                    src={`${icon.url}?t=${lastRefreshedAt}`}
+                    alt={icon.prompt}
+                    className="w-20 h-20 relative z-10"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity" />
+            </div>
+
+            {/* Prompt label */}
+            <div className="flex-1 flex flex-col items-center w-full">
+                <p className="text-[11px] text-gray-300 text-center leading-snug line-clamp-2 w-full font-mono mb-3 px-1 min-h-[2.4em]">
+                    {icon.itemPrompt || icon.prompt}
+                </p>
+                <div className="flex gap-2 w-full">
+                    <button
+                        onClick={() => setAssigningIcon(icon)}
+                        className="flex-1 group/btn relative py-2 rounded-lg bg-white/[0.03] border border-white/10 transition-all hover:bg-emerald-500/10 hover:border-emerald-500/30 overflow-hidden"
+                        title="Assign to Item/Skill/Trait..."
+                    >
+                        <div className="flex items-center justify-center gap-1.5 text-[10px] text-[#E6E6FA] group-hover/btn:text-emerald-400 font-black uppercase tracking-widest relative z-10 transition-colors">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                            </svg>
+                            Assign
+                        </div>
+                    </button>
+                    <button
+                        onClick={() => startEditingIcon(icon)}
+                        className="flex-1 group/btn relative py-2 rounded-lg bg-white/[0.03] border border-white/10 transition-all hover:bg-[#E6E6FA]/10 hover:border-[#E6E6FA]/30 overflow-hidden"
+                        title="Regenerate Icon"
+                    >
+                        <div className="flex items-center justify-center gap-1.5 text-[10px] text-[#E6E6FA] font-black uppercase tracking-widest relative z-10">
+                            <svg className="w-3.5 h-3.5 group-hover/btn:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Reroll
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+});
 
 export function IconGenPage() {
     // ── Prompt State ──
@@ -70,6 +149,12 @@ export function IconGenPage() {
     const [tempIconRefImage, setTempIconRefImage] = useState<string | null>(null);
     const [regeneratingIconFilename, setRegeneratingIconFilename] = useState<string | null>(null);
     const [lastRefreshedAt, setLastRefreshedAt] = useState(Date.now());
+
+    // ── Icon Assignment ──
+    const [assigningIcon, setAssigningIcon] = useState<BatchIcon | null>(null);
+    const [assignCategory, setAssignCategory] = useState<"traits" | "occupations" | "items" | "skills" | "characters">("items");
+    const [assignEntityId, setAssignEntityId] = useState("");
+    const [isAssigning, setIsAssigning] = useState(false);
 
     // ── Parse prompts from textarea ──
     const parsePrompts = useCallback((): string[] => {
@@ -293,7 +378,7 @@ export function IconGenPage() {
         }
     }, [activeBatch, tempIconItem, tempIconStyle, referenceImage]);
 
-    const startEditingIcon = (icon: BatchIcon) => {
+    const startEditingIcon = useCallback((icon: BatchIcon) => {
         setEditingIconFilename(icon.filename);
         setTempIconRefImage(null); // Reset local ref
         // If we have separate fields, use them. 
@@ -305,7 +390,7 @@ export function IconGenPage() {
             setTempIconItem("");
             setTempIconStyle(icon.prompt);
         }
-    };
+    }, []);
 
     const handleLocalImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -316,6 +401,54 @@ export function IconGenPage() {
             setTempIconRefImage(base64);
         };
         reader.readAsDataURL(file);
+    };
+
+    // ── Icon Assignment Handler ──
+    useEffect(() => {
+        if (assigningIcon) {
+            GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+        }
+    }, [assigningIcon]);
+
+    const getAvailableEntities = () => {
+        switch (assignCategory) {
+            case "traits": return GameRegistry.getAllTraits();
+            case "occupations": return GameRegistry.getAllOccupations();
+            case "items": return GameRegistry.getAllItems();
+            case "skills": return GameRegistry.getAllSkills();
+            case "characters": return GameRegistry.getAllCharacters();
+            default: return [];
+        }
+    };
+
+    const handleAssignIcon = async () => {
+        if (!assigningIcon || !assignEntityId) return;
+        setIsAssigning(true);
+        setError(null);
+        try {
+            const entityArray = getAvailableEntities();
+            const entity = (entityArray as any[]).find(e => e.id === assignEntityId);
+            if (!entity) throw new Error("Entity not found");
+
+            const updatedEntity = { ...entity, icon: assigningIcon.url };
+            const endpoint = `/api/data/${assignCategory}`;
+
+            const res = await fetch(`http://127.0.0.1:8787${endpoint}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(updatedEntity)
+            });
+
+            if (!res.ok) throw new Error(`Failed to assign icon: ${res.statusText}`);
+
+            await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+            setAssigningIcon(null);
+            setAssignEntityId("");
+        } catch (e: any) {
+            setError(e.message || "Failed to assign icon");
+        } finally {
+            setIsAssigning(false);
+        }
     };
 
     // The raw line count (for UI display of pending items)
@@ -666,51 +799,15 @@ export function IconGenPage() {
                             {/* Icons Grid */}
                             <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-4">
                                 {activeBatch.icons.map((icon, i) => (
-                                    <div
+                                    <IconCard
                                         key={`${icon.url}-${i}`}
-                                        className="group relative flex flex-col items-center justify-start bg-[#0f1520] border border-white/5 rounded-xl p-4 hover:border-[#E6E6FA]/20 transition-all h-full"
-                                        onMouseEnter={() => setHoveredIcon(icon)}
-                                        onMouseLeave={() => setHoveredIcon(null)}
-                                    >
-                                        {/* Download */}
-                                        <button
-                                            onClick={() => downloadIcon(icon.url)}
-                                            className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-lg bg-white/10 backdrop-blur-md text-white border border-white/10 hover:bg-[#E6E6FA] hover:text-[#070b12] transition-all z-20"
-                                            title="Download Icon"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                            </svg>
-                                        </button>
-
-                                        {/* Icon image */}
-                                        <div className="relative mb-4 flex-shrink-0 group/img shadow-2xl shadow-black/40 rounded-lg overflow-hidden">
-                                            <img
-                                                src={`${icon.url}?t=${lastRefreshedAt}`}
-                                                alt={icon.prompt}
-                                                className="w-20 h-20 relative z-10"
-                                            />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity" />
-                                        </div>
-
-                                        {/* Prompt label */}
-                                        <div className="flex-1 flex flex-col items-center w-full">
-                                            <p className="text-[11px] text-gray-300 text-center leading-snug line-clamp-2 w-full font-mono mb-3 px-1 min-h-[2.4em]">
-                                                {icon.itemPrompt || icon.prompt}
-                                            </p>
-                                            <button
-                                                onClick={() => startEditingIcon(icon)}
-                                                className="group/btn relative px-4 py-2 rounded-lg bg-white/[0.03] border border-white/10 transition-all hover:bg-[#E6E6FA]/10 hover:border-[#E6E6FA]/30 overflow-hidden"
-                                            >
-                                                <div className="flex items-center gap-2 text-[10px] text-[#E6E6FA] font-black uppercase tracking-widest relative z-10">
-                                                    <svg className="w-3.5 h-3.5 group-hover/btn:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                                    </svg>
-                                                    Regenerate
-                                                </div>
-                                            </button>
-                                        </div>
-                                    </div>
+                                        icon={icon}
+                                        lastRefreshedAt={lastRefreshedAt}
+                                        setHoveredIcon={setHoveredIcon}
+                                        downloadIcon={downloadIcon}
+                                        setAssigningIcon={setAssigningIcon}
+                                        startEditingIcon={startEditingIcon}
+                                    />
                                 ))}
                             </div>
 
@@ -799,6 +896,81 @@ export function IconGenPage() {
                             className="flex-1 py-2.5 rounded-lg bg-[#E6E6FA]/20 border border-[#E6E6FA]/30 text-[#E6E6FA] text-[11px] font-bold tracking-[0.15em] hover:bg-[#E6E6FA]/30 transition-all"
                         >
                             ⚡ GENERATE {pendingPrompts.length} ICONS
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* ── Assign Icon Modal ── */}
+            <Modal open={!!assigningIcon} onClose={() => setAssigningIcon(null)} title="ASSIGN SECURED ICON">
+                <div className="space-y-6 p-4">
+                    {assigningIcon && (
+                        <div className="flex items-center gap-4 bg-[#0f1520] border border-white/10 rounded-lg p-4">
+                            <img src={assigningIcon.url} alt="To Assign" className="w-16 h-16 rounded border border-white/10 shrink-0" />
+                            <div>
+                                <h4 className="text-[10px] font-bold tracking-[0.15em] text-[#E6E6FA] mb-1">ICON TO ASSIGN</h4>
+                                <p className="text-[11px] font-mono text-gray-400">{assigningIcon.itemPrompt || assigningIcon.prompt}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-gray-500 tracking-[0.15em]">CATEGORY</label>
+                            <select
+                                value={assignCategory}
+                                onChange={e => {
+                                    setAssignCategory(e.target.value as any);
+                                    setAssignEntityId("");
+                                }}
+                                className="w-full bg-[#080d14] border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-emerald-500/50 transition-colors"
+                            >
+                                <option value="items">Items</option>
+                                <option value="skills">Skills</option>
+                                <option value="traits">Traits</option>
+                                <option value="occupations">Occupations</option>
+                                <option value="characters">Characters/Monsters</option>
+                            </select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-gray-500 tracking-[0.15em]">ENTITY</label>
+                            <select
+                                value={assignEntityId}
+                                onChange={e => setAssignEntityId(e.target.value)}
+                                className="w-full bg-[#080d14] border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-emerald-500/50 transition-colors"
+                            >
+                                <option value="" disabled>-- Select {assignCategory} --</option>
+                                {getAvailableEntities().map((e: any) => (
+                                    <option key={e.id} value={e.id}>
+                                        {e.name} ({e.id})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 pt-4">
+                        <button
+                            onClick={handleAssignIcon}
+                            disabled={!assignEntityId || isAssigning}
+                            className="w-full py-3 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold tracking-[0.2em] hover:bg-emerald-500/30 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
+                        >
+                            {isAssigning ? (
+                                <>
+                                    <span className="inline-block w-3 h-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                                    ASSIGNING...
+                                </>
+                            ) : (
+                                "CONFIRM BINDING"
+                            )}
+                        </button>
+                        <button
+                            onClick={() => setAssigningIcon(null)}
+                            disabled={isAssigning}
+                            className="w-full py-2.5 rounded-lg border border-white/5 text-gray-500 text-[10px] font-bold tracking-[0.1em] hover:bg-white/5 hover:text-gray-300 transition-all"
+                        >
+                            CANCEL
                         </button>
                     </div>
                 </div>

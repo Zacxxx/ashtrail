@@ -1,207 +1,367 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { useCombatEngine, CombatEntity } from './useCombatEngine';
-import { GameRegistry, Character } from '@ashtrail/core';
+import React, { useState } from 'react';
+import { GameRegistry, Character, Skill, ALL_SKILLS } from '@ashtrail/core';
+import { TacticalArena } from './TacticalArena';
+import { useTacticalCombat, createTacticalEntity, TacticalEntity, CombatConfig } from './useTacticalCombat';
+import { Grid, buildMapPrompt, parseAIGridResponse } from './tacticalGrid';
+import { GameRulesManager } from '../rules/useGameRules';
 
-function mapCharToEntity(char: Character, isPlayer: boolean): CombatEntity {
-    return {
-        id: char.id + (isPlayer ? '_p1' : '_p2'),
+// ── Default skills given to characters without their own ──
+const DEFAULT_PLAYER_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot'].includes(s.id));
+const DEFAULT_ENEMY_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+
+function mapCharToTactical(char: Character, isPlayer: boolean, index: number): TacticalEntity {
+    const skills = char.skills && char.skills.length > 0
+        ? char.skills
+        : isPlayer ? DEFAULT_PLAYER_SKILLS : DEFAULT_ENEMY_SKILLS;
+
+    return createTacticalEntity(
+        `${char.id}_${isPlayer ? 'p' : 'e'}${index}`,
         isPlayer,
-        name: char.name,
-        hp: char.maxHp, // Full health for simulator purposes
-        maxHp: char.maxHp,
-        strength: char.stats.strength,
-        agility: char.stats.agility,
-        evasion: 5 + Math.floor(char.stats.agility / 2),
-        defense: Math.floor(char.stats.endurance / 2),
-        traits: char.traits
-    };
+        char.name,
+        char.stats.strength,
+        char.stats.agility,
+        char.stats.endurance,
+        char.stats.intelligence,
+        char.stats.wisdom,
+        char.stats.charisma,
+        Math.floor(char.stats.agility / 4), // Evasion from AGI
+        Math.floor(char.stats.endurance / 2), // Defense from END
+        0, // hp (engine will calculate)
+        0, // maxHp (engine will calculate)
+        char.traits,
+        skills,
+        { row: 0, col: 0 }
+    );
 }
 
-// Fallback mocks if no characters exist
-function getMockEntity(isPlayer: boolean): CombatEntity {
-    return {
-        id: isPlayer ? 'mock_p1' : 'mock_p2',
+function getMockTactical(isPlayer: boolean, index: number): TacticalEntity {
+    const names = isPlayer
+        ? ['The Vagabond', 'Iron Jess', 'Shade']
+        : ['Ash Raider', 'Scorch', 'Fang'];
+    return createTacticalEntity(
+        `mock_${isPlayer ? 'p' : 'e'}${index}`,
         isPlayer,
-        name: isPlayer ? 'The Vagabond' : 'Ash Raider',
-        hp: isPlayer ? 100 : 80,
-        maxHp: isPlayer ? 100 : 80,
-        strength: isPlayer ? 12 : 10,
-        agility: isPlayer ? 15 : 12,
-        evasion: 5,
-        defense: isPlayer ? 2 : 1,
-        traits: []
-    };
+        names[index % names.length],
+        isPlayer ? 12 : 10,  // strength
+        isPlayer ? 15 : 12,  // agility
+        isPlayer ? 14 : 10,  // endurance
+        isPlayer ? 10 : 8,   // intelligence
+        isPlayer ? 8 : 10,   // wisdom
+        isPlayer ? 12 : 8,   // charisma
+        isPlayer ? 5 : 2,    // evasion
+        isPlayer ? 2 : 1,    // defense
+        0, 0, // hp, maxHp (engine will calc)
+        [],
+        isPlayer ? DEFAULT_PLAYER_SKILLS : DEFAULT_ENEMY_SKILLS,
+        { row: 0, col: 0 }
+    );
 }
 
 export function CombatSimulator() {
     const chars = GameRegistry.getAllCharacters();
-    const [p1Id, setP1Id] = useState<string>(chars.length > 0 ? chars[0].id : 'mock_1');
-    const [p2Id, setP2Id] = useState<string>(chars.length > 1 ? chars[1].id : (chars.length > 0 ? chars[0].id : 'mock_2'));
 
-    // If characters update or we add one, we might want to refresh. 
-    // For now we assume they are static while on this page, or we fetch them on mount.
+    // ── Phase: 'setup' or 'combat' ──
+    const [combatStarted, setCombatStarted] = useState(false);
+    const [combatKey, setCombatKey] = useState(0);
 
-    return (
-        <div className="w-full h-full max-w-[1200px] flex flex-col gap-6 p-8 bg-black/40 border border-white/5 rounded-2xl relative shadow-2xl">
-            {/* Header & Controls */}
-            <div className="flex justify-between items-center border-b border-white/10 pb-4">
-                <h2 className="text-xl font-black uppercase tracking-[0.2em] text-orange-500">
-                    Combat Simulator
-                </h2>
+    // ── Combat Config ──
+    const [gridRows, setGridRows] = useState(12);
+    const [gridCols, setGridCols] = useState(12);
+    const [playerCount, setPlayerCount] = useState(1);
+    const [enemyCount, setEnemyCount] = useState(1);
+    const [playerIds, setPlayerIds] = useState<string[]>(['mock_1']);
+    const [enemyIds, setEnemyIds] = useState<string[]>(['mock_2']);
 
-                <div className="flex gap-4">
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] text-gray-500 uppercase tracking-widest font-black">Player 1</label>
-                        <select
-                            value={p1Id}
-                            onChange={e => setP1Id(e.target.value)}
-                            className="bg-black/50 border border-white/10 text-white text-xs px-3 py-1.5 rounded outline-none w-48 font-mono"
-                        >
-                            <option value="mock_1">Default Player</option>
-                            {chars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+    // AI Map
+    const [mapPrompt, setMapPrompt] = useState('');
+    const [aiGrid, setAiGrid] = useState<Grid | null>(null);
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [mapName, setMapName] = useState<string | null>(null);
+    const [mapError, setMapError] = useState<string | null>(null);
+
+    const updatePlayerCount = (count: number) => {
+        setPlayerCount(count);
+        setPlayerIds(prev => {
+            const next = [...prev];
+            while (next.length < count) next.push('mock_1');
+            return next.slice(0, count);
+        });
+    };
+    const updateEnemyCount = (count: number) => {
+        setEnemyCount(count);
+        setEnemyIds(prev => {
+            const next = [...prev];
+            while (next.length < count) next.push('mock_2');
+            return next.slice(0, count);
+        });
+    };
+
+    const setPlayerId = (index: number, id: string) => {
+        setPlayerIds(prev => { const n = [...prev]; n[index] = id; return n; });
+    };
+    const setEnemyId = (index: number, id: string) => {
+        setEnemyIds(prev => { const n = [...prev]; n[index] = id; return n; });
+    };
+
+    const generateAIMap = async () => {
+        if (!mapPrompt.trim() || isGenerating) return;
+        setIsGenerating(true);
+        setMapError(null);
+        setMapName(null);
+        try {
+            const prompt = buildMapPrompt(mapPrompt.trim(), gridRows, gridCols);
+            const res = await fetch('http://127.0.0.1:8787/api/text/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt }),
+            });
+            if (!res.ok) throw new Error(`API error: ${res.status}`);
+            const data = await res.json();
+            const text = data.text || data.result || (typeof data === 'string' ? data : JSON.stringify(data));
+            const grid = parseAIGridResponse(text, gridRows, gridCols);
+            if (grid) {
+                setAiGrid(grid);
+                try {
+                    let cleaned = text.trim();
+                    if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+                    cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
+                    const parsed = JSON.parse(cleaned);
+                    setMapName(parsed.name || null);
+                } catch { }
+            } else {
+                setMapError('Failed to parse AI grid. Try again.');
+            }
+        } catch (e: any) {
+            setMapError(e.message || 'Unknown error');
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
+    const startCombat = () => {
+        setCombatKey(k => k + 1);
+        setCombatStarted(true);
+    };
+
+    const returnToSetup = () => {
+        setCombatStarted(false);
+        setAiGrid(null);
+        setMapName(null);
+        setMapError(null);
+    };
+
+    const config: CombatConfig = { gridRows, gridCols };
+
+    // ═══════════════════════════════════════════════════
+    // PRE-COMBAT SETUP SCREEN
+    // ═══════════════════════════════════════════════════
+    if (!combatStarted) {
+        return (
+            <div className="w-full h-full flex items-center justify-center p-8">
+                <div className="w-full max-w-[900px] bg-[#111318] border border-white/5 rounded-2xl shadow-2xl overflow-hidden">
+                    {/* Header */}
+                    <div className="px-8 py-5 border-b border-white/5 bg-black/40">
+                        <h2 className="text-lg font-black uppercase tracking-[0.3em] text-orange-500">⚔️ Combat Setup</h2>
+                        <p className="text-gray-500 text-xs mt-1">Configure the battlefield and combatants before engaging.</p>
                     </div>
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] text-gray-500 uppercase tracking-widest font-black">Player 2 (Enemy)</label>
-                        <select
-                            value={p2Id}
-                            onChange={e => setP2Id(e.target.value)}
-                            className="bg-black/50 border border-white/10 text-white text-xs px-3 py-1.5 rounded outline-none w-48 font-mono"
-                        >
-                            <option value="mock_2">Default Enemy</option>
-                            {chars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+
+                    <div className="p-8 space-y-8">
+                        {/* ── Grid Size ── */}
+                        <section>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Battlefield Dimensions</h3>
+                            <div className="flex items-center gap-4">
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[9px] text-gray-500 uppercase">Rows</label>
+                                    <input type="number" min={6} max={20} value={gridRows}
+                                        onChange={e => setGridRows(Math.max(6, Math.min(20, +e.target.value)))}
+                                        className="w-20 bg-black/60 border border-white/10 text-white text-sm px-3 py-2 rounded-lg text-center outline-none focus:border-orange-500/50" />
+                                </div>
+                                <span className="text-gray-600 font-black text-lg mt-4">×</span>
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[9px] text-gray-500 uppercase">Columns</label>
+                                    <input type="number" min={6} max={20} value={gridCols}
+                                        onChange={e => setGridCols(Math.max(6, Math.min(20, +e.target.value)))}
+                                        className="w-20 bg-black/60 border border-white/10 text-white text-sm px-3 py-2 rounded-lg text-center outline-none focus:border-orange-500/50" />
+                                </div>
+                                <div className="ml-4 text-[10px] text-gray-600 bg-black/30 rounded-lg px-3 py-2">
+                                    {gridRows * gridCols} cells • ~{Math.round(gridRows * gridCols * 0.12)} obstacles
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* ── Combatants ── */}
+                        <div className="grid grid-cols-2 gap-6">
+                            {/* Players */}
+                            <section>
+                                <div className="flex items-center gap-3 mb-3">
+                                    <h3 className="text-[10px] font-black uppercase tracking-widest text-blue-400">Players</h3>
+                                    <div className="flex items-center gap-1.5">
+                                        <button onClick={() => updatePlayerCount(Math.max(1, playerCount - 1))}
+                                            className="w-6 h-6 rounded bg-black/50 border border-white/10 text-gray-400 text-xs hover:bg-white/10">−</button>
+                                        <span className="text-white font-bold text-sm w-4 text-center">{playerCount}</span>
+                                        <button onClick={() => updatePlayerCount(Math.min(4, playerCount + 1))}
+                                            className="w-6 h-6 rounded bg-black/50 border border-white/10 text-gray-400 text-xs hover:bg-white/10">+</button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    {Array.from({ length: playerCount }).map((_, i) => (
+                                        <div key={`p-${i}`} className="flex items-center gap-2">
+                                            <div className="w-6 h-6 rounded-full bg-blue-600 border border-blue-400 flex items-center justify-center text-[9px] font-black text-white shrink-0">
+                                                P{i + 1}
+                                            </div>
+                                            <select value={playerIds[i] || 'mock_1'}
+                                                onChange={e => setPlayerId(i, e.target.value)}
+                                                className="flex-1 bg-black/50 border border-blue-500/20 text-white text-xs px-3 py-2 rounded-lg outline-none focus:border-blue-500/50">
+                                                <option value="mock_1">Default Character {i + 1}</option>
+                                                {chars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            </select>
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
+
+                            {/* Enemies */}
+                            <section>
+                                <div className="flex items-center gap-3 mb-3">
+                                    <h3 className="text-[10px] font-black uppercase tracking-widest text-red-400">Enemies</h3>
+                                    <div className="flex items-center gap-1.5">
+                                        <button onClick={() => updateEnemyCount(Math.max(1, enemyCount - 1))}
+                                            className="w-6 h-6 rounded bg-black/50 border border-white/10 text-gray-400 text-xs hover:bg-white/10">−</button>
+                                        <span className="text-white font-bold text-sm w-4 text-center">{enemyCount}</span>
+                                        <button onClick={() => updateEnemyCount(Math.min(4, enemyCount + 1))}
+                                            className="w-6 h-6 rounded bg-black/50 border border-white/10 text-gray-400 text-xs hover:bg-white/10">+</button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    {Array.from({ length: enemyCount }).map((_, i) => (
+                                        <div key={`e-${i}`} className="flex items-center gap-2">
+                                            <div className="w-6 h-6 rounded-full bg-red-600 border border-red-400 flex items-center justify-center text-[9px] font-black text-white shrink-0">
+                                                E{i + 1}
+                                            </div>
+                                            <select value={enemyIds[i] || 'mock_2'}
+                                                onChange={e => setEnemyId(i, e.target.value)}
+                                                className="flex-1 bg-black/50 border border-red-500/20 text-white text-xs px-3 py-2 rounded-lg outline-none focus:border-red-500/50">
+                                                <option value="mock_2">Default Enemy {i + 1}</option>
+                                                {chars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            </select>
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
+                        </div>
+
+                        {/* ── AI Map Generation ── */}
+                        <section>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-3">AI Map Generation <span className="text-gray-600 font-normal">(optional)</span></h3>
+                            <div className="flex gap-2">
+                                <input value={mapPrompt} onChange={e => setMapPrompt(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') generateAIMap(); }}
+                                    placeholder="Describe a battlefield... (e.g. 'ruined temple with pillars and a central altar')"
+                                    className="flex-1 bg-black/50 border border-white/10 text-white text-xs px-3 py-2.5 rounded-lg outline-none focus:border-indigo-500/50 placeholder:text-gray-600"
+                                    disabled={isGenerating} />
+                                <button onClick={generateAIMap}
+                                    disabled={isGenerating || !mapPrompt.trim()}
+                                    className="px-5 py-2.5 bg-indigo-500 hover:bg-indigo-400 disabled:opacity-30 text-white font-black uppercase tracking-widest rounded-lg text-[10px] transition-all shrink-0">
+                                    {isGenerating ? '⟳ Generating...' : '✨ Generate'}
+                                </button>
+                            </div>
+                            {mapName && (
+                                <div className="mt-2 text-xs text-indigo-400 font-mono bg-indigo-500/10 px-3 py-1.5 rounded-lg border border-indigo-500/20 inline-block">
+                                    ✓ Map generated: {mapName}
+                                </div>
+                            )}
+                            {mapError && (
+                                <div className="mt-2 text-xs text-red-400">⚠ {mapError}</div>
+                            )}
+                        </section>
+
+                        {/* ── Launch Button ── */}
+                        <div className="flex justify-between items-center pt-4 border-t border-white/5">
+                            <div className="text-[10px] text-gray-600">
+                                {playerCount} player{playerCount > 1 ? 's' : ''} vs {enemyCount} enem{enemyCount > 1 ? 'ies' : 'y'} on a {gridRows}×{gridCols} grid
+                                {mapName ? ` • ${mapName}` : ' • Random map'}
+                            </div>
+                            <button onClick={startCombat}
+                                className="px-8 py-3 bg-orange-500 hover:bg-orange-400 text-black font-black uppercase tracking-[0.2em] rounded-xl text-sm transition-all shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40">
+                                ⚔️ Start Combat
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
+        );
+    }
 
-            {/* Arena keyed by selections to force full reset of combat engine on change */}
-            <CombatArena key={`${p1Id}-${p2Id}`} p1Id={p1Id} p2Id={p2Id} />
+    // ═══════════════════════════════════════════════════
+    // ACTIVE COMBAT
+    // ═══════════════════════════════════════════════════
+    return (
+        <div className="w-full h-full flex flex-col gap-0 bg-black/40 border border-white/5 rounded-2xl overflow-hidden shadow-2xl">
+            {/* Thin top bar with back button */}
+            <div className="shrink-0 flex items-center justify-between px-4 py-1.5 bg-black/60 border-b border-white/5">
+                <button onClick={returnToSetup}
+                    className="text-[9px] text-gray-500 hover:text-white font-bold uppercase tracking-widest transition-all">
+                    ← Back to Setup
+                </button>
+                <span className="text-[9px] text-gray-600">
+                    {playerCount}v{enemyCount} • {gridRows}×{gridCols}{mapName ? ` • ${mapName}` : ''}
+                </span>
+            </div>
+
+            {/* Arena */}
+            <div className="flex-1 overflow-hidden">
+                <TacticalCombatArena
+                    key={`combat-${combatKey}`}
+                    playerIds={playerIds}
+                    enemyIds={enemyIds}
+                    aiGrid={aiGrid}
+                    config={config}
+                />
+            </div>
         </div>
     );
 }
 
-function CombatArena({ p1Id, p2Id }: { p1Id: string, p2Id: string }) {
-    const c1 = GameRegistry.getCharacter(p1Id);
-    const c2 = GameRegistry.getCharacter(p2Id);
-
-    const playerEntity = c1 ? mapCharToEntity(c1, true) : getMockEntity(true);
-    const enemyEntity = c2 ? mapCharToEntity(c2, false) : getMockEntity(false);
+function TacticalCombatArena({
+    playerIds, enemyIds, aiGrid, config,
+}: {
+    playerIds: string[];
+    enemyIds: string[];
+    aiGrid: Grid | null;
+    config: CombatConfig;
+}) {
+    const playerEntities = playerIds.map((id, i) => {
+        const char = GameRegistry.getCharacter(id);
+        return char ? mapCharToTactical(char, true, i) : getMockTactical(true, i);
+    });
+    const enemyEntities = enemyIds.map((id, i) => {
+        const char = GameRegistry.getCharacter(id);
+        return char ? mapCharToTactical(char, false, i) : getMockTactical(false, i);
+    });
 
     const {
-        player, enemy, turn, logs,
-        activeEntityId, combatEnded, handlePlayerAttack
-    } = useCombatEngine(playerEntity, enemyEntity);
-
-    const logEndRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [logs]);
+        grid, entities, turnOrder, activeEntityId, activeEntity,
+        isPlayerTurn, phase, playerAction, logs, turnNumber,
+        handleCellClick, endTurn, selectSkill, selectedSkill, MELEE_ATTACK_COST,
+    } = useTacticalCombat(playerEntities, enemyEntities, aiGrid || undefined, config);
 
     return (
-        <>
-            {/* Turn Counter Overlay */}
-            <div className="absolute top-8 right-8 px-4 py-1 rounded bg-white/5 border border-white/10 text-xs font-mono text-gray-400">
-                Turn: {turn}
-            </div>
-
-            {/* Arena View */}
-            <div className="flex-1 flex justify-between items-center gap-12 px-8 py-4">
-
-                {/* Player Frame */}
-                <div className={`flex flex-col gap-4 p-6 rounded-xl border transition-all ${activeEntityId === player.id ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_20px_rgba(249,115,22,0.2)]' : 'border-white/10 bg-black/50'}`}>
-                    <div className="flex justify-between items-start w-[240px]">
-                        <div className="flex flex-col">
-                            <span className="text-xs text-orange-500 font-bold uppercase tracking-widest">{activeEntityId === player.id ? '▶ ACTING' : 'WAITING'}</span>
-                            <span className="text-2xl font-black text-gray-100">{player.name}</span>
-                        </div>
-                    </div>
-                    {/* HP Bar */}
-                    <div className="flex flex-col gap-1 w-full">
-                        <div className="flex justify-between text-xs font-mono font-bold">
-                            <span className="text-red-400">HP</span>
-                            <span className="text-gray-300">{player.hp} / {player.maxHp}</span>
-                        </div>
-                        <div className="w-full h-3 bg-red-950 rounded overflow-hidden p-0.5 border border-red-900/50">
-                            <div className="h-full bg-red-500 rounded-sm transition-all duration-500" style={{ width: `${Math.max(0, (player.hp / player.maxHp)) * 100}%` }} />
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 mt-4">
-                        <div className="p-2 border border-white/5 bg-white/5 rounded text-[10px] font-mono"><span className="text-gray-500">STR:</span> {player.strength}</div>
-                        <div className="p-2 border border-white/5 bg-white/5 rounded text-[10px] font-mono"><span className="text-gray-500">AGI:</span> {player.agility}</div>
-                        <div className="p-2 border border-white/5 bg-white/5 rounded text-[10px] font-mono"><span className="text-gray-500">EVA:</span> {player.evasion}%</div>
-                        <div className="p-2 border border-white/5 bg-white/5 rounded text-[10px] font-mono"><span className="text-gray-500">DEF:</span> {player.defense}</div>
-                    </div>
-                </div>
-
-                {/* VS Marker */}
-                <div className="text-4xl font-black text-white/10 italic">VS</div>
-
-                {/* Enemy Frame */}
-                <div className={`flex flex-col gap-4 p-6 rounded-xl border transition-all ${activeEntityId === enemy.id ? 'border-red-500 bg-red-500/10 shadow-[0_0_20px_rgba(239,68,68,0.2)]' : 'border-white/10 bg-black/50'}`}>
-                    <div className="flex justify-between items-start w-[240px]">
-                        <div className="flex flex-col">
-                            <span className="text-xs text-red-500 font-bold uppercase tracking-widest">{activeEntityId === enemy.id ? '▶ ACTING' : 'WAITING'}</span>
-                            <span className="text-2xl font-black text-gray-100">{enemy.name}</span>
-                        </div>
-                    </div>
-                    {/* HP Bar */}
-                    <div className="flex flex-col gap-1 w-full">
-                        <div className="flex justify-between text-xs font-mono font-bold">
-                            <span className="text-red-400">HP</span>
-                            <span className="text-gray-300">{enemy.hp} / {enemy.maxHp}</span>
-                        </div>
-                        <div className="w-full h-3 bg-red-950 rounded overflow-hidden p-0.5 border border-red-900/50">
-                            <div className="h-full bg-red-500 rounded-sm transition-all duration-500" style={{ width: `${Math.max(0, (enemy.hp / enemy.maxHp)) * 100}%` }} />
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 mt-4">
-                        <div className="p-2 border border-white/5 bg-white/5 rounded text-[10px] font-mono"><span className="text-gray-500">STR:</span> {enemy.strength}</div>
-                        <div className="p-2 border border-white/5 bg-white/5 rounded text-[10px] font-mono"><span className="text-gray-500">AGI:</span> {enemy.agility}</div>
-                        <div className="p-2 border border-white/5 bg-white/5 rounded text-[10px] font-mono"><span className="text-gray-500">EVA:</span> {enemy.evasion}%</div>
-                        <div className="p-2 border border-white/5 bg-white/5 rounded text-[10px] font-mono"><span className="text-gray-500">DEF:</span> {enemy.defense}</div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Bottom Panel (Controls & Log) */}
-            <div className="h-[200px] flex gap-4">
-                {/* Actions */}
-                <div className="w-[300px] p-4 bg-white/5 border border-white/10 rounded-xl flex flex-col gap-2">
-                    <h3 className="text-[10px] font-black uppercase text-gray-500 tracking-widest mb-2 border-b border-white/10 pb-2">Actions</h3>
-                    <button
-                        onClick={handlePlayerAttack}
-                        disabled={activeEntityId !== player.id || combatEnded}
-                        className="w-full py-3 bg-orange-500 hover:bg-orange-400 disabled:opacity-30 disabled:hover:bg-orange-500 text-black font-black uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 transition-all"
-                    >
-                        <span>⚔️</span> Attack
-                    </button>
-                    <button
-                        disabled={true}
-                        className="w-full py-3 bg-white/10 text-gray-500 font-bold uppercase tracking-widest rounded-lg cursor-not-allowed text-xs"
-                    >
-                        Defend (WIP)
-                    </button>
-                </div>
-
-                {/* Combat Log */}
-                <div className="flex-1 p-4 bg-black/80 border border-white/10 rounded-xl flex flex-col overflow-hidden font-mono text-xs">
-                    <h3 className="text-[10px] font-black uppercase text-gray-500 tracking-widest mb-2 border-b border-white/10 pb-2 shrink-0">Combat Log</h3>
-                    <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                        {logs.map(log => (
-                            <div key={log.id} className={`py-1 ${log.type === 'system' ? 'text-teal-400 font-bold' :
-                                log.type === 'damage' ? 'text-red-400' :
-                                    log.type === 'heal' ? 'text-green-400' : 'text-gray-300'
-                                }`}>
-                                <span className="text-gray-600 mr-2">»</span>
-                                {log.message}
-                            </div>
-                        ))}
-                        <div ref={logEndRef} />
-                    </div>
-                </div>
-            </div>
-        </>
+        <TacticalArena
+            grid={grid}
+            entities={entities}
+            turnOrder={turnOrder}
+            activeEntityId={activeEntityId}
+            activeEntity={activeEntity}
+            isPlayerTurn={isPlayerTurn}
+            phase={phase}
+            playerAction={playerAction}
+            logs={logs}
+            turnNumber={turnNumber}
+            onCellClick={handleCellClick}
+            onEndTurn={endTurn}
+            onSelectSkill={selectSkill}
+            meleeAttackCost={MELEE_ATTACK_COST}
+            selectedSkill={selectedSkill}
+        />
     );
 }

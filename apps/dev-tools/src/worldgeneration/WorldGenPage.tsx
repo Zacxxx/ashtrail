@@ -26,7 +26,10 @@ export function WorldGenPage() {
     const [geographyTab, setGeographyTab] = useState<"pipeline" | "inspector">("pipeline");
     const [geoSelectedId, setGeoSelectedId] = useState<number | null>(null);
     const [geoHoveredId, setGeoHoveredId] = useState<number | null>(null);
+    const [geoBulkSelectedIds, setGeoBulkSelectedIds] = useState<number[]>([]);
+    const [geoBulkMode, setGeoBulkMode] = useState(false);
     const [inspectorLayer, setInspectorLayer] = useState<InspectorLayer>("provinces");
+    const [provinceTextureVersion, setProvinceTextureVersion] = useState(0);
     const [showHistory, setShowHistory] = useState(false);
     const [showConfigPanel, setShowConfigPanel] = useState(true);
     const [showHexGrid, setShowHexGrid] = useState(false);
@@ -101,6 +104,17 @@ export function WorldGenPage() {
     // ── Step Change Handler ──
     const handleStepChange = useCallback((step: WorkflowStep) => {
         setActiveStep(step);
+    }, []);
+
+    const handleGeoBulkToggleId = useCallback((id: number | null) => {
+        if (id === null) return;
+        setGeoBulkSelectedIds((prev) => (
+            prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]
+        ));
+    }, []);
+
+    const handleGeoBulkClear = useCallback(() => {
+        setGeoBulkSelectedIds([]);
     }, []);
 
     return (
@@ -202,7 +216,13 @@ export function WorldGenPage() {
                                         planetId={activeHistoryId}
                                         selectedId={geoSelectedId}
                                         hoveredId={geoHoveredId}
+                                        bulkSelectedIds={geoBulkSelectedIds}
+                                        bulkMode={geoBulkMode}
+                                        onBulkModeChange={setGeoBulkMode}
+                                        onBulkToggleId={handleGeoBulkToggleId}
+                                        onClearBulkSelection={handleGeoBulkClear}
                                         activeLayer={inspectorLayer}
+                                        onHierarchyChanged={() => setProvinceTextureVersion(v => v + 1)}
                                     />
                                 )}
                             </div>
@@ -247,8 +267,12 @@ export function WorldGenPage() {
                         setGeoHoveredId={setGeoHoveredId}
                         geoSelectedId={geoSelectedId}
                         setGeoSelectedId={setGeoSelectedId}
+                        geoBulkSelectedIds={geoBulkSelectedIds}
+                        geoBulkMode={geoBulkMode}
+                        onGeoBulkToggleId={handleGeoBulkToggleId}
                         inspectorLayer={inspectorLayer}
                         setInspectorLayer={setInspectorLayer}
+                        provinceTextureVersion={provinceTextureVersion}
                         isMaxView={isMaxView}
                         setIsMaxView={setIsMaxView}
                         activeHistoryId={activeHistoryId}

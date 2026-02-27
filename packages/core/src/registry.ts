@@ -1,13 +1,14 @@
 import traitsData from './data/traits.json';
 import occupationsData from './data/occupations.json';
 import itemsData from './data/items.json';
-import { Trait, Occupation, Item, Character } from './types';
+import { Trait, Occupation, Item, Character, Skill } from './types';
 
 export class GameRegistry {
     private static traits: Map<string, Trait> = new Map();
     private static occupations: Map<string, Occupation> = new Map();
     private static items: Map<string, Item> = new Map();
     private static characters: Map<string, Character> = new Map();
+    private static skills: Map<string, Skill> = new Map();
     private static initialized = false;
 
     public static initialize() {
@@ -22,6 +23,10 @@ export class GameRegistry {
 
         const iData = itemsData as Item[];
         iData.forEach(i => this.items.set(i.id, i));
+
+        import('./mockData').then(({ ALL_SKILLS }) => {
+            ALL_SKILLS.forEach(s => this.skills.set(s.id, s));
+        });
 
         this.initialized = true;
     }
@@ -56,6 +61,13 @@ export class GameRegistry {
                 const cData: Character[] = await cRes.json();
                 this.characters.clear();
                 cData.forEach(c => this.characters.set(c.id, c));
+            }
+
+            const sRes = await fetch(`${backendUrl}/api/data/skills`);
+            if (sRes.ok) {
+                const sData: Skill[] = await sRes.json();
+                // We keep base skills but add/override from custom ones
+                sData.forEach(s => this.skills.set(s.id, s));
             }
 
             this.initialized = true;
@@ -107,5 +119,16 @@ export class GameRegistry {
     public static getCharacter(id: string): Character | undefined {
         if (!this.initialized) this.initialize();
         return this.characters.get(id);
+    }
+
+    // --- SKILLS ---
+    public static getAllSkills(): Skill[] {
+        if (!this.initialized) this.initialize();
+        return Array.from(this.skills.values());
+    }
+
+    public static getSkill(id: string): Skill | undefined {
+        if (!this.initialized) this.initialize();
+        return this.skills.get(id);
     }
 }
