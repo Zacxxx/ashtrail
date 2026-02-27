@@ -60,6 +60,7 @@ export function CharacterBuilderPage() {
     const [activeBagIndex, setActiveBagIndex] = useState(0);
     const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, slotIndex: number | null } | null>(null);
+    const [hoverInfo, setHoverInfo] = useState<{ x: number, y: number, item: Item } | null>(null);
     const [animatingSlot, setAnimatingSlot] = useState<{ index: number, type: 'destroy' | 'throw' } | null>(null);
 
     const sortByRarity = () => {
@@ -707,8 +708,24 @@ export function CharacterBuilderPage() {
                                                     <div
                                                         key={idx}
                                                         onClick={() => setSelectedSlotIndex(idx)}
+                                                        onMouseEnter={(e) => {
+                                                            if (item && !contextMenu) {
+                                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                                const root = document.getElementById('inventory-view-root');
+                                                                const rootRect = root?.getBoundingClientRect() || { left: 0, top: 0 };
+                                                                const scrollOffset = root?.scrollTop || 0;
+
+                                                                setHoverInfo({
+                                                                    x: rect.right - rootRect.left + 8,
+                                                                    y: rect.top - rootRect.top + scrollOffset,
+                                                                    item
+                                                                });
+                                                            }
+                                                        }}
+                                                        onMouseLeave={() => setHoverInfo(null)}
                                                         onContextMenu={(e) => {
                                                             e.preventDefault();
+                                                            setHoverInfo(null);
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             const root = document.getElementById('inventory-view-root');
                                                             const rootRect = root?.getBoundingClientRect() || { left: 0, top: 0 };
@@ -727,7 +744,6 @@ export function CharacterBuilderPage() {
                                                             ${animatingSlot?.index === idx && animatingSlot.type === 'destroy' ? 'animate-item-destroy z-50 pointer-events-none' : ''}
                                                             ${animatingSlot?.index === idx && animatingSlot.type === 'throw' ? 'animate-item-throw z-50 pointer-events-none' : ''}
                                                         `}
-                                                        title={item ? `${item.name} (${item.rarity}) - ${item.cost}C` : `Slot ${idx + 1}`}
                                                     >
                                                         <div className="absolute top-0 left-0 w-0.5 h-0.5 bg-white/10" />
                                                         <div className="absolute bottom-0 right-0 w-0.5 h-0.5 bg-white/10" />
@@ -846,6 +862,52 @@ export function CharacterBuilderPage() {
                                         >
                                             DESTROY <span>»</span>
                                         </button>
+                                    </div>
+                                )}
+
+                                {/* Hover Info Panel - Purely Informational */}
+                                {hoverInfo && !contextMenu && (
+                                    <div
+                                        className="absolute z-[999] w-44 bg-[#0d0d0d] border border-white/10 shadow-2xl p-3 animate-in fade-in slide-in-from-left-1 duration-200 pointer-events-none"
+                                        style={{ top: `${hoverInfo.y}px`, left: `${hoverInfo.x}px` }}
+                                    >
+                                        <div className="flex flex-col gap-2">
+                                            <div className="border-b border-white/5 pb-2">
+                                                <div className="text-[10px] font-black text-white uppercase tracking-wider leading-tight">
+                                                    {hoverInfo.item.name}
+                                                </div>
+                                                <div className="flex items-center gap-1.5 mt-1">
+                                                    <div className={`w-1 h-1 rounded-full ${hoverInfo.item.rarity === 'ashmarked' ? 'bg-red-600 shadow-[0_0_5px_rgba(220,38,38,0.5)]' :
+                                                            hoverInfo.item.rarity === 'relic' ? 'bg-amber-500' :
+                                                                hoverInfo.item.rarity === 'specialized' ? 'bg-purple-600' :
+                                                                    'bg-gray-500'
+                                                        }`} />
+                                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-widest">
+                                                        {hoverInfo.item.rarity}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-y-1.5">
+                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Type:</div>
+                                                <div className="text-[7px] text-gray-400 font-bold uppercase tracking-widest text-right">
+                                                    {hoverInfo.item.category}
+                                                </div>
+
+                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Value:</div>
+                                                <div className="text-[7px] text-[#c2410c] font-black uppercase tracking-widest text-right">
+                                                    {hoverInfo.item.cost}C
+                                                </div>
+                                            </div>
+
+                                            {hoverInfo.item.description && (
+                                                <div className="mt-1 pt-2 border-t border-white/5">
+                                                    <p className="text-[8px] text-gray-500 leading-relaxed italic">
+                                                        {hoverInfo.item.description}
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </div>
