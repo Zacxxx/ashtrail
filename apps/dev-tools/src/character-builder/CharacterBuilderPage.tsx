@@ -19,8 +19,9 @@ const RARITY_ORDER: Record<ItemRarity, number> = {
 const ITEMS_BY_CATEGORY: Record<string, string[]> = {
     weapon: ["Stun Baton", "Vibration Blade", "Pulse Rifle", "Rusty Pipe", "Spiked Bat", "Serrated Knife"],
     consumable: ["Med Kit", "Bandage", "Stimulant", "Filtered Water", "Nutrient Bar", "Antigen"],
-    resource: ["Scrap Metal", "Raw Ash", "Wires", "Circuit Board", "Fuel Cell", "Lead Solder"],
-    junk: ["Old World Can", "Broken Watch", "Glow Stick", "Plastic Waste", "Tattered Cloth", "Rusted Bolt"]
+    resource: ["Scrap Metal", "Electronics", "Chemicals", "Fiberglass"],
+    junk: ["Broken Bottle", "Rusted Nut", "Plastic Waste", "Old Tape"],
+    armor: ["Tactical Vest", "Reinforced Helmet", "Scrap Plating", "Leather Guards"]
 };
 
 export function CharacterBuilderPage() {
@@ -641,8 +642,8 @@ export function CharacterBuilderPage() {
                                                         <div
                                                             key={t.id}
                                                             className={`px-2 py-0.5 border rounded text-[8px] font-bold uppercase tracking-wider ${t.type === "positive" ? "bg-blue-900/10 border-blue-500/30 text-blue-400" :
-                                                                    t.type === "negative" ? "bg-red-900/10 border-red-500/30 text-red-400" :
-                                                                        "bg-gray-900/10 border-white/10 text-gray-400"
+                                                                t.type === "negative" ? "bg-red-900/10 border-red-500/30 text-red-400" :
+                                                                    "bg-gray-900/10 border-white/10 text-gray-400"
                                                                 }`}
                                                         >
                                                             {t.name}
@@ -763,7 +764,7 @@ export function CharacterBuilderPage() {
                                             </div>
 
                                             <div className="flex items-center bg-black/40 border border-white/10">
-                                                {(["ALL", "WEAPON", "CONSUMABLE", "RESOURCE", "JUNK"] as const).map(f => (
+                                                {(["ALL", "WEAPON", "CONSUMABLE", "RESOURCE", "JUNK", "ARMOR"] as const).map(f => (
                                                     <button
                                                         key={f}
                                                         onClick={() => setInventoryFilter(f)}

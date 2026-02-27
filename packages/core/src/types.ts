@@ -58,7 +58,7 @@ export interface Occupation {
   icon?: string;           // Emoji or gallery path
 }
 
-export type ItemCategory = "weapon" | "tool" | "armor" | "consumable" | "relic" | "resource" | "junk";
+export type ItemCategory = "weapon" | "consumable" | "resource" | "junk" | "armor";
 
 export type ItemRarity = "salvaged" | "reinforced" | "pre-ash" | "specialized" | "relic" | "ashmarked";
 
