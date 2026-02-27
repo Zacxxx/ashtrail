@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory } from "@ashtrail/core";
 import { TabBar } from "@ashtrail/ui";
 
-type BuilderTab = "IDENTITY" | "TRAITS" | "STATS" | "OCCUPATION" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
+type BuilderTab = "IDENTITY" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
 
 const DEFAULT_STATS: Stats = { strength: 3, agility: 3, intelligence: 3, wisdom: 3, endurance: 3, charisma: 3 };
 
@@ -393,7 +393,7 @@ export function CharacterBuilderPage() {
                     {/* Tab Navigation */}
                     <div className="shrink-0 flex items-center justify-center p-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md">
                         <TabBar
-                            tabs={["IDENTITY", "TRAITS", "STATS", "OCCUPATION", "CHARACTER_SHEET", "INVENTORY", "SAVE"]}
+                            tabs={["IDENTITY", "TRAITS", "STATS", "OCCUPATION", "SKILLS", "EQUIPEMENT", "CHARACTER_SHEET", "INVENTORY", "SAVE"]}
                             activeTab={activeTab}
                             onTabChange={(t) => setActiveTab(t as BuilderTab)}
                         />
@@ -556,6 +556,92 @@ export function CharacterBuilderPage() {
                                             </div>
                                         </button>
                                     ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ═══ SKILLS TAB ═══ */}
+                        {activeTab === "SKILLS" && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-3">
+                                    <h2 className="text-xl font-black tracking-[0.2em] text-indigo-400 uppercase">Neural Skills & Combat Masteries</h2>
+                                    <div className="h-px flex-1 bg-gradient-to-r from-indigo-500/20 to-transparent" />
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {[1, 2, 3].map(i => (
+                                        <div key={i} className="group bg-black/40 border border-white/5 p-6 rounded-2xl hover:border-indigo-500/30 transition-all flex flex-col gap-4 opacity-50 cursor-not-allowed">
+                                            <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-xl grayscale text-white">
+                                                🧠
+                                            </div>
+                                            <div>
+                                                <h3 className="text-xs font-black text-white uppercase tracking-wider">Skill Node {i}</h3>
+                                                <p className="text-[10px] text-gray-500 mt-1 uppercase font-bold tracking-widest">Locked / Under Construction</p>
+                                            </div>
+                                            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                                                <div className="h-full bg-indigo-500/30 w-0" />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ═══ EQUIPEMENT TAB ═══ */}
+                        {activeTab === "EQUIPEMENT" && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-3">
+                                    <h2 className="text-xl font-black tracking-[0.2em] text-orange-500 uppercase">Tactical Loadout</h2>
+                                    <div className="h-px flex-1 bg-gradient-to-r from-orange-500/20 to-transparent" />
+                                </div>
+
+                                <div className="flex flex-col lg:flex-row gap-8">
+                                    {/* Dummy Character Silhouette */}
+                                    <div className="w-full max-w-[300px] h-[500px] bg-black/40 border border-white/5 rounded-3xl relative flex items-center justify-center overflow-hidden shrink-0 mx-auto lg:mx-0">
+                                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(194,65,12,0.05)_0%,transparent_70%)]" />
+                                        <div className="text-[120px] opacity-10 select-none grayscale">👤</div>
+
+                                        {/* Equipment Slots Overlays */}
+                                        <div className="absolute top-10 flex flex-col items-center gap-4">
+                                            <div className="w-12 h-12 border border-white/10 bg-black/60 rounded flex items-center justify-center text-[8px] text-gray-700 font-black uppercase tracking-widest text-center px-1">HEAD</div>
+                                            <div className="w-14 h-14 border border-white/10 bg-black/60 rounded flex items-center justify-center text-[8px] text-gray-700 font-black uppercase tracking-widest text-center px-1">CHEST</div>
+                                        </div>
+
+                                        <div className="absolute left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4">
+                                            <div className="w-12 h-12 border border-white/10 bg-black/60 rounded flex items-center justify-center text-[8px] text-gray-700 font-black uppercase tracking-widest text-center px-1">ARMS</div>
+                                            <div className="w-12 h-12 border border-white/10 bg-black/60 rounded flex items-center justify-center text-[8px] text-gray-700 font-black uppercase tracking-widest text-center px-1">WAIST</div>
+                                        </div>
+
+                                        <div className="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-4">
+                                            <div className="w-12 h-12 border border-white/10 bg-black/60 rounded flex items-center justify-center text-[8px] text-gray-700 font-black uppercase tracking-widest text-center px-1">WPN 1</div>
+                                            <div className="w-12 h-12 border border-white/10 bg-black/60 rounded flex items-center justify-center text-[8px] text-gray-700 font-black uppercase tracking-widest text-center px-1">WPN 2</div>
+                                        </div>
+
+                                        <div className="absolute bottom-10">
+                                            <div className="w-12 h-12 border border-white/10 bg-black/60 rounded flex items-center justify-center text-[8px] text-gray-700 font-black uppercase tracking-widest text-center px-1">LEGS</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex-1 space-y-4">
+                                        <div className="bg-black/20 p-6 border border-white/5 rounded-2xl">
+                                            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                                <div className="w-1.5 h-1.5 bg-orange-500" />
+                                                Loadout Status
+                                            </h3>
+                                            <p className="text-xs text-gray-500 leading-relaxed italic mb-6">
+                                                This module will allow slotting specialized hardware to enhance neural pathways and physical capabilities.
+                                                Items from your inventory can be linked to these tactial slots.
+                                            </p>
+                                            <div className="flex flex-col gap-3">
+                                                <div className="p-3 bg-red-500/5 border border-red-500/20 rounded-lg">
+                                                    <span className="text-[10px] text-red-500 font-black uppercase tracking-widest">SYSTEM STATUS: OFFLINE</span>
+                                                    <p className="text-[9px] text-red-900 font-bold uppercase mt-1">Synchronization with neural link interrupted.</p>
+                                                </div>
+                                                <div className="p-3 bg-white/5 border border-white/5 rounded-lg opacity-50">
+                                                    <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">DRINKING WATER FILTER: ACTIVE</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
