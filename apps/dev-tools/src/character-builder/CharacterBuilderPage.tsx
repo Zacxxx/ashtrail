@@ -88,31 +88,24 @@ export function CharacterBuilderPage() {
         });
     }, [inventory, inventorySearch, inventoryFilter, activeBagIndex]);
 
-    // Initial Mock Inventory
-    useEffect(() => {
-        const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
+    // Library search state
+    const [librarySearch, setLibrarySearch] = useState("");
 
-        // Strictly generate items based on the defined categories to avoid cross-contamination
-        const mockInventory: Item[] = [];
-        const categories = Object.keys(ITEMS_BY_CATEGORY) as (keyof typeof ITEMS_BY_CATEGORY)[];
+    const allLibraryItems = useMemo(() => {
+        return GameRegistry.getAllItems().filter(item =>
+            item.name.toLowerCase().includes(librarySearch.toLowerCase()) ||
+            item.category.toLowerCase().includes(librarySearch.toLowerCase())
+        );
+    }, [librarySearch]);
 
-        categories.forEach((cat, catIdx) => {
-            const names = ITEMS_BY_CATEGORY[cat];
-            names.forEach((name, nameIdx) => {
-                mockInventory.push({
-                    id: `item-${cat}-${nameIdx}-${Date.now()}`,
-                    name,
-                    category: cat as ItemCategory,
-                    rarity: rarities[Math.floor(Math.random() * rarities.length)],
-                    cost: Math.floor(Math.random() * 500) + 50,
-                    description: `A standard ${cat} used in the Ash wastes.`,
-                    bagIndex: Math.floor(Math.random() * 6) // Distributed across 6 bags
-                });
-            });
-        });
-
-        setInventory(mockInventory);
-    }, []);
+    const addItemToInventory = (item: Item) => {
+        const newItem: Item = {
+            ...item,
+            id: `${item.id}-${Date.now()}`,
+            bagIndex: activeBagIndex,
+        };
+        setInventory(prev => [...prev, newItem]);
+    };
 
     // Currency Values
     const [gold] = useState(10);
@@ -568,7 +561,7 @@ export function CharacterBuilderPage() {
                         )}
 
                         {/* ═══ CHARACTER SHEET TAB ═══ */}
-                        {activeTab === "CHARACTER_SHEET" && (
+                        {activeTab === "CHARACTER_SHEET" &&
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-ash-settling">
                                 {/* Column 1: Profile & Stats */}
                                 <div className="space-y-6">
@@ -683,360 +676,413 @@ export function CharacterBuilderPage() {
                                     </div>
                                 </div>
                             </div>
-                        )}
+                        }
 
                         {/* ═══ INVENTORY TAB ═══ */}
-                        {activeTab === "INVENTORY" && (
-                            <div id="inventory-view-root" className="flex flex-col items-center h-full relative font-mono overflow-y-auto custom-scrollbar py-4" onClick={() => setContextMenu(null)}>
-                                <div className="w-full max-w-[700px] flex flex-col gap-5">
-                                    {/* Top Row: Bags & Money */}
-                                    <div className="flex items-end justify-between">
-                                        {/* Tactical Bag Slots */}
-                                        <div className="flex flex-col gap-1.5">
-                                            <div className="flex items-center gap-1.5 px-1">
-                                                <div className="w-1 h-2.5 bg-[#c2410c]" />
-                                                <label className="text-[9px] text-gray-500 font-black uppercase tracking-widest">INVENTORY</label>
-                                            </div>
-                                            <div className="flex gap-1 p-1 bg-black/60 border border-white/5 shadow-xl">
-                                                {[0, 1, 2, 3, 4, 5].map((idx) => (
-                                                    <div
-                                                        key={idx}
-                                                        onClick={() => setActiveBagIndex(idx)}
-                                                        className={`w-11 h-11 border flex items-center justify-center relative group cursor-pointer transition-all ${activeBagIndex === idx ? "bg-[#c2410c]/20 border-[#c2410c] shadow-[0_0_10px_rgba(194,65,12,0.1)]" : "bg-white/[0.01] border-white/10 hover:border-[#c2410c]/30 hover:bg-white/[0.03]"}`}
-                                                    >
-                                                        {idx === 5 ? (
-                                                            <svg className="w-5 h-5 text-gray-500 group-hover:text-gray-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                                                            </svg>
-                                                        ) : (
-                                                            <svg className="w-5 h-5 text-gray-600 group-hover:text-gray-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                                                            </svg>
-                                                        )}
-
-                                                        <div className="absolute bottom-0.5 right-0.5 flex gap-0.5 scale-75">
-                                                            <div className={`w-1 h-2.5 ${idx === 3 ? "bg-red-900/40" : "bg-[#c2410c]/40"}`} />
-                                                            <div className={`w-1 h-2.5 ${idx === 3 ? "bg-red-600" : "bg-[#c2410c]"}`} />
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
+                        {activeTab === "INVENTORY" &&
+                            <div id="inventory-view-root" className="flex h-full relative font-mono overflow-hidden py-4 px-2 gap-6" onClick={() => setContextMenu(null)}>
+                                {/* Left Sidebar: Item Library */}
+                                <aside className="w-[300px] flex flex-col gap-4 shrink-0 bg-black/40 border border-white/5 p-4 rounded-xl shadow-2xl backdrop-blur-md">
+                                    <div className="flex flex-col gap-1.5 border-b border-white/5 pb-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1.5 h-3 bg-[#c2410c]" />
+                                            <label className="text-[10px] text-white font-black uppercase tracking-[0.2em]">Item Database</label>
                                         </div>
-
-                                        {/* Currency - Dossier Style */}
-                                        <div className="flex flex-col items-end gap-1">
-                                            <div className="flex items-center gap-2.5 bg-[#c2410c]/5 border border-[#c2410c]/20 px-3 py-1.5">
-                                                <span className="text-[8px] text-gray-600 font-black uppercase tracking-widest mr-1">CREDITS:</span>
-                                                <span className="text-sm font-black text-[#c2410c]">{totalCredits.toLocaleString()}</span>
-                                            </div>
-                                            <div className="flex gap-2 pr-1 scale-90">
-                                                <div className="flex items-center gap-1 opacity-50">
-                                                    <span className="text-[9px] text-white font-bold">{gold.toString().padStart(2, '0')}</span>
-                                                    <div className="w-2 h-2 rounded-full bg-yellow-600" />
-                                                </div>
-                                                <div className="flex items-center gap-1 opacity-50">
-                                                    <span className="text-[9px] text-white font-bold">{silver.toString().padStart(2, '0')}</span>
-                                                    <div className="w-2 h-2 rounded-full bg-slate-400" />
-                                                </div>
-                                                <div className="flex items-center gap-1 opacity-50">
-                                                    <span className="text-[9px] text-white font-bold">{copper.toString().padStart(2, '0')}</span>
-                                                    <div className="w-2 h-2 rounded-full bg-orange-700" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Controls Module */}
-                                    <div className="flex flex-col gap-3 bg-black/20 p-3 border border-white/5">
-                                        <div className="flex items-center justify-between gap-4">
-                                            <div className="flex-1 flex items-center bg-black/60 border border-white/10 focus-within:border-[#c2410c]/30 transition-all">
-                                                <div className="pl-3 text-gray-700">
-                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                                    </svg>
-                                                </div>
-                                                <input
-                                                    value={inventorySearch}
-                                                    onChange={e => setInventorySearch(e.target.value)}
-                                                    placeholder="SEARCH DATA..."
-                                                    className="w-full bg-transparent px-3 py-2 text-[10px] text-white placeholder:text-gray-800 outline-none uppercase tracking-widest"
-                                                />
-                                            </div>
-
-                                            <div className="flex items-center bg-black/40 border border-white/10">
-                                                {(["ALL", "WEAPON", "CONSUMABLE", "RESOURCE", "JUNK", "ARMOR"] as const).map(f => (
-                                                    <button
-                                                        key={f}
-                                                        onClick={() => setInventoryFilter(f)}
-                                                        className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${inventoryFilter === f ? "bg-[#c2410c] text-white" : "text-gray-600 hover:text-gray-300 hover:bg-white/5"}`}
-                                                    >
-                                                        {f}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-center gap-2 scale-95 origin-left">
-                                            <div className="text-[8px] text-gray-700 uppercase tracking-widest mr-1">SORT:</div>
-                                            <button
-                                                onClick={sortByValue}
-                                                className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest"
-                                            >
-                                                VALUE
-                                            </button>
-                                            <button
-                                                onClick={sortByRarity}
-                                                className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest"
-                                            >
-                                                RARITY
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Main Storage Unit */}
-                                    <div className="bg-black/40 border border-white/5 p-5 relative overflow-hidden group">
-                                        <div className="absolute inset-0 bg-[linear-gradient(rgba(194,65,12,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(194,65,12,0.02)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
-
-                                        {/* Bag Switch Dust Sweep Effect */}
-                                        <div
-                                            key={`dust-${activeBagIndex}`}
-                                            className="absolute inset-0 z-30 pointer-events-none animate-dust-sweep"
-                                            style={{
-                                                background: 'linear-gradient(90deg, transparent, rgba(161, 98, 7, 0.1), rgba(194, 65, 12, 0.3), rgba(75, 85, 99, 0.5), transparent)',
-                                                width: '200%',
-                                                filter: 'blur(30px) contrast(1.2)'
-                                            }}
+                                        <input
+                                            value={librarySearch}
+                                            onChange={e => setLibrarySearch(e.target.value)}
+                                            placeholder="SEARCH DATABASE..."
+                                            className="w-full bg-black/40 border border-white/10 text-[10px] text-gray-400 px-3 py-2 rounded outline-none focus:border-[#c2410c]/40 transition-all font-mono italic"
                                         />
+                                    </div>
 
-                                        <div
-                                            key={activeBagIndex}
-                                            className="grid grid-cols-10 gap-2 relative z-10 animate-ash-settling"
-                                        >
-                                            {Array.from({ length: 40 }).map((_, idx) => {
-                                                const item = filteredInventory[idx];
-                                                const itemRarity = item?.rarity || "none";
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                                        {allLibraryItems.length > 0 ? allLibraryItems.map(item => (
+                                            <button
+                                                key={item.id}
+                                                onClick={() => addItemToInventory(item)}
+                                                className={`w-full text-left p-3 bg-black/20 border border-white/5 rounded-lg flex items-center gap-3 group hover:border-[#c2410c]/40 hover:bg-white/[0.02] transition-all relative overflow-hidden active:scale-95`}
+                                            >
+                                                <div className="w-10 h-10 bg-black/40 border border-white/10 rounded flex items-center justify-center text-lg relative z-10">
+                                                    {item.icon && item.icon.startsWith("/api/icons/") ? (
+                                                        <img src={item.icon} className="w-full h-full object-cover p-1" />
+                                                    ) : (
+                                                        <span>{item.icon || "📦"}</span>
+                                                    )}
+                                                </div>
+                                                <div className="flex flex-col gap-0.5 relative z-10 truncate">
+                                                    <span className="text-[10px] font-black text-white uppercase tracking-wider truncate">{item.name}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-[8px] text-gray-500 font-bold uppercase">{item.category}</span>
+                                                        <span className="text-[8px] text-[#c2410c]/80 font-black">{item.cost} CR</span>
+                                                    </div>
+                                                </div>
+                                                {/* Hover Glow */}
+                                                <div className="absolute inset-x-0 bottom-0 h-0.5 bg-[#c2410c] scale-x-0 group-hover:scale-x-100 transition-transform origin-left" />
+                                            </button>
+                                        )) : (
+                                            <div className="text-[9px] text-gray-600 italic text-center py-10 opacity-50">No items matching your query.</div>
+                                        )}
+                                    </div>
 
-                                                const rarityClasses = {
-                                                    salvaged: "rarity-salvaged bg-black/60",
-                                                    reinforced: "rarity-reinforced bg-black/60",
-                                                    "pre-ash": "rarity-pre-ash bg-black/60",
-                                                    specialized: "rarity-specialized bg-black/60",
-                                                    relic: "rarity-relic bg-black/60",
-                                                    ashmarked: "rarity-ashmarked bg-black/60",
-                                                    none: "border-white/5 hover:border-[#c2410c]/40 bg-black/60"
-                                                };
+                                    <div className="pt-3 border-t border-white/5">
+                                        <p className="text-[8px] text-gray-600 font-bold text-center uppercase tracking-widest leading-relaxed">
+                                            SELECT AN ITEM TO ADD IT TO YOUR CURRENT BAG AS AN ACTIVE UNIT
+                                        </p>
+                                    </div>
+                                </aside>
 
-                                                return (
-                                                    <div
-                                                        key={idx}
-                                                        onClick={() => setSelectedSlotIndex(idx)}
-                                                        onMouseEnter={(e) => {
-                                                            if (item && !contextMenu) {
+                                <div className="flex-1 flex flex-col items-center overflow-y-auto custom-scrollbar">
+                                    <div className="w-full max-w-[700px] flex flex-col gap-5">
+                                        {/* Top Row: Bags & Money */}
+                                        <div className="flex items-end justify-between">
+                                            {/* Tactical Bag Slots */}
+                                            <div className="flex flex-col gap-1.5">
+                                                <div className="flex items-center gap-1.5 px-1">
+                                                    <div className="w-1 h-2.5 bg-[#c2410c]" />
+                                                    <label className="text-[9px] text-gray-500 font-black uppercase tracking-widest">INVENTORY</label>
+                                                </div>
+                                                <div className="flex gap-1 p-1 bg-black/60 border border-white/5 shadow-xl">
+                                                    {[0, 1, 2, 3, 4, 5].map((idx) => (
+                                                        <div
+                                                            key={idx}
+                                                            onClick={() => setActiveBagIndex(idx)}
+                                                            className={`w-11 h-11 border flex items-center justify-center relative group cursor-pointer transition-all ${activeBagIndex === idx ? "bg-[#c2410c]/20 border-[#c2410c] shadow-[0_0_10px_rgba(194,65,12,0.1)]" : "bg-white/[0.01] border-white/10 hover:border-[#c2410c]/30 hover:bg-white/[0.03]"}`}
+                                                        >
+                                                            {idx === 5 ? (
+                                                                <svg className="w-5 h-5 text-gray-500 group-hover:text-gray-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                                                                </svg>
+                                                            ) : (
+                                                                <svg className="w-5 h-5 text-gray-600 group-hover:text-gray-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                                                                </svg>
+                                                            )}
+
+                                                            <div className="absolute bottom-0.5 right-0.5 flex gap-0.5 scale-75">
+                                                                <div className={`w-1 h-2.5 ${idx === 3 ? "bg-red-900/40" : "bg-[#c2410c]/40"}`} />
+                                                                <div className={`w-1 h-2.5 ${idx === 3 ? "bg-red-600" : "bg-[#c2410c]"}`} />
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Currency - Dossier Style */}
+                                            <div className="flex flex-col items-end gap-1">
+                                                <div className="flex items-center gap-2.5 bg-[#c2410c]/5 border border-[#c2410c]/20 px-3 py-1.5">
+                                                    <span className="text-[8px] text-gray-600 font-black uppercase tracking-widest mr-1">CREDITS:</span>
+                                                    <span className="text-sm font-black text-[#c2410c]">{totalCredits.toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex gap-2 pr-1 scale-90">
+                                                    <div className="flex items-center gap-1 opacity-50">
+                                                        <span className="text-[9px] text-white font-bold">{gold.toString().padStart(2, '0')}</span>
+                                                        <div className="w-2 h-2 rounded-full bg-yellow-600" />
+                                                    </div>
+                                                    <div className="flex items-center gap-1 opacity-50">
+                                                        <span className="text-[9px] text-white font-bold">{silver.toString().padStart(2, '0')}</span>
+                                                        <div className="w-2 h-2 rounded-full bg-slate-400" />
+                                                    </div>
+                                                    <div className="flex items-center gap-1 opacity-50">
+                                                        <span className="text-[9px] text-white font-bold">{copper.toString().padStart(2, '0')}</span>
+                                                        <div className="w-2 h-2 rounded-full bg-orange-700" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Controls Module */}
+                                        <div className="flex flex-col gap-3 bg-black/20 p-3 border border-white/5">
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div className="flex-1 flex items-center bg-black/60 border border-white/10 focus-within:border-[#c2410c]/30 transition-all">
+                                                    <div className="pl-3 text-gray-700">
+                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                                        </svg>
+                                                    </div>
+                                                    <input
+                                                        value={inventorySearch}
+                                                        onChange={e => setInventorySearch(e.target.value)}
+                                                        placeholder="SEARCH DATA..."
+                                                        className="w-full bg-transparent px-3 py-2 text-[10px] text-white placeholder:text-gray-800 outline-none uppercase tracking-widest"
+                                                    />
+                                                </div>
+
+                                                <div className="flex items-center bg-black/40 border border-white/10">
+                                                    {(["ALL", "WEAPON", "CONSUMABLE", "RESOURCE", "JUNK", "ARMOR"] as const).map(f => (
+                                                        <button
+                                                            key={f}
+                                                            onClick={() => setInventoryFilter(f)}
+                                                            className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${inventoryFilter === f ? "bg-[#c2410c] text-white" : "text-gray-600 hover:text-gray-300 hover:bg-white/5"}`}
+                                                        >
+                                                            {f}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2 scale-95 origin-left">
+                                                <div className="text-[8px] text-gray-700 uppercase tracking-widest mr-1">SORT:</div>
+                                                <button
+                                                    onClick={sortByValue}
+                                                    className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest"
+                                                >
+                                                    VALUE
+                                                </button>
+                                                <button
+                                                    onClick={sortByRarity}
+                                                    className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest"
+                                                >
+                                                    RARITY
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Main Storage Unit */}
+                                        <div className="bg-black/40 border border-white/5 p-5 relative overflow-hidden group">
+                                            <div className="absolute inset-0 bg-[linear-gradient(rgba(194,65,12,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(194,65,12,0.02)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
+
+                                            {/* Bag Switch Dust Sweep Effect */}
+                                            <div
+                                                key={`dust-${activeBagIndex}`}
+                                                className="absolute inset-0 z-30 pointer-events-none animate-dust-sweep"
+                                                style={{
+                                                    background: 'linear-gradient(90deg, transparent, rgba(161, 98, 7, 0.1), rgba(194, 65, 12, 0.3), rgba(75, 85, 99, 0.5), transparent)',
+                                                    width: '200%',
+                                                    filter: 'blur(30px) contrast(1.2)'
+                                                }}
+                                            />
+
+                                            <div
+                                                key={activeBagIndex}
+                                                className="grid grid-cols-10 gap-2 relative z-10 animate-ash-settling"
+                                            >
+                                                {Array.from({ length: 40 }).map((_, idx) => {
+                                                    const item = filteredInventory[idx];
+                                                    const itemRarity = item?.rarity || "none";
+
+                                                    const rarityClasses = {
+                                                        salvaged: "rarity-salvaged bg-black/60",
+                                                        reinforced: "rarity-reinforced bg-black/60",
+                                                        "pre-ash": "rarity-pre-ash bg-black/60",
+                                                        specialized: "rarity-specialized bg-black/60",
+                                                        relic: "rarity-relic bg-black/60",
+                                                        ashmarked: "rarity-ashmarked bg-black/60",
+                                                        none: "border-white/5 hover:border-[#c2410c]/40 bg-black/60"
+                                                    };
+
+                                                    return (
+                                                        <div
+                                                            key={idx}
+                                                            onClick={() => setSelectedSlotIndex(idx)}
+                                                            onMouseEnter={(e) => {
+                                                                if (item && !contextMenu) {
+                                                                    const rect = e.currentTarget.getBoundingClientRect();
+                                                                    const root = document.getElementById('inventory-view-root');
+                                                                    const rootRect = root?.getBoundingClientRect() || { left: 0, top: 0 };
+                                                                    const scrollOffset = root?.scrollTop || 0;
+
+                                                                    setHoverInfo({
+                                                                        x: rect.right - rootRect.left + 8,
+                                                                        y: rect.top - rootRect.top + scrollOffset,
+                                                                        item
+                                                                    });
+                                                                }
+                                                            }}
+                                                            onMouseLeave={() => setHoverInfo(null)}
+                                                            onContextMenu={(e) => {
+                                                                e.preventDefault();
+                                                                setHoverInfo(null);
                                                                 const rect = e.currentTarget.getBoundingClientRect();
                                                                 const root = document.getElementById('inventory-view-root');
                                                                 const rootRect = root?.getBoundingClientRect() || { left: 0, top: 0 };
+
                                                                 const scrollOffset = root?.scrollTop || 0;
 
-                                                                setHoverInfo({
-                                                                    x: rect.right - rootRect.left + 8,
+                                                                setContextMenu({
+                                                                    x: rect.right - rootRect.left + 1,
                                                                     y: rect.top - rootRect.top + scrollOffset,
-                                                                    item
+                                                                    slotIndex: idx
                                                                 });
-                                                            }
-                                                        }}
-                                                        onMouseLeave={() => setHoverInfo(null)}
-                                                        onContextMenu={(e) => {
-                                                            e.preventDefault();
-                                                            setHoverInfo(null);
-                                                            const rect = e.currentTarget.getBoundingClientRect();
-                                                            const root = document.getElementById('inventory-view-root');
-                                                            const rootRect = root?.getBoundingClientRect() || { left: 0, top: 0 };
-
-                                                            const scrollOffset = root?.scrollTop || 0;
-
-                                                            setContextMenu({
-                                                                x: rect.right - rootRect.left + 1,
-                                                                y: rect.top - rootRect.top + scrollOffset,
-                                                                slotIndex: idx
-                                                            });
-                                                            setSelectedSlotIndex(idx);
-                                                        }}
-                                                        className={`aspect-square border flex items-center justify-center relative group cursor-pointer transition-all 
+                                                                setSelectedSlotIndex(idx);
+                                                            }}
+                                                            className={`aspect-square border flex items-center justify-center relative group cursor-pointer transition-all 
                                                             ${selectedSlotIndex === idx ? "border-[#c2410c] shadow-[inset_0_0_8px_rgba(194,65,12,0.1)]" : rarityClasses[itemRarity as keyof typeof rarityClasses]}
                                                             ${animatingSlot?.index === idx && animatingSlot.type === 'destroy' ? 'animate-item-destroy z-50 pointer-events-none' : ''}
                                                             ${animatingSlot?.index === idx && animatingSlot.type === 'throw' ? 'animate-item-throw z-50 pointer-events-none' : ''}
                                                         `}
-                                                    >
-                                                        <div className="absolute top-0 left-0 w-0.5 h-0.5 bg-white/10" />
-                                                        <div className="absolute bottom-0 right-0 w-0.5 h-0.5 bg-white/10" />
+                                                        >
+                                                            <div className="absolute top-0 left-0 w-0.5 h-0.5 bg-white/10" />
+                                                            <div className="absolute bottom-0 right-0 w-0.5 h-0.5 bg-white/10" />
 
-                                                        {selectedSlotIndex === idx && (
-                                                            <div className="absolute inset-x-0 bottom-0 h-0.5 bg-[#c2410c] z-20" />
-                                                        )}
+                                                            {selectedSlotIndex === idx && (
+                                                                <div className="absolute inset-x-0 bottom-0 h-0.5 bg-[#c2410c] z-20" />
+                                                            )}
 
-                                                        {/* Rarity Bar (Subtle) */}
-                                                        {itemRarity !== "none" && (
-                                                            <div className={`absolute inset-x-0 bottom-0 h-px opacity-40 z-10 
+                                                            {/* Rarity Bar (Subtle) */}
+                                                            {itemRarity !== "none" && (
+                                                                <div className={`absolute inset-x-0 bottom-0 h-px opacity-40 z-10 
                                                                 ${itemRarity === 'salvaged' ? 'bg-gray-300' :
-                                                                    itemRarity === 'reinforced' ? 'bg-[#444444]' :
-                                                                        itemRarity === 'pre-ash' ? 'bg-[#1e40af]' :
-                                                                            itemRarity === 'specialized' ? 'bg-[#4c1d95]' :
-                                                                                itemRarity === 'relic' ? 'bg-amber-700' :
-                                                                                    'bg-red-900'}`}
-                                                            />
-                                                        )}
+                                                                        itemRarity === 'reinforced' ? 'bg-[#444444]' :
+                                                                            itemRarity === 'pre-ash' ? 'bg-[#1e40af]' :
+                                                                                itemRarity === 'specialized' ? 'bg-[#4c1d95]' :
+                                                                                    itemRarity === 'relic' ? 'bg-amber-700' :
+                                                                                        'bg-red-900'}`}
+                                                                />
+                                                            )}
 
-                                                        {/* Ashmarked permanent ripple effect */}
-                                                        {itemRarity === "ashmarked" && (
-                                                            <div className="absolute inset-0 rounded-sm pointer-events-none ashmarked-permanent-ripple opacity-20" />
-                                                        )}
+                                                            {/* Ashmarked permanent ripple effect */}
+                                                            {itemRarity === "ashmarked" && (
+                                                                <div className="absolute inset-0 rounded-sm pointer-events-none ashmarked-permanent-ripple opacity-20" />
+                                                            )}
 
-                                                        <div className={`text-[8px] font-black transition-colors uppercase relative z-10 ${selectedSlotIndex === idx ? "text-[#c2410c]" : item ? "text-gray-300" : "text-gray-900 group-hover:text-gray-700"}`}>
-                                                            {item ? item.name.substring(0, 3) : (idx < 9 ? `0${idx + 1}` : idx + 1)}
+                                                            <div className={`text-[8px] font-black transition-colors uppercase relative z-10 ${selectedSlotIndex === idx ? "text-[#c2410c]" : item ? "text-gray-300" : "text-gray-900 group-hover:text-gray-700"}`}>
+                                                                {item ? item.name.substring(0, 3) : (idx < 9 ? `0${idx + 1}` : idx + 1)}
+                                                            </div>
+
+                                                            {item && (
+                                                                <div className="absolute top-0 right-0 p-0.5 flex flex-col items-end gap-0.5 pointer-events-none">
+                                                                    <div className="text-[6px] text-gray-600 font-mono">{(item.cost || 0)}</div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Fragmentation particles for Destroy effect (Explosion) */}
+                                                            {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
+                                                                <div className="absolute inset-0 z-50 pointer-events-none flex items-center justify-center">
+                                                                    <div className="absolute inset-0 bg-white/20 animate-ping duration-300" />
+                                                                    <div className="w-full h-full border-4 border-[#c2410c]/40 animate-ping delay-100" />
+                                                                    {/* Cracking overlays */}
+                                                                    <div className="absolute inset-0 opacity-40 mix-blend-overlay bg-[url('https://www.transparenttextures.com/patterns/pinstriped-suit.png')] animate-pulse" />
+                                                                </div>
+                                                            )}
+
+                                                            {/* Dust Sweep overlay for Throw effect */}
+                                                            {animatingSlot?.index === idx && animatingSlot.type === 'throw' && (
+                                                                <div
+                                                                    className="absolute inset-0 z-50 pointer-events-none animate-dust-lash overflow-hidden"
+                                                                    style={{
+                                                                        background: 'linear-gradient(90deg, transparent, rgba(194, 65, 12, 0.6), rgba(75, 85, 99, 0.8), transparent)',
+                                                                        width: '300%',
+                                                                        filter: 'blur(10px)'
+                                                                    }}
+                                                                />
+                                                            )}
+
+                                                            {/* Glass Shatter effect overlay */}
+                                                            {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
+                                                                <div className="absolute inset-0 z-50 pointer-events-none opacity-60">
+                                                                    <svg viewBox="0 0 100 100" className="w-full h-full stroke-[#c2410c] stroke-[0.5] fill-none">
+                                                                        <path d="M0,0 L50,55 L100,20 M50,55 L30,100 M50,55 L100,80 M20,0 L50,55 M0,70 L50,55 M50,55 L80,0" />
+                                                                        <circle cx="50" cy="55" r="1.5" className="fill-[#c2410c]" />
+                                                                    </svg>
+                                                                </div>
+                                                            )}
                                                         </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%)] bg-[size:100%_2px] z-20 opacity-10" />
+                                        </div>
+                                    </div>
 
-                                                        {item && (
-                                                            <div className="absolute top-0 right-0 p-0.5 flex flex-col items-end gap-0.5 pointer-events-none">
-                                                                <div className="text-[6px] text-gray-600 font-mono">{(item.cost || 0)}</div>
-                                                            </div>
-                                                        )}
+                                    {/* Context Menu - Positioned Absolutely relative to the tab container */}
+                                    {contextMenu && (
+                                        <div
+                                            className="absolute z-[1000] w-36 bg-[#0d0d0d] border border-[#c2410c]/30 shadow-2xl py-0.5 animate-in fade-in zoom-in-95 duration-75 origin-top-left"
+                                            style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <div className="px-3 py-1 border-b border-white/5 mb-0.5 bg-white/[0.02]">
+                                                <span className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em]">SLOT {contextMenu.slotIndex! + 1}</span>
+                                            </div>
+                                            <button className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-[#c2410c] hover:text-white transition-all uppercase tracking-widest flex items-center justify-between">
+                                                USE <span>»</span>
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    if (contextMenu.slotIndex !== null) {
+                                                        setAnimatingSlot({ index: contextMenu.slotIndex, type: 'throw' });
+                                                        setTimeout(() => {
+                                                            removeSlotItem(contextMenu.slotIndex!);
+                                                            setAnimatingSlot(null);
+                                                        }, 600);
+                                                        setContextMenu(null);
+                                                    }
+                                                }}
+                                                className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-white/5 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
+                                            >
+                                                THROW <span>»</span>
+                                            </button>
+                                            <div className="h-px bg-white/5 my-0.5" />
+                                            <button
+                                                onClick={() => {
+                                                    if (contextMenu.slotIndex !== null) {
+                                                        setAnimatingSlot({ index: contextMenu.slotIndex, type: 'destroy' });
+                                                        setTimeout(() => {
+                                                            removeSlotItem(contextMenu.slotIndex!);
+                                                            setAnimatingSlot(null);
+                                                        }, 500);
+                                                        setContextMenu(null);
+                                                    }
+                                                }}
+                                                className="w-full text-left px-3 py-1.5 text-[9px] text-red-600 font-black hover:bg-red-600/20 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
+                                            >
+                                                DESTROY <span>»</span>
+                                            </button>
+                                        </div>
+                                    )}
 
-                                                        {/* Fragmentation particles for Destroy effect (Explosion) */}
-                                                        {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
-                                                            <div className="absolute inset-0 z-50 pointer-events-none flex items-center justify-center">
-                                                                <div className="absolute inset-0 bg-white/20 animate-ping duration-300" />
-                                                                <div className="w-full h-full border-4 border-[#c2410c]/40 animate-ping delay-100" />
-                                                                {/* Cracking overlays */}
-                                                                <div className="absolute inset-0 opacity-40 mix-blend-overlay bg-[url('https://www.transparenttextures.com/patterns/pinstriped-suit.png')] animate-pulse" />
-                                                            </div>
-                                                        )}
-
-                                                        {/* Dust Sweep overlay for Throw effect */}
-                                                        {animatingSlot?.index === idx && animatingSlot.type === 'throw' && (
-                                                            <div
-                                                                className="absolute inset-0 z-50 pointer-events-none animate-dust-lash overflow-hidden"
-                                                                style={{
-                                                                    background: 'linear-gradient(90deg, transparent, rgba(194, 65, 12, 0.6), rgba(75, 85, 99, 0.8), transparent)',
-                                                                    width: '300%',
-                                                                    filter: 'blur(10px)'
-                                                                }}
-                                                            />
-                                                        )}
-
-                                                        {/* Glass Shatter effect overlay */}
-                                                        {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
-                                                            <div className="absolute inset-0 z-50 pointer-events-none opacity-60">
-                                                                <svg viewBox="0 0 100 100" className="w-full h-full stroke-[#c2410c] stroke-[0.5] fill-none">
-                                                                    <path d="M0,0 L50,55 L100,20 M50,55 L30,100 M50,55 L100,80 M20,0 L50,55 M0,70 L50,55 M50,55 L80,0" />
-                                                                    <circle cx="50" cy="55" r="1.5" className="fill-[#c2410c]" />
-                                                                </svg>
-                                                            </div>
-                                                        )}
+                                    {/* Hover Info Panel - Purely Informational */}
+                                    {hoverInfo && !contextMenu && (
+                                        <div
+                                            className="absolute z-[999] w-44 bg-[#0d0d0d] border border-white/10 shadow-2xl p-3 animate-in fade-in slide-in-from-left-1 duration-200 pointer-events-none"
+                                            style={{ top: `${hoverInfo.y}px`, left: `${hoverInfo.x}px` }}
+                                        >
+                                            <div className="flex flex-col gap-2">
+                                                <div className="border-b border-white/5 pb-2">
+                                                    <div className="text-[10px] font-black text-white uppercase tracking-wider leading-tight">
+                                                        {hoverInfo.item.name}
                                                     </div>
-                                                );
-                                            })}
+                                                    <div className="flex items-center gap-1.5 mt-1">
+                                                        <div className={`w-1 h-1 rounded-full ${hoverInfo.item.rarity === 'ashmarked' ? 'bg-red-600 shadow-[0_0_5px_rgba(220,38,38,0.5)]' :
+                                                            hoverInfo.item.rarity === 'relic' ? 'bg-amber-500' :
+                                                                hoverInfo.item.rarity === 'specialized' ? 'bg-purple-600' :
+                                                                    'bg-gray-500'
+                                                            }`} />
+                                                        <span className="text-[7px] font-bold text-gray-500 uppercase tracking-widest">
+                                                            {hoverInfo.item.rarity}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-y-1.5">
+                                                    <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Type:</div>
+                                                    <div className="text-[7px] text-gray-400 font-bold uppercase tracking-widest text-right">
+                                                        {hoverInfo.item.category}
+                                                    </div>
+
+                                                    <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Value:</div>
+                                                    <div className="text-[7px] text-[#c2410c] font-black uppercase tracking-widest text-right">
+                                                        {hoverInfo.item.cost}C
+                                                    </div>
+                                                </div>
+
+                                                {hoverInfo.item.description && (
+                                                    <div className="mt-1 pt-2 border-t border-white/5">
+                                                        <p className="text-[8px] text-gray-500 leading-relaxed italic">
+                                                            {hoverInfo.item.description}
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%)] bg-[size:100%_2px] z-20 opacity-10" />
-                                    </div>
+                                    )}
                                 </div>
-
-                                {/* Context Menu - Positioned Absolutely relative to the tab container */}
-                                {contextMenu && (
-                                    <div
-                                        className="absolute z-[1000] w-36 bg-[#0d0d0d] border border-[#c2410c]/30 shadow-2xl py-0.5 animate-in fade-in zoom-in-95 duration-75 origin-top-left"
-                                        style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <div className="px-3 py-1 border-b border-white/5 mb-0.5 bg-white/[0.02]">
-                                            <span className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em]">SLOT {contextMenu.slotIndex! + 1}</span>
-                                        </div>
-                                        <button className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-[#c2410c] hover:text-white transition-all uppercase tracking-widest flex items-center justify-between">
-                                            USE <span>»</span>
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                if (contextMenu.slotIndex !== null) {
-                                                    setAnimatingSlot({ index: contextMenu.slotIndex, type: 'throw' });
-                                                    setTimeout(() => {
-                                                        removeSlotItem(contextMenu.slotIndex!);
-                                                        setAnimatingSlot(null);
-                                                    }, 600);
-                                                    setContextMenu(null);
-                                                }
-                                            }}
-                                            className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-white/5 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
-                                        >
-                                            THROW <span>»</span>
-                                        </button>
-                                        <div className="h-px bg-white/5 my-0.5" />
-                                        <button
-                                            onClick={() => {
-                                                if (contextMenu.slotIndex !== null) {
-                                                    setAnimatingSlot({ index: contextMenu.slotIndex, type: 'destroy' });
-                                                    setTimeout(() => {
-                                                        removeSlotItem(contextMenu.slotIndex!);
-                                                        setAnimatingSlot(null);
-                                                    }, 500);
-                                                    setContextMenu(null);
-                                                }
-                                            }}
-                                            className="w-full text-left px-3 py-1.5 text-[9px] text-red-600 font-black hover:bg-red-600/20 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
-                                        >
-                                            DESTROY <span>»</span>
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* Hover Info Panel - Purely Informational */}
-                                {hoverInfo && !contextMenu && (
-                                    <div
-                                        className="absolute z-[999] w-44 bg-[#0d0d0d] border border-white/10 shadow-2xl p-3 animate-in fade-in slide-in-from-left-1 duration-200 pointer-events-none"
-                                        style={{ top: `${hoverInfo.y}px`, left: `${hoverInfo.x}px` }}
-                                    >
-                                        <div className="flex flex-col gap-2">
-                                            <div className="border-b border-white/5 pb-2">
-                                                <div className="text-[10px] font-black text-white uppercase tracking-wider leading-tight">
-                                                    {hoverInfo.item.name}
-                                                </div>
-                                                <div className="flex items-center gap-1.5 mt-1">
-                                                    <div className={`w-1 h-1 rounded-full ${hoverInfo.item.rarity === 'ashmarked' ? 'bg-red-600 shadow-[0_0_5px_rgba(220,38,38,0.5)]' :
-                                                        hoverInfo.item.rarity === 'relic' ? 'bg-amber-500' :
-                                                            hoverInfo.item.rarity === 'specialized' ? 'bg-purple-600' :
-                                                                'bg-gray-500'
-                                                        }`} />
-                                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-widest">
-                                                        {hoverInfo.item.rarity}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-y-1.5">
-                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Type:</div>
-                                                <div className="text-[7px] text-gray-400 font-bold uppercase tracking-widest text-right">
-                                                    {hoverInfo.item.category}
-                                                </div>
-
-                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Value:</div>
-                                                <div className="text-[7px] text-[#c2410c] font-black uppercase tracking-widest text-right">
-                                                    {hoverInfo.item.cost}C
-                                                </div>
-                                            </div>
-
-                                            {hoverInfo.item.description && (
-                                                <div className="mt-1 pt-2 border-t border-white/5">
-                                                    <p className="text-[8px] text-gray-500 leading-relaxed italic">
-                                                        {hoverInfo.item.description}
-                                                    </p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
                             </div>
-                        )}
+                        }
 
                         {/* ═══ SAVE TAB ═══ */}
-                        {activeTab === "SAVE" && (
+                        {activeTab === "SAVE" &&
                             <div className="space-y-6 max-w-2xl">
                                 <h2 className="text-lg font-black tracking-widest text-indigo-400 uppercase">Review & Save</h2>
 
@@ -1053,25 +1099,30 @@ export function CharacterBuilderPage() {
                                     </div>
                                     <p className="text-xs text-gray-500">Age {age} | {gender} | HP: {10 + stats.endurance * 5}</p>
 
-                                    {/* Stats Grid */}
-                                    <div className="grid grid-cols-3 gap-2 mt-2">
-                                        {(Object.entries(stats) as [string, number][]).map(([k, v]) => (
-                                            <div key={k} className="flex justify-between bg-white/5 p-2 rounded text-xs">
-                                                <span className="text-gray-500 uppercase">{k}</span>
-                                                <span className="text-indigo-400 font-mono font-bold">{v}</span>
+                                    {/* Simple Status visualization */}
+                                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
+                                        {Object.entries(stats).map(([s, v]) => (
+                                            <div key={s} className="flex justify-between items-center">
+                                                <span className="text-[10px] text-gray-400 uppercase tracking-widest font-black">{s}</span>
+                                                <span className="text-sm text-indigo-400 font-bold">{v}</span>
                                             </div>
                                         ))}
                                     </div>
+                                </div>
 
-                                    {/* Traits */}
-                                    {selectedTraits.length > 0 && (
-                                        <div className="flex flex-wrap gap-1 mt-2">
+                                {/* Traits Recap */}
+                                {selectedTraits.length > 0 && (
+                                    <div className="bg-black/20 p-4 border border-white/5 rounded-xl">
+                                        <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Imprinted Traits</h3>
+                                        <div className="flex flex-wrap gap-2">
                                             {selectedTraits.map(t => (
-                                                <span key={t.id} className={`text-[9px] px-1.5 py-0.5 rounded border ${t.type === "positive" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : t.type === "negative" ? "bg-red-500/10 text-red-400 border-red-500/20" : "bg-gray-500/10 text-gray-400 border-gray-500/20"}`}>{t.name}</span>
+                                                <span key={t.id} className="px-2 py-1 bg-white/5 rounded text-[10px] text-gray-300 font-bold uppercase tracking-widest border border-white/10">
+                                                    {t.icon} {t.name}
+                                                </span>
                                             ))}
                                         </div>
-                                    )}
-                                </div>
+                                    </div>
+                                )}
 
                                 <div className="space-y-2">
                                     <p className="text-[10px] text-gray-500 font-mono">
@@ -1086,7 +1137,7 @@ export function CharacterBuilderPage() {
                                     </button>
                                 </div>
                             </div>
-                        )}
+                        }
                     </div>
                 </div>
             </div>

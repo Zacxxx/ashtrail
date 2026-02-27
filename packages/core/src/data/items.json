@@ -1,32 +1,9 @@
-[
-    {
-        "id": "item-rusted-pipe",
-        "name": "Rusted Pipe",
-        "category": "weapon",
-        "description": "A heavy piece of jagged metal. Better than bare hands.",
-        "cost": 10,
-        "effects": [
-            {
-                "type": "COMBAT_BONUS",
-                "target": "strength",
-                "value": 5,
-                "trigger": "passive"
-            }
-        ]
-    },
-    {
-        "id": "item-med-stims",
-        "name": "Military Stims",
-        "category": "consumable",
-        "description": "An emergency cocktail of adrenaline and coagulants.",
-        "cost": 50,
-        "effects": [
-            {
-                "type": "STAT_MODIFIER",
-                "target": "hp",
-                "value": 40,
-                "trigger": "on_turn_start"
-            }
-        ]
-    }
-]
+{
+  "category": "weapon",
+  "cost": 590,
+  "description": "An hyper advanced blaster from the old-world",
+  "icon": "📦",
+  "id": "item-1772207163707",
+  "name": "Ultralaser cannon",
+  "rarity": "relic"
+}
