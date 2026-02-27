@@ -56,12 +56,15 @@ export interface Occupation {
   perks: string[];
 }
 
-export type ItemCategory = "weapon" | "tool" | "armor" | "consumable" | "relic";
+export type ItemCategory = "weapon" | "tool" | "armor" | "consumable" | "relic" | "resource" | "junk";
+
+export type ItemRarity = "salvaged" | "reinforced" | "pre-ash" | "specialized" | "relic" | "ashmarked";
 
 export interface Item {
   id: string;
   name: string;
   category: ItemCategory;
+  rarity: ItemRarity;
   description: string;
   cost: number;
   effects?: GameplayEffect[];

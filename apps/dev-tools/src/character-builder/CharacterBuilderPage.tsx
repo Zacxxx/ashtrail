@@ -1,11 +1,27 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory } from "@ashtrail/core";
 import { TabBar } from "@ashtrail/ui";
 
 type BuilderTab = "IDENTITY" | "TRAITS" | "STATS" | "OCCUPATION" | "INVENTORY" | "SAVE";
 
 const DEFAULT_STATS: Stats = { strength: 3, agility: 3, intelligence: 3, wisdom: 3, endurance: 3, charisma: 3 };
+
+const RARITY_ORDER: Record<ItemRarity, number> = {
+    ashmarked: 5,
+    relic: 4,
+    specialized: 3,
+    "pre-ash": 2,
+    reinforced: 1,
+    salvaged: 0
+};
+
+const ITEMS_BY_CATEGORY: Record<string, string[]> = {
+    weapon: ["Stun Baton", "Vibration Blade", "Pulse Rifle", "Rusty Pipe", "Spiked Bat", "Serrated Knife"],
+    consumable: ["Med Kit", "Bandage", "Stimulant", "Filtered Water", "Nutrient Bar", "Antigen"],
+    resource: ["Scrap Metal", "Raw Ash", "Wires", "Circuit Board", "Fuel Cell", "Lead Solder"],
+    junk: ["Old World Can", "Broken Watch", "Glow Stick", "Plastic Waste", "Tattered Cloth", "Rusted Bolt"]
+};
 
 export function CharacterBuilderPage() {
     const [isLoading, setIsLoading] = useState(true);
@@ -38,12 +54,61 @@ export function CharacterBuilderPage() {
     const [editingId, setEditingId] = useState<string | null>(null);
 
     // Inventory State
+    const [inventory, setInventory] = useState<Item[]>([]);
     const [inventorySearch, setInventorySearch] = useState("");
     const [inventoryFilter, setInventoryFilter] = useState("ALL");
     const [activeBagIndex, setActiveBagIndex] = useState(0);
     const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, slotIndex: number | null } | null>(null);
     const [animatingSlot, setAnimatingSlot] = useState<{ index: number, type: 'destroy' | 'throw' } | null>(null);
+
+    const sortByRarity = () => {
+        setInventory(prev => [...prev].sort((a, b) => RARITY_ORDER[b.rarity] - RARITY_ORDER[a.rarity]));
+    };
+
+    const sortByValue = () => {
+        setInventory(prev => [...prev].sort((a, b) => b.cost - a.cost));
+    };
+
+    const removeSlotItem = (index: number) => {
+        const itemToRemove = filteredInventory[index];
+        if (itemToRemove) {
+            setInventory(prev => prev.filter(item => item.id !== itemToRemove.id));
+        }
+    };
+
+    const filteredInventory = useMemo(() => {
+        return inventory.filter(item => {
+            const matchesSearch = item.name.toLowerCase().includes(inventorySearch.toLowerCase());
+            const matchesFilter = inventoryFilter === "ALL" || item.category === inventoryFilter.toLowerCase();
+            return matchesSearch && matchesFilter;
+        });
+    }, [inventory, inventorySearch, inventoryFilter]);
+
+    // Initial Mock Inventory
+    useEffect(() => {
+        const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
+
+        // Strictly generate items based on the defined categories to avoid cross-contamination
+        const mockInventory: Item[] = [];
+        const categories = Object.keys(ITEMS_BY_CATEGORY) as (keyof typeof ITEMS_BY_CATEGORY)[];
+
+        categories.forEach((cat, catIdx) => {
+            const names = ITEMS_BY_CATEGORY[cat];
+            names.forEach((name, nameIdx) => {
+                mockInventory.push({
+                    id: `item-${cat}-${nameIdx}-${Date.now()}`,
+                    name,
+                    category: cat as ItemCategory,
+                    rarity: rarities[Math.floor(Math.random() * rarities.length)],
+                    cost: Math.floor(Math.random() * 500) + 50,
+                    description: `A standard ${cat} used in the Ash wastes.`
+                });
+            });
+        });
+
+        setInventory(mockInventory);
+    }, []);
 
     // Currency Values
     const [gold] = useState(10);
@@ -109,10 +174,11 @@ export function CharacterBuilderPage() {
         setSelectedTraits(char.traits || []);
         setStats(char.stats);
         setSelectedOccupation(char.occupation || null);
+        setInventory(char.inventory || []);
         // Recalculate points (approximate)
         const usedTraitPoints = (char.traits || []).reduce((sum, t) => sum + t.cost, 0);
         setTraitPoints(15 - usedTraitPoints);
-        const usedStatPoints = Object.values(char.stats).reduce((sum, v) => sum + v, 0) - 18;
+        const usedStatPoints = Object.values(char.stats).reduce((sum, v) => (sum as number) + (v as number), 0) - 18;
         setStatsPoints(18 - usedStatPoints);
         setActiveTab("IDENTITY");
     };
@@ -132,6 +198,23 @@ export function CharacterBuilderPage() {
         setStatsPoints(18);
         setSelectedOccupation(null);
         setActiveTab("IDENTITY");
+        // Also reset inventory to fresh mock data
+        const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
+        const mockInventory: Item[] = [];
+        const categories = Object.keys(ITEMS_BY_CATEGORY) as (keyof typeof ITEMS_BY_CATEGORY)[];
+        categories.forEach((cat) => {
+            ITEMS_BY_CATEGORY[cat].forEach((name, i) => {
+                mockInventory.push({
+                    id: `item-reset-${cat}-${i}-${Date.now()}`,
+                    name,
+                    category: cat as ItemCategory,
+                    rarity: rarities[Math.floor(Math.random() * rarities.length)],
+                    cost: Math.floor(Math.random() * 500) + 50,
+                    description: `Freshly issued ${cat}.`
+                });
+            });
+        });
+        setInventory(mockInventory);
     };
 
     const handleSave = async () => {
@@ -151,7 +234,7 @@ export function CharacterBuilderPage() {
             maxHp: 10 + finalStats.endurance * 5,
             xp: 0,
             level: 1,
-            inventory: []
+            inventory: inventory
         };
 
         try {
@@ -249,8 +332,8 @@ export function CharacterBuilderPage() {
 
                     /* Rarity Styles (Border focused) */
                     .rarity-salvaged { border-color: #d1d5db; --rarity-color: #f3f4f6; }
-                    .rarity-reinforced { border-color: #475569; --rarity-color: #94a3b8; }
-                    .rarity-pre-ash { border-color: #e2fcfb; --rarity-color: #e2fcfb; }
+                    .rarity-reinforced { border-color: #444444; --rarity-color: #222222; }
+                    .rarity-pre-ash { border-color: #2563eb; --rarity-color: #1e3a8a; }
                     .rarity-specialized { border-color: #341539; --rarity-color: #4c1d95; }
                     .rarity-relic { border-color: #92400e; --rarity-color: #f59e0b; }
                     
@@ -263,6 +346,15 @@ export function CharacterBuilderPage() {
                         border-color: #450a0a; 
                         animation: ashRipple 3s ease-in-out infinite;
                         --rarity-color: #ef4444;
+                    }
+                    @keyframes permanentRipple {
+                        0% { transform: scale(0.95); opacity: 0.1; }
+                        50% { transform: scale(1.05); opacity: 0.3; }
+                        100% { transform: scale(0.95); opacity: 0.1; }
+                    }
+                    .ashmarked-permanent-ripple {
+                        background: radial-gradient(circle, #991b1b 0%, transparent 70%);
+                        animation: permanentRipple 4s ease-in-out infinite;
                     }
                 `}</style>
 
@@ -553,7 +645,7 @@ export function CharacterBuilderPage() {
                                                     <button
                                                         key={f}
                                                         onClick={() => setInventoryFilter(f)}
-                                                        className={`px-2.5 py-1 text-[8px] font-black uppercase tracking-widest transition-all ${inventoryFilter === f ? "bg-[#c2410c] text-white" : "text-gray-600 hover:text-gray-300"}`}
+                                                        className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${inventoryFilter === f ? "bg-[#c2410c] text-white" : "text-gray-600 hover:text-gray-300 hover:bg-white/5"}`}
                                                     >
                                                         {f}
                                                     </button>
@@ -563,10 +655,16 @@ export function CharacterBuilderPage() {
 
                                         <div className="flex items-center gap-2 scale-95 origin-left">
                                             <div className="text-[8px] text-gray-700 uppercase tracking-widest mr-1">SORT:</div>
-                                            <button className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest">
+                                            <button
+                                                onClick={sortByValue}
+                                                className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest"
+                                            >
                                                 VALUE
                                             </button>
-                                            <button className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest">
+                                            <button
+                                                onClick={sortByRarity}
+                                                className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest"
+                                            >
                                                 RARITY
                                             </button>
                                         </div>
@@ -592,12 +690,8 @@ export function CharacterBuilderPage() {
                                             className="grid grid-cols-10 gap-2 relative z-10 animate-ash-settling"
                                         >
                                             {Array.from({ length: 40 }).map((_, idx) => {
-                                                // Mock Rarity for Testing
-                                                const rarities: ("salvaged" | "reinforced" | "pre-ash" | "specialized" | "relic" | "ashmarked" | "none")[] = [
-                                                    "salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked",
-                                                    "none", "none", "none", "none"
-                                                ];
-                                                const itemRarity = idx < rarities.length ? rarities[idx] : "none";
+                                                const item = filteredInventory[idx];
+                                                const itemRarity = item?.rarity || "none";
 
                                                 const rarityClasses = {
                                                     salvaged: "rarity-salvaged bg-black/60",
@@ -629,10 +723,11 @@ export function CharacterBuilderPage() {
                                                             setSelectedSlotIndex(idx);
                                                         }}
                                                         className={`aspect-square border flex items-center justify-center relative group cursor-pointer transition-all 
-                                                            ${selectedSlotIndex === idx ? "border-[#c2410c] shadow-[inset_0_0_8px_rgba(194,65,12,0.1)]" : rarityClasses[itemRarity]}
+                                                            ${selectedSlotIndex === idx ? "border-[#c2410c] shadow-[inset_0_0_8px_rgba(194,65,12,0.1)]" : rarityClasses[itemRarity as keyof typeof rarityClasses]}
                                                             ${animatingSlot?.index === idx && animatingSlot.type === 'destroy' ? 'animate-item-destroy z-50 pointer-events-none' : ''}
                                                             ${animatingSlot?.index === idx && animatingSlot.type === 'throw' ? 'animate-item-throw z-50 pointer-events-none' : ''}
                                                         `}
+                                                        title={item ? `${item.name} (${item.rarity}) - ${item.cost}C` : `Slot ${idx + 1}`}
                                                     >
                                                         <div className="absolute top-0 left-0 w-0.5 h-0.5 bg-white/10" />
                                                         <div className="absolute bottom-0 right-0 w-0.5 h-0.5 bg-white/10" />
@@ -645,9 +740,9 @@ export function CharacterBuilderPage() {
                                                         {itemRarity !== "none" && (
                                                             <div className={`absolute inset-x-0 bottom-0 h-px opacity-40 z-10 
                                                                 ${itemRarity === 'salvaged' ? 'bg-gray-300' :
-                                                                    itemRarity === 'reinforced' ? 'bg-slate-500' :
-                                                                        itemRarity === 'pre-ash' ? 'bg-[#e2fcfb]' : // Synchronized color
-                                                                            itemRarity === 'specialized' ? 'bg-[#341539]' : // Synchronized color
+                                                                    itemRarity === 'reinforced' ? 'bg-[#444444]' :
+                                                                        itemRarity === 'pre-ash' ? 'bg-[#1e40af]' :
+                                                                            itemRarity === 'specialized' ? 'bg-[#4c1d95]' :
                                                                                 itemRarity === 'relic' ? 'bg-amber-700' :
                                                                                     'bg-red-900'}`}
                                                             />
@@ -658,9 +753,15 @@ export function CharacterBuilderPage() {
                                                             <div className="absolute inset-0 rounded-sm pointer-events-none ashmarked-permanent-ripple opacity-20" />
                                                         )}
 
-                                                        <div className={`text-[8px] font-black transition-colors uppercase relative z-10 ${selectedSlotIndex === idx ? "text-[#c2410c]" : "text-gray-900 group-hover:text-gray-700"}`}>
-                                                            {idx < 9 ? `0${idx + 1}` : idx + 1}
+                                                        <div className={`text-[8px] font-black transition-colors uppercase relative z-10 ${selectedSlotIndex === idx ? "text-[#c2410c]" : item ? "text-gray-300" : "text-gray-900 group-hover:text-gray-700"}`}>
+                                                            {item ? item.name.substring(0, 3) : (idx < 9 ? `0${idx + 1}` : idx + 1)}
                                                         </div>
+
+                                                        {item && (
+                                                            <div className="absolute top-0 right-0 p-0.5 flex flex-col items-end gap-0.5 pointer-events-none">
+                                                                <div className="text-[6px] text-gray-600 font-mono">{(item.cost || 0)}</div>
+                                                            </div>
+                                                        )}
 
                                                         {/* Fragmentation particles for Destroy effect (Explosion) */}
                                                         {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
@@ -718,7 +819,10 @@ export function CharacterBuilderPage() {
                                             onClick={() => {
                                                 if (contextMenu.slotIndex !== null) {
                                                     setAnimatingSlot({ index: contextMenu.slotIndex, type: 'throw' });
-                                                    setTimeout(() => setAnimatingSlot(null), 800);
+                                                    setTimeout(() => {
+                                                        removeSlotItem(contextMenu.slotIndex!);
+                                                        setAnimatingSlot(null);
+                                                    }, 600);
                                                     setContextMenu(null);
                                                 }
                                             }}
@@ -731,7 +835,10 @@ export function CharacterBuilderPage() {
                                             onClick={() => {
                                                 if (contextMenu.slotIndex !== null) {
                                                     setAnimatingSlot({ index: contextMenu.slotIndex, type: 'destroy' });
-                                                    setTimeout(() => setAnimatingSlot(null), 600);
+                                                    setTimeout(() => {
+                                                        removeSlotItem(contextMenu.slotIndex!);
+                                                        setAnimatingSlot(null);
+                                                    }, 500);
                                                     setContextMenu(null);
                                                 }
                                             }}
