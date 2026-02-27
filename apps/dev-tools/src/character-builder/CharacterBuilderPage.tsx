@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory } from "@ashtrail/core";
 import { TabBar } from "@ashtrail/ui";
 
-type BuilderTab = "IDENTITY" | "TRAITS" | "STATS" | "OCCUPATION" | "INVENTORY" | "SAVE";
+type BuilderTab = "IDENTITY" | "TRAITS" | "STATS" | "OCCUPATION" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
 
 const DEFAULT_STATS: Stats = { strength: 3, agility: 3, intelligence: 3, wisdom: 3, endurance: 3, charisma: 3 };
 
@@ -399,7 +399,7 @@ export function CharacterBuilderPage() {
                     {/* Tab Navigation */}
                     <div className="shrink-0 flex items-center justify-center p-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md">
                         <TabBar
-                            tabs={["IDENTITY", "TRAITS", "STATS", "OCCUPATION", "INVENTORY", "SAVE"]}
+                            tabs={["IDENTITY", "TRAITS", "STATS", "OCCUPATION", "CHARACTER_SHEET", "INVENTORY", "SAVE"]}
                             activeTab={activeTab}
                             onTabChange={(t) => setActiveTab(t as BuilderTab)}
                         />
@@ -562,6 +562,124 @@ export function CharacterBuilderPage() {
                                             </div>
                                         </button>
                                     ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ═══ CHARACTER SHEET TAB ═══ */}
+                        {activeTab === "CHARACTER_SHEET" && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-ash-settling">
+                                {/* Column 1: Profile & Stats */}
+                                <div className="space-y-6">
+                                    <div className="bg-black/40 p-5 border border-white/5 rounded-xl shadow-xl flex gap-6 items-start">
+                                        <div className="w-24 h-24 bg-black/60 border border-white/10 flex items-center justify-center text-3xl opacity-50 relative overflow-hidden group">
+                                            👤
+                                            <div className="absolute inset-0 bg-indigo-500/5 group-hover:bg-indigo-500/10 transition-colors" />
+                                        </div>
+                                        <div className="space-y-2 flex-1">
+                                            <h3 className="text-xl font-black italic tracking-widest text-white uppercase">{name || "UNNAMED UNIT"}</h3>
+                                            <div className="flex flex-wrap gap-2">
+                                                <div className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/30 rounded text-[9px] font-bold text-indigo-400 uppercase tracking-widest">
+                                                    {age} YEARS
+                                                </div>
+                                                <div className="px-2 py-0.5 bg-gray-500/10 border border-white/10 rounded text-[9px] font-bold text-gray-400 uppercase tracking-widest">
+                                                    {gender}
+                                                </div>
+                                                {selectedOccupation && (
+                                                    <div className="px-2 py-0.5 bg-[#c2410c]/10 border border-[#c2410c]/30 rounded text-[9px] font-bold text-[#c2410c] uppercase tracking-widest">
+                                                        {selectedOccupation.name}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-black/40 p-5 border border-white/5 rounded-xl shadow-xl">
+                                        <h4 className="text-[9px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 bg-indigo-500" />
+                                            Neural Attributes
+                                        </h4>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            {(Object.entries(stats) as [keyof Stats, number][]).map(([stat, val]) => (
+                                                <div key={stat} className="space-y-1.5">
+                                                    <div className="flex justify-between text-[8px] uppercase tracking-widest text-gray-500 font-bold px-1">
+                                                        <span>{stat}</span>
+                                                        <span className="text-white">{val}</span>
+                                                    </div>
+                                                    <div className="h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                                                        <div
+                                                            className="h-full bg-indigo-500/60 shadow-[0_0_8px_rgba(99,102,241,0.3)]"
+                                                            style={{ width: `${(val / 10) * 100}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Column 2: Traits & Inventory */}
+                                <div className="space-y-6">
+                                    <div className="bg-black/40 p-5 border border-white/5 rounded-xl shadow-xl">
+                                        <h4 className="text-[9px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 bg-[#c2410c]" />
+                                            Biological Data & Records
+                                        </h4>
+                                        <div className="space-y-4">
+                                            {history ? (
+                                                <p className="text-[10px] text-gray-400 italic leading-relaxed border-l-2 border-[#c2410c]/20 pl-4 py-1">
+                                                    {history}
+                                                </p>
+                                            ) : (
+                                                <div className="text-[9px] text-gray-600 italic py-2">No historical records available for this unit.</div>
+                                            )}
+
+                                            <div className="pt-2">
+                                                <div className="text-[8px] text-gray-500 font-black uppercase tracking-widest mb-2">Neural Signatures</div>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {selectedTraits.length > 0 ? selectedTraits.map(t => (
+                                                        <div
+                                                            key={t.id}
+                                                            className={`px-2 py-0.5 border rounded text-[8px] font-bold uppercase tracking-wider ${t.type === "positive" ? "bg-blue-900/10 border-blue-500/30 text-blue-400" :
+                                                                    t.type === "negative" ? "bg-red-900/10 border-red-500/30 text-red-400" :
+                                                                        "bg-gray-900/10 border-white/10 text-gray-400"
+                                                                }`}
+                                                        >
+                                                            {t.name}
+                                                        </div>
+                                                    )) : (
+                                                        <div className="text-[8px] text-gray-700 italic">No neural traits active.</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-black/40 p-5 border border-white/5 rounded-xl shadow-xl">
+                                        <h4 className="text-[9px] font-black text-gray-500 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 bg-gray-500" />
+                                            Equipment Overview
+                                        </h4>
+                                        <div className="space-y-2">
+                                            <div className="grid grid-cols-4 gap-2">
+                                                {[0, 1, 2, 3, 4, 5].map(bagIdx => {
+                                                    const bagItems = inventory.filter(i => (i.bagIndex || 0) === bagIdx);
+                                                    return (
+                                                        <div key={bagIdx} className="p-2 border border-white/5 bg-black/40 rounded flex flex-col items-center gap-1">
+                                                            <div className="text-[7px] text-gray-600 font-bold">BAG {bagIdx + 1}</div>
+                                                            <div className="text-[10px] text-white font-black">{bagItems.length}</div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/5">
+                                                <span className="text-[8px] text-gray-600 font-black uppercase tracking-widest">Total Valuation</span>
+                                                <span className="text-[10px] text-[#c2410c] font-black uppercase tracking-widest">
+                                                    {inventory.reduce((sum, item) => sum + item.cost, 0).toLocaleString()} Credits
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
