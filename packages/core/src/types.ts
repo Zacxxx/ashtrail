@@ -67,6 +67,8 @@ export interface Item {
   rarity: ItemRarity;
   description: string;
   cost: number;
+  bagIndex?: number;
+  slotIndex?: number;
   effects?: GameplayEffect[];
 }
 

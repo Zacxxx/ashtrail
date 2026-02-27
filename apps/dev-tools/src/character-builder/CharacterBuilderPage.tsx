@@ -82,9 +82,10 @@ export function CharacterBuilderPage() {
         return inventory.filter(item => {
             const matchesSearch = item.name.toLowerCase().includes(inventorySearch.toLowerCase());
             const matchesFilter = inventoryFilter === "ALL" || item.category === inventoryFilter.toLowerCase();
-            return matchesSearch && matchesFilter;
+            const matchesBag = (item.bagIndex || 0) === activeBagIndex;
+            return matchesSearch && matchesFilter && matchesBag;
         });
-    }, [inventory, inventorySearch, inventoryFilter]);
+    }, [inventory, inventorySearch, inventoryFilter, activeBagIndex]);
 
     // Initial Mock Inventory
     useEffect(() => {
@@ -103,7 +104,8 @@ export function CharacterBuilderPage() {
                     category: cat as ItemCategory,
                     rarity: rarities[Math.floor(Math.random() * rarities.length)],
                     cost: Math.floor(Math.random() * 500) + 50,
-                    description: `A standard ${cat} used in the Ash wastes.`
+                    description: `A standard ${cat} used in the Ash wastes.`,
+                    bagIndex: Math.floor(Math.random() * 6) // Distributed across 6 bags
                 });
             });
         });
@@ -211,7 +213,8 @@ export function CharacterBuilderPage() {
                     category: cat as ItemCategory,
                     rarity: rarities[Math.floor(Math.random() * rarities.length)],
                     cost: Math.floor(Math.random() * 500) + 50,
-                    description: `Freshly issued ${cat}.`
+                    description: `Freshly issued ${cat}.`,
+                    bagIndex: Math.floor(Math.random() * 6)
                 });
             });
         });
@@ -878,9 +881,9 @@ export function CharacterBuilderPage() {
                                                 </div>
                                                 <div className="flex items-center gap-1.5 mt-1">
                                                     <div className={`w-1 h-1 rounded-full ${hoverInfo.item.rarity === 'ashmarked' ? 'bg-red-600 shadow-[0_0_5px_rgba(220,38,38,0.5)]' :
-                                                            hoverInfo.item.rarity === 'relic' ? 'bg-amber-500' :
-                                                                hoverInfo.item.rarity === 'specialized' ? 'bg-purple-600' :
-                                                                    'bg-gray-500'
+                                                        hoverInfo.item.rarity === 'relic' ? 'bg-amber-500' :
+                                                            hoverInfo.item.rarity === 'specialized' ? 'bg-purple-600' :
+                                                                'bg-gray-500'
                                                         }`} />
                                                     <span className="text-[7px] font-bold text-gray-500 uppercase tracking-widest">
                                                         {hoverInfo.item.rarity}
