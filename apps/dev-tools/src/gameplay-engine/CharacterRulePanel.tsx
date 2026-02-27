@@ -210,24 +210,25 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                                         id: `item-${Date.now()}`,
                                         name: "New Item",
                                         category: "weapon",
+                                        rarity: "salvaged",
                                         description: "",
                                         cost: 0,
                                     };
                                     setItems(prev => [newItem, ...prev]);
                                     setSelectedItem(newItem);
                                 }}
-                                className="w-full py-2 bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] hover:bg-yellow-500/20 transition-all"
+                                className="w-full py-2 bg-[#c2410c]/10 text-[#c2410c] border border-[#c2410c]/20 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] hover:bg-[#c2410c]/20 transition-all"
                             >
                                 + Create New Item
                             </button>
                             <div className="space-y-6 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
-                                {(['weapon', 'armor', 'consumable', 'tool', 'relic'] as const).map(category => {
+                                {(['weapon', 'armor', 'consumable', 'resource', 'junk'] as const).map(category => {
                                     const categoryItems = items.filter(i => i.category === category);
                                     if (categoryItems.length === 0) return null;
                                     return (
                                         <div key={category} className="space-y-3">
-                                            <h3 className="text-[10px] font-black text-yellow-500/70 uppercase tracking-widest border-b border-yellow-900/30 pb-1 flex items-center gap-2">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/50" />
+                                            <h3 className="text-[10px] font-black text-[#c2410c]/70 uppercase tracking-widest border-b border-[#c2410c]/30 pb-1 flex items-center gap-2">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-[#c2410c]/50" />
                                                 {category} ({categoryItems.length})
                                             </h3>
                                             <div className="grid grid-cols-1 gap-2">
@@ -247,7 +248,7 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                                                                 ) : (
                                                                     <span className="text-sm">{i.icon || "📦"}</span>
                                                                 )}
-                                                                <span className="text-[11px] font-bold uppercase text-yellow-400 line-clamp-1">{i.name}</span>
+                                                                <span className="text-[11px] font-bold uppercase text-[#c2410c] line-clamp-1">{i.name}</span>
                                                             </div>
                                                             <span className="text-[9px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300 font-mono">Cost: {i.cost}</span>
                                                         </div>
@@ -263,6 +264,6 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                     )}
                 </div>
             </div>
-        </div>
+        </div >
     );
 }

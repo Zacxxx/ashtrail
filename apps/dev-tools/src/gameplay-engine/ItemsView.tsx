@@ -4,6 +4,7 @@ import { IconGallerySelector } from "../components/IconGallerySelector";
 
 interface ItemsViewProps {
     item: Item | null;
+    onSave?: () => void;
 }
 
 const CATEGORIES: { value: ItemCategory; label: string; color: string }[] = [
@@ -23,7 +24,7 @@ const RARITIES: { value: ItemRarity; label: string; class: string }[] = [
     { value: "ashmarked", label: "ASHMARKED", class: "rarity-ashmarked" },
 ];
 
-export function ItemsView({ item }: ItemsViewProps) {
+export function ItemsView({ item, onSave }: ItemsViewProps) {
     const [editingItem, setEditingItem] = useState<Item | null>(null);
 
     // Form State
@@ -73,6 +74,7 @@ export function ItemsView({ item }: ItemsViewProps) {
             });
             if (res.ok) {
                 await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                if (onSave) onSave();
             }
         } catch (e) {
             console.error(e);

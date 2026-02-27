@@ -15,14 +15,17 @@ export class GameRegistry {
         if (this.initialized) return;
 
         // Load static JSON
-        const tData = traitsData as Trait[];
-        tData.forEach(t => this.traits.set(t.id, t));
+        const tData = traitsData as any;
+        const traitsArray = Array.isArray(tData) ? tData : (tData && typeof tData === 'object' && tData.id ? [tData] : []);
+        traitsArray.forEach(t => this.traits.set(t.id, t));
 
-        const oData = occupationsData as Occupation[];
-        oData.forEach(o => this.occupations.set(o.id, o));
+        const oData = occupationsData as any;
+        const occupationsArray = Array.isArray(oData) ? oData : (oData && typeof oData === 'object' && oData.id ? [oData] : []);
+        occupationsArray.forEach(o => this.occupations.set(o.id, o));
 
-        const iData = itemsData as Item[];
-        iData.forEach(i => this.items.set(i.id, i));
+        const iData = itemsData as any;
+        const itemsArray = Array.isArray(iData) ? iData : (iData && typeof iData === 'object' && iData.id ? [iData] : []);
+        itemsArray.forEach(i => this.items.set(i.id, i));
 
         import('./mockData').then(({ ALL_SKILLS }) => {
             ALL_SKILLS.forEach(s => this.skills.set(s.id, s));
@@ -36,23 +39,32 @@ export class GameRegistry {
         try {
             const tRes = await fetch(`${backendUrl}/api/data/traits`);
             if (tRes.ok) {
-                const tData: Trait[] = await tRes.json();
-                this.traits.clear();
-                tData.forEach(t => this.traits.set(t.id, t));
+                const tData = await tRes.json();
+                const tArray = Array.isArray(tData) ? tData : (tData && typeof tData === 'object' && tData.id ? [tData] : []);
+                if (tArray.length > 0 || Array.isArray(tData)) {
+                    this.traits.clear();
+                    tArray.forEach(t => this.traits.set(t.id, t));
+                }
             }
 
             const oRes = await fetch(`${backendUrl}/api/data/occupations`);
             if (oRes.ok) {
-                const oData: Occupation[] = await oRes.json();
-                this.occupations.clear();
-                oData.forEach(o => this.occupations.set(o.id, o));
+                const oData = await oRes.json();
+                const oArray = Array.isArray(oData) ? oData : (oData && typeof oData === 'object' && oData.id ? [oData] : []);
+                if (oArray.length > 0 || Array.isArray(oData)) {
+                    this.occupations.clear();
+                    oArray.forEach(o => this.occupations.set(o.id, o));
+                }
             }
 
             const iRes = await fetch(`${backendUrl}/api/data/items`);
             if (iRes.ok) {
-                const iData: Item[] = await iRes.json();
-                this.items.clear();
-                iData.forEach(i => this.items.set(i.id, i));
+                const iData = await iRes.json();
+                const iArray = Array.isArray(iData) ? iData : (iData && typeof iData === 'object' && iData.id ? [iData] : []);
+                if (iArray.length > 0 || Array.isArray(iData)) {
+                    this.items.clear();
+                    iArray.forEach(i => this.items.set(i.id, i));
+                }
             }
 
             // Also load characters from generated folder

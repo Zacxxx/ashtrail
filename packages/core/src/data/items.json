@@ -1,9 +1,29 @@
-{
-  "category": "weapon",
-  "cost": 590,
-  "description": "An hyper advanced blaster from the old-world",
-  "icon": "📦",
-  "id": "item-1772207163707",
-  "name": "Ultralaser cannon",
-  "rarity": "relic"
-}
+[
+  {
+    "category": "consumable",
+    "cost": 1000,
+    "description": "A potion tainted by ashes that regenerates your health when you drink it. \nBeware of the mutation side effect. ",
+    "icon": "📦",
+    "id": "item-1772207659997",
+    "name": "Ember potion",
+    "rarity": "ashmarked"
+  },
+  {
+    "category": "junk",
+    "cost": 0,
+    "description": "The real one...crazy right ??",
+    "icon": "📦",
+    "id": "item-1772208031388",
+    "name": "AF",
+    "rarity": "salvaged"
+  },
+  {
+    "category": "weapon",
+    "cost": 0,
+    "description": "A long lost spec ops weapon.",
+    "icon": "📦",
+    "id": "item-1772208341327",
+    "name": "Long shlong",
+    "rarity": "specialized"
+  }
+]

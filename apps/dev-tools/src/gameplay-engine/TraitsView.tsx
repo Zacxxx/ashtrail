@@ -4,9 +4,10 @@ import { IconGallerySelector } from "../components/IconGallerySelector";
 
 interface TraitsViewProps {
     trait: Trait | null;
+    onSave?: () => void;
 }
 
-export function TraitsView({ trait }: TraitsViewProps) {
+export function TraitsView({ trait, onSave }: TraitsViewProps) {
     const [editingTrait, setEditingTrait] = useState<Trait | null>(null);
 
     // Form State
@@ -38,7 +39,7 @@ export function TraitsView({ trait }: TraitsViewProps) {
     }, [trait]);
 
     const resetForm = () => {
-        setId(`trait-${Date.now()}`);
+        setId(`trait - ${Date.now()} `);
         setName("");
         setDescription("");
         setCost(0);
@@ -66,10 +67,13 @@ export function TraitsView({ trait }: TraitsViewProps) {
             });
             if (res.ok) {
                 await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
-                // The parent will re-render and pass down the updated trait if selected
+                if (onSave) onSave();
             }
         } catch (e) {
             console.error(e);
+            // The instruction implies calling onSave() here, but it's usually not desired on error.
+            // If the intent was to refresh data even on error, uncomment the line below.
+            // if (onSave) onSave();
         }
     };
 

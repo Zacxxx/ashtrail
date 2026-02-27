@@ -4,9 +4,10 @@ import { IconGallerySelector } from "../components/IconGallerySelector";
 
 interface OccupationsViewProps {
     occupation: Occupation | null;
+    onSave?: () => void;
 }
 
-export function OccupationsView({ occupation }: OccupationsViewProps) {
+export function OccupationsView({ occupation, onSave }: OccupationsViewProps) {
     const [editingOccupation, setEditingOccupation] = useState<Occupation | null>(null);
 
     // Form State
@@ -55,6 +56,7 @@ export function OccupationsView({ occupation }: OccupationsViewProps) {
             });
             if (res.ok) {
                 await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                if (onSave) onSave();
             }
         } catch (e) {
             console.error(e);

@@ -19,9 +19,33 @@ pub async fn get_traits(State(state): State<AppState>) -> Result<impl IntoRespon
     }
 }
 
-pub async fn save_traits(State(state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
+pub async fn save_traits(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
     let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/traits.json");
-    let json_string = serde_json::to_string_pretty(&payload).unwrap();
+    
+    let mut traits: Vec<serde_json::Value> = match fs::read_to_string(&path) {
+        Ok(data) => {
+            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            if val.is_array() {
+                val.as_array().unwrap().clone()
+            } else if val.is_object() {
+                vec![val]
+            } else {
+                Vec::new()
+            }
+        },
+        Err(_) => Vec::new(),
+    };
+
+    let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if !id.is_empty() {
+        if let Some(pos) = traits.iter().position(|t| t.get("id").and_then(|v| v.as_str()) == Some(id)) {
+            traits[pos] = payload;
+        } else {
+            traits.push(payload);
+        }
+    }
+
+    let json_string = serde_json::to_string_pretty(&traits).unwrap();
     match fs::write(&path, json_string) {
         Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
@@ -39,9 +63,33 @@ pub async fn get_occupations(State(state): State<AppState>) -> Result<impl IntoR
     }
 }
 
-pub async fn save_occupations(State(state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
+pub async fn save_occupations(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
     let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/occupations.json");
-    let json_string = serde_json::to_string_pretty(&payload).unwrap();
+    
+    let mut occupations: Vec<serde_json::Value> = match fs::read_to_string(&path) {
+        Ok(data) => {
+            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            if val.is_array() {
+                val.as_array().unwrap().clone()
+            } else if val.is_object() {
+                vec![val]
+            } else {
+                Vec::new()
+            }
+        },
+        Err(_) => Vec::new(),
+    };
+
+    let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if !id.is_empty() {
+        if let Some(pos) = occupations.iter().position(|o| o.get("id").and_then(|v| v.as_str()) == Some(id)) {
+            occupations[pos] = payload;
+        } else {
+            occupations.push(payload);
+        }
+    }
+
+    let json_string = serde_json::to_string_pretty(&occupations).unwrap();
     match fs::write(&path, json_string) {
         Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
@@ -64,7 +112,31 @@ pub async fn get_items(State(_state): State<AppState>) -> Result<impl IntoRespon
 
 pub async fn save_items(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
     let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/items.json");
-    let json_string = serde_json::to_string_pretty(&payload).unwrap();
+    
+    let mut items: Vec<serde_json::Value> = match fs::read_to_string(&path) {
+        Ok(data) => {
+            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            if val.is_array() {
+                val.as_array().unwrap().clone()
+            } else if val.is_object() {
+                vec![val]
+            } else {
+                Vec::new()
+            }
+        },
+        Err(_) => Vec::new(),
+    };
+
+    let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if !id.is_empty() {
+        if let Some(pos) = items.iter().position(|i| i.get("id").and_then(|v| v.as_str()) == Some(id)) {
+            items[pos] = payload;
+        } else {
+            items.push(payload);
+        }
+    }
+
+    let json_string = serde_json::to_string_pretty(&items).unwrap();
     match fs::write(&path, json_string) {
         Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
