@@ -200,16 +200,65 @@ pub async fn get_skills(State(_state): State<AppState>) -> Result<impl IntoRespo
 }
 
 pub async fn save_skill(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dir = std::env::current_dir().unwrap().join("generated").join("skills");
-    if let Err(e) = fs::create_dir_all(&dir) {
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create skills dir: {}", e)));
-    }
-
     let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let path = dir.join(format!("{}.json", id));
+    let path = std::env::current_dir().unwrap().join("generated").join("skills").join(format!("{}.json", id));
     
     let json_string = serde_json::to_string_pretty(&payload).unwrap();
     match fs::write(&path, json_string) {
+        Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+}
+
+pub async fn delete_trait(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
+    tracing::info!("Deleting trait with ID: {}", id);
+    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/traits.json");
+    let mut data: Vec<serde_json::Value> = load_json_array(&path);
+    let initial_len = data.len();
+    data.retain(|v| v.get("id").and_then(|id_val| id_val.as_str()) != Some(id.as_str()));
+    tracing::info!("Removed {} items", initial_len - data.len());
+    save_json_array(&path, data)
+}
+
+pub async fn delete_occupation(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
+    tracing::info!("Deleting occupation with ID: {}", id);
+    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/occupations.json");
+    let mut data: Vec<serde_json::Value> = load_json_array(&path);
+    let initial_len = data.len();
+    data.retain(|v| v.get("id").and_then(|id_val| id_val.as_str()) != Some(id.as_str()));
+    tracing::info!("Removed {} items", initial_len - data.len());
+    save_json_array(&path, data)
+}
+
+pub async fn delete_item(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
+    tracing::info!("Deleting item with ID: {}", id);
+    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/items.json");
+    let mut data: Vec<serde_json::Value> = load_json_array(&path);
+    let initial_len = data.len();
+    data.retain(|v| v.get("id").and_then(|id_val| id_val.as_str()) != Some(id.as_str()));
+    tracing::info!("Removed {} items", initial_len - data.len());
+    save_json_array(&path, data)
+}
+
+fn load_json_array(path: &std::path::PathBuf) -> Vec<serde_json::Value> {
+    match fs::read_to_string(path) {
+        Ok(data) => {
+            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            if val.is_array() {
+                val.as_array().unwrap().clone()
+            } else if val.is_object() {
+                vec![val]
+            } else {
+                Vec::new()
+            }
+        },
+        Err(_) => Vec::new(),
+    }
+}
+
+fn save_json_array(path: &std::path::PathBuf, data: Vec<serde_json::Value>) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
+    let json_string = serde_json::to_string_pretty(&data).unwrap();
+    match fs::write(path, json_string) {
         Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }

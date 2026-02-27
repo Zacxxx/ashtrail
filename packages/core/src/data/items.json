@@ -9,21 +9,12 @@
     "rarity": "ashmarked"
   },
   {
-    "category": "junk",
+    "category": "armor",
     "cost": 0,
-    "description": "The real one...crazy right ??",
+    "description": "There's no way that you can equip sterling's set ? WTF ? ",
     "icon": "📦",
     "id": "item-1772208031388",
-    "name": "AF",
-    "rarity": "salvaged"
-  },
-  {
-    "category": "weapon",
-    "cost": 0,
-    "description": "A long lost spec ops weapon.",
-    "icon": "📦",
-    "id": "item-1772208341327",
-    "name": "Long shlong",
-    "rarity": "specialized"
+    "name": "Sterling's helmet",
+    "rarity": "ashmarked"
   }
 ]

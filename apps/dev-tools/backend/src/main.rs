@@ -380,8 +380,11 @@ async fn main() {
         .route("/api/worldgen/{planet_id}/hierarchy/rename", post(rename_worldgen_hierarchy))
         // Static file serving for all planet textures
         .route("/api/data/traits", get(cms::get_traits).post(cms::save_traits))
+        .route("/api/data/traits/{id}", delete(cms::delete_trait))
         .route("/api/data/occupations", get(cms::get_occupations).post(cms::save_occupations))
+        .route("/api/data/occupations/{id}", delete(cms::delete_occupation))
         .route("/api/data/items", get(cms::get_items).post(cms::save_items))
+        .route("/api/data/items/{id}", delete(cms::delete_item))
         .route("/api/data/characters", get(cms::get_characters).post(cms::save_character))
         .route("/api/data/skills", get(cms::get_skills).post(cms::save_skill))
         .nest_service("/api/planets", ServeDir::new("generated/planets"))

@@ -141,6 +141,22 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                 </div>
                 <div className="flex gap-2">
                     <button
+                        onClick={async () => {
+                            if (window.confirm(`Delete ${name}? This cannot be undone.`)) {
+                                try {
+                                    const res = await fetch(`http://127.0.0.1:8787/api/data/items/${id}`, { method: "DELETE" });
+                                    if (res.ok) {
+                                        await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                                        if (onSave) onSave();
+                                    }
+                                } catch (e) { console.error(e); }
+                            }
+                        }}
+                        className="px-4 py-2 bg-red-950/40 hover:bg-red-900/60 text-red-500 border border-red-900/40 text-[10px] font-black uppercase tracking-[0.2em] rounded-lg transition-all"
+                    >
+                        Delete
+                    </button>
+                    <button
                         onClick={handleSave}
                         disabled={!name}
                         className="px-6 py-2 bg-[#c2410c] hover:bg-[#ea580c] disabled:opacity-20 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-lg transition-all shadow-[0_0_20px_rgba(194,65,12,0.2)]"
