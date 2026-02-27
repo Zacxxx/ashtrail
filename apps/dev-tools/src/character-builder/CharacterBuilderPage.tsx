@@ -1,11 +1,27 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory } from "@ashtrail/core";
 import { TabBar } from "@ashtrail/ui";
 
 type BuilderTab = "IDENTITY" | "TRAITS" | "STATS" | "OCCUPATION" | "INVENTORY" | "SAVE";
 
 const DEFAULT_STATS: Stats = { strength: 3, agility: 3, intelligence: 3, wisdom: 3, endurance: 3, charisma: 3 };
+
+const RARITY_ORDER: Record<ItemRarity, number> = {
+    ashmarked: 5,
+    relic: 4,
+    specialized: 3,
+    "pre-ash": 2,
+    reinforced: 1,
+    salvaged: 0
+};
+
+const ITEMS_BY_CATEGORY: Record<string, string[]> = {
+    weapon: ["Stun Baton", "Vibration Blade", "Pulse Rifle", "Rusty Pipe", "Spiked Bat", "Serrated Knife"],
+    consumable: ["Med Kit", "Bandage", "Stimulant", "Filtered Water", "Nutrient Bar", "Antigen"],
+    resource: ["Scrap Metal", "Raw Ash", "Wires", "Circuit Board", "Fuel Cell", "Lead Solder"],
+    junk: ["Old World Can", "Broken Watch", "Glow Stick", "Plastic Waste", "Tattered Cloth", "Rusted Bolt"]
+};
 
 export function CharacterBuilderPage() {
     const [isLoading, setIsLoading] = useState(true);
@@ -36,6 +52,72 @@ export function CharacterBuilderPage() {
 
     // Load character for editing
     const [editingId, setEditingId] = useState<string | null>(null);
+
+    // Inventory State
+    const [inventory, setInventory] = useState<Item[]>([]);
+    const [inventorySearch, setInventorySearch] = useState("");
+    const [inventoryFilter, setInventoryFilter] = useState("ALL");
+    const [activeBagIndex, setActiveBagIndex] = useState(0);
+    const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, slotIndex: number | null } | null>(null);
+    const [hoverInfo, setHoverInfo] = useState<{ x: number, y: number, item: Item } | null>(null);
+    const [animatingSlot, setAnimatingSlot] = useState<{ index: number, type: 'destroy' | 'throw' } | null>(null);
+
+    const sortByRarity = () => {
+        setInventory(prev => [...prev].sort((a, b) => RARITY_ORDER[b.rarity] - RARITY_ORDER[a.rarity]));
+    };
+
+    const sortByValue = () => {
+        setInventory(prev => [...prev].sort((a, b) => b.cost - a.cost));
+    };
+
+    const removeSlotItem = (index: number) => {
+        const itemToRemove = filteredInventory[index];
+        if (itemToRemove) {
+            setInventory(prev => prev.filter(item => item.id !== itemToRemove.id));
+        }
+    };
+
+    const filteredInventory = useMemo(() => {
+        return inventory.filter(item => {
+            const matchesSearch = item.name.toLowerCase().includes(inventorySearch.toLowerCase());
+            const matchesFilter = inventoryFilter === "ALL" || item.category === inventoryFilter.toLowerCase();
+            const matchesBag = (item.bagIndex || 0) === activeBagIndex;
+            return matchesSearch && matchesFilter && matchesBag;
+        });
+    }, [inventory, inventorySearch, inventoryFilter, activeBagIndex]);
+
+    // Initial Mock Inventory
+    useEffect(() => {
+        const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
+
+        // Strictly generate items based on the defined categories to avoid cross-contamination
+        const mockInventory: Item[] = [];
+        const categories = Object.keys(ITEMS_BY_CATEGORY) as (keyof typeof ITEMS_BY_CATEGORY)[];
+
+        categories.forEach((cat, catIdx) => {
+            const names = ITEMS_BY_CATEGORY[cat];
+            names.forEach((name, nameIdx) => {
+                mockInventory.push({
+                    id: `item-${cat}-${nameIdx}-${Date.now()}`,
+                    name,
+                    category: cat as ItemCategory,
+                    rarity: rarities[Math.floor(Math.random() * rarities.length)],
+                    cost: Math.floor(Math.random() * 500) + 50,
+                    description: `A standard ${cat} used in the Ash wastes.`,
+                    bagIndex: Math.floor(Math.random() * 6) // Distributed across 6 bags
+                });
+            });
+        });
+
+        setInventory(mockInventory);
+    }, []);
+
+    // Currency Values
+    const [gold] = useState(10);
+    const [silver] = useState(24);
+    const [copper] = useState(0);
+    const totalCredits = (gold * 100) + (silver * 10) + copper;
 
     useEffect(() => {
         async function load() {
@@ -95,10 +177,11 @@ export function CharacterBuilderPage() {
         setSelectedTraits(char.traits || []);
         setStats(char.stats);
         setSelectedOccupation(char.occupation || null);
+        setInventory(char.inventory || []);
         // Recalculate points (approximate)
         const usedTraitPoints = (char.traits || []).reduce((sum, t) => sum + t.cost, 0);
         setTraitPoints(15 - usedTraitPoints);
-        const usedStatPoints = Object.values(char.stats).reduce((sum, v) => sum + v, 0) - 18;
+        const usedStatPoints = Object.values(char.stats).reduce((sum, v) => (sum as number) + (v as number), 0) - 18;
         setStatsPoints(18 - usedStatPoints);
         setActiveTab("IDENTITY");
     };
@@ -118,6 +201,24 @@ export function CharacterBuilderPage() {
         setStatsPoints(18);
         setSelectedOccupation(null);
         setActiveTab("IDENTITY");
+        // Also reset inventory to fresh mock data
+        const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
+        const mockInventory: Item[] = [];
+        const categories = Object.keys(ITEMS_BY_CATEGORY) as (keyof typeof ITEMS_BY_CATEGORY)[];
+        categories.forEach((cat) => {
+            ITEMS_BY_CATEGORY[cat].forEach((name, i) => {
+                mockInventory.push({
+                    id: `item-reset-${cat}-${i}-${Date.now()}`,
+                    name,
+                    category: cat as ItemCategory,
+                    rarity: rarities[Math.floor(Math.random() * rarities.length)],
+                    cost: Math.floor(Math.random() * 500) + 50,
+                    description: `Freshly issued ${cat}.`,
+                    bagIndex: Math.floor(Math.random() * 6)
+                });
+            });
+        });
+        setInventory(mockInventory);
     };
 
     const handleSave = async () => {
@@ -137,7 +238,7 @@ export function CharacterBuilderPage() {
             maxHp: 10 + finalStats.endurance * 5,
             xp: 0,
             level: 1,
-            inventory: []
+            inventory: inventory
         };
 
         try {
@@ -186,35 +287,112 @@ export function CharacterBuilderPage() {
 
             {/* ══ Main Layout ══ */}
             <div className="flex-1 flex overflow-hidden relative z-10 pt-[80px] pb-6 px-6 gap-6">
+                <style>{`
+                    @keyframes dustSweep {
+                        0% { transform: translateX(-100%) skewX(-20deg); opacity: 0; }
+                        20% { opacity: 0.7; }
+                        80% { opacity: 0.7; }
+                        100% { transform: translateX(180%) skewX(-20deg); opacity: 0; }
+                    }
+                    @keyframes ashSettling {
+                        0% { opacity: 0; transform: scale(0.98); filter: brightness(0.2) contrast(1.2); }
+                        100% { opacity: 1; transform: scale(1); filter: brightness(1) contrast(1); }
+                    }
+                    .animate-dust-sweep {
+                        animation: dustSweep 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                    }
+                    .animate-ash-settling {
+                        animation: ashSettling 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+                    }
+                    @keyframes itemDestroy {
+                        0% { transform: translate(0, 0) scale(1); filter: brightness(1); }
+                        5% { transform: translate(1px, -1px); }
+                        10% { transform: translate(-1px, 1px); filter: brightness(1.2); }
+                        15% { transform: translate(1px, 1px); }
+                        20% { transform: translate(-1px, -1px); clip-path: polygon(0% 0%, 50% 0%, 50% 50%, 0% 50%); }
+                        25% { transform: translate(2px, 0); clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%); }
+                        30% { transform: scale(1.02); filter: contrast(1.5); }
+                        100% { transform: translateY(15px) scale(0.9) rotate(2deg); opacity: 0; filter: brightness(0.2) grayscale(1); }
+                    }
+                    @keyframes itemThrow {
+                        0% { transform: translateX(0) skewX(0); opacity: 1; filter: blur(0); }
+                        20% { transform: translateX(-15px) skewX(10deg); filter: blur(1px); }
+                        100% { transform: translateX(300px) skewX(-30deg); opacity: 0; filter: blur(15px) brightness(3); }
+                    }
+                    @keyframes dustLash {
+                        0% { transform: translateX(-100%) skewX(-20deg); opacity: 0; }
+                        50% { opacity: 0.8; }
+                        100% { transform: translateX(200%) skewX(-20deg); opacity: 0; }
+                    }
+                    .animate-item-destroy {
+                        animation: itemDestroy 0.5s steps(20, end) forwards;
+                    }
+                    .animate-item-throw {
+                        animation: itemThrow 0.6s cubic-bezier(0.44, 0.05, 0.55, 0.95) forwards;
+                    }
+                    .animate-dust-lash {
+                        animation: dustLash 0.6s ease-out forwards;
+                    }
+
+                    /* Rarity Styles (Border focused) */
+                    .rarity-salvaged { border-color: #d1d5db; --rarity-color: #f3f4f6; }
+                    .rarity-reinforced { border-color: #444444; --rarity-color: #222222; }
+                    .rarity-pre-ash { border-color: #2563eb; --rarity-color: #1e3a8a; }
+                    .rarity-specialized { border-color: #341539; --rarity-color: #4c1d95; }
+                    .rarity-relic { border-color: #92400e; --rarity-color: #f59e0b; }
+                    
+                    @keyframes ashRipple {
+                        0% { border-color: #450a0a; box-shadow: inset 0 0 5px rgba(69,10,10,0.4); }
+                        50% { border-color: #991b1b; box-shadow: inset 0 0 12px rgba(153,27,27,0.6); }
+                        100% { border-color: #450a0a; box-shadow: inset 0 0 5px rgba(69,10,10,0.4); }
+                    }
+                    .rarity-ashmarked { 
+                        border-color: #450a0a; 
+                        animation: ashRipple 3s ease-in-out infinite;
+                        --rarity-color: #ef4444;
+                    }
+                    @keyframes permanentRipple {
+                        0% { transform: scale(0.95); opacity: 0.1; }
+                        50% { transform: scale(1.05); opacity: 0.3; }
+                        100% { transform: scale(0.95); opacity: 0.1; }
+                    }
+                    .ashmarked-permanent-ripple {
+                        background: radial-gradient(circle, #991b1b 0%, transparent 70%);
+                        animation: permanentRipple 4s ease-in-out infinite;
+                    }
+                `}</style>
+
                 {/* Left: Saved Characters Sidebar */}
-                <aside className="w-[260px] flex flex-col gap-4 shrink-0">
-                    <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
-                        <h3 className="text-[10px] font-black text-indigo-500/70 uppercase tracking-widest border-b border-indigo-900/30 pb-2">
-                            Saved Characters ({savedCharacters.length})
-                        </h3>
-                        <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar">
-                            {savedCharacters.map(c => (
-                                <button
-                                    key={c.id}
-                                    onClick={() => loadCharacter(c)}
-                                    className={`w-full text-left p-3 border rounded-lg flex flex-col gap-1 transition-all ${editingId === c.id
-                                        ? "bg-indigo-500/20 border-indigo-500"
-                                        : "bg-black/40 border-white/5 hover:border-white/20"
-                                        }`}
-                                >
-                                    <div className="flex justify-between items-center w-full">
-                                        <span className="text-[11px] font-bold uppercase text-indigo-400 line-clamp-1">{c.name}</span>
-                                        {c.isNPC && <span className="text-[8px] bg-red-500/20 text-red-300 px-1 py-0.5 rounded uppercase">NPC</span>}
-                                    </div>
-                                    <p className="text-[10px] text-gray-500">Lvl {c.level} | {c.occupation?.name || "None"}</p>
-                                </button>
-                            ))}
-                            {savedCharacters.length === 0 && (
-                                <p className="text-xs text-gray-600 italic text-center py-4">No characters saved yet.</p>
-                            )}
+                {activeTab !== "INVENTORY" && (
+                    <aside className="w-[260px] flex flex-col gap-4 shrink-0">
+                        <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
+                            <h3 className="text-[10px] font-black text-indigo-500/70 uppercase tracking-widest border-b border-indigo-900/30 pb-2">
+                                Saved Characters ({savedCharacters.length})
+                            </h3>
+                            <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar">
+                                {savedCharacters.map(c => (
+                                    <button
+                                        key={c.id}
+                                        onClick={() => loadCharacter(c)}
+                                        className={`w-full text-left p-3 border rounded-lg flex flex-col gap-1 transition-all ${editingId === c.id
+                                            ? "bg-indigo-500/20 border-indigo-500"
+                                            : "bg-black/40 border-white/5 hover:border-white/20"
+                                            }`}
+                                    >
+                                        <div className="flex justify-between items-center w-full">
+                                            <span className="text-[11px] font-bold uppercase text-indigo-400 line-clamp-1">{c.name}</span>
+                                            {c.isNPC && <span className="text-[8px] bg-red-500/20 text-red-300 px-1 py-0.5 rounded uppercase">NPC</span>}
+                                        </div>
+                                        <p className="text-[10px] text-gray-500">Lvl {c.level} | {c.occupation?.name || "None"}</p>
+                                    </button>
+                                ))}
+                                {savedCharacters.length === 0 && (
+                                    <p className="text-xs text-gray-600 italic text-center py-4">No characters saved yet.</p>
+                                )}
+                            </div>
                         </div>
-                    </div>
-                </aside>
+                    </aside>
+                )}
 
                 {/* Center: Builder Form */}
                 <div className="flex-1 flex flex-col gap-4 overflow-hidden">
@@ -388,14 +566,353 @@ export function CharacterBuilderPage() {
                             </div>
                         )}
 
-                        {/* ═══ INVENTORY TAB (WIP) ═══ */}
+                        {/* ═══ INVENTORY TAB ═══ */}
                         {activeTab === "INVENTORY" && (
-                            <div className="flex flex-col items-center justify-center h-full text-center py-20">
-                                <div className="text-4xl mb-4 opacity-50">🎒</div>
-                                <h2 className="text-lg font-black tracking-widest text-yellow-500/50 uppercase mb-2">Inventory</h2>
-                                <p className="text-sm text-gray-500 max-w-md">
-                                    Starting inventory management is coming soon. This will integrate with the Items registry to allow assigning equipment and consumables to characters.
-                                </p>
+                            <div id="inventory-view-root" className="flex flex-col items-center h-full relative font-mono overflow-y-auto custom-scrollbar py-4" onClick={() => setContextMenu(null)}>
+                                <div className="w-full max-w-[700px] flex flex-col gap-5">
+                                    {/* Top Row: Bags & Money */}
+                                    <div className="flex items-end justify-between">
+                                        {/* Tactical Bag Slots */}
+                                        <div className="flex flex-col gap-1.5">
+                                            <div className="flex items-center gap-1.5 px-1">
+                                                <div className="w-1 h-2.5 bg-[#c2410c]" />
+                                                <label className="text-[9px] text-gray-500 font-black uppercase tracking-widest">INVENTORY</label>
+                                            </div>
+                                            <div className="flex gap-1 p-1 bg-black/60 border border-white/5 shadow-xl">
+                                                {[0, 1, 2, 3, 4, 5].map((idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        onClick={() => setActiveBagIndex(idx)}
+                                                        className={`w-11 h-11 border flex items-center justify-center relative group cursor-pointer transition-all ${activeBagIndex === idx ? "bg-[#c2410c]/20 border-[#c2410c] shadow-[0_0_10px_rgba(194,65,12,0.1)]" : "bg-white/[0.01] border-white/10 hover:border-[#c2410c]/30 hover:bg-white/[0.03]"}`}
+                                                    >
+                                                        {idx === 5 ? (
+                                                            <svg className="w-5 h-5 text-gray-500 group-hover:text-gray-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                                                            </svg>
+                                                        ) : (
+                                                            <svg className="w-5 h-5 text-gray-600 group-hover:text-gray-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                                                            </svg>
+                                                        )}
+
+                                                        <div className="absolute bottom-0.5 right-0.5 flex gap-0.5 scale-75">
+                                                            <div className={`w-1 h-2.5 ${idx === 3 ? "bg-red-900/40" : "bg-[#c2410c]/40"}`} />
+                                                            <div className={`w-1 h-2.5 ${idx === 3 ? "bg-red-600" : "bg-[#c2410c]"}`} />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Currency - Dossier Style */}
+                                        <div className="flex flex-col items-end gap-1">
+                                            <div className="flex items-center gap-2.5 bg-[#c2410c]/5 border border-[#c2410c]/20 px-3 py-1.5">
+                                                <span className="text-[8px] text-gray-600 font-black uppercase tracking-widest mr-1">CREDITS:</span>
+                                                <span className="text-sm font-black text-[#c2410c]">{totalCredits.toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex gap-2 pr-1 scale-90">
+                                                <div className="flex items-center gap-1 opacity-50">
+                                                    <span className="text-[9px] text-white font-bold">{gold.toString().padStart(2, '0')}</span>
+                                                    <div className="w-2 h-2 rounded-full bg-yellow-600" />
+                                                </div>
+                                                <div className="flex items-center gap-1 opacity-50">
+                                                    <span className="text-[9px] text-white font-bold">{silver.toString().padStart(2, '0')}</span>
+                                                    <div className="w-2 h-2 rounded-full bg-slate-400" />
+                                                </div>
+                                                <div className="flex items-center gap-1 opacity-50">
+                                                    <span className="text-[9px] text-white font-bold">{copper.toString().padStart(2, '0')}</span>
+                                                    <div className="w-2 h-2 rounded-full bg-orange-700" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Controls Module */}
+                                    <div className="flex flex-col gap-3 bg-black/20 p-3 border border-white/5">
+                                        <div className="flex items-center justify-between gap-4">
+                                            <div className="flex-1 flex items-center bg-black/60 border border-white/10 focus-within:border-[#c2410c]/30 transition-all">
+                                                <div className="pl-3 text-gray-700">
+                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                                    </svg>
+                                                </div>
+                                                <input
+                                                    value={inventorySearch}
+                                                    onChange={e => setInventorySearch(e.target.value)}
+                                                    placeholder="SEARCH DATA..."
+                                                    className="w-full bg-transparent px-3 py-2 text-[10px] text-white placeholder:text-gray-800 outline-none uppercase tracking-widest"
+                                                />
+                                            </div>
+
+                                            <div className="flex items-center bg-black/40 border border-white/10">
+                                                {(["ALL", "WEAPON", "CONSUMABLE", "RESOURCE", "JUNK"] as const).map(f => (
+                                                    <button
+                                                        key={f}
+                                                        onClick={() => setInventoryFilter(f)}
+                                                        className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${inventoryFilter === f ? "bg-[#c2410c] text-white" : "text-gray-600 hover:text-gray-300 hover:bg-white/5"}`}
+                                                    >
+                                                        {f}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 scale-95 origin-left">
+                                            <div className="text-[8px] text-gray-700 uppercase tracking-widest mr-1">SORT:</div>
+                                            <button
+                                                onClick={sortByValue}
+                                                className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest"
+                                            >
+                                                VALUE
+                                            </button>
+                                            <button
+                                                onClick={sortByRarity}
+                                                className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/5 text-[8px] text-gray-500 font-bold hover:text-white transition-all uppercase tracking-widest"
+                                            >
+                                                RARITY
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Main Storage Unit */}
+                                    <div className="bg-black/40 border border-white/5 p-5 relative overflow-hidden group">
+                                        <div className="absolute inset-0 bg-[linear-gradient(rgba(194,65,12,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(194,65,12,0.02)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
+
+                                        {/* Bag Switch Dust Sweep Effect */}
+                                        <div
+                                            key={`dust-${activeBagIndex}`}
+                                            className="absolute inset-0 z-30 pointer-events-none animate-dust-sweep"
+                                            style={{
+                                                background: 'linear-gradient(90deg, transparent, rgba(161, 98, 7, 0.1), rgba(194, 65, 12, 0.3), rgba(75, 85, 99, 0.5), transparent)',
+                                                width: '200%',
+                                                filter: 'blur(30px) contrast(1.2)'
+                                            }}
+                                        />
+
+                                        <div
+                                            key={activeBagIndex}
+                                            className="grid grid-cols-10 gap-2 relative z-10 animate-ash-settling"
+                                        >
+                                            {Array.from({ length: 40 }).map((_, idx) => {
+                                                const item = filteredInventory[idx];
+                                                const itemRarity = item?.rarity || "none";
+
+                                                const rarityClasses = {
+                                                    salvaged: "rarity-salvaged bg-black/60",
+                                                    reinforced: "rarity-reinforced bg-black/60",
+                                                    "pre-ash": "rarity-pre-ash bg-black/60",
+                                                    specialized: "rarity-specialized bg-black/60",
+                                                    relic: "rarity-relic bg-black/60",
+                                                    ashmarked: "rarity-ashmarked bg-black/60",
+                                                    none: "border-white/5 hover:border-[#c2410c]/40 bg-black/60"
+                                                };
+
+                                                return (
+                                                    <div
+                                                        key={idx}
+                                                        onClick={() => setSelectedSlotIndex(idx)}
+                                                        onMouseEnter={(e) => {
+                                                            if (item && !contextMenu) {
+                                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                                const root = document.getElementById('inventory-view-root');
+                                                                const rootRect = root?.getBoundingClientRect() || { left: 0, top: 0 };
+                                                                const scrollOffset = root?.scrollTop || 0;
+
+                                                                setHoverInfo({
+                                                                    x: rect.right - rootRect.left + 8,
+                                                                    y: rect.top - rootRect.top + scrollOffset,
+                                                                    item
+                                                                });
+                                                            }
+                                                        }}
+                                                        onMouseLeave={() => setHoverInfo(null)}
+                                                        onContextMenu={(e) => {
+                                                            e.preventDefault();
+                                                            setHoverInfo(null);
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            const root = document.getElementById('inventory-view-root');
+                                                            const rootRect = root?.getBoundingClientRect() || { left: 0, top: 0 };
+
+                                                            const scrollOffset = root?.scrollTop || 0;
+
+                                                            setContextMenu({
+                                                                x: rect.right - rootRect.left + 1,
+                                                                y: rect.top - rootRect.top + scrollOffset,
+                                                                slotIndex: idx
+                                                            });
+                                                            setSelectedSlotIndex(idx);
+                                                        }}
+                                                        className={`aspect-square border flex items-center justify-center relative group cursor-pointer transition-all 
+                                                            ${selectedSlotIndex === idx ? "border-[#c2410c] shadow-[inset_0_0_8px_rgba(194,65,12,0.1)]" : rarityClasses[itemRarity as keyof typeof rarityClasses]}
+                                                            ${animatingSlot?.index === idx && animatingSlot.type === 'destroy' ? 'animate-item-destroy z-50 pointer-events-none' : ''}
+                                                            ${animatingSlot?.index === idx && animatingSlot.type === 'throw' ? 'animate-item-throw z-50 pointer-events-none' : ''}
+                                                        `}
+                                                    >
+                                                        <div className="absolute top-0 left-0 w-0.5 h-0.5 bg-white/10" />
+                                                        <div className="absolute bottom-0 right-0 w-0.5 h-0.5 bg-white/10" />
+
+                                                        {selectedSlotIndex === idx && (
+                                                            <div className="absolute inset-x-0 bottom-0 h-0.5 bg-[#c2410c] z-20" />
+                                                        )}
+
+                                                        {/* Rarity Bar (Subtle) */}
+                                                        {itemRarity !== "none" && (
+                                                            <div className={`absolute inset-x-0 bottom-0 h-px opacity-40 z-10 
+                                                                ${itemRarity === 'salvaged' ? 'bg-gray-300' :
+                                                                    itemRarity === 'reinforced' ? 'bg-[#444444]' :
+                                                                        itemRarity === 'pre-ash' ? 'bg-[#1e40af]' :
+                                                                            itemRarity === 'specialized' ? 'bg-[#4c1d95]' :
+                                                                                itemRarity === 'relic' ? 'bg-amber-700' :
+                                                                                    'bg-red-900'}`}
+                                                            />
+                                                        )}
+
+                                                        {/* Ashmarked permanent ripple effect */}
+                                                        {itemRarity === "ashmarked" && (
+                                                            <div className="absolute inset-0 rounded-sm pointer-events-none ashmarked-permanent-ripple opacity-20" />
+                                                        )}
+
+                                                        <div className={`text-[8px] font-black transition-colors uppercase relative z-10 ${selectedSlotIndex === idx ? "text-[#c2410c]" : item ? "text-gray-300" : "text-gray-900 group-hover:text-gray-700"}`}>
+                                                            {item ? item.name.substring(0, 3) : (idx < 9 ? `0${idx + 1}` : idx + 1)}
+                                                        </div>
+
+                                                        {item && (
+                                                            <div className="absolute top-0 right-0 p-0.5 flex flex-col items-end gap-0.5 pointer-events-none">
+                                                                <div className="text-[6px] text-gray-600 font-mono">{(item.cost || 0)}</div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Fragmentation particles for Destroy effect (Explosion) */}
+                                                        {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
+                                                            <div className="absolute inset-0 z-50 pointer-events-none flex items-center justify-center">
+                                                                <div className="absolute inset-0 bg-white/20 animate-ping duration-300" />
+                                                                <div className="w-full h-full border-4 border-[#c2410c]/40 animate-ping delay-100" />
+                                                                {/* Cracking overlays */}
+                                                                <div className="absolute inset-0 opacity-40 mix-blend-overlay bg-[url('https://www.transparenttextures.com/patterns/pinstriped-suit.png')] animate-pulse" />
+                                                            </div>
+                                                        )}
+
+                                                        {/* Dust Sweep overlay for Throw effect */}
+                                                        {animatingSlot?.index === idx && animatingSlot.type === 'throw' && (
+                                                            <div
+                                                                className="absolute inset-0 z-50 pointer-events-none animate-dust-lash overflow-hidden"
+                                                                style={{
+                                                                    background: 'linear-gradient(90deg, transparent, rgba(194, 65, 12, 0.6), rgba(75, 85, 99, 0.8), transparent)',
+                                                                    width: '300%',
+                                                                    filter: 'blur(10px)'
+                                                                }}
+                                                            />
+                                                        )}
+
+                                                        {/* Glass Shatter effect overlay */}
+                                                        {animatingSlot?.index === idx && animatingSlot.type === 'destroy' && (
+                                                            <div className="absolute inset-0 z-50 pointer-events-none opacity-60">
+                                                                <svg viewBox="0 0 100 100" className="w-full h-full stroke-[#c2410c] stroke-[0.5] fill-none">
+                                                                    <path d="M0,0 L50,55 L100,20 M50,55 L30,100 M50,55 L100,80 M20,0 L50,55 M0,70 L50,55 M50,55 L80,0" />
+                                                                    <circle cx="50" cy="55" r="1.5" className="fill-[#c2410c]" />
+                                                                </svg>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%)] bg-[size:100%_2px] z-20 opacity-10" />
+                                    </div>
+                                </div>
+
+                                {/* Context Menu - Positioned Absolutely relative to the tab container */}
+                                {contextMenu && (
+                                    <div
+                                        className="absolute z-[1000] w-36 bg-[#0d0d0d] border border-[#c2410c]/30 shadow-2xl py-0.5 animate-in fade-in zoom-in-95 duration-75 origin-top-left"
+                                        style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <div className="px-3 py-1 border-b border-white/5 mb-0.5 bg-white/[0.02]">
+                                            <span className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em]">SLOT {contextMenu.slotIndex! + 1}</span>
+                                        </div>
+                                        <button className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-[#c2410c] hover:text-white transition-all uppercase tracking-widest flex items-center justify-between">
+                                            USE <span>»</span>
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                if (contextMenu.slotIndex !== null) {
+                                                    setAnimatingSlot({ index: contextMenu.slotIndex, type: 'throw' });
+                                                    setTimeout(() => {
+                                                        removeSlotItem(contextMenu.slotIndex!);
+                                                        setAnimatingSlot(null);
+                                                    }, 600);
+                                                    setContextMenu(null);
+                                                }
+                                            }}
+                                            className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-white/5 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
+                                        >
+                                            THROW <span>»</span>
+                                        </button>
+                                        <div className="h-px bg-white/5 my-0.5" />
+                                        <button
+                                            onClick={() => {
+                                                if (contextMenu.slotIndex !== null) {
+                                                    setAnimatingSlot({ index: contextMenu.slotIndex, type: 'destroy' });
+                                                    setTimeout(() => {
+                                                        removeSlotItem(contextMenu.slotIndex!);
+                                                        setAnimatingSlot(null);
+                                                    }, 500);
+                                                    setContextMenu(null);
+                                                }
+                                            }}
+                                            className="w-full text-left px-3 py-1.5 text-[9px] text-red-600 font-black hover:bg-red-600/20 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
+                                        >
+                                            DESTROY <span>»</span>
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Hover Info Panel - Purely Informational */}
+                                {hoverInfo && !contextMenu && (
+                                    <div
+                                        className="absolute z-[999] w-44 bg-[#0d0d0d] border border-white/10 shadow-2xl p-3 animate-in fade-in slide-in-from-left-1 duration-200 pointer-events-none"
+                                        style={{ top: `${hoverInfo.y}px`, left: `${hoverInfo.x}px` }}
+                                    >
+                                        <div className="flex flex-col gap-2">
+                                            <div className="border-b border-white/5 pb-2">
+                                                <div className="text-[10px] font-black text-white uppercase tracking-wider leading-tight">
+                                                    {hoverInfo.item.name}
+                                                </div>
+                                                <div className="flex items-center gap-1.5 mt-1">
+                                                    <div className={`w-1 h-1 rounded-full ${hoverInfo.item.rarity === 'ashmarked' ? 'bg-red-600 shadow-[0_0_5px_rgba(220,38,38,0.5)]' :
+                                                        hoverInfo.item.rarity === 'relic' ? 'bg-amber-500' :
+                                                            hoverInfo.item.rarity === 'specialized' ? 'bg-purple-600' :
+                                                                'bg-gray-500'
+                                                        }`} />
+                                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-widest">
+                                                        {hoverInfo.item.rarity}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-y-1.5">
+                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Type:</div>
+                                                <div className="text-[7px] text-gray-400 font-bold uppercase tracking-widest text-right">
+                                                    {hoverInfo.item.category}
+                                                </div>
+
+                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Value:</div>
+                                                <div className="text-[7px] text-[#c2410c] font-black uppercase tracking-widest text-right">
+                                                    {hoverInfo.item.cost}C
+                                                </div>
+                                            </div>
+
+                                            {hoverInfo.item.description && (
+                                                <div className="mt-1 pt-2 border-t border-white/5">
+                                                    <p className="text-[8px] text-gray-500 leading-relaxed italic">
+                                                        {hoverInfo.item.description}
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 
