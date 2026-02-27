@@ -114,11 +114,35 @@ function CorePreview({ rules }: { rules: GameRulesConfig }) {
                                 </td>
                             ))}
                         </tr>
-                        <tr>
+                        <tr className="border-b border-white/5">
                             <td className="py-1.5 pr-4 text-teal-300 font-bold">AP (Agility)</td>
                             {samples.map(v => (
                                 <td key={v} className="py-1.5 px-3 text-center">
                                     {rules.core.apBase + Math.floor(v / rules.core.apAgilityDivisor)}
+                                </td>
+                            ))}
+                        </tr>
+                        <tr className="border-b border-white/5">
+                            <td className="py-1.5 pr-4 text-purple-300 font-bold">Crit (Int)</td>
+                            {samples.map(v => (
+                                <td key={v} className="py-1.5 px-3 text-center">
+                                    {(v * rules.core.critPerIntelligence * 100).toFixed(0)}%
+                                </td>
+                            ))}
+                        </tr>
+                        <tr className="border-b border-white/5">
+                            <td className="py-1.5 pr-4 text-indigo-300 font-bold">Resist (Wis)</td>
+                            {samples.map(v => (
+                                <td key={v} className="py-1.5 px-3 text-center">
+                                    {(v * rules.core.resistPerWisdom * 100).toFixed(0)}%
+                                </td>
+                            ))}
+                        </tr>
+                        <tr>
+                            <td className="py-1.5 pr-4 text-rose-300 font-bold">Social (Cha)</td>
+                            {samples.map(v => (
+                                <td key={v} className="py-1.5 px-3 text-center">
+                                    {(v * rules.core.charismaBonusPerCharisma * 100).toFixed(0)}%
                                 </td>
                             ))}
                         </tr>
@@ -239,7 +263,11 @@ export function GameRulesView() {
 
     const handleReset = () => {
         GameRulesManager.update({
-            core: { hpBase: 10, hpPerEndurance: 5, apBase: 5, apAgilityDivisor: 2 },
+            core: {
+                hpBase: 10, hpPerEndurance: 5, apBase: 5, apAgilityDivisor: 2,
+                mpBase: 3, critPerIntelligence: 0.02, resistPerWisdom: 0.05,
+                charismaBonusPerCharisma: 0.03
+            },
             combat: { damageVarianceMin: 0.85, damageVarianceMax: 1.15, strengthToPowerRatio: 0.3 },
             grid: { baseDisengageCost: 2, threatScaling: 1, agilityMitigationDivisor: 10 },
         });
@@ -271,8 +299,8 @@ export function GameRulesView() {
                         key={c.id}
                         onClick={() => setActiveCategory(c.id)}
                         className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all text-left ${activeCategory === c.id
-                                ? "bg-white/10 text-white border border-white/10"
-                                : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                            ? "bg-white/10 text-white border border-white/10"
+                            : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
                             }`}
                     >
                         <span className="text-base">{c.icon}</span>
@@ -287,10 +315,10 @@ export function GameRulesView() {
                     <button
                         onClick={handleApply}
                         className={`w-full py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${saveFlash
-                                ? "bg-emerald-500/30 border border-emerald-500/30 text-emerald-400"
-                                : hasUnsaved
-                                    ? "bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/30"
-                                    : "bg-white/5 border border-white/5 text-gray-600 cursor-default"
+                            ? "bg-emerald-500/30 border border-emerald-500/30 text-emerald-400"
+                            : hasUnsaved
+                                ? "bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/30"
+                                : "bg-white/5 border border-white/5 text-gray-600 cursor-default"
                             }`}
                     >
                         {saveFlash ? "✓ Applied" : "Apply Rules"}
@@ -322,17 +350,55 @@ export function GameRulesView() {
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="space-y-4">
                                     <p className="text-[10px] text-orange-400/70 font-bold uppercase tracking-widest">HP Formula</p>
-                                    <RuleNumber label="HP Base" desc="Starting HP before Endurance" value={rules.core.hpBase} min={1} max={50} onChange={v => patch("core", "hpBase", v)} />
-                                    <RuleNumber label="HP per Endurance" desc="Added HP per Endurance point" value={rules.core.hpPerEndurance} min={1} max={20} onChange={v => patch("core", "hpPerEndurance", v)} />
+                                    <RuleNumber label="HP Base" desc="Starting HP" value={rules.core.hpBase} min={1} max={50} onChange={v => patch("core", "hpBase", v)} />
+                                    <RuleNumber label="HP per Endurance" desc="+HP per point" value={rules.core.hpPerEndurance} min={1} max={20} onChange={v => patch("core", "hpPerEndurance", v)} />
                                 </div>
                                 <div className="space-y-4">
-                                    <p className="text-[10px] text-teal-400/70 font-bold uppercase tracking-widest">AP Formula</p>
-                                    <RuleNumber label="AP Base" desc="Starting AP per turn" value={rules.core.apBase} min={1} max={15} onChange={v => patch("core", "apBase", v)} />
+                                    <p className="text-[10px] text-teal-400/70 font-bold uppercase tracking-widest">AP & MP Formula</p>
+                                    <RuleNumber label="AP Base" desc="Starting AP" value={rules.core.apBase} min={1} max={15} onChange={v => patch("core", "apBase", v)} />
                                     <RuleNumber label="Agility divisor" desc="AP += floor(AGI / divisor)" value={rules.core.apAgilityDivisor} min={1} max={10} onChange={v => patch("core", "apAgilityDivisor", v)} />
+                                    <RuleNumber label="MP Base" desc="Starting Movement Points" value={rules.core.mpBase} min={1} max={10} onChange={v => patch("core", "mpBase", v)} />
                                 </div>
                             </div>
 
-                            <FormulaBox>{`HP = ${rules.core.hpBase} + (Endurance × ${rules.core.hpPerEndurance})\nAP = ${rules.core.apBase} + floor(Agility ÷ ${rules.core.apAgilityDivisor})\n\nInitiative: descending Agility → Endurance tiebreak`}</FormulaBox>
+                            <div className="grid grid-cols-3 gap-6">
+                                <RuleNumber
+                                    label="Crit per INT"
+                                    desc="+Crit Chance per Intelligence"
+                                    value={rules.core.critPerIntelligence}
+                                    min={0} max={0.1} step={0.005}
+                                    format={v => `${(v * 100).toFixed(1)}%`}
+                                    onChange={v => patch("core", "critPerIntelligence", v)}
+                                />
+                                <RuleNumber
+                                    label="Resist per WIS"
+                                    desc="+Status Resistance per Wisdom"
+                                    value={rules.core.resistPerWisdom}
+                                    min={0} max={0.2} step={0.01}
+                                    format={v => `${(v * 100).toFixed(0)}%`}
+                                    onChange={v => patch("core", "resistPerWisdom", v)}
+                                />
+                                <RuleNumber
+                                    label="Bonus per CHA"
+                                    desc="+Trade/Social per Charisma"
+                                    value={rules.core.charismaBonusPerCharisma}
+                                    min={0} max={0.1} step={0.005}
+                                    format={v => `${(v * 100).toFixed(1)}%`}
+                                    onChange={v => patch("core", "charismaBonusPerCharisma", v)}
+                                />
+                            </div>
+
+                            <FormulaBox>
+                                {`HP = ${rules.core.hpBase} + (Endurance × ${rules.core.hpPerEndurance})
+AP = ${rules.core.apBase} + floor(Agility ÷ ${rules.core.apAgilityDivisor})
+MP = ${rules.core.mpBase} (Fixed)
+
+Crit %   = Int × ${(rules.core.critPerIntelligence * 100).toFixed(1)}%
+Resist % = Wis × ${(rules.core.resistPerWisdom * 100).toFixed(0)}%
+Social % = Cha × ${(rules.core.charismaBonusPerCharisma * 100).toFixed(1)}%
+
+Initiative: descending Agility → Endurance tiebreak`}
+                            </FormulaBox>
 
                             <CorePreview rules={rules} />
                         </div>

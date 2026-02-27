@@ -32,6 +32,8 @@ import {
   iterateNarrative,
   architectInitialLore
 } from '@ashtrail/core';
+import { supabase } from './services/supabaseClient';
+import { save_player_character, load_latest_player_character } from './services/characterPersistence';
 
 const SERVER_START_TIME = Date.now() - (45 * 60 * 1000);
 
@@ -67,6 +69,52 @@ const App: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [architectedLore, setArchitectedLore] = useState<string | null>(null);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [authUserEmail, setAuthUserEmail] = useState<string | null>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let is_active = true;
+
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!is_active) return;
+      const session = data.session;
+      setAuthUserId(session?.user?.id ?? null);
+      setAuthUserEmail(session?.user?.email ?? null);
+
+      if (session?.user?.id) {
+        try {
+          const latest = await load_latest_player_character(session.user.id);
+          if (latest) {
+            setState(prev => ({ ...prev, player: latest }));
+          }
+        } catch (e) {
+          console.warn("Failed to load latest character:", e);
+        }
+      }
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setAuthUserId(session?.user?.id ?? null);
+      setAuthUserEmail(session?.user?.email ?? null);
+
+      if (session?.user?.id) {
+        try {
+          const latest = await load_latest_player_character(session.user.id);
+          if (latest) {
+            setState(prev => ({ ...prev, player: latest }));
+          }
+        } catch (e) {
+          console.warn("Failed to load latest character:", e);
+        }
+      }
+    });
+
+    return () => {
+      is_active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
 
   const addLog = (content: string, type: 'narrative' | 'system' | 'action' = 'narrative') => {
     setState(prev => ({
@@ -129,10 +177,83 @@ const App: React.FC = () => {
 
   const handleCharCreation = async (p: Player) => {
     setIsLoading(true);
-    const lore = await architectInitialLore(p.name, p.history);
+    let prepared_player: Player = {
+      ...p,
+      id: p.id || crypto.randomUUID()
+    };
+
+    if (authUserId) {
+      try {
+        prepared_player = await save_player_character(authUserId, prepared_player);
+      } catch (e) {
+        console.warn("Failed to persist character in Supabase:", e);
+      }
+    }
+
+    const lore = await architectInitialLore(prepared_player.name, prepared_player.history);
     setArchitectedLore(lore);
-    setState(s => ({ ...s, player: p, screen: 'LORE_INTRO' }));
+    setState(s => ({ ...s, player: prepared_player, screen: 'LORE_INTRO' }));
     setIsLoading(false);
+  };
+
+  const sign_in_with_google = async () => {
+    try {
+      setAuthMessage(null);
+      await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+        }
+      });
+    } catch (e) {
+      console.error("Google sign-in failed:", e);
+      setAuthMessage("Google sign-in failed.");
+    }
+  };
+
+  const sign_in_with_email = async (email: string, password: string) => {
+    try {
+      setAuthMessage(null);
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      setAuthMessage("Signed in successfully.");
+    } catch (e: any) {
+      setAuthMessage(e?.message || "Email sign-in failed.");
+    }
+  };
+
+  const sign_up_with_email = async (email: string, password: string) => {
+    try {
+      setAuthMessage(null);
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) throw error;
+      setAuthMessage("Sign-up successful. Check your email for confirmation if required.");
+    } catch (e: any) {
+      setAuthMessage(e?.message || "Email sign-up failed.");
+    }
+  };
+
+  const reset_password = async (email: string) => {
+    try {
+      setAuthMessage(null);
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      setAuthMessage("Password reset email sent.");
+    } catch (e: any) {
+      setAuthMessage(e?.message || "Password reset failed.");
+    }
+  };
+
+  const sign_out = async () => {
+    try {
+      await supabase.auth.signOut();
+      setAuthUserId(null);
+      setAuthUserEmail(null);
+    } catch (e) {
+      console.error("Sign out failed:", e);
+    }
   };
 
   const renderScreen = () => {
@@ -143,6 +264,13 @@ const App: React.FC = () => {
             onStart={() => setState(s => ({ ...s, screen: 'CHARACTER_CREATION' }))}
             onSettings={() => setState(s => ({ ...s, screen: 'SETTINGS' }))}
             onManageCharacters={() => setState(s => ({ ...s, screen: 'CHARACTER_SHEET' }))}
+            onSignInWithGoogle={sign_in_with_google}
+            onEmailSignIn={sign_in_with_email}
+            onEmailSignUp={sign_up_with_email}
+            onResetPassword={reset_password}
+            onSignOut={sign_out}
+            authUserEmail={authUserEmail}
+            authMessage={authMessage}
             hasCharacter={state.player.name !== 'UNKNOWN'}
             serverStartTime={SERVER_START_TIME}
           />

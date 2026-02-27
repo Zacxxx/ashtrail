@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
 
 interface HistoryGalleryProps {
@@ -7,9 +7,24 @@ interface HistoryGalleryProps {
     deleteFromHistory: (id: string) => void;
     onSelectPlanet: (item: GenerationHistoryItem) => void;
     onSelectTexture: (planetId: string, textureUrl: string) => void;
+    showExtendedTabs?: boolean;
 }
 
-type TabType = "planets" | "textures";
+type TabType = "planets" | "textures" | "icons" | "characters";
+
+interface IconImageItem {
+    id: string;
+    url: string;
+    batchName: string;
+    createdAt: string;
+    prompt: string;
+}
+
+interface CharacterPortraitItem {
+    id: string;
+    name: string;
+    portraitUrl: string;
+}
 
 export function HistoryGallery({
     history,
@@ -17,8 +32,13 @@ export function HistoryGallery({
     deleteFromHistory,
     onSelectPlanet,
     onSelectTexture,
+    showExtendedTabs = false,
 }: HistoryGalleryProps) {
     const [activeTab, setActiveTab] = useState<TabType>("planets");
+    const [iconImages, setIconImages] = useState<IconImageItem[]>([]);
+    const [characterPortraits, setCharacterPortraits] = useState<CharacterPortraitItem[]>([]);
+    const [isLoadingExtended, setIsLoadingExtended] = useState(false);
+    const [extendedError, setExtendedError] = useState<string | null>(null);
 
     // Group history items by parentId to find variants (e.g. upscales)
     const { mainPlanets, textureVariants } = useMemo(() => {
@@ -41,6 +61,70 @@ export function HistoryGallery({
     const activePlanet = history.find(p => p.id === activePlanetId);
     // Include the base planet itself as a texture option
     const activeVariants = activePlanet ? [activePlanet, ...(textureVariants.get(activePlanet.id) || [])] : [];
+    const contentGridClassName = activeTab === "icons"
+        ? "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8 gap-2.5"
+        : activeTab === "characters"
+            ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5"
+            : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6";
+
+    useEffect(() => {
+        if (!showExtendedTabs) return;
+
+        let isCancelled = false;
+        setIsLoadingExtended(true);
+        setExtendedError(null);
+
+        (async () => {
+            try {
+                const batchesRes = await fetch("/api/icons/batches");
+                if (!batchesRes.ok) throw new Error("Failed to load icon batches");
+                const batches = await batchesRes.json();
+                const batchList = Array.isArray(batches) ? batches : [];
+
+                const iconGroups = await Promise.all(
+                    batchList.map(async (batch: any) => {
+                        const res = await fetch(`/api/icons/batches/${batch.batchId}`);
+                        if (!res.ok) return [];
+                        const manifest = await res.json();
+                        const icons = Array.isArray(manifest.icons) ? manifest.icons : [];
+                        return icons.map((icon: any, index: number) => ({
+                            id: `${manifest.batchId}-${icon.filename}-${index}`,
+                            url: icon.url,
+                            batchName: manifest.batchName || manifest.batchId,
+                            createdAt: manifest.createdAt || "",
+                            prompt: icon.itemPrompt || icon.prompt || icon.filename || "Icon",
+                        } as IconImageItem));
+                    })
+                );
+
+                const charsRes = await fetch("/api/data/characters");
+                const charsRaw = charsRes.ok ? await charsRes.json() : [];
+                const charList = Array.isArray(charsRaw) ? charsRaw : [];
+                const portraits = charList
+                    .filter((c: any) => typeof c?.portraitUrl === "string" && c.portraitUrl.length > 0)
+                    .map((c: any, index: number) => ({
+                        id: c.id || c.name || `character-${index}`,
+                        name: c.name || `Character ${index + 1}`,
+                        portraitUrl: c.portraitUrl,
+                    } as CharacterPortraitItem));
+
+                if (!isCancelled) {
+                    setIconImages(iconGroups.flat());
+                    setCharacterPortraits(portraits);
+                }
+            } catch (e) {
+                if (!isCancelled) {
+                    setExtendedError(e instanceof Error ? e.message : "Failed to load image tabs");
+                }
+            } finally {
+                if (!isCancelled) setIsLoadingExtended(false);
+            }
+        })();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [showExtendedTabs]);
 
     return (
         <div className="flex flex-col h-full bg-black/50 overflow-hidden">
@@ -59,9 +143,25 @@ export function HistoryGallery({
                 >
                     Textures
                 </button>
+                {showExtendedTabs && (
+                    <button
+                        onClick={() => setActiveTab("icons")}
+                        className={`flex-1 py-3 text-[10px] font-black tracking-widest uppercase transition-all ${activeTab === "icons" ? "text-cyan-300 bg-white/10" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"}`}
+                    >
+                        Icons
+                    </button>
+                )}
+                {showExtendedTabs && (
+                    <button
+                        onClick={() => setActiveTab("characters")}
+                        className={`flex-1 py-3 text-[10px] font-black tracking-widest uppercase transition-all ${activeTab === "characters" ? "text-emerald-300 bg-white/10" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"}`}
+                    >
+                        Characters
+                    </button>
+                )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 scrollbar-thin">
+            <div className={`flex-1 overflow-y-auto p-6 scrollbar-thin ${contentGridClassName}`}>
                 {activeTab === "planets" && mainPlanets.length === 0 && (
                     <div className="col-span-full flex flex-col items-center justify-center h-40 text-center space-y-3 opacity-50">
                         <svg className="w-8 h-8 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
@@ -126,6 +226,58 @@ export function HistoryGallery({
                         </div>
                     </div>
                 ))}
+
+                {activeTab === "icons" && showExtendedTabs && isLoadingExtended && (
+                    <div className="col-span-full text-xs text-gray-500">Loading icon images...</div>
+                )}
+                {activeTab === "icons" && showExtendedTabs && !isLoadingExtended && iconImages.length === 0 && (
+                    <div className="col-span-full text-xs text-gray-500">No icons found yet.</div>
+                )}
+                {activeTab === "icons" && showExtendedTabs && iconImages.map(icon => (
+                    <div
+                        key={icon.id}
+                        className="group border border-white/10 bg-black/40 rounded-xl overflow-hidden cursor-pointer hover:border-cyan-400/40 transition-all shadow-lg"
+                        onClick={() => onSelectTexture("icons", icon.url)}
+                    >
+                        <div className="aspect-square p-2 bg-[linear-gradient(45deg,_rgba(255,255,255,0.04)_25%,_transparent_25%,_transparent_50%,_rgba(255,255,255,0.04)_50%,_rgba(255,255,255,0.04)_75%,_transparent_75%,_transparent)] bg-[length:10px_10px]">
+                            <div className="w-full h-full rounded-lg border border-white/10 bg-black/40 flex items-center justify-center overflow-hidden">
+                                <img
+                                    src={icon.url}
+                                    alt={icon.prompt}
+                                    className="w-full h-full object-contain p-1.5 opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-300"
+                                />
+                            </div>
+                        </div>
+                        <div className="p-1.5 bg-black/70 backdrop-blur-sm border-t border-white/10">
+                            <p className="text-[9px] text-gray-200 truncate">{icon.prompt}</p>
+                            <p className="text-[7px] text-cyan-300 truncate">{icon.batchName}</p>
+                        </div>
+                    </div>
+                ))}
+
+                {activeTab === "characters" && showExtendedTabs && isLoadingExtended && (
+                    <div className="col-span-full text-xs text-gray-500">Loading character portraits...</div>
+                )}
+                {activeTab === "characters" && showExtendedTabs && !isLoadingExtended && characterPortraits.length === 0 && (
+                    <div className="col-span-full text-xs text-gray-500">No character portraits found yet.</div>
+                )}
+                {activeTab === "characters" && showExtendedTabs && characterPortraits.map(character => (
+                    <div
+                        key={character.id}
+                        className="relative flex flex-col justify-end aspect-[3/4] group border border-white/10 bg-black/40 rounded-xl overflow-hidden cursor-pointer hover:border-emerald-400/40 transition-all"
+                        onClick={() => onSelectTexture("characters", character.portraitUrl)}
+                    >
+                        <img src={character.portraitUrl} alt={character.name} className="absolute top-0 left-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-300" />
+                        <div className="relative p-3 bg-black/70 backdrop-blur-sm mt-auto">
+                            <p className="text-[10px] text-gray-100 truncate">{character.name}</p>
+                            <p className="text-[8px] text-emerald-300 mt-1">Character Portrait</p>
+                        </div>
+                    </div>
+                ))}
+
+                {showExtendedTabs && extendedError && (
+                    <div className="col-span-full text-xs text-red-400">{extendedError}</div>
+                )}
             </div>
         </div>
     );

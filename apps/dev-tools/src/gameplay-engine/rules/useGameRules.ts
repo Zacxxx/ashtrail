@@ -6,6 +6,10 @@ export interface GameRulesConfig {
         hpPerEndurance: number;
         apBase: number;
         apAgilityDivisor: number;
+        mpBase: number;
+        critPerIntelligence: number;
+        resistPerWisdom: number;
+        charismaBonusPerCharisma: number;
     };
     combat: {
         damageVarianceMin: number;
@@ -25,6 +29,10 @@ const DEFAULT_RULES: GameRulesConfig = {
         hpPerEndurance: 5,
         apBase: 5,
         apAgilityDivisor: 2,
+        mpBase: 3,
+        critPerIntelligence: 0.02, // 2% crit per INT
+        resistPerWisdom: 0.05,     // 5% resist per WIS
+        charismaBonusPerCharisma: 0.03, // 3% bonus per CHA
     },
     combat: {
         damageVarianceMin: 0.85,
@@ -49,7 +57,7 @@ export const GameRulesManager = {
     },
     subscribe: (listener: () => void) => {
         listeners.add(listener);
-        return () => listeners.delete(listener);
+        return () => { listeners.delete(listener); };
     }
 };
 

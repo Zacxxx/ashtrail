@@ -23,6 +23,12 @@ export interface TacticalEntity {
     maxHp: number;
     strength: number;
     agility: number;
+    intelligence: number;
+    wisdom: number;
+    charisma: number;
+    critChance: number;
+    resistance: number;
+    socialBonus: number;
     evasion: number;
     defense: number;
     traits: Trait[];
@@ -53,8 +59,6 @@ export interface TacticalCombatState {
 
 // ── Config ──
 
-const DEFAULT_AP = 6;
-const DEFAULT_MP = 3;
 const MELEE_ATTACK_COST = 3;
 const MELEE_RANGE = 1;
 
@@ -73,6 +77,10 @@ export function createTacticalEntity(
     name: string,
     strength: number,
     agility: number,
+    endurance: number,
+    intelligence: number,
+    wisdom: number,
+    charisma: number,
     evasion: number,
     defense: number,
     hp: number,
@@ -82,17 +90,13 @@ export function createTacticalEntity(
     gridPos: { row: number; col: number }
 ): TacticalEntity {
     const base = calculateEffectiveStats(
-        { id, isPlayer, name, hp, maxHp, strength, agility, evasion, defense, traits },
+        { id, isPlayer, name, hp, maxHp, strength, agility, endurance, intelligence, wisdom, charisma, evasion, defense, traits } as any,
         traits
     );
     return {
         ...base,
         skills,
         skillCooldowns: {},
-        ap: DEFAULT_AP,
-        maxAp: DEFAULT_AP,
-        mp: DEFAULT_MP,
-        maxMp: DEFAULT_MP,
         gridPos,
     };
 }
@@ -297,14 +301,20 @@ export function useTacticalCombat(
 
                 // For AoE, we generally apply to all. We could filter by targetType if we wanted strict friend/foe AoE.
                 if (skill.healing) {
-                    const healAmount = skill.healing;
+                    const rules = GameRulesManager.get();
+                    const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
+                    const charismaBonus = 1 + c.socialBonus;
+                    const healAmount = Math.floor(skill.healing * charismaBonus * variance);
                     const actualHeal = Math.min(healAmount, t.maxHp - t.hp);
                     t.hp = Math.min(t.maxHp, t.hp + healAmount);
                     addLog(`${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${t.name} → heals ${actualHeal} HP!`, 'heal');
                 }
 
                 if (skill.damage) {
-                    if (skill.effectType === 'physical') {
+                    const isPhysical = skill.effectType === 'physical';
+                    const isMagical = skill.effectType === 'magical';
+
+                    if (isPhysical) {
                         const hitChance = 100 - t.evasion;
                         if (Math.random() * 100 > hitChance) {
                             addLog(`${skill.icon || '✨'} ${skill.name} missed ${t.name}!`, 'info');
@@ -312,14 +322,34 @@ export function useTacticalCombat(
                         }
                     }
 
+                    // Critical Hit check
+                    const isCrit = Math.random() < c.critChance;
+
                     const rules = GameRulesManager.get();
                     const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
-                    const scaledDamage = Math.floor((skill.damage + c.strength * rules.combat.strengthToPowerRatio) * variance);
-                    const actualDamage = Math.max(1, scaledDamage - t.defense);
-                    const newHp = Math.max(0, t.hp - actualDamage);
 
+                    // Base scaled damage
+                    let scaledDamage = Math.floor((skill.damage + c.strength * rules.combat.strengthToPowerRatio) * variance);
+
+                    if (isCrit) {
+                        scaledDamage = Math.floor(scaledDamage * 1.5);
+                    }
+
+                    // Resistance/Defense check
+                    let actualDamage = scaledDamage;
+                    if (isMagical) {
+                        // Magical damage is resisted by Wisdom
+                        const resistAmount = Math.floor(actualDamage * t.resistance);
+                        actualDamage = Math.max(1, actualDamage - resistAmount);
+                    } else {
+                        // Physical damage is reduced by flat defense
+                        actualDamage = Math.max(1, actualDamage - t.defense);
+                    }
+
+                    const newHp = Math.max(0, t.hp - actualDamage);
                     t.hp = newHp;
-                    addLog(`${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${t.name} → ${actualDamage} damage!`, 'damage');
+
+                    addLog(`${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${t.name} → ${isCrit ? 'CRITICAL ' : ''}${actualDamage} damage!`, 'damage');
 
                     if (skill.pushDistance && skill.pushDistance > 0 && newHp > 0) {
                         // Push effect simplified for AoE (push away from center)
@@ -516,6 +546,8 @@ export function useTacticalCombat(
         const hitChance = 100 - defender.evasion;
         const roll = Math.random() * 100;
 
+        const isCrit = Math.random() < attacker.critChance;
+
         setEntities(prev => {
             const next = new Map(prev);
             const a = { ...next.get(attackerId)! };
@@ -529,11 +561,17 @@ export function useTacticalCombat(
             return;
         }
 
-        const variance = 0.8 + (Math.random() * 0.4);
-        const rawDamage = Math.floor(attacker.strength * variance);
+        const rules = GameRulesManager.get();
+        const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
+        let rawDamage = Math.floor(attacker.strength * variance);
+
+        if (isCrit) {
+            rawDamage = Math.floor(rawDamage * 1.5);
+        }
+
         const actualDamage = Math.max(1, rawDamage - defender.defense);
 
-        addLog(`🗡️ ${attacker.name} strikes ${defender.name} for ${actualDamage} damage! (-${MELEE_ATTACK_COST} AP)`, 'damage');
+        addLog(`🗡️ ${attacker.name} strikes ${defender.name} for ${isCrit ? 'CRITICAL ' : ''}${actualDamage} damage! (-${MELEE_ATTACK_COST} AP)`, 'damage');
 
         const newHp = Math.max(0, defender.hp - actualDamage);
         setEntities(prev => {

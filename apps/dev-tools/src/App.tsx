@@ -27,8 +27,8 @@ const TOOLS = [
     },
     {
         id: "gallery",
-        name: "Planet Explorer",
-        description: "Explore locally generated planets, inspect history, and extract raw assets.",
+        name: "Gallery",
+        description: "Browse and sync generated planets and icons across local and cloud storage.",
         icon: "🌌",
         status: "STABLE",
         color: "bg-teal-500",
