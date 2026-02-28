@@ -37,6 +37,7 @@ export function CharacterBuilderPage() {
     const [history, setHistory] = useState("");
     const [appearancePrompt, setAppearancePrompt] = useState("");
     const [isNPC, setIsNPC] = useState(false);
+    const [level, setLevel] = useState(1);
 
     // Traits
     const [selectedTraits, setSelectedTraits] = useState<Trait[]>([]);
@@ -168,6 +169,7 @@ export function CharacterBuilderPage() {
         setHistory(char.history);
         setAppearancePrompt(char.appearancePrompt);
         setIsNPC(char.isNPC || false);
+        setLevel(char.level || 1);
         setSelectedTraits(char.traits || []);
         setStats(char.stats);
         setSelectedOccupation(char.occupation || null);
@@ -189,6 +191,7 @@ export function CharacterBuilderPage() {
         setHistory("");
         setAppearancePrompt("");
         setIsNPC(false);
+        setLevel(1);
         setSelectedTraits([]);
         setTraitPoints(15);
         setStats({ ...DEFAULT_STATS });
@@ -231,7 +234,7 @@ export function CharacterBuilderPage() {
             hp: 10 + finalStats.endurance * 5,
             maxHp: 10 + finalStats.endurance * 5,
             xp: 0,
-            level: 1,
+            level: level,
             inventory: inventory
         };
 
@@ -434,13 +437,19 @@ export function CharacterBuilderPage() {
                                             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Age</label>
                                             <input type="number" value={age} onChange={e => setAge(Math.max(18, parseInt(e.target.value) || 18))} min={18} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Gender</label>
-                                            <select value={gender} onChange={e => setGender(e.target.value)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all">
-                                                <option>Male</option>
-                                                <option>Female</option>
-                                                <option>Non-Binary</option>
-                                            </select>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Level</label>
+                                                <input type="number" value={level} onChange={e => setLevel(Math.max(1, parseInt(e.target.value) || 1))} min={1} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Gender</label>
+                                                <select value={gender} onChange={e => setGender(e.target.value)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all">
+                                                    <option>Male</option>
+                                                    <option>Female</option>
+                                                    <option>Non-Binary</option>
+                                                </select>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -590,117 +599,168 @@ export function CharacterBuilderPage() {
                         {activeTab === "EQUIPEMENT" && (
                             <div className="flex flex-col h-full relative font-mono overflow-hidden py-4 px-2 gap-6 animate-ash-settling" onClick={() => setContextMenu(null)}>
                                 <div className="flex-1 flex items-start justify-center overflow-y-auto custom-scrollbar pt-6 pb-12">
-                                    <div className="w-full max-w-[850px] flex items-start justify-center gap-8">
+                                    <div className="w-full max-w-[1100px] flex items-start justify-center gap-6">
 
-                                        {/* Left Slots Column */}
-                                        <div className="flex flex-col gap-4 shrink-0 pt-16">
-                                            {[
-                                                { id: "head", label: "Head" },
-                                                { id: "chest", label: "Chest" },
-                                                { id: "gloves", label: "Gloves" },
-                                            ].map(slot => (
-                                                <div key={slot.id} className="flex items-center gap-3 group">
-                                                    <div className="w-14 h-14 bg-black/60 border border-white/10 hover:border-[#c2410c]/50 transition-all flex items-center justify-center relative cursor-pointer shadow-lg">
-                                                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
-                                                        <div className="absolute top-0.5 left-0.5 w-0.5 h-0.5 bg-white/10" />
-                                                        <div className="absolute bottom-0.5 right-0.5 w-0.5 h-0.5 bg-white/10" />
-                                                        <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
-                                                    </div>
-                                                    <div className="flex flex-col">
-                                                        <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">{slot.label}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
+                                        {/* Character Block */}
+                                        <div className="flex items-start gap-2">
 
-                                        {/* Center: Character Preview & Weapons */}
-                                        <div className="flex flex-col items-center gap-6 shrink-0">
-                                            <div className="w-[240px] h-[420px] bg-black/20 border border-white/5 rounded-[40px] relative shadow-2xl flex items-center justify-center overflow-hidden">
-                                                {/* Gritty Grid Overlay */}
-                                                <div className="absolute inset-0 bg-[linear-gradient(rgba(194,65,12,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(194,65,12,0.02)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none opacity-40" />
-                                                <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[#c2410c]/10 to-transparent pointer-events-none" />
-
-                                                {/* Background Emblem */}
-                                                <div className="absolute w-[80%] h-[80%] opacity-[0.03] flex items-center justify-center grayscale scale-125 rotate-6">
-                                                    <svg viewBox="0 0 100 100" fill="currentColor"><path d="M50 0 L100 25 L100 75 L50 100 L0 75 L0 25 Z" /></svg>
-                                                </div>
-
-                                                {/* Silhouette */}
-                                                <div className="relative z-10 text-[120px] opacity-20 select-none grayscale animate-pulse">👤</div>
-
-                                                {/* Level & Name Overlay */}
-                                                <div className="absolute top-6 flex flex-col items-center">
-                                                    <div className="text-[8px] text-orange-500/70 font-black tracking-[0.3em] uppercase">{selectedOccupation?.name || "SOLDAT"}</div>
-                                                    <div className="text-[10px] text-white font-black tracking-[0.2em] mt-1 uppercase text-center px-4">{name || "UNNAMED"}</div>
-                                                    <div className="w-8 h-0.5 bg-[#c2410c] mt-2 shadow-[0_0_8px_rgba(194,65,12,0.4)]" />
-                                                </div>
-
-                                                {/* Scanlines effect */}
-                                                <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%)] bg-[size:100%_2px] z-20 opacity-5" />
-                                            </div>
-
-                                            {/* Bottom Slots (Weapons) */}
-                                            <div className="flex items-start gap-6">
+                                            {/* Left Slots Column */}
+                                            <div className="flex flex-col gap-4 shrink-0 pt-16">
                                                 {[
-                                                    { id: "mainHand", label: "Main Hand" },
-                                                    { id: "offHand", label: "Off Hand" },
-                                                ].map(slot => (
-                                                    <div key={slot.id} className="flex flex-col items-center gap-2">
-                                                        <div className="w-16 h-16 bg-black/60 border border-white/10 hover:border-[#c2410c]/50 transition-all flex items-center justify-center relative cursor-pointer shadow-lg">
-                                                            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
-                                                            <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">WPN</span>
-                                                        </div>
-                                                        <span className="text-[8px] text-gray-500 font-black uppercase tracking-widest text-center">{slot.label}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        {/* Right: Slots Column & Attributes Panel */}
-                                        <div className="flex flex-col gap-6 shrink-0 pt-16">
-                                            <div className="flex flex-col gap-4">
-                                                {[
-                                                    { id: "waist", label: "Waist" },
-                                                    { id: "legs", label: "Legs" },
+                                                    { id: "head", label: "Head" },
+                                                    { id: "chest", label: "Chest" },
+                                                    { id: "gloves", label: "Gloves" },
                                                 ].map(slot => (
                                                     <div key={slot.id} className="flex items-center gap-3 group">
-                                                        <div className="w-14 h-14 bg-black/60 border border-white/10 hover:border-[#c2410c]/50 transition-all flex items-center justify-center relative cursor-pointer order-last shadow-lg">
+                                                        <div className="w-14 h-14 bg-black/60 border border-white/10 hover:border-[#c2410c]/50 transition-all flex items-center justify-center relative cursor-pointer shadow-lg">
                                                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
                                                             <div className="absolute top-0.5 left-0.5 w-0.5 h-0.5 bg-white/10" />
                                                             <div className="absolute bottom-0.5 right-0.5 w-0.5 h-0.5 bg-white/10" />
                                                             <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
                                                         </div>
-                                                        <div className="flex flex-col text-right">
+                                                        <div className="w-14 flex flex-col">
                                                             <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">{slot.label}</span>
                                                         </div>
                                                     </div>
                                                 ))}
                                             </div>
 
-                                            {/* Attributes Panel */}
-                                            <div className="w-[260px] bg-black/40 border border-[#c2410c]/20 p-5 rounded-xl shadow-2xl backdrop-blur-md relative overflow-hidden group">
-                                                <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-2">
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-1.5 h-1.5 bg-[#c2410c] shadow-[0_0_8px_#c2410c]" />
-                                                        <span className="text-[10px] text-white font-black uppercase tracking-widest">STATS</span>
+                                            {/* Center: Character Preview & Weapons */}
+                                            <div className="flex flex-col items-center gap-6 shrink-0">
+                                                <div className="w-[240px] h-[420px] bg-black/20 border border-white/5 rounded-[40px] relative shadow-2xl flex items-center justify-center overflow-hidden">
+                                                    {/* Gritty Grid Overlay */}
+                                                    <div className="absolute inset-0 bg-[linear-gradient(rgba(194,65,12,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(194,65,12,0.02)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none opacity-40" />
+                                                    <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[#c2410c]/10 to-transparent pointer-events-none" />
+
+                                                    {/* Background Emblem */}
+                                                    <div className="absolute w-[80%] h-[80%] opacity-[0.03] flex items-center justify-center grayscale scale-125 rotate-6">
+                                                        <svg viewBox="0 0 100 100" fill="currentColor"><path d="M50 0 L100 25 L100 75 L50 100 L0 75 L0 25 Z" /></svg>
                                                     </div>
-                                                    <div className="text-[8px] text-gray-600 font-bold font-mono">V.2.0</div>
+
+                                                    {/* Silhouette */}
+                                                    <div className="relative z-10 text-[120px] opacity-20 select-none grayscale animate-pulse">👤</div>
+
+                                                    {/* Level & Name Overlay */}
+                                                    <div className="absolute top-6 flex flex-col items-center">
+                                                        <div className="text-[8px] text-orange-500/70 font-black tracking-[0.3em] uppercase">
+                                                            {selectedOccupation?.name || "SOLDAT"} | LVL {level}
+                                                        </div>
+                                                        <div className="text-[10px] text-white font-black tracking-[0.2em] mt-1 uppercase text-center px-4">{name || "UNNAMED"}</div>
+                                                        <div className="w-8 h-0.5 bg-[#c2410c] mt-2 shadow-[0_0_8px_rgba(194,65,12,0.4)]" />
+                                                    </div>
+
+                                                    {/* Scanlines effect */}
+                                                    <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%)] bg-[size:100%_2px] z-20 opacity-5" />
                                                 </div>
 
-                                                <div className="space-y-3">
-                                                    {Object.entries(stats).map(([stat, val]) => (
-                                                        <div key={stat} className="flex justify-between items-center px-1 group/row">
-                                                            <span className="text-[9px] text-orange-500/80 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors">{stat}</span>
-                                                            <span className="text-[11px] text-white font-black font-mono tracking-widest">{(val as number).toLocaleString()}</span>
+                                                {/* Bottom Slots (Weapons) */}
+                                                <div className="flex items-start gap-6">
+                                                    {[
+                                                        { id: "mainHand", label: "Main Hand" },
+                                                        { id: "offHand", label: "Off Hand" },
+                                                    ].map(slot => (
+                                                        <div key={slot.id} className="flex flex-col items-center gap-2">
+                                                            <div className="w-16 h-16 bg-black/60 border border-white/10 hover:border-[#c2410c]/50 transition-all flex items-center justify-center relative cursor-pointer shadow-lg">
+                                                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
+                                                                <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">WPN</span>
+                                                            </div>
+                                                            <span className="text-[8px] text-gray-500 font-black uppercase tracking-widest text-center">{slot.label}</span>
                                                         </div>
                                                     ))}
                                                 </div>
+                                            </div>
 
-                                                <div className="mt-5 pt-4 border-t border-white/5 flex gap-3 items-center">
-                                                    <div className="flex-1 h-1 bg-black/60 rounded-full overflow-hidden border border-white/5 relative">
-                                                        <div className="h-full bg-[#c2410c] w-full shadow-[0_0_10px_rgba(194,65,12,0.5)]" />
+                                            {/* Right Slots Column */}
+                                            <div className="flex flex-col gap-4 shrink-0 pt-16">
+                                                <div className="flex flex-col gap-4">
+                                                    {[
+                                                        { id: "waist", label: "Waist" },
+                                                        { id: "legs", label: "Legs" },
+                                                    ].map(slot => (
+                                                        <div key={slot.id} className="flex items-center gap-3 group">
+                                                            <div className="w-14 flex flex-col text-right">
+                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">{slot.label}</span>
+                                                            </div>
+                                                            <div className="w-14 h-14 bg-black/60 border border-white/10 hover:border-[#c2410c]/50 transition-all flex items-center justify-center relative cursor-pointer shadow-lg">
+                                                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
+                                                                <div className="absolute top-0.5 left-0.5 w-0.5 h-0.5 bg-white/10" />
+                                                                <div className="absolute bottom-0.5 right-0.5 w-0.5 h-0.5 bg-white/10" />
+                                                                <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Stats Panel Column */}
+                                            <div className="w-[300px] h-[420px] bg-black/40 border border-[#c2410c]/20 p-6 rounded-xl shadow-2xl backdrop-blur-md relative overflow-hidden group flex flex-col">
+                                                <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-1.5 h-1.5 bg-[#c2410c] shadow-[0_0_8px_#c2410c]" />
+                                                        <span className="text-[11px] text-white font-black uppercase tracking-[0.2em]">STATS</span>
                                                     </div>
-                                                    <span className="text-[9px] font-black text-[#c2410c] font-mono">100%</span>
+                                                </div>
+
+                                                <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2 min-h-0">
+                                                    {/* CHARACTER SECTION */}
+                                                    <div className="space-y-2">
+                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-3 opacity-80 flex items-center gap-2">
+                                                            <div className="w-1 h-1 bg-[#c2410c]/40" />
+                                                            CHARACTER
+                                                        </div>
+                                                        {[
+                                                            { label: "HP (Endurance)", value: 10 + stats.endurance * 5 },
+                                                            { label: "AP (Agility)", value: stats.agility <= 5 ? 7 : stats.agility <= 10 ? 10 : stats.agility <= 15 ? 12 : 15 },
+                                                            { label: "Crit (Int)", value: `${stats.intelligence * 2}%` },
+                                                            { label: "Resist (Wis)", value: `${stats.wisdom * 5}%` },
+                                                            { label: "Social (Cha)", value: `${stats.charisma * 3}%` },
+                                                        ].map(item => (
+                                                            <div key={item.label} className="flex justify-between items-center group/row border-b border-white/[0.02] pb-1">
+                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors">{item.label}</span>
+                                                                <span className="text-[11px] text-white font-black font-mono tracking-widest">{item.value}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+
+                                                    {/* COMBAT SECTION */}
+                                                    <div className="space-y-2 pt-2">
+                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-3 opacity-80 flex items-center gap-2">
+                                                            <div className="w-1 h-1 bg-[#c2410c]/40" />
+                                                            COMBAT
+                                                        </div>
+                                                        {[
+                                                            { label: "Strength", value: stats.strength },
+                                                            { label: "Min dmg", value: (4 + stats.strength * 0.2).toFixed(1) },
+                                                            { label: "Max dmg", value: (5 + stats.strength * 0.4).toFixed(1) },
+                                                        ].map(item => (
+                                                            <div key={item.label} className="flex justify-between items-center group/row border-b border-white/[0.02] pb-1">
+                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors">{item.label}</span>
+                                                                <span className="text-[11px] text-white font-black font-mono tracking-widest">{item.value}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+
+                                                    {/* EQUIPMENT EFFECTS SECTION */}
+                                                    <div className="space-y-2 pt-2">
+                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-3 opacity-80 flex items-center gap-2">
+                                                            <div className="w-1 h-1 bg-[#c2410c]/40" />
+                                                            EQUIPMENT EFFECTS
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                            <div className="flex justify-between items-center bg-white/[0.02] px-2 py-1.5 rounded border border-white/5">
+                                                                <span className="text-[8px] text-orange-400 font-black uppercase">ASHWALKER SET</span>
+                                                                <span className="text-[8px] text-gray-500 font-bold uppercase">2/4</span>
+                                                            </div>
+                                                            <div className="flex flex-col gap-1 px-2">
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className="text-[7px] text-gray-500 font-black uppercase italic">Set bonus: +5% Agility</span>
+                                                                </div>
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className="text-[7px] text-gray-500 font-black uppercase italic">+10 Max HP (Gloves)</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
