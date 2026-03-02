@@ -15,6 +15,17 @@ const CATEGORIES: { value: ItemCategory; label: string; color: string }[] = [
     { value: "armor", label: "ARMOR", color: "#8b5cf6" },
 ];
 
+const EQUIP_SLOTS: { value: string; label: string }[] = [
+    { value: "head", label: "HEAD" },
+    { value: "chest", label: "CHEST" },
+    { value: "gloves", label: "GLOVES" },
+    { value: "waist", label: "WAIST" },
+    { value: "legs", label: "LEGS" },
+    { value: "boots", label: "BOOTS" },
+    { value: "mainHand", label: "MAIN HAND" },
+    { value: "offHand", label: "OFF HAND" },
+];
+
 const RARITIES: { value: ItemRarity; label: string; class: string }[] = [
     { value: "salvaged", label: "SALVAGED", class: "rarity-salvaged" },
     { value: "reinforced", label: "REINFORCED", class: "rarity-reinforced" },
@@ -31,6 +42,7 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
     const [id, setId] = useState("");
     const [name, setName] = useState("");
     const [category, setCategory] = useState<ItemCategory>("weapon");
+    const [equipSlot, setEquipSlot] = useState<string>("");
     const [rarity, setRarity] = useState<ItemRarity>("salvaged");
     const [description, setDescription] = useState("");
     const [cost, setCost] = useState(0);
@@ -46,6 +58,7 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
             setId(item.id);
             setName(item.name);
             setCategory(item.category);
+            setEquipSlot(item.equipSlot || "");
             setRarity(item.rarity || "salvaged");
             setDescription(item.description);
             setCost(item.cost);
@@ -61,6 +74,7 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
             id,
             name,
             category,
+            equipSlot: (category === "weapon" || category === "armor") ? (equipSlot as any) : undefined,
             rarity,
             description,
             cost,
@@ -235,6 +249,29 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                                 ))}
                             </div>
                         </div>
+
+                        {/* Equip Slot Selection (Only for Armor/Weapon) */}
+                        {(category === "weapon" || category === "armor") && (
+                            <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                                <label className="text-[9px] font-black text-gray-600 uppercase tracking-widest pl-1 flex items-center gap-2">
+                                    <div className="w-1 h-1 bg-orange-500" /> SUB-CATEGORY (EQUIP SLOT)
+                                </label>
+                                <div className="grid grid-cols-4 gap-2">
+                                    {EQUIP_SLOTS.map(slot => (
+                                        <button
+                                            key={slot.value}
+                                            onClick={() => setEquipSlot(slot.value)}
+                                            className={`px-2 py-2 rounded-lg border text-[8px] font-black tracking-widest uppercase transition-all text-center ${equipSlot === slot.value
+                                                ? "bg-orange-500/20 border-orange-500/40 text-orange-500"
+                                                : "bg-black/20 border-white/5 text-gray-700 hover:border-white/10"
+                                                }`}
+                                        >
+                                            {slot.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Rarity Selector */}
                         <div className="space-y-3">

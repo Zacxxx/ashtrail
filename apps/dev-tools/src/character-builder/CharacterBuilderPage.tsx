@@ -1,7 +1,27 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot } from "@ashtrail/core";
 import { TabBar } from "@ashtrail/ui";
+
+// Map item category + name to an equipment slot
+const SLOT_MAP: Record<string, EquipSlot> = {
+    "Reinforced Helmet": "head",
+    "Tactical Vest": "chest",
+    "Scrap Plating": "chest",
+    "Leather Guards": "gloves",
+    "Combat Boots": "boots",
+};
+
+function getEquipSlot(item: Item): EquipSlot | null {
+    if (item.equipSlot) return item.equipSlot;
+    if (SLOT_MAP[item.name]) return SLOT_MAP[item.name];
+    if (item.category === "weapon") return "mainHand";
+    return null;
+}
+
+function isEquipable(item: Item): boolean {
+    return getEquipSlot(item) !== null;
+}
 
 type BuilderTab = "IDENTITY" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
 
@@ -71,12 +91,100 @@ export function CharacterBuilderPage() {
     });
 
     const equipItem = (slotId: string, item: Item) => {
-        setEquippedItems(prev => ({ ...prev, [slotId]: item }));
+        // If there's already something equipped in that slot, put it back in inventory
+        setEquippedItems(prev => {
+            const existing = prev[slotId];
+            if (existing) {
+                setInventory(inv => [...inv, { ...existing, bagIndex: activeBagIndex }]);
+            }
+            return { ...prev, [slotId]: item };
+        });
+        // Remove the newly equipped item from inventory
+        setInventory(inv => inv.filter(i => i.id !== item.id));
     };
 
     const unequipItem = (slotId: string) => {
-        setEquippedItems(prev => ({ ...prev, [slotId]: null }));
+        setEquippedItems(prev => {
+            const item = prev[slotId];
+            if (item) {
+                setInventory(inv => [...inv, { ...item, bagIndex: activeBagIndex }]);
+            }
+            return { ...prev, [slotId]: null };
+        });
     };
+
+    const equipFromInventory = (item: Item) => {
+        const slot = getEquipSlot(item);
+        if (!slot) return;
+
+        // For weapons, if mainHand is taken, try offHand
+        if (slot === "mainHand" && equippedItems.mainHand) {
+            if (!equippedItems.offHand) {
+                equipItem("offHand", item);
+                return;
+            }
+        }
+        equipItem(slot, item);
+    };
+
+    // Effective Stats calculation (Base + Equipment Modifiers)
+    const effectiveStats = useMemo(() => {
+        const result = { ...stats };
+        Object.values(equippedItems).forEach(item => {
+            if (item && item.effects) {
+                item.effects.forEach(eff => {
+                    // Check if target matches one of the base stats
+                    const target = eff.target as keyof Stats;
+                    if (eff.type === 'STAT_MODIFIER' && target in result) {
+                        result[target] += eff.value;
+                    }
+                });
+            }
+        });
+        return result;
+    }, [stats, equippedItems]);
+
+    // Derived values from effective stats
+    const derivedStats = useMemo(() => {
+        const s = effectiveStats;
+        const hp = 10 + s.endurance * 5;
+        const ap = s.agility <= 5 ? 7 : s.agility <= 10 ? 10 : s.agility <= 15 ? 12 : 15;
+
+        // Add direct HP modifiers from items if any
+        let directHp = 0;
+        Object.values(equippedItems).forEach(item => {
+            if (item && item.effects) {
+                item.effects.forEach(eff => {
+                    if (eff.target === 'hp' || eff.target === 'maxHp') {
+                        directHp += eff.value;
+                    }
+                });
+            }
+        });
+
+        return {
+            hp: hp + directHp,
+            ap: ap,
+            crit: `${s.intelligence * 2}%`,
+            resist: `${s.wisdom * 5}%`,
+            social: `${s.charisma * 3}%`,
+            minDmg: (4 + s.strength * 0.2).toFixed(1),
+            maxDmg: (5 + s.strength * 0.4).toFixed(1)
+        };
+    }, [effectiveStats, equippedItems]);
+
+    // Check if an item is currently equipped (used by context menu)
+    const isItemEquipped = (item: Item): string | null => {
+        for (const [slotId, equipped] of Object.entries(equippedItems)) {
+            if (equipped && equipped.id === item.id) return slotId;
+        }
+        return null;
+    };
+
+    // List of equipable items in the current inventory
+    const equipableInventoryItems = useMemo(() => {
+        return inventory.filter(item => isEquipable(item));
+    }, [inventory]);
 
     const sortByRarity = () => {
         setInventory(prev => [...prev].sort((a, b) => RARITY_ORDER[b.rarity] - RARITY_ORDER[a.rarity]));
@@ -187,7 +295,6 @@ export function CharacterBuilderPage() {
         setStats(char.stats);
         setSelectedOccupation(char.occupation || null);
         setInventory(char.inventory || []);
-        // @ts-ignore - Handle equipped items if they exist in the saved data
         if (char.equipped) {
             setEquippedItems(char.equipped);
         } else {
@@ -255,12 +362,11 @@ export function CharacterBuilderPage() {
             stats: finalStats,
             traits: selectedTraits,
             occupation: selectedOccupation || undefined,
-            hp: 10 + finalStats.endurance * 5,
-            maxHp: 10 + finalStats.endurance * 5,
+            hp: derivedStats.hp,
+            maxHp: derivedStats.hp,
             xp: 0,
             level: level,
             inventory: inventory,
-            // @ts-ignore - Persist equipped items in the JSON
             equipped: equippedItems
         };
 
@@ -677,11 +783,14 @@ export function CharacterBuilderPage() {
                                                                         </div>
                                                                     </>
                                                                 ) : (
-                                                                    <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
+                                                                    <div className="flex flex-col items-center justify-center gap-1 group-hover:scale-110 transition-transform">
+                                                                        <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
+                                                                        <div className="w-1.5 h-1.5 border border-white/10 rounded-full group-hover:border-orange-500/50 group-hover:animate-pulse transition-colors" />
+                                                                    </div>
                                                                 )}
                                                             </div>
-                                                            <div className="w-14 flex flex-col">
-                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">{equipped ? equipped.name : slot.label}</span>
+                                                            <div className="w-14 flex flex-col group">
+                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest transition-colors group-hover:text-gray-400">{equipped ? equipped.name : slot.label}</span>
                                                                 {equipped && <span className="text-[7px] text-[#c2410c] font-bold uppercase truncate">{equipped.rarity}</span>}
                                                             </div>
                                                         </div>
@@ -741,10 +850,13 @@ export function CharacterBuilderPage() {
                                                                             </div>
                                                                         </>
                                                                     ) : (
-                                                                        <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">WPN</span>
+                                                                        <div className="flex flex-col items-center justify-center gap-1 group-hover:scale-110 transition-transform">
+                                                                            <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">WPN</span>
+                                                                            <div className="w-1.5 h-1.5 border border-white/10 rounded-full group-hover:border-orange-500/50 group-hover:animate-pulse transition-colors" />
+                                                                        </div>
                                                                     )}
                                                                 </div>
-                                                                <span className="text-[8px] text-gray-500 font-black uppercase tracking-widest text-center">{equipped ? equipped.name : slot.label}</span>
+                                                                <span className="text-[8px] text-gray-500 font-black uppercase tracking-widest text-center group-hover:text-gray-400 transition-colors">{equipped ? equipped.name : slot.label}</span>
                                                             </div>
                                                         );
                                                     })}
@@ -784,7 +896,10 @@ export function CharacterBuilderPage() {
                                                                             </div>
                                                                         </>
                                                                     ) : (
-                                                                        <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
+                                                                        <div className="flex flex-col items-center justify-center gap-1 group-hover:scale-110 transition-transform">
+                                                                            <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
+                                                                            <div className="w-1.5 h-1.5 border border-white/10 rounded-full group-hover:border-orange-500/50 group-hover:animate-pulse transition-colors" />
+                                                                        </div>
                                                                     )}
                                                                 </div>
                                                             </div>
@@ -794,64 +909,142 @@ export function CharacterBuilderPage() {
                                             </div>
 
                                             {/* Stats Panel Column */}
-                                            <div className="w-[300px] h-[420px] bg-black/40 border border-[#c2410c]/20 p-6 rounded-xl shadow-2xl backdrop-blur-md relative overflow-hidden group flex flex-col">
-                                                <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-3">
+                                            <div className="w-[200px] h-[420px] bg-black/40 border border-[#c2410c]/20 p-4 rounded-xl shadow-2xl backdrop-blur-md relative overflow-hidden flex flex-col">
+                                                <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-2">
                                                     <div className="flex items-center gap-2">
                                                         <div className="w-1.5 h-1.5 bg-[#c2410c] shadow-[0_0_8px_#c2410c]" />
-                                                        <span className="text-[11px] text-white font-black uppercase tracking-[0.2em]">STATS</span>
+                                                        <span className="text-[10px] text-white font-black uppercase tracking-[0.2em]">STATS</span>
                                                     </div>
                                                 </div>
 
-                                                <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar pr-2 min-h-0">
+                                                <div className="flex-1 space-y-2.5 overflow-y-auto custom-scrollbar pr-1 min-h-0">
                                                     {/* CHARACTER SECTION */}
-                                                    <div className="space-y-1.5">
-                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-2 opacity-80 flex items-center gap-2">
-                                                            <div className="w-1 h-1 bg-[#c2410c]/40" />
+                                                    <div className="space-y-1">
+                                                        <div className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-1 opacity-80 flex items-center gap-1.5">
+                                                            <div className="w-0.5 h-0.5 bg-[#c2410c]/40" />
                                                             CHARACTER
                                                         </div>
                                                         {[
-                                                            { label: "HP", value: 10 + stats.endurance * 5 },
-                                                            { label: "AP", value: stats.agility <= 5 ? 7 : stats.agility <= 10 ? 10 : stats.agility <= 15 ? 12 : 15 },
-                                                            { label: "Crit", value: `${stats.intelligence * 2}%` },
-                                                            { label: "Resist", value: `${stats.wisdom * 5}%` },
-                                                            { label: "Social", value: `${stats.charisma * 3}%` },
+                                                            { label: "HP", value: derivedStats.hp },
+                                                            { label: "AP", value: derivedStats.ap },
+                                                            { label: "Crit", value: derivedStats.crit },
+                                                            { label: "Resist", value: derivedStats.resist },
+                                                            { label: "Social", value: derivedStats.social },
                                                         ].map(item => (
                                                             <div key={item.label} className="flex justify-between items-center group/row border-b border-white/[0.02] pb-0.5">
-                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors uppercase">{item.label}</span>
-                                                                <span className="text-[10px] text-white font-black font-mono tracking-widest">{item.value}</span>
+                                                                <span className="text-[8px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors">{item.label}</span>
+                                                                <span className="text-[9px] text-white font-black font-mono tracking-widest">{item.value}</span>
                                                             </div>
                                                         ))}
                                                     </div>
 
                                                     {/* COMBAT SECTION */}
-                                                    <div className="space-y-1.5 pt-1">
-                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-2 opacity-80 flex items-center gap-2">
-                                                            <div className="w-1 h-1 bg-[#c2410c]/40" />
+                                                    <div className="space-y-1 pt-0.5">
+                                                        <div className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-1 opacity-80 flex items-center gap-1.5">
+                                                            <div className="w-0.5 h-0.5 bg-[#c2410c]/40" />
                                                             COMBAT
                                                         </div>
                                                         {[
-                                                            { label: "Strength", value: stats.strength },
-                                                            { label: "Min dmg", value: (4 + stats.strength * 0.2).toFixed(1) },
-                                                            { label: "Max dmg", value: (5 + stats.strength * 0.4).toFixed(1) },
+                                                            { label: "Strength", value: effectiveStats.strength },
+                                                            { label: "Min dmg", value: derivedStats.minDmg },
+                                                            { label: "Max dmg", value: derivedStats.maxDmg },
                                                         ].map(item => (
                                                             <div key={item.label} className="flex justify-between items-center group/row border-b border-white/[0.02] pb-0.5">
-                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors uppercase">{item.label}</span>
-                                                                <span className="text-[10px] text-white font-black font-mono tracking-widest">{item.value}</span>
+                                                                <span className="text-[8px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors">{item.label}</span>
+                                                                <span className="text-[9px] text-white font-black font-mono tracking-widest">{item.value}</span>
                                                             </div>
                                                         ))}
                                                     </div>
 
                                                     {/* EQUIPMENT EFFECTS SECTION */}
-                                                    <div className="space-y-1.5 pt-1">
-                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-2 opacity-80 flex items-center gap-2">
-                                                            <div className="w-1 h-1 bg-[#c2410c]/40" />
+                                                    <div className="space-y-1 pt-0.5">
+                                                        <div className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-1 opacity-80 flex items-center gap-1.5">
+                                                            <div className="w-0.5 h-0.5 bg-[#c2410c]/40" />
                                                             EQUIPMENT EFFECTS
                                                         </div>
-                                                        <div className="bg-white/[0.02] px-3 py-3 rounded border border-white/5 flex items-center justify-center italic">
-                                                            <span className="text-[8px] text-gray-600 font-bold uppercase tracking-[0.2em]">no set effect active</span>
+                                                        <div className="bg-white/[0.02] px-2 py-2 rounded border border-white/5 flex items-center justify-center italic">
+                                                            <span className="text-[7px] text-gray-600 font-bold uppercase tracking-[0.2em]">no set effect active</span>
                                                         </div>
                                                     </div>
                                                 </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Equipable Items Sidebar */}
+                                        <div className="w-[200px] h-[540px] shrink-0 flex flex-col bg-black/40 border border-white/5 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden">
+                                            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 bg-white/[0.02]">
+                                                <div className="w-1.5 h-1.5 bg-teal-500 shadow-[0_0_6px_rgba(20,184,166,0.4)]" />
+                                                <span className="text-[10px] text-white font-black uppercase tracking-[0.15em]">EQUIPABLE</span>
+                                                <span className="ml-auto text-[8px] text-gray-600 font-bold">{equipableInventoryItems.length}</span>
+                                            </div>
+
+                                            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                                                {equipableInventoryItems.length === 0 ? (
+                                                    <div className="flex items-center justify-center h-full">
+                                                        <p className="text-[8px] text-gray-700 font-bold uppercase tracking-widest italic text-center px-4">No equipable items in inventory</p>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        {/* Armor Items */}
+                                                        {equipableInventoryItems.filter(i => i.category === 'armor').length > 0 && (
+                                                            <div className="space-y-1 mb-2">
+                                                                <div className="text-[7px] font-black text-teal-500/70 uppercase tracking-[0.2em] px-1 flex items-center gap-1.5">
+                                                                    <div className="w-0.5 h-0.5 bg-teal-500/40" />
+                                                                    ARMOR
+                                                                </div>
+                                                                {equipableInventoryItems.filter(i => i.category === 'armor').map(item => {
+                                                                    const targetSlot = getEquipSlot(item);
+                                                                    return (
+                                                                        <button
+                                                                            key={item.id}
+                                                                            onClick={() => equipFromInventory(item)}
+                                                                            className="w-full text-left px-2 py-1.5 bg-black/30 border border-white/5 rounded flex items-center gap-2 group hover:border-teal-500/40 hover:bg-teal-500/5 transition-all"
+                                                                        >
+                                                                            <div className={`w-7 h-7 border flex items-center justify-center text-xs shrink-0 rarity-${item.rarity}`}>
+                                                                                {item.icon || "📦"}
+                                                                            </div>
+                                                                            <div className="flex flex-col min-w-0">
+                                                                                <span className="text-[8px] text-white font-black uppercase tracking-wider truncate">{item.name}</span>
+                                                                                <div className="flex items-center gap-1">
+                                                                                    <span className="text-[6px] text-gray-600 font-bold uppercase">{targetSlot}</span>
+                                                                                    <span className="text-[6px] text-[#c2410c] font-bold">{item.rarity}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Weapon Items */}
+                                                        {equipableInventoryItems.filter(i => i.category === 'weapon').length > 0 && (
+                                                            <div className="space-y-1">
+                                                                <div className="text-[7px] font-black text-red-500/70 uppercase tracking-[0.2em] px-1 flex items-center gap-1.5">
+                                                                    <div className="w-0.5 h-0.5 bg-red-500/40" />
+                                                                    WEAPONS
+                                                                </div>
+                                                                {equipableInventoryItems.filter(i => i.category === 'weapon').map(item => (
+                                                                    <button
+                                                                        key={item.id}
+                                                                        onClick={() => equipFromInventory(item)}
+                                                                        className="w-full text-left px-2 py-1.5 bg-black/30 border border-white/5 rounded flex items-center gap-2 group hover:border-red-500/40 hover:bg-red-500/5 transition-all"
+                                                                    >
+                                                                        <div className={`w-7 h-7 border flex items-center justify-center text-xs shrink-0 rarity-${item.rarity}`}>
+                                                                            {item.icon || "⚔️"}
+                                                                        </div>
+                                                                        <div className="flex flex-col min-w-0">
+                                                                            <span className="text-[8px] text-white font-black uppercase tracking-wider truncate">{item.name}</span>
+                                                                            <div className="flex items-center gap-1">
+                                                                                <span className="text-[6px] text-gray-600 font-bold uppercase">{getEquipSlot(item)}</span>
+                                                                                <span className="text-[6px] text-[#c2410c] font-bold">{item.rarity}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -879,6 +1072,9 @@ export function CharacterBuilderPage() {
                                                 <div className="px-2 py-0.5 bg-gray-500/10 border border-white/10 rounded text-[9px] font-bold text-gray-400 uppercase tracking-widest">
                                                     {gender}
                                                 </div>
+                                                <div className="px-2 py-0.5 bg-red-500/10 border border-red-500/30 rounded text-[9px] font-bold text-red-400 uppercase tracking-widest">
+                                                    HP: {derivedStats.hp}
+                                                </div>
                                                 {selectedOccupation && (
                                                     <div className="px-2 py-0.5 bg-[#c2410c]/10 border border-[#c2410c]/30 rounded text-[9px] font-bold text-[#c2410c] uppercase tracking-widest">
                                                         {selectedOccupation.name}
@@ -891,10 +1087,10 @@ export function CharacterBuilderPage() {
                                     <div className="bg-black/40 p-5 border border-white/5 rounded-xl shadow-xl">
                                         <h4 className="text-[9px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
                                             <div className="w-1.5 h-1.5 bg-indigo-500" />
-                                            Neural Attributes
+                                            Neural Attributes (Effective)
                                         </h4>
                                         <div className="grid grid-cols-2 gap-4">
-                                            {(Object.entries(stats) as [keyof Stats, number][]).map(([stat, val]) => (
+                                            {(Object.entries(effectiveStats) as [keyof Stats, number][]).map(([stat, val]) => (
                                                 <div key={stat} className="space-y-1.5">
                                                     <div className="flex justify-between text-[8px] uppercase tracking-widest text-gray-500 font-bold px-1">
                                                         <span>{stat}</span>
@@ -950,27 +1146,38 @@ export function CharacterBuilderPage() {
                                     </div>
 
                                     <div className="bg-black/40 p-5 border border-white/5 rounded-xl shadow-xl">
-                                        <h4 className="text-[9px] font-black text-gray-500 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                                            <div className="w-1.5 h-1.5 bg-gray-500" />
-                                            Equipment Overview
-                                        </h4>
-                                        <div className="space-y-2">
-                                            <div className="grid grid-cols-4 gap-2">
-                                                {[0, 1, 2, 3, 4, 5].map(bagIdx => {
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h4 className="text-[9px] font-black text-gray-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                                                <div className="w-1.5 h-1.5 bg-gray-500" />
+                                                Equipment & Loadout
+                                            </h4>
+                                            <span className="text-[7px] text-gray-600 font-black uppercase tracking-widest">{inventory.length} items total</span>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            {/* Equipped Summary */}
+                                            <div className="bg-white/[0.02] border border-white/5 rounded-lg p-2.5">
+                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-[0.2em] mb-2 px-1">Active Loadout</div>
+                                                <div className="grid grid-cols-4 gap-1.5">
+                                                    {Object.entries(equippedItems).map(([slot, item]) => (
+                                                        <div key={slot} className={`aspect-square border flex flex-col items-center justify-center gap-0.5 rounded ${item ? `bg-white/5 border-white/20` : 'bg-black/40 border-white/5 opacity-30'}`}>
+                                                            <span className="text-xs">{item?.icon || "◌"}</span>
+                                                            <span className="text-[5px] text-gray-500 uppercase font-black">{slot.substring(0, 4)}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {[0, 1, 2].map(bagIdx => {
                                                     const bagItems = inventory.filter(i => (i.bagIndex || 0) === bagIdx);
                                                     return (
                                                         <div key={bagIdx} className="p-2 border border-white/5 bg-black/40 rounded flex flex-col items-center gap-1">
-                                                            <div className="text-[7px] text-gray-600 font-bold">BAG {bagIdx + 1}</div>
-                                                            <div className="text-[10px] text-white font-black">{bagItems.length}</div>
+                                                            <div className="text-[6px] text-gray-600 font-bold uppercase tracking-widest">BAG {bagIdx + 1}</div>
+                                                            <div className="text-[8px] text-white font-black">{bagItems.length}</div>
                                                         </div>
                                                     );
                                                 })}
-                                            </div>
-                                            <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/5">
-                                                <span className="text-[8px] text-gray-600 font-black uppercase tracking-widest">Total Valuation</span>
-                                                <span className="text-[10px] text-[#c2410c] font-black uppercase tracking-widest">
-                                                    {inventory.reduce((sum, item) => sum + item.cost, 0).toLocaleString()} Credits
-                                                </span>
                                             </div>
                                         </div>
                                     </div>
@@ -1014,7 +1221,8 @@ export function CharacterBuilderPage() {
                                                     <span className="text-[10px] font-black text-white uppercase tracking-wider truncate">{item.name}</span>
                                                     <div className="flex items-center gap-2">
                                                         <span className="text-[8px] text-gray-500 font-bold uppercase">{item.category}</span>
-                                                        <span className="text-[8px] text-[#c2410c]/80 font-black">{item.cost} CR</span>
+                                                        {item.equipSlot && <span className="text-[8px] text-orange-500/80 font-black uppercase tracking-widest">{item.equipSlot}</span>}
+                                                        <span className="text-[8px] text-[#c2410c]/80 font-black ml-auto">{item.cost} CR</span>
                                                     </div>
                                                 </div>
                                                 {/* Hover Glow */}
@@ -1286,51 +1494,71 @@ export function CharacterBuilderPage() {
                                     </div>
 
                                     {/* Context Menu - Positioned Absolutely relative to the tab container */}
-                                    {contextMenu && (
-                                        <div
-                                            className="absolute z-[1000] w-36 bg-[#0d0d0d] border border-[#c2410c]/30 shadow-2xl py-0.5 animate-in fade-in zoom-in-95 duration-75 origin-top-left"
-                                            style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
-                                            onClick={(e) => e.stopPropagation()}
-                                        >
-                                            <div className="px-3 py-1 border-b border-white/5 mb-0.5 bg-white/[0.02]">
-                                                <span className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em]">SLOT {contextMenu.slotIndex! + 1}</span>
+                                    {contextMenu && (() => {
+                                        const contextItem = contextMenu.slotIndex !== null ? filteredInventory[contextMenu.slotIndex] : null;
+                                        const equippedSlot = contextItem ? isItemEquipped(contextItem) : null;
+                                        const canEquip = contextItem ? isEquipable(contextItem) : false;
+                                        return (
+                                            <div
+                                                className="absolute z-[1000] w-36 bg-[#0d0d0d] border border-[#c2410c]/30 shadow-2xl py-0.5 animate-in fade-in zoom-in-95 duration-75 origin-top-left"
+                                                style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <div className="px-3 py-1 border-b border-white/5 mb-0.5 bg-white/[0.02]">
+                                                    <span className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em]">SLOT {contextMenu.slotIndex! + 1}</span>
+                                                </div>
+                                                <button className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-[#c2410c] hover:text-white transition-all uppercase tracking-widest flex items-center justify-between">
+                                                    USE <span>»</span>
+                                                </button>
+                                                {canEquip && contextItem && (
+                                                    <button
+                                                        onClick={() => {
+                                                            if (equippedSlot) {
+                                                                unequipItem(equippedSlot);
+                                                            } else {
+                                                                equipFromInventory(contextItem);
+                                                            }
+                                                            setContextMenu(null);
+                                                        }}
+                                                        className={`w-full text-left px-3 py-1.5 text-[9px] font-bold hover:text-white transition-all uppercase tracking-widest flex items-center justify-between ${equippedSlot ? 'text-orange-400 hover:bg-orange-500/20' : 'text-teal-400 hover:bg-teal-500/20'}`}
+                                                    >
+                                                        {equippedSlot ? 'UNEQUIP' : 'EQUIP'} <span>»</span>
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => {
+                                                        if (contextMenu.slotIndex !== null) {
+                                                            setAnimatingSlot({ index: contextMenu.slotIndex, type: 'throw' });
+                                                            setTimeout(() => {
+                                                                removeSlotItem(contextMenu.slotIndex!);
+                                                                setAnimatingSlot(null);
+                                                            }, 600);
+                                                            setContextMenu(null);
+                                                        }
+                                                    }}
+                                                    className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-white/5 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
+                                                >
+                                                    THROW <span>»</span>
+                                                </button>
+                                                <div className="h-px bg-white/5 my-0.5" />
+                                                <button
+                                                    onClick={() => {
+                                                        if (contextMenu.slotIndex !== null) {
+                                                            setAnimatingSlot({ index: contextMenu.slotIndex, type: 'destroy' });
+                                                            setTimeout(() => {
+                                                                removeSlotItem(contextMenu.slotIndex!);
+                                                                setAnimatingSlot(null);
+                                                            }, 500);
+                                                            setContextMenu(null);
+                                                        }
+                                                    }}
+                                                    className="w-full text-left px-3 py-1.5 text-[9px] text-red-600 font-black hover:bg-red-600/20 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
+                                                >
+                                                    DESTROY <span>»</span>
+                                                </button>
                                             </div>
-                                            <button className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-[#c2410c] hover:text-white transition-all uppercase tracking-widest flex items-center justify-between">
-                                                USE <span>»</span>
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    if (contextMenu.slotIndex !== null) {
-                                                        setAnimatingSlot({ index: contextMenu.slotIndex, type: 'throw' });
-                                                        setTimeout(() => {
-                                                            removeSlotItem(contextMenu.slotIndex!);
-                                                            setAnimatingSlot(null);
-                                                        }, 600);
-                                                        setContextMenu(null);
-                                                    }
-                                                }}
-                                                className="w-full text-left px-3 py-1.5 text-[9px] text-gray-400 font-bold hover:bg-white/5 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
-                                            >
-                                                THROW <span>»</span>
-                                            </button>
-                                            <div className="h-px bg-white/5 my-0.5" />
-                                            <button
-                                                onClick={() => {
-                                                    if (contextMenu.slotIndex !== null) {
-                                                        setAnimatingSlot({ index: contextMenu.slotIndex, type: 'destroy' });
-                                                        setTimeout(() => {
-                                                            removeSlotItem(contextMenu.slotIndex!);
-                                                            setAnimatingSlot(null);
-                                                        }, 500);
-                                                        setContextMenu(null);
-                                                    }
-                                                }}
-                                                className="w-full text-left px-3 py-1.5 text-[9px] text-red-600 font-black hover:bg-red-600/20 hover:text-white transition-all uppercase tracking-widest flex items-center justify-between"
-                                            >
-                                                DESTROY <span>»</span>
-                                            </button>
-                                        </div>
-                                    )}
+                                        );
+                                    })()}
 
                                     {/* Hover Info Panel - Purely Informational */}
                                     {hoverInfo && !contextMenu && (
@@ -1360,6 +1588,15 @@ export function CharacterBuilderPage() {
                                                     <div className="text-[7px] text-gray-400 font-bold uppercase tracking-widest text-right">
                                                         {hoverInfo.item.category}
                                                     </div>
+
+                                                    {hoverInfo.item.equipSlot && (
+                                                        <>
+                                                            <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Slot:</div>
+                                                            <div className="text-[7px] text-orange-500 font-bold uppercase tracking-widest text-right">
+                                                                {hoverInfo.item.equipSlot}
+                                                            </div>
+                                                        </>
+                                                    )}
 
                                                     <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Value:</div>
                                                     <div className="text-[7px] text-[#c2410c] font-black uppercase tracking-widest text-right">

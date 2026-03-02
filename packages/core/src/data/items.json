@@ -37,7 +37,7 @@
     "rarity": "ashmarked"
   },
   {
-    "category": "weapon",
+    "category": "armor",
     "cost": 0,
     "description": "Un gros gourdin appartenant a Alexandre François avant la chute.\nMefiez-vous du gros gourdin ainsi que de son propriétaire. ",
     "effects": [
@@ -52,6 +52,7 @@
         "value": -20
       }
     ],
+    "equipSlot": "mainHand",
     "icon": "📦",
     "id": "item-1772210100258",
     "name": "Le gourdin d'AF",

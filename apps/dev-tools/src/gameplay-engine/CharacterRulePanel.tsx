@@ -250,6 +250,7 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                                                                     <span className="text-sm">{i.icon || "📦"}</span>
                                                                 )}
                                                                 <span className="text-[11px] font-bold uppercase text-[#c2410c] line-clamp-1">{i.name}</span>
+                                                                {i.equipSlot && <span className="text-[7px] bg-white/5 border border-white/5 px-1 py-0.5 rounded text-gray-500 font-black uppercase tracking-widest">{i.equipSlot}</span>}
                                                             </div>
                                                             <span className="text-[9px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300 font-mono">Cost: {i.cost}</span>
                                                         </div>
