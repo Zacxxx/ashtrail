@@ -65,6 +65,19 @@ export function CharacterBuilderPage() {
     const [hoverInfo, setHoverInfo] = useState<{ x: number, y: number, item: Item } | null>(null);
     const [animatingSlot, setAnimatingSlot] = useState<{ index: number, type: 'destroy' | 'throw' } | null>(null);
 
+    // Equipment State
+    const [equippedItems, setEquippedItems] = useState<Record<string, Item | null>>({
+        head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
+    });
+
+    const equipItem = (slotId: string, item: Item) => {
+        setEquippedItems(prev => ({ ...prev, [slotId]: item }));
+    };
+
+    const unequipItem = (slotId: string) => {
+        setEquippedItems(prev => ({ ...prev, [slotId]: null }));
+    };
+
     const sortByRarity = () => {
         setInventory(prev => [...prev].sort((a, b) => RARITY_ORDER[b.rarity] - RARITY_ORDER[a.rarity]));
     };
@@ -174,6 +187,14 @@ export function CharacterBuilderPage() {
         setStats(char.stats);
         setSelectedOccupation(char.occupation || null);
         setInventory(char.inventory || []);
+        // @ts-ignore - Handle equipped items if they exist in the saved data
+        if (char.equipped) {
+            setEquippedItems(char.equipped);
+        } else {
+            setEquippedItems({
+                head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
+            });
+        }
         // Recalculate points (approximate)
         const usedTraitPoints = (char.traits || []).reduce((sum, t) => sum + t.cost, 0);
         setTraitPoints(15 - usedTraitPoints);
@@ -197,6 +218,9 @@ export function CharacterBuilderPage() {
         setStats({ ...DEFAULT_STATS });
         setStatsPoints(18);
         setSelectedOccupation(null);
+        setEquippedItems({
+            head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
+        });
         setActiveTab("IDENTITY");
         // Also reset inventory to fresh mock data
         const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
@@ -235,7 +259,9 @@ export function CharacterBuilderPage() {
             maxHp: 10 + finalStats.endurance * 5,
             xp: 0,
             level: level,
-            inventory: inventory
+            inventory: inventory,
+            // @ts-ignore - Persist equipped items in the JSON
+            equipped: equippedItems
         };
 
         try {
@@ -629,19 +655,38 @@ export function CharacterBuilderPage() {
                                                     { id: "head", label: "Head" },
                                                     { id: "chest", label: "Chest" },
                                                     { id: "gloves", label: "Gloves" },
-                                                ].map(slot => (
-                                                    <div key={slot.id} className="flex items-center gap-3 group">
-                                                        <div className="w-14 h-14 bg-black/60 border border-white/10 hover:border-[#c2410c]/50 transition-all flex items-center justify-center relative cursor-pointer shadow-lg">
-                                                            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
-                                                            <div className="absolute top-0.5 left-0.5 w-0.5 h-0.5 bg-white/10" />
-                                                            <div className="absolute bottom-0.5 right-0.5 w-0.5 h-0.5 bg-white/10" />
-                                                            <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
+                                                ].map(slot => {
+                                                    const equipped = equippedItems[slot.id];
+                                                    return (
+                                                        <div key={slot.id} className="flex items-center gap-3 group">
+                                                            <div
+                                                                onClick={() => equipped && unequipItem(slot.id)}
+                                                                className={`w-14 h-14 bg-black/60 border transition-all flex items-center justify-center relative cursor-pointer shadow-lg overflow-hidden ${equipped ? `rarity-${equipped.rarity} border-2` : 'border-white/10 hover:border-[#c2410c]/50'
+                                                                    }`}
+                                                            >
+                                                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
+                                                                <div className="absolute top-0.5 left-0.5 w-0.5 h-0.5 bg-white/10" />
+                                                                <div className="absolute bottom-0.5 right-0.5 w-0.5 h-0.5 bg-white/10" />
+
+                                                                {equipped ? (
+                                                                    <>
+                                                                        {equipped.rarity === 'ashmarked' && <div className="absolute inset-0 ashmarked-permanent-ripple z-0 opacity-40" />}
+                                                                        <span className="text-xl z-10 drop-shadow-md">{equipped.icon || "📦"}</span>
+                                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-red-500/20 transition-colors flex items-center justify-center">
+                                                                            <span className="text-[8px] text-white opacity-0 group-hover:opacity-100 font-black uppercase">Unequip</span>
+                                                                        </div>
+                                                                    </>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
+                                                                )}
+                                                            </div>
+                                                            <div className="w-14 flex flex-col">
+                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">{equipped ? equipped.name : slot.label}</span>
+                                                                {equipped && <span className="text-[7px] text-[#c2410c] font-bold uppercase truncate">{equipped.rarity}</span>}
+                                                            </div>
                                                         </div>
-                                                        <div className="w-14 flex flex-col">
-                                                            <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">{slot.label}</span>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
 
                                             {/* Center: Character Preview & Weapons */}
@@ -677,15 +722,32 @@ export function CharacterBuilderPage() {
                                                     {[
                                                         { id: "mainHand", label: "Main Hand" },
                                                         { id: "offHand", label: "Off Hand" },
-                                                    ].map(slot => (
-                                                        <div key={slot.id} className="flex flex-col items-center gap-2">
-                                                            <div className="w-16 h-16 bg-black/60 border border-white/10 hover:border-[#c2410c]/50 transition-all flex items-center justify-center relative cursor-pointer shadow-lg">
-                                                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
-                                                                <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">WPN</span>
+                                                    ].map(slot => {
+                                                        const equipped = equippedItems[slot.id];
+                                                        return (
+                                                            <div key={slot.id} className="flex flex-col items-center gap-2">
+                                                                <div
+                                                                    onClick={() => equipped && unequipItem(slot.id)}
+                                                                    className={`w-16 h-16 bg-black/60 border transition-all flex items-center justify-center relative cursor-pointer shadow-lg overflow-hidden ${equipped ? `rarity-${equipped.rarity} border-2` : 'border-white/10 hover:border-[#c2410c]/50'
+                                                                        }`}
+                                                                >
+                                                                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
+                                                                    {equipped ? (
+                                                                        <>
+                                                                            {equipped.rarity === 'ashmarked' && <div className="absolute inset-0 ashmarked-permanent-ripple z-0 opacity-40" />}
+                                                                            <span className="text-2xl z-10 drop-shadow-md">{equipped.icon || "📦"}</span>
+                                                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-red-500/20 transition-colors flex items-center justify-center">
+                                                                                <span className="text-[8px] text-white opacity-0 group-hover:opacity-100 font-black">UNEQUIP</span>
+                                                                            </div>
+                                                                        </>
+                                                                    ) : (
+                                                                        <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">WPN</span>
+                                                                    )}
+                                                                </div>
+                                                                <span className="text-[8px] text-gray-500 font-black uppercase tracking-widest text-center">{equipped ? equipped.name : slot.label}</span>
                                                             </div>
-                                                            <span className="text-[8px] text-gray-500 font-black uppercase tracking-widest text-center">{slot.label}</span>
-                                                        </div>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
 
@@ -696,19 +758,38 @@ export function CharacterBuilderPage() {
                                                         { id: "waist", label: "Waist" },
                                                         { id: "legs", label: "Legs" },
                                                         { id: "boots", label: "Boots" },
-                                                    ].map(slot => (
-                                                        <div key={slot.id} className="flex items-center gap-3 group">
-                                                            <div className="w-14 flex flex-col text-right">
-                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">{slot.label}</span>
+                                                    ].map(slot => {
+                                                        const equipped = equippedItems[slot.id];
+                                                        return (
+                                                            <div key={slot.id} className="flex items-center gap-3 group">
+                                                                <div className="w-14 flex flex-col text-right">
+                                                                    <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">{equipped ? equipped.name : slot.label}</span>
+                                                                    {equipped && <span className="text-[7px] text-[#c2410c] font-bold uppercase truncate">{equipped.rarity}</span>}
+                                                                </div>
+                                                                <div
+                                                                    onClick={() => equipped && unequipItem(slot.id)}
+                                                                    className={`w-14 h-14 bg-black/60 border transition-all flex items-center justify-center relative cursor-pointer shadow-lg overflow-hidden ${equipped ? `rarity-${equipped.rarity} border-2` : 'border-white/10 hover:border-[#c2410c]/50'
+                                                                        }`}
+                                                                >
+                                                                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
+                                                                    <div className="absolute top-0.5 left-0.5 w-0.5 h-0.5 bg-white/10" />
+                                                                    <div className="absolute bottom-0.5 right-0.5 w-0.5 h-0.5 bg-white/10" />
+
+                                                                    {equipped ? (
+                                                                        <>
+                                                                            {equipped.rarity === 'ashmarked' && <div className="absolute inset-0 ashmarked-permanent-ripple z-0 opacity-40" />}
+                                                                            <span className="text-xl z-10 drop-shadow-md">{equipped.icon || "📦"}</span>
+                                                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-red-500/20 transition-colors flex items-center justify-center">
+                                                                                <span className="text-[8px] text-white opacity-0 group-hover:opacity-100 font-black">UNEQUIP</span>
+                                                                            </div>
+                                                                        </>
+                                                                    ) : (
+                                                                        <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                            <div className="w-14 h-14 bg-black/60 border border-white/10 hover:border-[#c2410c]/50 transition-all flex items-center justify-center relative cursor-pointer shadow-lg">
-                                                                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0)_20%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
-                                                                <div className="absolute top-0.5 left-0.5 w-0.5 h-0.5 bg-white/10" />
-                                                                <div className="absolute bottom-0.5 right-0.5 w-0.5 h-0.5 bg-white/10" />
-                                                                <span className="text-[10px] text-gray-800 font-black uppercase pointer-events-none">{slot.id.substring(0, 3)}</span>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
 
