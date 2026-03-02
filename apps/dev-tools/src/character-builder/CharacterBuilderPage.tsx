@@ -357,6 +357,25 @@ export function CharacterBuilderPage() {
                         background: radial-gradient(circle, #991b1b 0%, transparent 70%);
                         animation: permanentRipple 4s ease-in-out infinite;
                     }
+
+                    /* Scrollbar customization */
+                    .custom-scrollbar::-webkit-scrollbar {
+                        width: 3px;
+                        height: 3px;
+                    }
+                    .custom-scrollbar::-webkit-scrollbar-track {
+                        background: transparent;
+                    }
+                    .custom-scrollbar::-webkit-scrollbar-thumb {
+                        background: rgba(194, 65, 12, 0.1);
+                        border-radius: 10px;
+                    }
+                    .custom-scrollbar:hover::-webkit-scrollbar-thumb {
+                        background: rgba(194, 65, 12, 0.3);
+                    }
+                    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                        background: rgba(194, 65, 12, 0.6);
+                    }
                 `}</style>
 
                 {/* Left: Saved Characters Sidebar */}
@@ -597,15 +616,15 @@ export function CharacterBuilderPage() {
 
                         {/* ═══ EQUIPEMENT TAB ═══ */}
                         {activeTab === "EQUIPEMENT" && (
-                            <div className="flex flex-col h-full relative font-mono overflow-hidden py-4 px-2 gap-6 animate-ash-settling" onClick={() => setContextMenu(null)}>
-                                <div className="flex-1 flex items-start justify-center overflow-y-auto custom-scrollbar pt-6 pb-12">
+                            <div className="flex flex-col h-full relative font-mono overflow-hidden py-2 px-2 gap-4 animate-ash-settling" onClick={() => setContextMenu(null)}>
+                                <div className="flex-1 flex items-start justify-center overflow-y-auto custom-scrollbar pt-2 pb-6">
                                     <div className="w-full max-w-[1100px] flex items-start justify-center gap-6">
 
                                         {/* Character Block */}
                                         <div className="flex items-start gap-2">
 
                                             {/* Left Slots Column */}
-                                            <div className="flex flex-col gap-4 shrink-0 pt-16">
+                                            <div className="flex flex-col gap-3 shrink-0 pt-8">
                                                 {[
                                                     { id: "head", label: "Head" },
                                                     { id: "chest", label: "Chest" },
@@ -671,8 +690,8 @@ export function CharacterBuilderPage() {
                                             </div>
 
                                             {/* Right Slots Column */}
-                                            <div className="flex flex-col gap-4 shrink-0 pt-16">
-                                                <div className="flex flex-col gap-4">
+                                            <div className="flex flex-col gap-3 shrink-0 pt-8">
+                                                <div className="flex flex-col gap-3">
                                                     {[
                                                         { id: "waist", label: "Waist" },
                                                         { id: "legs", label: "Legs" },
@@ -702,30 +721,30 @@ export function CharacterBuilderPage() {
                                                     </div>
                                                 </div>
 
-                                                <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2 min-h-0">
+                                                <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar pr-2 min-h-0">
                                                     {/* CHARACTER SECTION */}
-                                                    <div className="space-y-2">
-                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-3 opacity-80 flex items-center gap-2">
+                                                    <div className="space-y-1.5">
+                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-2 opacity-80 flex items-center gap-2">
                                                             <div className="w-1 h-1 bg-[#c2410c]/40" />
                                                             CHARACTER
                                                         </div>
                                                         {[
-                                                            { label: "HP (Endurance)", value: 10 + stats.endurance * 5 },
-                                                            { label: "AP (Agility)", value: stats.agility <= 5 ? 7 : stats.agility <= 10 ? 10 : stats.agility <= 15 ? 12 : 15 },
-                                                            { label: "Crit (Int)", value: `${stats.intelligence * 2}%` },
-                                                            { label: "Resist (Wis)", value: `${stats.wisdom * 5}%` },
-                                                            { label: "Social (Cha)", value: `${stats.charisma * 3}%` },
+                                                            { label: "HP", value: 10 + stats.endurance * 5 },
+                                                            { label: "AP", value: stats.agility <= 5 ? 7 : stats.agility <= 10 ? 10 : stats.agility <= 15 ? 12 : 15 },
+                                                            { label: "Crit", value: `${stats.intelligence * 2}%` },
+                                                            { label: "Resist", value: `${stats.wisdom * 5}%` },
+                                                            { label: "Social", value: `${stats.charisma * 3}%` },
                                                         ].map(item => (
-                                                            <div key={item.label} className="flex justify-between items-center group/row border-b border-white/[0.02] pb-1">
-                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors">{item.label}</span>
-                                                                <span className="text-[11px] text-white font-black font-mono tracking-widest">{item.value}</span>
+                                                            <div key={item.label} className="flex justify-between items-center group/row border-b border-white/[0.02] pb-0.5">
+                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors uppercase">{item.label}</span>
+                                                                <span className="text-[10px] text-white font-black font-mono tracking-widest">{item.value}</span>
                                                             </div>
                                                         ))}
                                                     </div>
 
                                                     {/* COMBAT SECTION */}
-                                                    <div className="space-y-2 pt-2">
-                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-3 opacity-80 flex items-center gap-2">
+                                                    <div className="space-y-1.5 pt-1">
+                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-2 opacity-80 flex items-center gap-2">
                                                             <div className="w-1 h-1 bg-[#c2410c]/40" />
                                                             COMBAT
                                                         </div>
@@ -734,32 +753,21 @@ export function CharacterBuilderPage() {
                                                             { label: "Min dmg", value: (4 + stats.strength * 0.2).toFixed(1) },
                                                             { label: "Max dmg", value: (5 + stats.strength * 0.4).toFixed(1) },
                                                         ].map(item => (
-                                                            <div key={item.label} className="flex justify-between items-center group/row border-b border-white/[0.02] pb-1">
-                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors">{item.label}</span>
-                                                                <span className="text-[11px] text-white font-black font-mono tracking-widest">{item.value}</span>
+                                                            <div key={item.label} className="flex justify-between items-center group/row border-b border-white/[0.02] pb-0.5">
+                                                                <span className="text-[9px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors uppercase">{item.label}</span>
+                                                                <span className="text-[10px] text-white font-black font-mono tracking-widest">{item.value}</span>
                                                             </div>
                                                         ))}
                                                     </div>
 
                                                     {/* EQUIPMENT EFFECTS SECTION */}
-                                                    <div className="space-y-2 pt-2">
-                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-3 opacity-80 flex items-center gap-2">
+                                                    <div className="space-y-1.5 pt-1">
+                                                        <div className="text-[8px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-2 opacity-80 flex items-center gap-2">
                                                             <div className="w-1 h-1 bg-[#c2410c]/40" />
                                                             EQUIPMENT EFFECTS
                                                         </div>
-                                                        <div className="space-y-1.5">
-                                                            <div className="flex justify-between items-center bg-white/[0.02] px-2 py-1.5 rounded border border-white/5">
-                                                                <span className="text-[8px] text-orange-400 font-black uppercase">ASHWALKER SET</span>
-                                                                <span className="text-[8px] text-gray-500 font-bold uppercase">2/4</span>
-                                                            </div>
-                                                            <div className="flex flex-col gap-1 px-2">
-                                                                <div className="flex justify-between items-center">
-                                                                    <span className="text-[7px] text-gray-500 font-black uppercase italic">Set bonus: +5% Agility</span>
-                                                                </div>
-                                                                <div className="flex justify-between items-center">
-                                                                    <span className="text-[7px] text-gray-500 font-black uppercase italic">+10 Max HP (Gloves)</span>
-                                                                </div>
-                                                            </div>
+                                                        <div className="bg-white/[0.02] px-3 py-3 rounded border border-white/5 flex items-center justify-center italic">
+                                                            <span className="text-[8px] text-gray-600 font-bold uppercase tracking-[0.2em]">no set effect active</span>
                                                         </div>
                                                     </div>
                                                 </div>
