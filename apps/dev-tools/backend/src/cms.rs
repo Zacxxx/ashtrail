@@ -263,3 +263,27 @@ fn save_json_array(path: &std::path::PathBuf, data: Vec<serde_json::Value>) -> R
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
+
+pub async fn get_game_rules(State(_state): State<AppState>) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/game_rules.json");
+    match fs::read_to_string(&path) {
+        Ok(data) => {
+            let json: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
+            Ok((StatusCode::OK, Json(json)))
+        },
+        Err(_) => {
+            // Return empty object if file doesn't exist
+            Ok((StatusCode::OK, Json(serde_json::json!({}))))
+        },
+    }
+}
+
+pub async fn save_game_rules(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/game_rules.json");
+    
+    let json_string = serde_json::to_string_pretty(&payload).unwrap();
+    match fs::write(&path, json_string) {
+        Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+}
