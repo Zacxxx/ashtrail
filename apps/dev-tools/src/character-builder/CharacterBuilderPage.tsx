@@ -21,7 +21,7 @@ const ITEMS_BY_CATEGORY: Record<string, string[]> = {
     consumable: ["Med Kit", "Bandage", "Stimulant", "Filtered Water", "Nutrient Bar", "Antigen"],
     resource: ["Scrap Metal", "Electronics", "Chemicals", "Fiberglass"],
     junk: ["Broken Bottle", "Rusted Nut", "Plastic Waste", "Old Tape"],
-    armor: ["Tactical Vest", "Reinforced Helmet", "Scrap Plating", "Leather Guards"]
+    armor: ["Tactical Vest", "Reinforced Helmet", "Scrap Plating", "Leather Guards", "Combat Boots"]
 };
 
 export function CharacterBuilderPage() {
@@ -676,6 +676,7 @@ export function CharacterBuilderPage() {
                                                     {[
                                                         { id: "waist", label: "Waist" },
                                                         { id: "legs", label: "Legs" },
+                                                        { id: "boots", label: "Boots" },
                                                     ].map(slot => (
                                                         <div key={slot.id} className="flex items-center gap-3 group">
                                                             <div className="w-14 flex flex-col text-right">
