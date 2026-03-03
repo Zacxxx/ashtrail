@@ -103,16 +103,15 @@ export function CharacterBuilderPage() {
     const [name, setName] = useState("");
     const [age, setAge] = useState(25);
     const [gender, setGender] = useState("Male");
+    const [backstory, setBackstory] = useState("");
     const [history, setHistory] = useState("");
-    const [appearancePrompt, setAppearancePrompt] = useState("");
+    const [currentStory, setCurrentStory] = useState("");
     const [isNPC, setIsNPC] = useState(false);
     const [level, setLevel] = useState(1);
     const [characterTitle, setCharacterTitle] = useState("");
     const [characterBadge, setCharacterBadge] = useState("");
     const [faction, setFaction] = useState("");
     const [alignment, setAlignment] = useState("");
-    const [backstory, setBackstory] = useState("");
-    const [currentStory, setCurrentStory] = useState("");
     const [showSelectionModal, setShowSelectionModal] = useState<"title" | "badge" | null>(null);
     const [isGeneratingStory, setIsGeneratingStory] = useState(false);
 
@@ -458,15 +457,17 @@ export function CharacterBuilderPage() {
         setName(char.name);
         setAge(char.age);
         setGender(char.gender);
-        setHistory(char.history);
-        setAppearancePrompt(char.appearancePrompt);
+        const loadedBackstory = char.backstory || char.appearancePrompt || "";
+        setBackstory(loadedBackstory);
+        // If history is identical to backstory, it shows it wasn't a real generated story
+        const loadedHistory = (char.history && char.history !== loadedBackstory && char.history.length > loadedBackstory.length + 50) ? char.history : "";
+        setHistory(loadedHistory);
         setIsNPC(char.isNPC || false);
         updateLevel(char.level || 1);
         setCharacterTitle(char.title || "");
         setCharacterBadge(char.badge || "");
         setFaction(char.faction || "");
         setAlignment(char.alignment || "");
-        setBackstory(char.backstory || "");
         setCurrentStory(char.currentStory || "");
         setSelectedTraits(char.traits || []);
         setStats(char.stats);
@@ -503,14 +504,13 @@ export function CharacterBuilderPage() {
         setAge(25);
         setGender("Male");
         setHistory("");
-        setAppearancePrompt("");
+        setBackstory("");
         setIsNPC(false);
         updateLevel(1);
         setCharacterTitle("");
         setCharacterBadge("");
         setFaction("");
         setAlignment("");
-        setBackstory("");
         setCurrentStory("");
         setSelectedTraits([]);
         setTraitPoints(15);
@@ -555,7 +555,8 @@ export function CharacterBuilderPage() {
             age,
             gender,
             history,
-            appearancePrompt,
+            backstory,
+            appearancePrompt: backstory, // Keep both in sync for legacy data/backend support
             stats: finalStats,
             traits: selectedTraits,
             occupation: selectedOccupation || undefined,
@@ -569,7 +570,6 @@ export function CharacterBuilderPage() {
             badge: characterBadge,
             faction: faction,
             alignment: alignment,
-            backstory: backstory,
             currentStory: currentStory,
         };
 
@@ -811,8 +811,8 @@ export function CharacterBuilderPage() {
 
 
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Appearance Description</label>
-                                    <textarea value={appearancePrompt} onChange={e => setAppearancePrompt(e.target.value)} placeholder="Physical appearance descriptor..." rows={2} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all resize-none" />
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Brief Backstory</label>
+                                    <textarea value={backstory} onChange={e => setBackstory(e.target.value)} placeholder="Ex: 'I was a neurosurgeon in 20th century London'..." rows={2} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all resize-none" />
                                 </div>
                             </div>
                         )}
@@ -831,16 +831,16 @@ export function CharacterBuilderPage() {
                                                 <div className="space-y-1">
                                                     <h3 className="text-[12px] font-black text-white uppercase tracking-[0.4em] flex items-center gap-3">
                                                         <div className="w-2 h-2 bg-orange-500 shadow-[0_0_10px_#f97316]" />
-                                                        ASH-TRAIL NEURAL INTERFACE
+                                                        LORE
                                                     </h3>
-                                                    <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest italic">Temporal Era: ASH-4 (Present Day)</p>
+                                                    <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest italic">ASH-4: PRESENT DAY</p>
                                                 </div>
                                             </div>
 
                                             <div className="grid grid-cols-[300px_1fr] gap-8">
                                                 <div className="space-y-4">
                                                     <div className="p-5 bg-orange-500/[0.03] border border-orange-500/10 rounded-xl">
-                                                        <div className="text-[8px] text-orange-500/70 font-black uppercase tracking-[0.2em] mb-3">ASH-4 Protocol</div>
+                                                        <div className="text-[8px] text-orange-500/70 font-black uppercase tracking-[0.2em] mb-3">DEBRIEFING</div>
                                                         <p className="text-[10px] text-gray-400 leading-relaxed italic font-medium">
                                                             {ASH_TRAIL_CHRONICLES.find(c => c.id === "ASH-4")?.event}
                                                         </p>
@@ -859,12 +859,15 @@ export function CharacterBuilderPage() {
                                                 </div>
 
                                                 <div className="space-y-6">
-                                                    <textarea
-                                                        value={backstory}
-                                                        onChange={e => setBackstory(e.target.value)}
-                                                        placeholder="Ex: 'I was a neurosurgeon in 20th century London' or 'I was a simple farmer in the Midwest'..."
-                                                        className="w-full h-[240px] bg-black/60 border border-white/10 text-[12px] text-gray-200 px-6 py-5 rounded-2xl outline-none focus:border-orange-500/40 transition-all font-mono leading-loose shadow-inner placeholder:text-gray-800"
-                                                    />
+                                                    <div className="space-y-2">
+                                                        <div className="text-[9px] font-black text-orange-500/50 uppercase tracking-[0.2em] px-2">Draft Input</div>
+                                                        <textarea
+                                                            value={backstory}
+                                                            onChange={e => setBackstory(e.target.value)}
+                                                            placeholder="Ex: 'I was a neurosurgeon in 20th century London' or 'I was a simple farmer in the Midwest'..."
+                                                            className="w-full h-[240px] bg-black/60 border border-white/10 text-[12px] text-gray-200 px-6 py-5 rounded-2xl outline-none focus:border-orange-500/40 transition-all font-mono leading-loose shadow-inner placeholder:text-gray-800"
+                                                        />
+                                                    </div>
 
                                                     <div className="flex justify-end pt-2">
                                                         <button
@@ -874,28 +877,90 @@ export function CharacterBuilderPage() {
                                                                     const currentName = name || "This unit";
                                                                     const soulContext = (backstory || "").toLowerCase();
                                                                     const occupation = selectedOccupation?.name || 'Wanderer';
-                                                                    const originLoc = soulContext.includes("london") ? "the streets of London" :
-                                                                        soulContext.includes("midwest") ? "the American Midwest" :
-                                                                            soulContext.includes("paris") ? "the boulevards of Paris" : "a world of order and peace";
 
-                                                                    const p1 = `Before the heavens suffocated under a permanent blanket of soot, ${currentName} was a figure of the Old World, built on the legacy of ${backstory || "a simple, long-forgotten life"}. In those final, shimmering years of the 20th century, before the sky darkened and the first flakes of Ash settled, they moved through streets of glass and steel, participating in a civilization that believed its progress was infinite. Whether it was the sanitized sterility of a high-tech lab or the rustic peace of the countryside, the memory of that era remains a ghost—a spectral image of a blue sky that has not been seen in generations.`;
+                                                                    // Dynamic Story Component Pools
+                                                                    const isScience = soulContext.includes("doctor") || soulContext.includes("surgeon") || soulContext.includes("hospital") || soulContext.includes("lab") || soulContext.includes("medical");
+                                                                    const isRural = soulContext.includes("farmer") || soulContext.includes("farm") || soulContext.includes("nature") || soulContext.includes("midwest");
+                                                                    const isUrban = soulContext.includes("london") || soulContext.includes("paris") || soulContext.includes("city") || soulContext.includes("street");
 
-                                                                    const p2 = `The end did not arrive with a scream, but with the silent, creeping advance of the Great Fog. ${currentName} witnessed first-hand the terrifying transition as the horizon vanished and the Atmosphere itself became an enemy. They navigated the frantic desperation of the Resource Wars, where the last vestiges of modern sovereignty were traded for drops of fuel and clean water. In the chaos of the global disintegration, survival became the only law, and ${currentName} learned to survive within the crumbling ruins of a world that was rapidly becoming alien.`;
+                                                                    const isHeroic = soulContext.includes("save") || soulContext.includes("help") || soulContext.includes("protect") || soulContext.includes("hero") || soulContext.includes("loyalty");
+                                                                    const isVillainous = soulContext.includes("kill") || soulContext.includes("bastard") || soulContext.includes("ruthless") || soulContext.includes("experiment") || soulContext.includes("betray");
 
-                                                                    const p3 = `When the surface finally became uninhabitable, the long migration into the deep began. ${currentName} lived through the agonizing silence of the underground vaults, surviving for years behind the lead-lined, reinforced structural shells of the Great Dark. Above, the Ash-storms reshaped the continents, burying the landmarks of the old world under meters of gray dust. In the claustrophobic dimness of those bunkers, the person they once were began to erode, replaced by a hardened survivor forged in the shadows.`;
+                                                                    // Segment 1: The Old World Origin
+                                                                    let p1 = `Before the heavens suffocated under a permanent blanket of soot, ${currentName} was defined by a different life. `;
+                                                                    if (isScience) p1 += `In the sanitized, ultra-sterile halls of the world's leading medical facilities, they navigated complex biological architectures, dedicating their days to the precision of the scalpel and the hope of recovery.`;
+                                                                    else if (isRural) p1 += `Existing in the quiet rhythms of the countryside, they lived through the last golden harvests, watching the horizons for seasons that would eventually cease to arrive.`;
+                                                                    else if (isUrban) p1 += `They were a permanent fixture of a bustling metropolis, navigating streets of glass and steel during the final, shimmering years of a civilization that believed its progress was infinite.`;
+                                                                    else p1 += `Built on the legacy of ${backstory || "a simple, long-forgotten life"}, they participated in the shimmering final years of the 20th century, before the sky darkened and the world dissolved.`;
 
-                                                                    const p4 = `Emerging from the vaults during the era of the first surface scouts, ${currentName} found a planet that no longer recognized its masters. They became a scavenger of the wastes, reclaiming artifacts of the past to build the foundations of a new, fractured society. Every scrap of metal and every fragment of data became a lifeline. It was a time of rebuilding where the ghosts of the past met the harsh necessities of the present, and ${currentName} proved to be a vital component in the machinery of reclamation.`;
+                                                                    // Segment 2: The Fall
+                                                                    let p2 = `The end did not arrive with a scream, but with the silent, creeping advance of the Great Fog. `;
+                                                                    if (isVillainous) p2 += `While others succumbed to panic, ${currentName} recognized the coming chaos as a laboratory for their own ambitions. They survived the Resource Wars by discarding the moral weights that held others back, learning the cold math of survival where the life of another was merely a variable to be managed.`;
+                                                                    else if (isHeroic) p2 += `As the Atmosphere turned toxic and the world ignited in the Resource Wars, ${currentName} stood as a flicker of light in the growing dark, exhaustion their only constant companion as they fought to save those who could not save themselves.`;
+                                                                    else p2 += `${currentName} witnessed the terrifying transition as the horizon vanished and the sun became a pale, dying ember. They navigated the frantic desperation of the era, where the last vestiges of sovereignty were traded for drops of fuel.`;
 
-                                                                    const p5 = `Today, as a specialized ${occupation}, ${currentName} has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Whether they are trading relics in the neon-lit bazaars or surveying the radioactive fringes of the deep wastes, they carry the weight of two worlds—a bridge between a dead past and an uncertain future. Each step is a testament to the resilience of a spirit that refuses to be buried under the Ash.`;
+                                                                    // Segment 3: The Vault Years
+                                                                    let p3 = `When the surface finally became uninhabitable, the migration into the deep began. `;
+                                                                    if (isVillainous) p3 += `${currentName} spent the long years of the Great Dark in the shadows of the lead-lined vaults, conducting clandestine operations and consolidating power while the rest of humanity shivered in fear.`;
+                                                                    else if (isHeroic) p3 += `Within the claustrophobic silence of the underground vaults, ${currentName} became a cornerstone of their community, maintaining the fragile threads of order and hope while the Ash-storms reshaped the continents above.`;
+                                                                    else p3 += `${currentName} lived through the agonizing silence of the underground vaults, surviving for years behind reinforced structural shells as the world they remembered slowly turned to dust.`;
 
-                                                                    setHistory(`${p1}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5}`);
+                                                                    // Segment 4: The Re-Emergence
+                                                                    let p4 = `Emerging from the vaults, ${currentName} found a planet that no longer recognized its masters. `;
+                                                                    p4 += `They became a scavenger of the wastes, reclaiming artifacts of the past to build the foundations of a new, fractured society, proving to be a vital component in the machinery of reclamation.`;
 
-                                                                    if (soulContext.includes("experiment") || soulContext.includes("patient") || soulContext.includes("bastard") || soulContext.includes("kill") || soulContext.includes("murder") || soulContext.includes("ruthless")) setAlignment("Chaotic Evil");
-                                                                    else if (soulContext.includes("order") || soulContext.includes("law") || soulContext.includes("officer") || soulContext.includes("security") || soulContext.includes("soldier")) setAlignment("Lawful Neutral");
-                                                                    else if (soulContext.includes("surgeon") || soulContext.includes("doctor") || soulContext.includes("hospital") || soulContext.includes("help") || soulContext.includes("save") || soulContext.includes("nurse")) setAlignment("Neutral Good");
-                                                                    else if (soulContext.includes("protect") || soulContext.includes("loyalty") || soulContext.includes("family") || soulContext.includes("hero")) setAlignment("Lawful Good");
-                                                                    else if (soulContext.includes("thief") || soulContext.includes("shadow") || soulContext.includes("steal") || soulContext.includes("rogue")) setAlignment("Chaotic Neutral");
-                                                                    else setAlignment("True Neutral");
+                                                                    // Segment 5: The Present Day
+                                                                    const p5 = `Today, as a specialized ${occupation}, ${currentName} has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Each step is a testament to a spirit for whom the Ash has finally become home.`;
+
+                                                                    const fullHistory = `${p1}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5}`;
+                                                                    setHistory(fullHistory);
+
+                                                                    // Refined Moral Sentiment Analysis
+                                                                    const h = fullHistory.toLowerCase();
+                                                                    const s = soulContext;
+
+                                                                    // 1. Scoring System
+                                                                    let moralScore = 0; // Negative = Evil, Positive = Good
+                                                                    let orderScore = 0; // Negative = Chaotic, Positive = Lawful
+
+                                                                    // GOOD signals (+pts)
+                                                                    if (isHeroic) moralScore += 3;
+                                                                    if (h.includes("flicker of light") || h.includes("cornerstone")) moralScore += 2;
+                                                                    if (s.includes("doctor") || s.includes("help") || s.includes("save") || s.includes("protect") || s.includes("hero")) moralScore += 1;
+
+                                                                    // EVIL signals (-pts)
+                                                                    if (isVillainous) moralScore -= 3;
+                                                                    if (h.includes("discarding the moral weights") || h.includes("clandestine")) moralScore -= 2;
+                                                                    if (s.includes("kill") || s.includes("bastard") || s.includes("murder") || s.includes("betray") || s.includes("ruthless")) moralScore -= 1;
+
+                                                                    // LAWFUL signals (+pts)
+                                                                    if (s.includes("law") || s.includes("order") || s.includes("officer") || s.includes("solid") || s.includes("regiment") || s.includes("security")) orderScore += 3;
+                                                                    if (h.includes("maintaining the fragile threads of order")) orderScore += 2;
+
+                                                                    // CHAOTIC signals (-pts)
+                                                                    if (s.includes("chaos") || s.includes("thief") || s.includes("rogue") || s.includes("freedom") || s.includes("anarchy") || s.includes("radical")) orderScore -= 3;
+                                                                    if (h.includes("recognized the coming chaos as an opportunity")) orderScore -= 2;
+
+                                                                    // MUNDANE/NEUTRAL signals (Resets scores toward 0)
+                                                                    const isMundane = s.includes("student") || s.includes("average") || s.includes("normal") || s.includes("nothing special") || s.includes("random") || s.includes("simple") || s.includes("worker") || s.includes("faculty") || s.includes("faculty member");
+                                                                    if (isMundane) {
+                                                                        moralScore = moralScore > 0 ? Math.max(0, moralScore - 2) : Math.min(0, moralScore + 2);
+                                                                        orderScore = orderScore > 0 ? Math.max(0, orderScore - 2) : Math.min(0, orderScore + 2);
+                                                                    }
+
+                                                                    // 2. Alignment Logic based on scores
+                                                                    let finalAlign = "True Neutral";
+                                                                    if (moralScore >= 3 && orderScore >= 3) finalAlign = "Lawful Good";
+                                                                    else if (moralScore >= 3 && orderScore <= -3) finalAlign = "Chaotic Good";
+                                                                    else if (moralScore >= 3) finalAlign = "Neutral Good";
+                                                                    else if (moralScore <= -3 && orderScore >= 3) finalAlign = "Lawful Evil";
+                                                                    else if (moralScore <= -3 && orderScore <= -3) finalAlign = "Chaotic Evil";
+                                                                    else if (moralScore <= -3) finalAlign = "Neutral Evil";
+                                                                    else if (orderScore >= 3) finalAlign = "Lawful Neutral";
+                                                                    else if (orderScore <= -3) finalAlign = "Chaotic Neutral";
+                                                                    else finalAlign = "True Neutral";
+
+                                                                    setAlignment(finalAlign);
 
                                                                     setIsGeneratingStory(false);
                                                                 }, 1200);
@@ -911,7 +976,7 @@ export function CharacterBuilderPage() {
                                                             ) : (
                                                                 <>
                                                                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
-                                                                    STABILIZE NEURAL HISTORY
+                                                                    GENERATE YOUR LORE
                                                                 </>
                                                             )}
                                                         </button>
@@ -927,9 +992,12 @@ export function CharacterBuilderPage() {
                                                 <div className="flex items-center justify-between mb-6">
                                                     <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em] flex items-center gap-3">
                                                         <div className="w-1.5 h-1.5 bg-indigo-500 shadow-[0_0_10px_#6366f1]" />
-                                                        STORY
+                                                        SYNCHRONIZED HISTORY
                                                     </h3>
-                                                    <button onClick={() => setHistory("")} className="text-[8px] text-gray-700 hover:text-red-500 font-black uppercase tracking-widest transition-colors opacity-0 group-hover:opacity-100 italic">Supprimer et recommencer ✕</button>
+                                                    <button onClick={() => setHistory("")} className="text-[8px] text-orange-500 hover:text-red-500 font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 opacity-0 group-hover:opacity-100 italic">
+                                                        <div className="w-1 h-1 bg-current rounded-full" />
+                                                        RE-GENERATE FROM DRAFT ✕
+                                                    </button>
                                                 </div>
                                                 <textarea
                                                     value={history}
