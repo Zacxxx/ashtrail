@@ -75,5 +75,32 @@
     "id": "item-1772540636290",
     "name": "Base kevlar",
     "rarity": "reinforced"
+  },
+  {
+    "category": "weapon",
+    "cost": 0,
+    "description": "la griffe de sterling le devoreur de monde. ",
+    "effects": [
+      {
+        "target": "intelligence",
+        "type": "STAT_MODIFIER",
+        "value": 25
+      },
+      {
+        "target": "ap",
+        "type": "STAT_MODIFIER",
+        "value": 2
+      },
+      {
+        "target": "charisma",
+        "type": "STAT_MODIFIER",
+        "value": 30
+      }
+    ],
+    "equipSlot": "offHand",
+    "icon": "📦",
+    "id": "item-1772541756003",
+    "name": "griffe de sterling",
+    "rarity": "relic"
   }
 ]

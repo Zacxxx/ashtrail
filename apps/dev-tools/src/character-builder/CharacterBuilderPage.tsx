@@ -566,7 +566,7 @@ export function CharacterBuilderPage() {
                 `}</style>
 
                 {/* Left: Saved Characters Sidebar */}
-                {activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT" && (
+                {activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT" && activeTab !== "CHARACTER_SHEET" && (
                     <aside className="w-[260px] flex flex-col gap-4 shrink-0">
                         <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
                             <h3 className="text-[10px] font-black text-indigo-500/70 uppercase tracking-widest border-b border-indigo-900/30 pb-2">
@@ -1083,7 +1083,7 @@ export function CharacterBuilderPage() {
 
 
                         {/* ═══ CHARACTER SHEET TAB ═══ */}
-                        {activeTab === "CHARACTER_SHEET" &&
+                        {false && activeTab === "CHARACTER_SHEET" &&
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-ash-settling">
                                 {/* Column 1: Profile & Stats */}
                                 <div className="space-y-6">
@@ -1215,6 +1215,134 @@ export function CharacterBuilderPage() {
                         }
 
                         {/* ═══ INVENTORY TAB ═══ */}
+                        {activeTab === "CHARACTER_SHEET" &&
+                            <div className="animate-ash-settling px-0 py-1">
+                                <div className="mx-auto max-w-[860px] border border-white/5 bg-black/30 p-2.5 shadow-2xl backdrop-blur-md">
+                                    <div className="mb-2 flex items-center gap-2 border-b border-white/5 pb-2">
+                                        <div className="w-1.5 h-3 bg-[#c2410c]" />
+                                        <span className="text-[9px] text-white font-bold uppercase tracking-[0.22em]">Character Sheet</span>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.05fr_0.95fr]">
+                                            <section className="border border-white/5 bg-black/40 p-3 shadow-2xl">
+                                                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[92px_minmax(0,1fr)] lg:items-start">
+                                                    <div className="relative h-24 w-full overflow-hidden border border-white/10 bg-black/60 lg:h-24 lg:w-24">
+                                                        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:20px_20px] opacity-30" />
+                                                        <div className="absolute inset-0 flex items-center justify-center text-4xl font-bold text-gray-700">P</div>
+                                                        <div className="absolute inset-x-0 top-0 h-px bg-[#c2410c]/30" />
+                                                    </div>
+
+                                                    <div className="min-w-0 space-y-2.5">
+                                                        <div className="space-y-1.5 border-b border-white/6 pb-2.5">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
+                                                                <span className="text-[8px] font-bold uppercase tracking-[0.28em] text-gray-500">Identification</span>
+                                                            </div>
+                                                            <h3 className="text-[22px] leading-none font-bold uppercase tracking-[0.1em] text-white">
+                                                                {name || "Unnamed Unit"}
+                                                            </h3>
+                                                            <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-gray-600">
+                                                                {selectedOccupation?.name || "Unassigned operative"}
+                                                            </p>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-2 gap-2 md:grid-cols-[repeat(3,minmax(0,118px))]">
+                                                            {[
+                                                                { label: "Age", value: `${age} years`, tone: "text-gray-200 border-white/10 bg-black/40" },
+                                                                { label: "Gender", value: gender, tone: "text-gray-200 border-white/10 bg-black/40" },
+                                                                { label: "Level", value: `LVL ${level}`, tone: "text-[#c2410c] border-[#c2410c]/30 bg-[#c2410c]/8" },
+                                                            ].map(field => (
+                                                                <div key={field.label} className={`border px-2.5 py-2 ${field.tone}`}>
+                                                                    <div className="text-[7px] font-bold uppercase tracking-[0.22em] opacity-70">{field.label}</div>
+                                                                    <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.1em]">{field.value}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+
+                                                        <div className="border border-white/10 bg-black/40 px-2.5 py-2 text-gray-200">
+                                                            <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-500">Location</div>
+                                                            <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.1em]">Dust Ward / Sector 03</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </section>
+
+                                            <section className="border border-white/5 bg-black/40 p-3 shadow-2xl">
+                                                <div className="mb-3 flex items-center gap-2">
+                                                    <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
+                                                    <h4 className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#c2410c]">Records & Achievements</h4>
+                                                </div>
+
+                                                <div className="space-y-2.5">
+                                                    <div className="border border-white/5 bg-black/30 p-2.5">
+                                                        <div className="mb-2 text-[7px] font-bold uppercase tracking-[0.22em] text-gray-500">Field Record</div>
+                                                        {history ? (
+                                                            <p className="text-[10px] italic leading-relaxed text-gray-400">{history}</p>
+                                                        ) : (
+                                                            <p className="text-[10px] italic leading-relaxed text-gray-600">No historical records available for this unit.</p>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        {[
+                                                            { label: "Achievements", value: "00", note: "Pending system sync" },
+                                                            { label: "Records", value: "00", note: "No milestones logged" },
+                                                        ].map(card => (
+                                                            <div key={card.label} className="min-w-0 border border-white/5 bg-black/30 p-2.5">
+                                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">{card.label}</div>
+                                                                <div className="mt-1 text-base font-bold uppercase text-white">{card.value}</div>
+                                                                <div className="mt-1.5 text-[8px] font-medium uppercase tracking-[0.16em] text-gray-600">{card.note}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+
+                                                    <div className="border border-dashed border-white/10 bg-black/20 p-2.5">
+                                                        <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]">Future Slots</div>
+                                                        <div className="mt-2 grid grid-cols-2 gap-2">
+                                                            {["Titles", "Badges"].map(slot => (
+                                                                <div key={slot} className="flex h-14 items-center justify-center border border-white/5 bg-black/40 text-center text-[8px] font-bold uppercase tracking-[0.16em] text-gray-700">
+                                                                    {slot}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </section>
+                                        </div>
+
+                                        <section className="border border-white/5 bg-black/40 p-3 shadow-2xl">
+                                            <div className="mb-3 flex items-center gap-2">
+                                                <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
+                                                <h4 className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#c2410c]">Core Attributes</h4>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+                                                {(Object.entries(effectiveStats) as [keyof Stats, number][]).map(([stat, val]) => (
+                                                    <div key={stat} className="border border-white/5 bg-black/30 p-2.5">
+                                                        <div className="mb-2 flex items-center justify-between">
+                                                            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">{stat}</span>
+                                                            <span className="text-[12px] font-bold uppercase tracking-[0.1em] text-white">{val}</span>
+                                                        </div>
+                                                        <div className="h-1.5 overflow-hidden border border-white/8 bg-black/40">
+                                                            <div
+                                                                className="h-full bg-[#c2410c] shadow-[0_0_10px_rgba(194,65,12,0.2)]"
+                                                                style={{ width: `${Math.min((val / 10) * 100, 100)}%` }}
+                                                            />
+                                                        </div>
+                                                        <div className="mt-1.5 flex items-center justify-between text-[7px] font-medium uppercase tracking-[0.18em] text-gray-600">
+                                                            <span>Effective output</span>
+                                                            <span>{Math.min(val, 10)}/10</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </section>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
                         {activeTab === "INVENTORY" &&
                             <div id="inventory-view-root" className="flex h-full relative font-mono overflow-hidden py-4 px-2 gap-6" onClick={() => setContextMenu(null)}>
                                 {/* Left Sidebar: Item Library */}
