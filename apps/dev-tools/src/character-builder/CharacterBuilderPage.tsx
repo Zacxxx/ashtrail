@@ -48,6 +48,7 @@ function isEquipable(item: Item): boolean {
 type BuilderTab = "IDENTITY" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
 
 const DEFAULT_STATS: Stats = { strength: 3, agility: 3, intelligence: 3, wisdom: 3, endurance: 3, charisma: 3 };
+const ZERO_STATS: Stats = { strength: 0, agility: 0, intelligence: 0, wisdom: 0, endurance: 0, charisma: 0 };
 
 const RARITY_ORDER: Record<ItemRarity, number> = {
     ashmarked: 5,
@@ -91,6 +92,11 @@ export function CharacterBuilderPage() {
     const [stats, setStats] = useState<Stats>({ ...DEFAULT_STATS });
     const [statsPoints, setStatsPoints] = useState(18);
     const [attributePoints, setAttributePoints] = useState(0);
+    const [attributeUpgrades, setAttributeUpgrades] = useState<Stats>({ ...ZERO_STATS });
+    const [isRedispatching, setIsRedispatching] = useState(false);
+    const [redispatchPoints, setRedispatchPoints] = useState<number | null>(null);
+    const [redispatchUpgrades, setRedispatchUpgrades] = useState<Stats | null>(null);
+    const [redispatchStats, setRedispatchStats] = useState<Stats | null>(null);
 
     // Occupation
     const [selectedOccupation, setSelectedOccupation] = useState<Occupation | null>(null);
@@ -143,13 +149,11 @@ export function CharacterBuilderPage() {
         return slot;
     };
 
-    // Effective Stats calculation (Base + Equipment Modifiers)
-    const effectiveStats = useMemo(() => {
-        const result = { ...stats };
+    const equipmentStatModifiers = useMemo(() => {
+        const result = { ...ZERO_STATS };
         Object.values(equippedItems).forEach(item => {
             if (item && item.effects) {
                 item.effects.forEach(eff => {
-                    // Check if target matches one of the base stats
                     const target = eff.target as keyof Stats;
                     if (eff.type === 'STAT_MODIFIER' && target in result) {
                         result[target] += eff.value;
@@ -158,7 +162,20 @@ export function CharacterBuilderPage() {
             }
         });
         return result;
-    }, [stats, equippedItems]);
+    }, [equippedItems]);
+
+    const activeStats = isRedispatching ? (redispatchStats ?? { ...DEFAULT_STATS }) : stats;
+    const activeAttributePoints = isRedispatching ? (redispatchPoints ?? 0) : attributePoints;
+    const activeAttributeUpgrades = isRedispatching ? (redispatchUpgrades ?? { ...ZERO_STATS }) : attributeUpgrades;
+
+    // Effective Stats calculation (Base + Level Up + Equipment Modifiers)
+    const effectiveStats = useMemo(() => {
+        const result = { ...activeStats };
+        (Object.keys(result) as (keyof Stats)[]).forEach(stat => {
+            result[stat] += activeAttributeUpgrades[stat] + equipmentStatModifiers[stat];
+        });
+        return result;
+    }, [activeStats, activeAttributeUpgrades, equipmentStatModifiers]);
 
     // Derived values from effective stats
     const derivedStats = useMemo(() => {
@@ -348,9 +365,58 @@ export function CharacterBuilderPage() {
     };
 
     const upgradeAttribute = (stat: keyof Stats) => {
+        if (isRedispatching) {
+            if ((redispatchPoints ?? 0) <= 0) return;
+            // When redispatching, prioritize giving points to upgrades if base is already at initial level
+            // but for simplicity, we can just put everything into upgrades during redispatch
+            setRedispatchUpgrades(prev => ({ ...(prev ?? { ...ZERO_STATS }), [stat]: (prev ?? { ...ZERO_STATS })[stat] + 1 }));
+            setRedispatchPoints(prev => Math.max(0, (prev ?? 0) - 1));
+            return;
+        }
+
         if (attributePoints <= 0) return;
-        setStats(prev => ({ ...prev, [stat]: prev[stat] + 1 }));
+        setAttributeUpgrades(prev => ({ ...prev, [stat]: prev[stat] + 1 }));
         setAttributePoints(prev => Math.max(0, prev - 1));
+    };
+
+    const downgradeAttribute = (stat: keyof Stats) => {
+        if (isRedispatching) {
+            const currentUpgrades = redispatchUpgrades ?? { ...ZERO_STATS };
+            const currentBase = redispatchStats ?? stats;
+
+            if (currentUpgrades[stat] > 0) {
+                // Take back from upgrades first
+                setRedispatchUpgrades(prev => ({ ...(prev ?? { ...ZERO_STATS }), [stat]: prev![stat] - 1 }));
+                setRedispatchPoints(prev => (prev ?? 0) + 1);
+            } else if (currentBase[stat] > 1) {
+                // Then take back from base stats if > 1
+                setRedispatchStats(prev => ({ ...(prev ?? { ...DEFAULT_STATS }), [stat]: prev![stat] - 1 }));
+                setRedispatchPoints(prev => (prev ?? 0) + 1);
+            }
+            return;
+        }
+
+        if (attributeUpgrades[stat] <= 0) return;
+        setAttributeUpgrades(prev => ({ ...prev, [stat]: Math.max(0, prev[stat] - 1) }));
+        setAttributePoints(prev => prev + 1);
+    };
+
+    const toggleRedispatchMode = () => {
+        if (!isRedispatching) {
+            setRedispatchStats({ ...stats });
+            setRedispatchUpgrades({ ...attributeUpgrades });
+            setRedispatchPoints(attributePoints);
+            setIsRedispatching(true);
+            return;
+        }
+
+        setStats(redispatchStats ?? { ...DEFAULT_STATS });
+        setAttributeUpgrades(redispatchUpgrades ?? { ...ZERO_STATS });
+        setAttributePoints(redispatchPoints ?? 0);
+        setRedispatchStats(null);
+        setRedispatchUpgrades(null);
+        setRedispatchPoints(null);
+        setIsRedispatching(false);
     };
 
     const loadCharacter = (char: Character) => {
@@ -365,6 +431,10 @@ export function CharacterBuilderPage() {
         updateLevel(char.level || 1);
         setSelectedTraits(char.traits || []);
         setStats(char.stats);
+        setAttributeUpgrades({ ...ZERO_STATS });
+        setIsRedispatching(false);
+        setRedispatchPoints(null);
+        setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
         setInventory(char.inventory || []);
         if (char.equipped) {
@@ -380,6 +450,10 @@ export function CharacterBuilderPage() {
         const usedStatPoints = Object.values(char.stats).reduce((sum, v) => (sum as number) + (v as number), 0) - 18;
         setStatsPoints(18 - usedStatPoints);
         setAttributePoints(0);
+        setAttributeUpgrades({ ...ZERO_STATS });
+        setIsRedispatching(false);
+        setRedispatchPoints(null);
+        setRedispatchUpgrades(null);
         setActiveTab("IDENTITY");
     };
 
@@ -398,6 +472,10 @@ export function CharacterBuilderPage() {
         setStats({ ...DEFAULT_STATS });
         setStatsPoints(18);
         setAttributePoints(0);
+        setAttributeUpgrades({ ...ZERO_STATS });
+        setIsRedispatching(false);
+        setRedispatchPoints(null);
+        setRedispatchUpgrades(null);
         setSelectedOccupation(null);
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
@@ -1347,66 +1425,93 @@ export function CharacterBuilderPage() {
                                         </div>
 
                                         <section className="border border-white/5 bg-black/40 p-3 shadow-2xl">
-                                            <div className="mb-3 flex items-center gap-2">
-                                                <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
-                                                <h4 className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#c2410c]">Core Attributes</h4>
-                                                {attributePoints > 0 && (
-                                                    <div className="ml-auto border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-2 py-1 text-[7px] font-bold uppercase tracking-[0.18em] text-[#c2410c] animate-pulse">
-                                                        {attributePoints} point{attributePoints > 1 ? "s" : ""} available
-                                                    </div>
-                                                )}
+                                            <div className="mb-3 flex items-start justify-between gap-3">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
+                                                    <h4 className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#c2410c]">Core Attributes</h4>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    {activeAttributePoints > 0 && (
+                                                        <div className="border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-2 py-1 text-[7px] font-bold uppercase tracking-[0.18em] text-[#c2410c] animate-pulse">
+                                                            {activeAttributePoints} point{activeAttributePoints > 1 ? "s" : ""} available
+                                                        </div>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={toggleRedispatchMode}
+                                                        className={`border px-2 py-1 text-[7px] font-bold uppercase tracking-[0.22em] transition-all ${isRedispatching
+                                                            ? "border-[#c2410c]/25 bg-[#c2410c]/[0.07] text-[#c2410c]"
+                                                            : "border-white/5 bg-black/30 text-gray-500 hover:border-white/10 hover:text-gray-300"
+                                                            }`}
+                                                    >
+                                                        {isRedispatching ? "Done" : "Redispatch"}
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
                                                 {(Object.entries(effectiveStats) as [keyof Stats, number][]).map(([stat, val]) => {
-                                                    const baseValue = stats[stat];
-                                                    const modifier = val - baseValue;
+                                                    const baseValue = isRedispatching ? (redispatchStats?.[stat] ?? stats[stat]) : stats[stat];
+                                                    const gearValue = equipmentStatModifiers[stat];
 
                                                     return (
                                                         <div
                                                             key={stat}
-                                                            className={`relative border bg-black/30 p-2.5 transition-all ${attributePoints > 0
+                                                            className={`border bg-black/30 p-2.5 transition-all ${(activeAttributePoints > 0 || isRedispatching)
                                                                 ? "border-[#c2410c]/20 shadow-[0_0_0_1px_rgba(194,65,12,0.08)]"
                                                                 : "border-white/5"
                                                                 }`}
                                                         >
-                                                            <div className="mb-2">
-                                                                <div className="min-w-0">
+                                                            <div className="mb-2 flex items-start justify-between gap-2">
+                                                                <div className="min-w-0 text-left">
                                                                     <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">{stat}</span>
                                                                     <div className="mt-1 flex items-center gap-1.5">
-                                                                        <span className="text-[12px] font-bold uppercase tracking-[0.08em] text-white">{val}</span>
-                                                                        {modifier !== 0 && (
+                                                                        {gearValue !== 0 && (
                                                                             <span className="text-[7px] font-bold uppercase tracking-[0.16em] text-[#c2410c]">
-                                                                                {modifier > 0 ? `+${modifier}` : modifier} gear
+                                                                                {gearValue > 0 ? `+${gearValue}` : gearValue} gear
                                                                             </span>
                                                                         )}
                                                                     </div>
                                                                 </div>
+                                                                <div className="flex items-center gap-2 shrink-0">
+                                                                    {isRedispatching && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => downgradeAttribute(stat)}
+                                                                            className={`h-6 w-6 border text-[12px] font-bold transition-all ${(activeAttributeUpgrades[stat] > 0 || baseValue > 1)
+                                                                                ? "border-white/10 bg-black/30 text-gray-300 hover:border-[#c2410c]/30 hover:text-[#c2410c]"
+                                                                                : "border-white/5 bg-black/20 text-gray-700"
+                                                                                }`}
+                                                                        >
+                                                                            -
+                                                                        </button>
+                                                                    )}
+                                                                    {(activeAttributePoints > 0 || isRedispatching) && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => upgradeAttribute(stat)}
+                                                                            className={`h-6 w-6 border text-[12px] font-bold transition-all ${activeAttributePoints > 0
+                                                                                ? "border-[#c2410c]/35 bg-[#c2410c]/10 text-[#c2410c] hover:bg-[#c2410c]/20 animate-pulse"
+                                                                                : "border-white/10 bg-black/30 text-gray-300 hover:border-[#c2410c]/30 hover:text-[#c2410c]"
+                                                                                }`}
+                                                                        >
+                                                                            +
+                                                                        </button>
+                                                                    )}
+                                                                    <span className="text-[12px] font-bold uppercase tracking-[0.08em] text-white">{val}</span>
+                                                                </div>
                                                             </div>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => upgradeAttribute(stat)}
-                                                                disabled={attributePoints <= 0}
-                                                                className={`absolute right-2.5 top-2.5 h-6 w-6 border text-[12px] font-bold transition-all ${attributePoints > 0
-                                                                    ? "border-[#c2410c]/35 bg-[#c2410c]/10 text-[#c2410c] hover:bg-[#c2410c]/20 animate-pulse"
-                                                                    : "cursor-not-allowed border-white/5 bg-black/20 text-gray-700"
-                                                                    }`}
-                                                            >
-                                                                +
-                                                            </button>
                                                             <div className="relative h-2 overflow-hidden border border-white/8 bg-black/50">
                                                                 <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:12px_100%] opacity-40" />
                                                                 <div
-                                                                    className="relative h-full bg-[linear-gradient(90deg,rgba(194,65,12,0.9),rgba(234,88,12,0.95))] shadow-[0_0_12px_rgba(194,65,12,0.28)]"
+                                                                    className="relative h-full bg-[#c2410c] shadow-[0_0_12px_rgba(194,65,12,0.28)]"
                                                                     style={{ width: `${Math.min((val / 10) * 100, 100)}%` }}
-                                                                >
-                                                                    <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.22),rgba(255,255,255,0))]" />
-                                                                </div>
+                                                                />
                                                             </div>
                                                             <div className="mt-1.5 flex items-center justify-between text-[7px] font-medium uppercase tracking-[0.18em] text-gray-600">
-                                                                <span>Base {baseValue}</span>
-                                                                {attributePoints > 0 ? (
-                                                                    <span className="text-[#c2410c] animate-pulse">Upgrade ready</span>
+                                                                <span className="text-left font-bold text-gray-500">Base {baseValue} + Up {activeAttributeUpgrades[stat]}</span>
+                                                                {(activeAttributePoints > 0 || isRedispatching) ? (
+                                                                    <span className="text-[#c2410c] animate-pulse">Points {activeAttributePoints}</span>
                                                                 ) : (
                                                                     <span>{Math.min(val, 10)}/10</span>
                                                                 )}
