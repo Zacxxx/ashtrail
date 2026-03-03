@@ -31,6 +31,7 @@
         "value": -4
       }
     ],
+    "equipSlot": "head",
     "icon": "📦",
     "id": "item-1772208031388",
     "name": "Sterling's helmet",
@@ -57,5 +58,22 @@
     "id": "item-1772210100258",
     "name": "Le gourdin d'AF",
     "rarity": "ashmarked"
+  },
+  {
+    "category": "weapon",
+    "cost": 100,
+    "description": "No description needed",
+    "effects": [
+      {
+        "target": "maxHp",
+        "type": "STAT_MODIFIER",
+        "value": 25
+      }
+    ],
+    "equipSlot": "chest",
+    "icon": "📦",
+    "id": "item-1772540636290",
+    "name": "Base kevlar",
+    "rarity": "reinforced"
   }
 ]

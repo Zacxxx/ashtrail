@@ -114,25 +114,24 @@ export function CharacterBuilderPage() {
     });
 
     const equipItem = (slotId: EquipSlot, item: Item) => {
-        // If there's already something equipped in that slot, put it back in inventory
-        setEquippedItems(prev => {
-            const existing = prev[slotId];
-            if (existing) {
-                setInventory(inv => [...inv, { ...existing, bagIndex: activeBagIndex }]);
-            }
-            return { ...prev, [slotId]: item };
+        const existing = equippedItems[slotId];
+
+        setEquippedItems(prev => ({ ...prev, [slotId]: item }));
+        setInventory(prev => {
+            const nextInventory = prev.filter(i => i.id !== item.id);
+            if (!existing) return nextInventory;
+            return [...nextInventory, { ...existing, bagIndex: activeBagIndex }];
         });
-        // Remove the newly equipped item from inventory
-        setInventory(inv => inv.filter(i => i.id !== item.id));
     };
 
     const unequipItem = (slotId: EquipSlot) => {
-        setEquippedItems(prev => {
-            const item = prev[slotId];
-            if (item) {
-                setInventory(inv => [...inv, { ...item, bagIndex: activeBagIndex }]);
-            }
-            return { ...prev, [slotId]: null };
+        const item = equippedItems[slotId];
+        if (!item) return;
+
+        setEquippedItems(prev => ({ ...prev, [slotId]: null }));
+        setInventory(prev => {
+            if (prev.some(invItem => invItem.id === item.id)) return prev;
+            return [...prev, { ...item, bagIndex: activeBagIndex }];
         });
     };
 
