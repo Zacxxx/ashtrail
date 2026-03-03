@@ -10,7 +10,7 @@ interface HistoryGalleryProps {
     showExtendedTabs?: boolean;
 }
 
-type TabType = "planets" | "textures" | "icons" | "characters";
+type TabType = "planets" | "textures" | "icons" | "characters" | "isolated";
 
 interface IconImageItem {
     id: string;
@@ -24,6 +24,14 @@ interface CharacterPortraitItem {
     id: string;
     name: string;
     portraitUrl: string;
+}
+
+interface IsolatedImageItem {
+    id: string;
+    url: string;
+    entityType: string;
+    entityId: number;
+    filename: string;
 }
 
 interface TextureImageItem {
@@ -46,6 +54,7 @@ export function HistoryGallery({
     const [iconImages, setIconImages] = useState<IconImageItem[]>([]);
     const [textureImages, setTextureImages] = useState<TextureImageItem[]>([]);
     const [characterPortraits, setCharacterPortraits] = useState<CharacterPortraitItem[]>([]);
+    const [isolatedImages, setIsolatedImages] = useState<IsolatedImageItem[]>([]);
     const [isLoadingExtended, setIsLoadingExtended] = useState(false);
     const [extendedError, setExtendedError] = useState<string | null>(null);
 
@@ -70,7 +79,7 @@ export function HistoryGallery({
     const activePlanet = history.find(p => p.id === activePlanetId);
     // Include the base planet itself as a texture option
     const activeVariants = activePlanet ? [activePlanet, ...(textureVariants.get(activePlanet.id) || [])] : [];
-    const contentGridClassName = activeTab === "icons"
+    const contentGridClassName = (activeTab === "icons" || activeTab === "isolated")
         ? "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8 gap-2.5"
         : activeTab === "characters"
             ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5"
@@ -140,10 +149,21 @@ export function HistoryGallery({
                         portraitUrl: c.portraitUrl,
                     } as CharacterPortraitItem));
 
+                const isolatedRes = await fetch("/api/worldgen/isolated/all");
+                const isolatedRaw = isolatedRes.ok ? await isolatedRes.json() : { images: [] };
+                const isolatedItems = (isolatedRaw.images || []).map((img: any, index: number) => ({
+                    id: `isolated-${img.filename}-${index}`,
+                    url: img.url,
+                    entityType: img.entityType,
+                    entityId: img.entityId,
+                    filename: img.filename,
+                } as IsolatedImageItem));
+
                 if (!isCancelled) {
                     setIconImages(iconGroups.flat());
                     setTextureImages(textureGroups);
                     setCharacterPortraits(portraits);
+                    setIsolatedImages(isolatedItems);
                 }
             } catch (e) {
                 if (!isCancelled) {
@@ -190,6 +210,14 @@ export function HistoryGallery({
                         className={`flex-1 py-3 text-[10px] font-black tracking-widest uppercase transition-all ${activeTab === "characters" ? "text-emerald-300 bg-white/10" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"}`}
                     >
                         Characters
+                    </button>
+                )}
+                {showExtendedTabs && (
+                    <button
+                        onClick={() => setActiveTab("isolated")}
+                        className={`flex-1 py-3 text-[10px] font-black tracking-widest uppercase transition-all ${activeTab === "isolated" ? "text-purple-300 bg-white/10" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"}`}
+                    >
+                        Isolated
                     </button>
                 )}
             </div>
@@ -310,6 +338,32 @@ export function HistoryGallery({
                         <div className="relative p-3 bg-black/70 backdrop-blur-sm mt-auto">
                             <p className="text-[10px] text-gray-100 truncate">{character.name}</p>
                             <p className="text-[8px] text-emerald-300 mt-1">Character Portrait</p>
+                        </div>
+                    </div>
+                ))}
+
+                {activeTab === "isolated" && showExtendedTabs && isLoadingExtended && (
+                    <div className="col-span-full text-xs text-gray-500">Loading isolated regions...</div>
+                )}
+                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedImages.length === 0 && (
+                    <div className="col-span-full text-xs text-gray-500">No isolated regions found yet.</div>
+                )}
+                {activeTab === "isolated" && showExtendedTabs && isolatedImages.map((img) => (
+                    <div
+                        key={img.id}
+                        className="bg-black/40 border border-white/10 rounded-xl overflow-hidden group cursor-pointer hover:border-purple-400/40 transition-all shadow-lg"
+                        onClick={() => onSelectTexture("isolated", img.url)}
+                    >
+                        <div className="aspect-square bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiMzMzMiLz48cGF0aCBkPSJNMCAwdjRoNHYtNEh6IiBmaWxsPSIjNDQ0Ii8+PHBvbHlnb24gcG9pbnRzPSI0IDggOCA4IDggNCA0IDQiIGZpbGw9IiM0NDQiLz48L3N2Zz+')] relative">
+                            <img
+                                src={img.url}
+                                className="absolute inset-0 w-full h-full object-contain p-2 group-hover:scale-105 transition-transform"
+                                alt={img.filename}
+                            />
+                        </div>
+                        <div className="p-2 border-t border-white/5 bg-black/60">
+                            <p className="text-[9px] text-cyan-400 font-black tracking-widest uppercase">{img.entityType}</p>
+                            <p className="text-[10px] text-gray-400 font-mono">ID: {img.entityId}</p>
                         </div>
                     </div>
                 ))}

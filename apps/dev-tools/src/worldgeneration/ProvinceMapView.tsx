@@ -182,7 +182,7 @@ export type ProvinceLayer = "provinces" | "duchies" | "kingdoms" | "continents" 
 interface ProvinceMapViewProps {
     planetId: string | null;
     baseTextureUrl: string | null;
-    geographyTab?: "regions" | "cells" | "pipeline" | "inspector";
+    geographyTab?: "regions" | "cells" | "pipeline" | "inspector" | "isolator";
     hoveredId?: number | null;
     selectedId?: number | null;
     bulkSelectedIds?: number[];

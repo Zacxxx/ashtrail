@@ -42,6 +42,7 @@ struct AppState {
     icons_export_dir: PathBuf,
     textures_dir: PathBuf,
     textures_export_dir: PathBuf,
+    isolated_dir: PathBuf,
     supabase: Option<SupabaseStorageConfig>,
 }
 
@@ -398,6 +399,9 @@ async fn main() {
     let textures_export_dir = PathBuf::from("../../game-assets/assets/Textures");
     std::fs::create_dir_all(&textures_export_dir).expect("failed to create game-assets/assets/Textures directory");
 
+    let isolated_dir = PathBuf::from("../../game-assets/assets/IsolatedRegions");
+    std::fs::create_dir_all(&isolated_dir).expect("failed to create game-assets/assets/IsolatedRegions directory");
+
     let supabase = load_supabase_storage_config();
     if supabase.is_none() {
         warn!("Supabase storage sync disabled (missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)");
@@ -411,6 +415,7 @@ async fn main() {
         icons_export_dir,
         textures_dir: textures_dir.clone(),
         textures_export_dir,
+        isolated_dir: isolated_dir.clone(),
         supabase,
     };
 
@@ -464,6 +469,9 @@ async fn main() {
         .route("/api/worldgen/{planet_id}/clear", delete(worldgen_pipeline::clear_pipeline))
         .route("/api/worldgen/{planet_id}/hierarchy/reassign", post(reassign_worldgen_hierarchy))
         .route("/api/worldgen/{planet_id}/hierarchy/rename", post(rename_worldgen_hierarchy))
+        .route("/api/worldgen/{planet_id}/isolate", post(worldgen_pipeline::isolate_region))
+        .route("/api/worldgen/{planet_id}/isolated", get(worldgen_pipeline::list_isolated_regions))
+        .route("/api/worldgen/isolated/all", get(worldgen_pipeline::list_all_isolated_regions))
         // Static file serving for all planet textures
         .route("/api/data/traits", get(cms::get_traits).post(cms::save_traits))
         .route("/api/data/occupations", get(cms::get_occupations).post(cms::save_occupations))
@@ -473,6 +481,7 @@ async fn main() {
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .nest_service("/api/textures", ServeDir::new(textures_dir.clone()))
+        .nest_service("/api/isolated-assets", ServeDir::new(isolated_dir.clone()))
         .with_state(state)
         .layer(
             CorsLayer::new()
