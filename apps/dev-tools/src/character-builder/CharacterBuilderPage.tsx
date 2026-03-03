@@ -45,7 +45,7 @@ function isEquipable(item: Item): boolean {
     return getEquipSlot(item) !== null;
 }
 
-type BuilderTab = "IDENTITY" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
+type BuilderTab = "IDENTITY" | "LORE" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
 
 const DEFAULT_STATS: Stats = { strength: 3, agility: 3, intelligence: 3, wisdom: 3, endurance: 3, charisma: 3 };
 const ZERO_STATS: Stats = { strength: 0, agility: 0, intelligence: 0, wisdom: 0, endurance: 0, charisma: 0 };
@@ -58,6 +58,14 @@ const RARITY_ORDER: Record<ItemRarity, number> = {
     reinforced: 1,
     salvaged: 0
 };
+
+const ASH_TRAIL_CHRONICLES = [
+    { id: "ASH-0", label: "ASH-0: The Great Fog (0-3 mo)", event: "The world was blanketed by an unknown atmospheric film, sparking the first mutations and mass extinction." },
+    { id: "ASH-1", label: "ASH-1: The Resource War (4 yr)", event: "Global powers collapsed in a brutal war for clean water and fuel, leaving the world as a scorched ash-waste." },
+    { id: "ASH-2", label: "ASH-2: The Underground Era (10 yr)", event: "Mutations became widespread. Humanity retreated into lead-lined Vaults, surrendering the surface to the Ash." },
+    { id: "ASH-3", label: "ASH-3: The Rebuilding (30 yr)", event: "Tribal cults like the Ash Trackers began to emerge, scavenging relics and learning to survive the surface fog." },
+    { id: "ASH-4", label: "ASH-4: The Surface Return (50 yr)", event: "Surface re-colonization has begun. New City-States arise from scavenged tech, while the Ash continues to evolve." }
+];
 
 const ITEMS_BY_CATEGORY: Record<string, string[]> = {
     weapon: ["Stun Baton", "Vibration Blade", "Pulse Rifle", "Rusty Pipe", "Spiked Bat", "Serrated Knife"],
@@ -101,7 +109,12 @@ export function CharacterBuilderPage() {
     const [level, setLevel] = useState(1);
     const [characterTitle, setCharacterTitle] = useState("");
     const [characterBadge, setCharacterBadge] = useState("");
+    const [faction, setFaction] = useState("");
+    const [alignment, setAlignment] = useState("");
+    const [backstory, setBackstory] = useState("");
+    const [currentStory, setCurrentStory] = useState("");
     const [showSelectionModal, setShowSelectionModal] = useState<"title" | "badge" | null>(null);
+    const [isGeneratingStory, setIsGeneratingStory] = useState(false);
 
     // Traits
     const [selectedTraits, setSelectedTraits] = useState<Trait[]>([]);
@@ -451,6 +464,10 @@ export function CharacterBuilderPage() {
         updateLevel(char.level || 1);
         setCharacterTitle(char.title || "");
         setCharacterBadge(char.badge || "");
+        setFaction(char.faction || "");
+        setAlignment(char.alignment || "");
+        setBackstory(char.backstory || "");
+        setCurrentStory(char.currentStory || "");
         setSelectedTraits(char.traits || []);
         setStats(char.stats);
         setAttributeUpgrades({ ...ZERO_STATS });
@@ -491,6 +508,10 @@ export function CharacterBuilderPage() {
         updateLevel(1);
         setCharacterTitle("");
         setCharacterBadge("");
+        setFaction("");
+        setAlignment("");
+        setBackstory("");
+        setCurrentStory("");
         setSelectedTraits([]);
         setTraitPoints(15);
         setStats({ ...DEFAULT_STATS });
@@ -545,7 +566,11 @@ export function CharacterBuilderPage() {
             inventory: inventory,
             equipped: equippedItems,
             title: characterTitle,
-            badge: characterBadge
+            badge: characterBadge,
+            faction: faction,
+            alignment: alignment,
+            backstory: backstory,
+            currentStory: currentStory,
         };
 
         try {
@@ -725,7 +750,7 @@ export function CharacterBuilderPage() {
                     {/* Tab Navigation */}
                     <div className="shrink-0 flex items-center justify-center p-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md">
                         <TabBar
-                            tabs={["IDENTITY", "TRAITS", "STATS", "OCCUPATION", "SKILLS", "EQUIPEMENT", "CHARACTER_SHEET", "INVENTORY", "SAVE"]}
+                            tabs={["IDENTITY", "LORE", "TRAITS", "STATS", "OCCUPATION", "SKILLS", "EQUIPEMENT", "CHARACTER_SHEET", "INVENTORY", "SAVE"]}
                             activeTab={activeTab}
                             onTabChange={(t) => setActiveTab(t as BuilderTab)}
                         />
@@ -783,14 +808,174 @@ export function CharacterBuilderPage() {
                                     </div>
                                 </div>
 
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Background History</label>
-                                    <textarea value={history} onChange={e => setHistory(e.target.value)} placeholder="What is this character's story?" rows={3} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all resize-none" />
-                                </div>
+
 
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Appearance Description</label>
                                     <textarea value={appearancePrompt} onChange={e => setAppearancePrompt(e.target.value)} placeholder="Physical appearance descriptor..." rows={2} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all resize-none" />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ═══ LORE TAB ═══ */}
+                        {activeTab === "LORE" && (
+                            <div className="flex flex-col h-full relative font-mono overflow-hidden py-2 px-2 gap-4 animate-ash-settling">
+                                <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pt-2 pb-6 max-w-6xl mx-auto w-full">
+
+                                    {!history ? (
+                                        /* PHASE 1: DRAFTING & ERA SELECTION */
+                                        <div className="bg-[#1a1a1a]/80 border border-orange-950/30 p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] backdrop-blur-xl relative overflow-hidden">
+                                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-orange-500/40 to-transparent" />
+
+                                            <div className="flex items-center justify-between mb-8">
+                                                <div className="space-y-1">
+                                                    <h3 className="text-[12px] font-black text-white uppercase tracking-[0.4em] flex items-center gap-3">
+                                                        <div className="w-2 h-2 bg-orange-500 shadow-[0_0_10px_#f97316]" />
+                                                        ASH-TRAIL NEURAL INTERFACE
+                                                    </h3>
+                                                    <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest italic">Temporal Era: ASH-4 (Present Day)</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-[300px_1fr] gap-8">
+                                                <div className="space-y-4">
+                                                    <div className="p-5 bg-orange-500/[0.03] border border-orange-500/10 rounded-xl">
+                                                        <div className="text-[8px] text-orange-500/70 font-black uppercase tracking-[0.2em] mb-3">ASH-4 Protocol</div>
+                                                        <p className="text-[10px] text-gray-400 leading-relaxed italic font-medium">
+                                                            {ASH_TRAIL_CHRONICLES.find(c => c.id === "ASH-4")?.event}
+                                                        </p>
+                                                    </div>
+                                                    <div className="p-4 bg-black/40 border border-white/5 rounded-xl">
+                                                        <div className="text-[8px] text-gray-500 font-black uppercase tracking-widest mb-2">Lore Chronology</div>
+                                                        <div className="space-y-2 opacity-50">
+                                                            {ASH_TRAIL_CHRONICLES.slice(0, 4).map(era => (
+                                                                <div key={era.id} className="text-[8px] hover:opacity-100 transition-opacity flex gap-1.5 items-baseline">
+                                                                    <span className="text-orange-500/60 font-black shrink-0">{era.id}:</span>
+                                                                    <span className="text-gray-500">{era.label.split(': ')[1]}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-6">
+                                                    <textarea
+                                                        value={backstory}
+                                                        onChange={e => setBackstory(e.target.value)}
+                                                        placeholder="Ex: 'I was a neurosurgeon in 20th century London' or 'I was a simple farmer in the Midwest'..."
+                                                        className="w-full h-[240px] bg-black/60 border border-white/10 text-[12px] text-gray-200 px-6 py-5 rounded-2xl outline-none focus:border-orange-500/40 transition-all font-mono leading-loose shadow-inner placeholder:text-gray-800"
+                                                    />
+
+                                                    <div className="flex justify-end pt-2">
+                                                        <button
+                                                            onClick={() => {
+                                                                setIsGeneratingStory(true);
+                                                                setTimeout(() => {
+                                                                    const currentName = name || "This unit";
+                                                                    const soulContext = (backstory || "").toLowerCase();
+                                                                    const occupation = selectedOccupation?.name || 'Wanderer';
+                                                                    const originLoc = soulContext.includes("london") ? "the streets of London" :
+                                                                        soulContext.includes("midwest") ? "the American Midwest" :
+                                                                            soulContext.includes("paris") ? "the boulevards of Paris" : "a world of order and peace";
+
+                                                                    const p1 = `Before the heavens suffocated under a permanent blanket of soot, ${currentName} was a figure of the Old World, built on the legacy of ${backstory || "a simple, long-forgotten life"}. In those final, shimmering years of the 20th century, before the sky darkened and the first flakes of Ash settled, they moved through streets of glass and steel, participating in a civilization that believed its progress was infinite. Whether it was the sanitized sterility of a high-tech lab or the rustic peace of the countryside, the memory of that era remains a ghost—a spectral image of a blue sky that has not been seen in generations.`;
+
+                                                                    const p2 = `The end did not arrive with a scream, but with the silent, creeping advance of the Great Fog. ${currentName} witnessed first-hand the terrifying transition as the horizon vanished and the Atmosphere itself became an enemy. They navigated the frantic desperation of the Resource Wars, where the last vestiges of modern sovereignty were traded for drops of fuel and clean water. In the chaos of the global disintegration, survival became the only law, and ${currentName} learned to survive within the crumbling ruins of a world that was rapidly becoming alien.`;
+
+                                                                    const p3 = `When the surface finally became uninhabitable, the long migration into the deep began. ${currentName} lived through the agonizing silence of the underground vaults, surviving for years behind the lead-lined, reinforced structural shells of the Great Dark. Above, the Ash-storms reshaped the continents, burying the landmarks of the old world under meters of gray dust. In the claustrophobic dimness of those bunkers, the person they once were began to erode, replaced by a hardened survivor forged in the shadows.`;
+
+                                                                    const p4 = `Emerging from the vaults during the era of the first surface scouts, ${currentName} found a planet that no longer recognized its masters. They became a scavenger of the wastes, reclaiming artifacts of the past to build the foundations of a new, fractured society. Every scrap of metal and every fragment of data became a lifeline. It was a time of rebuilding where the ghosts of the past met the harsh necessities of the present, and ${currentName} proved to be a vital component in the machinery of reclamation.`;
+
+                                                                    const p5 = `Today, as a specialized ${occupation}, ${currentName} has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Whether they are trading relics in the neon-lit bazaars or surveying the radioactive fringes of the deep wastes, they carry the weight of two worlds—a bridge between a dead past and an uncertain future. Each step is a testament to the resilience of a spirit that refuses to be buried under the Ash.`;
+
+                                                                    setHistory(`${p1}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5}`);
+
+                                                                    if (soulContext.includes("experiment") || soulContext.includes("patient") || soulContext.includes("bastard") || soulContext.includes("kill") || soulContext.includes("murder") || soulContext.includes("ruthless")) setAlignment("Chaotic Evil");
+                                                                    else if (soulContext.includes("order") || soulContext.includes("law") || soulContext.includes("officer") || soulContext.includes("security") || soulContext.includes("soldier")) setAlignment("Lawful Neutral");
+                                                                    else if (soulContext.includes("surgeon") || soulContext.includes("doctor") || soulContext.includes("hospital") || soulContext.includes("help") || soulContext.includes("save") || soulContext.includes("nurse")) setAlignment("Neutral Good");
+                                                                    else if (soulContext.includes("protect") || soulContext.includes("loyalty") || soulContext.includes("family") || soulContext.includes("hero")) setAlignment("Lawful Good");
+                                                                    else if (soulContext.includes("thief") || soulContext.includes("shadow") || soulContext.includes("steal") || soulContext.includes("rogue")) setAlignment("Chaotic Neutral");
+                                                                    else setAlignment("True Neutral");
+
+                                                                    setIsGeneratingStory(false);
+                                                                }, 1200);
+                                                            }}
+                                                            disabled={!backstory || isGeneratingStory}
+                                                            className={`group relative px-12 py-4 ${isGeneratingStory ? 'bg-orange-950/40' : 'bg-orange-600 hover:bg-orange-500'} text-white text-[11px] font-black uppercase tracking-[0.3em] rounded-xl transition-all shadow-[0_10px_30px_rgba(234,88,12,0.3)] disabled:opacity-50 flex items-center gap-3 overflow-hidden`}
+                                                        >
+                                                            {isGeneratingStory ? (
+                                                                <>
+                                                                    <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                                                    SYNCHRONIZING NEURAL LOG...
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+                                                                    STABILIZE NEURAL HISTORY
+                                                                </>
+                                                            )}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        /* PHASE 2: FINALIZED VIEW */
+                                        <div className="grid grid-cols-[1fr_320px] gap-6 items-start">
+                                            {/* Integrated History (Large Container) */}
+                                            <div className="bg-black/40 border border-white/5 p-8 rounded-2xl shadow-2xl relative group min-h-[600px] flex flex-col">
+                                                <div className="flex items-center justify-between mb-6">
+                                                    <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em] flex items-center gap-3">
+                                                        <div className="w-1.5 h-1.5 bg-indigo-500 shadow-[0_0_10px_#6366f1]" />
+                                                        STORY
+                                                    </h3>
+                                                    <button onClick={() => setHistory("")} className="text-[8px] text-gray-700 hover:text-red-500 font-black uppercase tracking-widest transition-colors opacity-0 group-hover:opacity-100 italic">Supprimer et recommencer ✕</button>
+                                                </div>
+                                                <textarea
+                                                    value={history}
+                                                    onChange={e => setHistory(e.target.value)}
+                                                    className="flex-1 bg-transparent border-none text-[13px] text-gray-300 font-mono leading-relaxed outline-none resize-none custom-scrollbar p-0"
+                                                />
+                                            </div>
+
+                                            {/* Sidebar: Current & Alignment */}
+                                            <div className="space-y-6">
+                                                {/* Alignment - Dedicated Interactable Box */}
+                                                <div className="bg-[#111] border border-orange-500/20 p-6 rounded-2xl shadow-xl group">
+                                                    <div className="text-[8px] text-orange-500/60 font-black uppercase tracking-[0.3em] mb-4 text-center">ALIGNMENT</div>
+                                                    <div className="relative">
+                                                        <select
+                                                            value={alignment}
+                                                            onChange={e => setAlignment(e.target.value)}
+                                                            className="w-full bg-black/60 border border-white/5 text-[12px] text-white font-black p-4 rounded-xl outline-none cursor-pointer hover:border-orange-500/40 transition-all text-center appearance-none shadow-inner"
+                                                        >
+                                                            {["Lawful Good", "Neutral Good", "Chaotic Good", "Lawful Neutral", "True Neutral", "Chaotic Neutral", "Lawful Evil", "Neutral Evil", "Chaotic Evil"].map(a => (
+                                                                <option key={a} value={a} className="bg-[#111]">{a}</option>
+                                                            ))}
+                                                        </select>
+                                                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-20">▼</div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Current Activities - Compact Box */}
+                                                <div className="bg-[#111] border border-teal-500/10 p-6 rounded-2xl flex flex-col gap-4">
+                                                    <div className="flex items-center justify-between">
+                                                        <h3 className="text-[9px] font-black text-teal-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                                                            <div className="w-1 h-1 bg-teal-500 rounded-full animate-pulse" />
+                                                            ACTIVITIES
+                                                        </h3>
+                                                    </div>
+                                                    <textarea
+                                                        value={currentStory}
+                                                        onChange={e => setCurrentStory(e.target.value)}
+                                                        placeholder="What is happening now..."
+                                                        className="w-full h-[120px] bg-transparent border-none text-[10px] text-teal-100/40 font-mono leading-relaxed outline-none resize-none custom-scrollbar p-0 italic"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                 </div>
                             </div>
                         )}
@@ -1430,6 +1615,12 @@ export function CharacterBuilderPage() {
                                                 </div>
 
                                                 <div className="space-y-2.5">
+                                                    {alignment && (
+                                                        <div className="border border-white/5 bg-black/30 p-2">
+                                                            <div className="text-[6px] font-black uppercase tracking-[0.22em] text-gray-600">Soul Alignment</div>
+                                                            <div className="mt-1 text-[9px] font-bold text-[#c2410c] uppercase truncate">{alignment}</div>
+                                                        </div>
+                                                    )}
                                                     <div className="max-h-[168px] overflow-y-auto custom-scrollbar border border-white/5 bg-black/30 p-2.5">
                                                         <div className="mb-2 flex items-center justify-between">
                                                             <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-500">Abridged Dossier</div>
@@ -1443,6 +1634,21 @@ export function CharacterBuilderPage() {
                                                             <p className="text-[10px] italic leading-relaxed text-gray-600">No historical records available for this unit.</p>
                                                         )}
                                                     </div>
+
+                                                    {currentStory && (
+                                                        <div className="border border-teal-500/10 bg-teal-500/[0.03] p-2.5">
+                                                            <div className="mb-2 flex items-center justify-between">
+                                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-teal-400/70">Active Chronicle</div>
+                                                                <div className="flex gap-1">
+                                                                    <div className="w-1 h-1 bg-teal-500/30 rounded-full" />
+                                                                    <div className="w-1 h-1 bg-teal-500/30 rounded-full" />
+                                                                </div>
+                                                            </div>
+                                                            <p className="text-[9px] italic leading-relaxed text-teal-100/30 line-clamp-2">
+                                                                {currentStory}
+                                                            </p>
+                                                        </div>
+                                                    )}
 
                                                     <div className="border border-dashed border-white/10 bg-black/20 p-2.5">
                                                         <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]">Reputation</div>

@@ -123,6 +123,10 @@ export interface Character {
   equipped?: Record<string, Item | null>;
   title?: string;
   badge?: string;
+  faction?: string;
+  alignment?: string;
+  backstory?: string;
+  currentStory?: string;
 }
 
 /** @deprecated Use `Character` instead. Kept for backward compatibility. */
