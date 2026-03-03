@@ -121,6 +121,8 @@ export interface Character {
   level: number;
   inventory: Item[];
   equipped?: Record<string, Item | null>;
+  title?: string;
+  badge?: string;
 }
 
 /** @deprecated Use `Character` instead. Kept for backward compatibility. */

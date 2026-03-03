@@ -67,6 +67,23 @@ const ITEMS_BY_CATEGORY: Record<string, string[]> = {
     armor: ["Tactical Vest", "Reinforced Helmet", "Scrap Plating", "Leather Guards", "Combat Boots"]
 };
 
+const ALL_TITLES = [
+    "Wasteland Survivor",
+    "Ash-Born",
+    "Scrap Collector",
+    "Exposed wanderer",
+    "Old World Relic",
+    "The Nameless",
+    "Dust Stalker",
+    "Road Warrior",
+    "Steelheart",
+    "Radiation Prophet"
+];
+
+const ALL_BADGES = [
+    "👤", "💀", "⚔️", "🛡️", "🧬", "⚡", "🔥", "☢️", "☣️", "🪦", "🔋", "🩸"
+];
+
 export function CharacterBuilderPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [savedCharacters, setSavedCharacters] = useState<Character[]>([]);
@@ -82,6 +99,9 @@ export function CharacterBuilderPage() {
     const [appearancePrompt, setAppearancePrompt] = useState("");
     const [isNPC, setIsNPC] = useState(false);
     const [level, setLevel] = useState(1);
+    const [characterTitle, setCharacterTitle] = useState("");
+    const [characterBadge, setCharacterBadge] = useState("");
+    const [showSelectionModal, setShowSelectionModal] = useState<"title" | "badge" | null>(null);
 
     // Traits
     const [selectedTraits, setSelectedTraits] = useState<Trait[]>([]);
@@ -429,6 +449,8 @@ export function CharacterBuilderPage() {
         setAppearancePrompt(char.appearancePrompt);
         setIsNPC(char.isNPC || false);
         updateLevel(char.level || 1);
+        setCharacterTitle(char.title || "");
+        setCharacterBadge(char.badge || "");
         setSelectedTraits(char.traits || []);
         setStats(char.stats);
         setAttributeUpgrades({ ...ZERO_STATS });
@@ -467,6 +489,8 @@ export function CharacterBuilderPage() {
         setAppearancePrompt("");
         setIsNPC(false);
         updateLevel(1);
+        setCharacterTitle("");
+        setCharacterBadge("");
         setSelectedTraits([]);
         setTraitPoints(15);
         setStats({ ...DEFAULT_STATS });
@@ -519,7 +543,9 @@ export function CharacterBuilderPage() {
             xp: 0,
             level: level,
             inventory: inventory,
-            equipped: equippedItems
+            equipped: equippedItems,
+            title: characterTitle,
+            badge: characterBadge
         };
 
         try {
@@ -1348,14 +1374,17 @@ export function CharacterBuilderPage() {
                                                                 <span className="text-[8px] font-bold uppercase tracking-[0.24em] text-gray-500">Identification</span>
                                                             </div>
                                                             <div className="space-y-1 border-b border-white/5 pb-2">
-                                                                <h3 className="text-[18px] leading-none font-bold uppercase tracking-[0.08em] text-white">
-                                                                    {name || "Unnamed Unit"}
-                                                                </h3>
+                                                                <div className="flex items-center gap-2">
+                                                                    <h3 className="text-[18px] leading-none font-bold uppercase tracking-[0.08em] text-white">
+                                                                        {characterBadge && <span className="mr-2 text-orange-500/80 drop-shadow-[0_0_8px_rgba(194,65,12,0.4)]">{characterBadge}</span>}
+                                                                        {name || "Unnamed Unit"}
+                                                                    </h3>
+                                                                </div>
                                                                 <p className="pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.18em] text-gray-400">
                                                                     {selectedOccupation?.name || "No Occupation"}
                                                                 </p>
                                                                 <p className="pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.16em] text-gray-600">
-                                                                    {selectedTraits[0]?.name || "No Title"}
+                                                                    {characterTitle || "No Title"}
                                                                 </p>
                                                             </div>
 
@@ -1402,9 +1431,14 @@ export function CharacterBuilderPage() {
 
                                                 <div className="space-y-2.5">
                                                     <div className="max-h-[168px] overflow-y-auto custom-scrollbar border border-white/5 bg-black/30 p-2.5">
-                                                        <div className="mb-2 text-[7px] font-bold uppercase tracking-[0.22em] text-gray-500">Story</div>
+                                                        <div className="mb-2 flex items-center justify-between">
+                                                            <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-500">Abridged Dossier</div>
+                                                            {history.length > 165 && <div className="text-[6px] font-black uppercase text-[#c2410c]/60">Condensed</div>}
+                                                        </div>
                                                         {history ? (
-                                                            <p className="text-[10px] italic leading-relaxed text-gray-400">{history}</p>
+                                                            <p className="text-[10px] italic leading-relaxed text-gray-400">
+                                                                {history.length > 165 ? history.substring(0, 165) + "..." : history}
+                                                            </p>
                                                         ) : (
                                                             <p className="text-[10px] italic leading-relaxed text-gray-600">No historical records available for this unit.</p>
                                                         )}
@@ -1414,9 +1448,16 @@ export function CharacterBuilderPage() {
                                                         <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]">Reputation</div>
                                                         <div className="mt-2 grid grid-cols-2 gap-2">
                                                             {["Titles", "Badges"].map(slot => (
-                                                                <div key={slot} className="flex h-14 items-center justify-center border border-white/5 bg-black/40 text-center text-[8px] font-bold uppercase tracking-[0.16em] text-gray-700">
-                                                                    {slot}
-                                                                </div>
+                                                                <button
+                                                                    key={slot}
+                                                                    onClick={() => setShowSelectionModal(slot === "Titles" ? "title" : "badge")}
+                                                                    className="group flex h-14 flex-col items-center justify-center gap-1.5 border border-white/5 bg-black/40 p-2 text-center transition-all hover:border-[#c2410c]/40 hover:bg-white/[0.02] active:scale-95"
+                                                                >
+                                                                    <span className="text-[7px] font-black uppercase tracking-[0.2em] text-gray-600 group-hover:text-gray-400">{slot}</span>
+                                                                    <span className="text-[10px] font-bold uppercase tracking-widest text-white line-clamp-1">
+                                                                        {slot === "Titles" ? (characterTitle || "SELECT") : (characterBadge || "SELECT")}
+                                                                    </span>
+                                                                </button>
                                                             ))}
                                                         </div>
                                                     </div>
@@ -2031,9 +2072,79 @@ export function CharacterBuilderPage() {
                                 </div>
                             </div>
                         }
+                    </div> {/* end of tab panels */}
+                </div> {/* end of Center Panel */}
+            </div> {/* end of Main Layout */}
+
+            {/* Selection Modal (Titles / Badges) */}
+            {showSelectionModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+                    <div className="w-full max-w-md border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl animate-ash-settling">
+                        <div className="mb-6 flex items-center justify-between border-b border-white/5 pb-4">
+                            <div className="flex items-center gap-3">
+                                <div className="h-4 w-1 bg-[#c2410c]" />
+                                <h3 className="text-sm font-black uppercase tracking-[0.3em] text-white">
+                                    Select {showSelectionModal === "title" ? "Unit Title" : "Unit Badge"}
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setShowSelectionModal(null)}
+                                className="text-gray-500 hover:text-white transition-colors"
+                            >
+                                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                            {showSelectionModal === "title" ? (
+                                <>
+                                    <button
+                                        onClick={() => { setCharacterTitle(""); setShowSelectionModal(null); }}
+                                        className="h-12 border border-dashed border-white/10 bg-black/40 text-[9px] font-bold uppercase tracking-widest text-gray-500 hover:border-white/20 hover:text-white transition-all"
+                                    >
+                                        Remove Title
+                                    </button>
+                                    {ALL_TITLES.map(t => (
+                                        <button
+                                            key={t}
+                                            onClick={() => { setCharacterTitle(t); setShowSelectionModal(null); }}
+                                            className={`h-12 border px-3 text-[9px] font-bold uppercase tracking-widest transition-all ${characterTitle === t ? "border-[#c2410c] bg-[#c2410c]/10 text-white shadow-[0_0_15px_rgba(194,65,12,0.2)]" : "border-white/5 bg-black/20 text-gray-400 hover:border-white/20 hover:text-white"}`}
+                                        >
+                                            {t}
+                                        </button>
+                                    ))}
+                                </>
+                            ) : (
+                                <>
+                                    <button
+                                        onClick={() => { setCharacterBadge(""); setShowSelectionModal(null); }}
+                                        className="h-12 border border-dashed border-white/10 bg-black/40 text-[9px] font-bold uppercase tracking-widest text-gray-500 hover:border-white/20 hover:text-white transition-all flex items-center justify-center"
+                                    >
+                                        Remove Badge
+                                    </button>
+                                    {ALL_BADGES.map(b => (
+                                        <button
+                                            key={b}
+                                            onClick={() => { setCharacterBadge(b); setShowSelectionModal(null); }}
+                                            className={`h-12 border text-xl flex items-center justify-center transition-all ${characterBadge === b ? "border-[#c2410c] bg-[#c2410c]/10 shadow-[0_0_15px_rgba(194,65,12,0.2)]" : "border-white/5 bg-black/20 hover:border-white/20"}`}
+                                        >
+                                            {b}
+                                        </button>
+                                    ))}
+                                </>
+                            )}
+                        </div>
+
+                        <div className="mt-8 border-t border-white/5 pt-4 text-center">
+                            <p className="text-[8px] font-bold uppercase tracking-[0.2em] text-gray-600">
+                                Changes will be reflected immediately in the data blueprint.
+                            </p>
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }
