@@ -1226,43 +1226,72 @@ export function CharacterBuilderPage() {
                                     <div className="space-y-3">
                                         <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.05fr_0.95fr]">
                                             <section className="border border-white/5 bg-black/40 p-3 shadow-2xl">
-                                                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[92px_minmax(0,1fr)] lg:items-start">
-                                                    <div className="relative h-24 w-full overflow-hidden border border-white/10 bg-black/60 lg:h-24 lg:w-24">
-                                                        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:20px_20px] opacity-30" />
-                                                        <div className="absolute inset-0 flex items-center justify-center text-4xl font-bold text-gray-700">P</div>
-                                                        <div className="absolute inset-x-0 top-0 h-px bg-[#c2410c]/30" />
+                                                <div className="space-y-3 font-mono">
+                                                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[112px_minmax(0,1fr)] md:items-start">
+                                                        <div className="relative h-28 w-full overflow-hidden border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.2))] shadow-lg md:w-28">
+                                                            <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:18px_18px] opacity-30" />
+                                                            <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/30 to-transparent" />
+                                                            <div className="absolute inset-0 flex items-center justify-center">
+                                                                <svg
+                                                                    viewBox="0 0 64 64"
+                                                                    className="h-16 w-16 text-[#1f1f1f] opacity-80 animate-pulse"
+                                                                    fill="currentColor"
+                                                                    aria-hidden="true"
+                                                                >
+                                                                    <circle cx="32" cy="21" r="11" />
+                                                                    <path d="M14 56c1-11 8-19 18-19s17 8 18 19H14z" />
+                                                                </svg>
+                                                            </div>
+                                                            <div className="absolute inset-0 bg-black/35" />
+                                                        </div>
+
+                                                        <div className="min-w-0 space-y-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.45)]" />
+                                                                <span className="text-[8px] font-bold uppercase tracking-[0.24em] text-gray-500">Identification</span>
+                                                            </div>
+                                                            <div className="space-y-1 border-b border-white/5 pb-2">
+                                                                <h3 className="text-[18px] leading-none font-bold uppercase tracking-[0.08em] text-white">
+                                                                    {name || "Unnamed Unit"}
+                                                                </h3>
+                                                                <p className="pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.18em] text-gray-400">
+                                                                    {selectedOccupation?.name || "No Occupation"}
+                                                                </p>
+                                                                <p className="pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.16em] text-gray-600">
+                                                                    {selectedTraits[0]?.name || "No Title"}
+                                                                </p>
+                                                            </div>
+
+                                                            <div className="grid grid-cols-[minmax(0,1fr)_108px] gap-2 pt-1">
+                                                                <div className="border border-white/5 bg-black/30 px-2.5 py-2">
+                                                                    <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">
+                                                                        Age / Gender
+                                                                    </div>
+                                                                    <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                                                        {age} / {gender}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-2.5 py-2">
+                                                                    <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]/70">
+                                                                        Level
+                                                                    </div>
+                                                                    <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                                                        LVL {level}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     </div>
 
-                                                    <div className="min-w-0 space-y-2.5">
-                                                        <div className="space-y-1.5 border-b border-white/6 pb-2.5">
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
-                                                                <span className="text-[8px] font-bold uppercase tracking-[0.28em] text-gray-500">Identification</span>
-                                                            </div>
-                                                            <h3 className="text-[22px] leading-none font-bold uppercase tracking-[0.1em] text-white">
-                                                                {name || "Unnamed Unit"}
-                                                            </h3>
-                                                            <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-gray-600">
-                                                                {selectedOccupation?.name || "Unassigned operative"}
-                                                            </p>
-                                                        </div>
+                                                    <div className="border border-white/5 bg-black/30 px-3 py-2">
+                                                        <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Current Location</div>
+                                                        <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">No Current Location</div>
+                                                    </div>
 
-                                                        <div className="grid grid-cols-2 gap-2 md:grid-cols-[repeat(3,minmax(0,118px))]">
-                                                            {[
-                                                                { label: "Age", value: `${age} years`, tone: "text-gray-200 border-white/10 bg-black/40" },
-                                                                { label: "Gender", value: gender, tone: "text-gray-200 border-white/10 bg-black/40" },
-                                                                { label: "Level", value: `LVL ${level}`, tone: "text-[#c2410c] border-[#c2410c]/30 bg-[#c2410c]/8" },
-                                                            ].map(field => (
-                                                                <div key={field.label} className={`border px-2.5 py-2 ${field.tone}`}>
-                                                                    <div className="text-[7px] font-bold uppercase tracking-[0.22em] opacity-70">{field.label}</div>
-                                                                    <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.1em]">{field.value}</div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-
-                                                        <div className="border border-white/10 bg-black/40 px-2.5 py-2 text-gray-200">
-                                                            <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-500">Location</div>
-                                                            <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.1em]">Dust Ward / Sector 03</div>
+                                                    <div className="border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2">
+                                                        <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Health Status</div>
+                                                        <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-300 animate-pulse">
+                                                            {derivedStats.hp > 20 ? "Stable" : derivedStats.hp > 10 ? "Wounded" : "Critical"}
                                                         </div>
                                                     </div>
                                                 </div>
