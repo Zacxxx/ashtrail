@@ -282,104 +282,86 @@ export function useTacticalCombat(
 
         const affectedCells = getAoECells(grid, targetRow, targetCol, skill.areaType, skill.areaSize || 0, dirR, dirC);
 
-        setEntities(prev => {
-            const next = new Map(prev);
+        const nextEntities = new Map(entities);
+        const logsToAdd: { msg: string, type: CombatLogMessage['type'] }[] = [];
 
-            // Deduct AP caster
-            const c = { ...next.get(casterId)! };
-            c.ap -= skill.apCost;
-            if (skill.cooldown > 0) {
-                c.skillCooldowns = { ...c.skillCooldowns, [skill.id]: skill.cooldown + 1 };
+        // Deduct AP caster
+        const c = { ...nextEntities.get(casterId)! };
+        c.ap -= skill.apCost;
+        if (skill.cooldown > 0) {
+            c.skillCooldowns = { ...c.skillCooldowns, [skill.id]: skill.cooldown + 1 };
+        }
+        nextEntities.set(casterId, c);
+
+        for (const cell of affectedCells) {
+            if (!cell.occupantId) continue;
+            const targetId = cell.occupantId;
+            const t = nextEntities.get(targetId);
+            if (!t || t.hp <= 0) continue;
+
+            const tCopy = { ...t };
+
+            // For AoE, we generally apply to all. We could filter by targetType if we wanted strict friend/foe AoE.
+            if (skill.healing) {
+                const rules = GameRulesManager.get();
+                const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
+                const charismaBonus = 1 + c.socialBonus;
+                const healAmount = Math.floor(skill.healing * charismaBonus * variance);
+                const actualHeal = Math.min(healAmount, tCopy.maxHp - tCopy.hp);
+                tCopy.hp = Math.min(tCopy.maxHp, tCopy.hp + healAmount);
+                logsToAdd.push({ msg: `${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${tCopy.name} → heals ${actualHeal} HP!`, type: 'heal' });
             }
-            next.set(casterId, c);
 
-            for (const cell of affectedCells) {
-                if (!cell.occupantId) continue;
-                const targetId = cell.occupantId;
-                const t = next.get(targetId);
-                if (!t || t.hp <= 0) continue;
+            if (skill.damage) {
+                const isPhysical = skill.effectType === 'physical';
+                const isMagical = skill.effectType === 'magical';
 
-                // For AoE, we generally apply to all. We could filter by targetType if we wanted strict friend/foe AoE.
-                if (skill.healing) {
-                    const rules = GameRulesManager.get();
-                    const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
-                    const charismaBonus = 1 + c.socialBonus;
-                    const healAmount = Math.floor(skill.healing * charismaBonus * variance);
-                    const actualHeal = Math.min(healAmount, t.maxHp - t.hp);
-                    t.hp = Math.min(t.maxHp, t.hp + healAmount);
-                    addLog(`${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${t.name} → heals ${actualHeal} HP!`, 'heal');
+                if (isPhysical) {
+                    const hitChance = 100 - tCopy.evasion;
+                    if (Math.random() * 100 > hitChance) {
+                        logsToAdd.push({ msg: `${skill.icon || '✨'} ${skill.name} missed ${tCopy.name}!`, type: 'info' });
+                        continue;
+                    }
                 }
 
-                if (skill.damage) {
-                    const isPhysical = skill.effectType === 'physical';
-                    const isMagical = skill.effectType === 'magical';
+                // Critical Hit check
+                const isCrit = Math.random() < c.critChance;
 
-                    if (isPhysical) {
-                        const hitChance = 100 - t.evasion;
-                        if (Math.random() * 100 > hitChance) {
-                            addLog(`${skill.icon || '✨'} ${skill.name} missed ${t.name}!`, 'info');
-                            continue;
-                        }
-                    }
+                const rules = GameRulesManager.get();
+                const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
 
-                    // Critical Hit check
-                    const isCrit = Math.random() < c.critChance;
+                // Base scaled damage
+                let scaledDamage = Math.floor((skill.damage + c.strength * rules.combat.strengthToPowerRatio) * variance);
 
-                    const rules = GameRulesManager.get();
-                    const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
-
-                    // Base scaled damage
-                    let scaledDamage = Math.floor((skill.damage + c.strength * rules.combat.strengthToPowerRatio) * variance);
-
-                    if (isCrit) {
-                        scaledDamage = Math.floor(scaledDamage * 1.5);
-                    }
-
-                    // Resistance/Defense check
-                    let actualDamage = scaledDamage;
-                    if (isMagical) {
-                        // Magical damage is resisted by Wisdom
-                        const resistAmount = Math.floor(actualDamage * t.resistance);
-                        actualDamage = Math.max(1, actualDamage - resistAmount);
-                    } else {
-                        // Physical damage is reduced by flat defense
-                        actualDamage = Math.max(1, actualDamage - t.defense);
-                    }
-
-                    const newHp = Math.max(0, t.hp - actualDamage);
-                    t.hp = newHp;
-
-                    addLog(`${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${t.name} → ${isCrit ? 'CRITICAL ' : ''}${actualDamage} damage!`, 'damage');
-
-                    if (skill.pushDistance && skill.pushDistance > 0 && newHp > 0) {
-                        // Push effect simplified for AoE (push away from center)
-                        const pdr = t.gridPos.row - targetRow;
-                        const pdc = t.gridPos.col - targetCol;
-                        const pDirR = pdr === 0 ? 0 : (pdr > 0 ? 1 : -1);
-                        const pDirC = pdc === 0 ? 0 : (pdc > 0 ? 1 : -1);
-
-                        let newRow = t.gridPos.row;
-                        let newCol = t.gridPos.col;
-                        for (let i = 0; i < skill.pushDistance; i++) {
-                            const nextR = newRow + pDirR;
-                            const nextC = newCol + pDirC;
-                            if (nextR < 0 || nextR >= grid.length || nextC < 0 || nextC >= grid[0].length) break;
-                            if (!grid[nextR][nextC].walkable || grid[nextR][nextC].occupantId) break;
-                            newRow = nextR;
-                            newCol = nextC;
-                        }
-                        if (newRow !== t.gridPos.row || newCol !== t.gridPos.col) {
-                            // Because we update grid later, we must be careful. 
-                            // It's safer to just log the push but not execute it in AoE loop without a complex queue. 
-                            // We will skip push for now in AoE to avoid grid desync, or we can just apply t.gridPos and let grid refresh.
-                            // To keep it simple, we just don't push if it's an AoE effect unless we rewrite the grid resolver.
-                        }
-                    }
+                if (isCrit) {
+                    scaledDamage = Math.floor(scaledDamage * 1.5);
                 }
-                next.set(targetId, { ...t });
+
+                // Resistance/Defense check
+                let actualDamage = scaledDamage;
+                if (isMagical) {
+                    // Magical damage is resisted by Wisdom
+                    const resistAmount = Math.floor(actualDamage * tCopy.resistance);
+                    actualDamage = Math.max(1, actualDamage - resistAmount);
+                } else {
+                    // Physical damage is reduced by flat defense
+                    actualDamage = Math.max(1, actualDamage - tCopy.defense);
+                }
+
+                const newHp = Math.max(0, tCopy.hp - actualDamage);
+                tCopy.hp = newHp;
+
+                logsToAdd.push({ msg: `${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${tCopy.name} → ${isCrit ? 'CRITICAL ' : ''}${actualDamage} damage!`, type: 'damage' });
+
+                if (skill.pushDistance && skill.pushDistance > 0 && newHp > 0) {
+                    // Push logic could go here
+                }
             }
-            return next;
-        });
+            nextEntities.set(targetId, tCopy);
+        }
+
+        setEntities(nextEntities);
+        logsToAdd.forEach(l => addLog(l.msg, l.type));
 
         setTimeout(() => {
             setEntities(currEntities => {
