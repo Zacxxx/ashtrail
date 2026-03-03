@@ -26,13 +26,28 @@ export interface Stats {
   charisma: number;
 }
 
-export type EffectType = 'STAT_MODIFIER' | 'COMBAT_BONUS' | 'RESOURCE_MODIFIER' | 'EXPLORATION_BONUS';
+export type EffectType =
+  | 'STAT_MODIFIER'
+  | 'COMBAT_BONUS'
+  | 'RESOURCE_MODIFIER'
+  | 'EXPLORATION_BONUS'
+  | 'DAMAGE_OVER_TIME'
+  | 'HEAL_OVER_TIME'
+  | 'STATUS_IMMUNITY'
+  | 'ACTION_MODIFIER'
+  | 'LORE_EFFECT';
 
 export interface GameplayEffect {
+  id: string;
+  name: string;
+  description: string;
   type: EffectType;
-  target?: string; // e.g. 'maxHp', 'strength', 'evasion', 'food'
+  target?: string; // e.g. 'maxHp', 'strength', 'evasion', 'food', 'fire_damage'
   value: number;
-  trigger?: 'passive' | 'on_hit' | 'on_turn_start' | 'on_defend';
+  isPercentage?: boolean;
+  duration?: number; // 0 or undefined for permanent/passive
+  trigger?: 'passive' | 'on_hit' | 'on_turn_start' | 'on_turn_end' | 'on_defend' | 'on_kill';
+  icon?: string;
 }
 
 export interface Trait {
@@ -54,7 +69,7 @@ export interface Occupation {
   category: OccupationCategory;
   description: string;
   shortDescription: string;
-  perks: string[];
+  effects: GameplayEffect[];
   icon?: string;           // Emoji or gallery path
 }
 
@@ -97,6 +112,7 @@ export interface Skill {
   effectType?: 'physical' | 'magical' | 'support';
   pushDistance?: number;   // Cells to push target away (Dofus-style displacement)
   icon?: string;           // Emoji icon for quick display
+  effects?: GameplayEffect[];
 }
 
 export interface Character {

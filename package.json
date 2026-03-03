@@ -10,11 +10,14 @@
     "packages/geo-wasm/pkg"
   ],
   "scripts": {
+    "dev:server": "bun run --cwd apps/server dev",
     "dev:website": "bun run --cwd apps/website dev",
+    "dev:website:full": "bun run dev:server & bun run dev:website",
     "dev:dev-tools": "bun run dev:dev-tools:backend & bun run dev:dev-tools:frontend",
     "dev:dev-tools:frontend": "bun run --cwd apps/dev-tools dev",
     "dev:dev-tools:backend": "bun run --cwd apps/dev-tools dev:backend",
     "build:website": "bun run --cwd apps/website build",
+    "start:server": "bun run --cwd apps/server start",
     "build:dev-tools": "bun run --cwd apps/dev-tools build",
     "build:wasm": "cd packages/geo-wasm && wasm-pack build --target web --out-dir pkg"
   },

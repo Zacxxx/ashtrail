@@ -20,7 +20,7 @@ use hierarchy::{generate_full_planet_hierarchy, HierarchyGenerateRequest, Planet
 use serde::Deserialize;
 use serde::Serialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -31,6 +31,7 @@ use base64::Engine as _;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
+use worldgen_core::graph::ProvinceAdjacency;
 
 #[derive(Clone)]
 struct AppState {
@@ -269,6 +270,16 @@ struct HierarchyRenameRequest {
 #[serde(rename_all = "camelCase")]
 struct HierarchyRenameResponse {
     success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContinentRecord {
+    id: u32,
+    kingdom_ids: Vec<u32>,
+    duchy_ids: Vec<u32>,
+    province_ids: Vec<u32>,
+    name: String,
 }
 
 #[derive(Clone)]
@@ -1405,6 +1416,8 @@ async fn reassign_worldgen_hierarchy(
             .map_err(|e| format!("Failed to parse duchies.json: {e}"))?;
         let mut kingdoms: Vec<KingdomRecord> = serde_json::from_str(&kingdoms_text)
             .map_err(|e| format!("Failed to parse kingdoms.json: {e}"))?;
+        let continents_path = worldgen_dir.join("continents.json");
+        let mut existing_continents = read_continents_file(&continents_path).unwrap_or_default();
 
         let entity_type = request.entity_type.trim().to_ascii_lowercase();
         match entity_type.as_str() {
@@ -1466,8 +1479,19 @@ async fn reassign_worldgen_hierarchy(
                     }
                 }
             }
+            "kingdom" => {
+                let Some(kingdom_index) = kingdoms.iter().position(|k| k.id == request.entity_id) else {
+                    return Err(format!("Kingdom {} not found", request.entity_id));
+                };
+                let target_continent_exists = existing_continents.iter().any(|c| c.id == request.target_id);
+                if !target_continent_exists {
+                    return Err(format!("Target continent {} not found", request.target_id));
+                }
+                // Kingdom reassignment is expressed through continent membership mapping below.
+                let _kingdom_id = kingdoms[kingdom_index].id;
+            }
             _ => {
-                return Err("entityType must be either 'province' or 'duchy'".to_string());
+                return Err("entityType must be one of: province, duchy, kingdom".to_string());
             }
         }
 
@@ -1537,6 +1561,82 @@ async fn reassign_worldgen_hierarchy(
 
         worldgen_core::export::write_id_texture(&duchy_labels, w, h, &worldgen_dir.join("duchy_id.png"))?;
         worldgen_core::export::write_id_texture(&kingdom_labels, w, h, &worldgen_dir.join("kingdom_id.png"))?;
+
+        let mut kingdom_to_continent: HashMap<u32, u32> = HashMap::new();
+        let mut continent_names: HashMap<u32, String> = HashMap::new();
+        for continent in &existing_continents {
+            continent_names.insert(continent.id, continent.name.clone());
+            for &kingdom_id in &continent.kingdom_ids {
+                kingdom_to_continent.insert(kingdom_id, continent.id);
+            }
+        }
+        if entity_type == "kingdom" {
+            kingdom_to_continent.insert(request.entity_id, request.target_id);
+        }
+        // Ensure every kingdom belongs to a continent.
+        for kingdom in &kingdoms {
+            kingdom_to_continent.entry(kingdom.id).or_insert(kingdom.id);
+            continent_names
+                .entry(*kingdom_to_continent.get(&kingdom.id).unwrap_or(&kingdom.id))
+                .or_insert_with(|| format!("Continent {}", kingdom.id + 1));
+        }
+
+        let mut continent_kingdom_ids: HashMap<u32, Vec<u32>> = HashMap::new();
+        for kingdom in &kingdoms {
+            let cid = kingdom_to_continent.get(&kingdom.id).copied().unwrap_or(kingdom.id);
+            continent_kingdom_ids.entry(cid).or_default().push(kingdom.id);
+        }
+
+        let mut continents: Vec<ContinentRecord> = continent_kingdom_ids
+            .into_iter()
+            .map(|(continent_id, mut kingdom_ids)| {
+                kingdom_ids.sort_unstable();
+                kingdom_ids.dedup();
+                let kingdom_set: HashSet<u32> = kingdom_ids.iter().copied().collect();
+
+                let mut duchy_ids: Vec<u32> = duchies
+                    .iter()
+                    .filter(|d| kingdom_set.contains(&d.kingdom_id))
+                    .map(|d| d.id)
+                    .collect();
+                duchy_ids.sort_unstable();
+                duchy_ids.dedup();
+
+                let mut province_ids: Vec<u32> = provinces
+                    .iter()
+                    .filter(|p| kingdom_set.contains(&p.kingdom_id))
+                    .map(|p| p.id)
+                    .collect();
+                province_ids.sort_unstable();
+                province_ids.dedup();
+
+                ContinentRecord {
+                    id: continent_id,
+                    kingdom_ids,
+                    duchy_ids,
+                    province_ids,
+                    name: continent_names
+                        .get(&continent_id)
+                        .cloned()
+                        .unwrap_or_else(|| format!("Continent {}", continent_id + 1)),
+                }
+            })
+            .collect();
+        continents.sort_by_key(|c| c.id);
+
+        let kingdom_to_continent: HashMap<u32, u32> = continents
+            .iter()
+            .flat_map(|c| c.kingdom_ids.iter().map(move |&kid| (kid, c.id)))
+            .collect();
+        let continent_labels: Vec<u32> = kingdom_labels
+            .iter()
+            .map(|&kid| kingdom_to_continent.get(&kid).copied().unwrap_or(0))
+            .collect();
+        worldgen_core::export::write_id_texture(&continent_labels, w, h, &worldgen_dir.join("continent_id.png"))?;
+        let continents_json = serde_json::to_string_pretty(&continents)
+            .map_err(|e| format!("Failed to serialize continents: {e}"))?;
+        std::fs::write(&continents_path, continents_json)
+            .map_err(|e| format!("Failed to write continents.json: {e}"))?;
 
         Ok(())
     })
@@ -1612,7 +1712,19 @@ async fn rename_worldgen_hierarchy(
                 std::fs::write(&kingdoms_path, payload)
                     .map_err(|e| format!("Failed to write kingdoms.json: {e}"))?;
             }
-            _ => return Err("entityType must be one of: province, duchy, kingdom".to_string()),
+            "continent" => {
+                let continents_path = worldgen_dir.join("continents.json");
+                let mut continents = read_continents_file(&continents_path)?;
+                let Some(index) = continents.iter().position(|c| c.id == request.entity_id) else {
+                    return Err(format!("Continent {} not found", request.entity_id));
+                };
+                continents[index].name = clean_name.to_string();
+                let payload = serde_json::to_string_pretty(&continents)
+                    .map_err(|e| format!("Failed to serialize continents: {e}"))?;
+                std::fs::write(&continents_path, payload)
+                    .map_err(|e| format!("Failed to write continents.json: {e}"))?;
+            }
+            _ => return Err("entityType must be one of: province, duchy, kingdom, continent".to_string()),
         }
 
         Ok(())
@@ -1622,6 +1734,109 @@ async fn rename_worldgen_hierarchy(
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     Ok(Json(HierarchyRenameResponse { success: true }))
+}
+
+fn read_continents_file(path: &std::path::Path) -> Result<Vec<ContinentRecord>, String> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read continents.json: {e}"))?;
+    serde_json::from_str(&text)
+        .map_err(|e| format!("Failed to parse continents.json: {e}"))
+}
+
+fn build_continents(
+    provinces: &[ProvinceRecord],
+    duchies: &[DuchyRecord],
+    kingdoms: &[KingdomRecord],
+    adjacency: &[ProvinceAdjacency],
+    previous_names: Option<&HashMap<u32, String>>,
+) -> Vec<ContinentRecord> {
+    let province_to_kingdom: HashMap<u32, u32> = provinces.iter().map(|p| (p.id, p.kingdom_id)).collect();
+    let mut kingdom_graph: HashMap<u32, HashSet<u32>> = kingdoms
+        .iter()
+        .map(|k| (k.id, HashSet::new()))
+        .collect();
+
+    for adj in adjacency {
+        let Some(&k1) = province_to_kingdom.get(&adj.province_id) else { continue; };
+        for edge in &adj.neighbors {
+            let Some(&k2) = province_to_kingdom.get(&edge.neighbor_id) else { continue; };
+            if k1 == k2 {
+                continue;
+            }
+            kingdom_graph.entry(k1).or_default().insert(k2);
+            kingdom_graph.entry(k2).or_default().insert(k1);
+        }
+    }
+
+    let mut kingdom_ids: Vec<u32> = kingdoms.iter().map(|k| k.id).collect();
+    kingdom_ids.sort_unstable();
+    let mut visited: HashSet<u32> = HashSet::new();
+    let mut components: Vec<Vec<u32>> = Vec::new();
+
+    for start in kingdom_ids {
+        if visited.contains(&start) {
+            continue;
+        }
+        let mut stack = vec![start];
+        let mut component: Vec<u32> = Vec::new();
+        visited.insert(start);
+
+        while let Some(node) = stack.pop() {
+            component.push(node);
+            if let Some(neighbors) = kingdom_graph.get(&node) {
+                for &next in neighbors {
+                    if visited.insert(next) {
+                        stack.push(next);
+                    }
+                }
+            }
+        }
+
+        component.sort_unstable();
+        components.push(component);
+    }
+
+    components.sort_by_key(|c| c.first().copied().unwrap_or(0));
+
+    components
+        .into_iter()
+        .enumerate()
+        .map(|(index, kingdom_ids)| {
+            let id = kingdom_ids.first().copied().unwrap_or(index as u32);
+            let kingdom_set: HashSet<u32> = kingdom_ids.iter().copied().collect();
+
+            let mut duchy_ids: Vec<u32> = duchies
+                .iter()
+                .filter(|d| kingdom_set.contains(&d.kingdom_id))
+                .map(|d| d.id)
+                .collect();
+            duchy_ids.sort_unstable();
+            duchy_ids.dedup();
+
+            let mut province_ids: Vec<u32> = provinces
+                .iter()
+                .filter(|p| kingdom_set.contains(&p.kingdom_id))
+                .map(|p| p.id)
+                .collect();
+            province_ids.sort_unstable();
+            province_ids.dedup();
+
+            let name = previous_names
+                .and_then(|names| names.get(&id).cloned())
+                .unwrap_or_else(|| format!("Continent {}", index + 1));
+
+            ContinentRecord {
+                id,
+                kingdom_ids,
+                duchy_ids,
+                province_ids,
+                name,
+            }
+        })
+        .collect()
 }
 
 #[derive(Deserialize)]

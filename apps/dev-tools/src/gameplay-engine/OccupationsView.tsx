@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Occupation, GameRegistry, OccupationCategory } from "@ashtrail/core";
+import { Occupation, GameRegistry, OccupationCategory, GameplayEffect } from "@ashtrail/core";
 import { IconGallerySelector } from "../components/IconGallerySelector";
+import { ModifierEditor } from "../components/ModifierEditor";
 
 interface OccupationsViewProps {
     occupation: Occupation | null;
@@ -15,7 +16,7 @@ export function OccupationsView({ occupation }: OccupationsViewProps) {
     const [category, setCategory] = useState<OccupationCategory>("FIELD");
     const [description, setDescription] = useState("");
     const [shortDescription, setShortDescription] = useState("");
-    const [perks, setPerks] = useState<string[]>([]);
+    const [effects, setEffects] = useState<GameplayEffect[]>([]);
     const [icon, setIcon] = useState("⚙️");
 
     // Gallery State
@@ -29,7 +30,22 @@ export function OccupationsView({ occupation }: OccupationsViewProps) {
             setCategory(occupation.category);
             setDescription(occupation.description);
             setShortDescription(occupation.shortDescription);
-            setPerks(occupation.perks);
+
+            // Migration: if occupation has perks (legacy), convert them to effects
+            const legacyPerks = (occupation as any).perks || [];
+            if (legacyPerks.length > 0 && (!occupation.effects || occupation.effects.length === 0)) {
+                const migrated = legacyPerks.map((p: string, idx: number) => ({
+                    id: `migrated-${idx}-${Date.now()}`,
+                    name: p,
+                    description: "Migrated from legacy perks",
+                    type: 'LORE_EFFECT',
+                    value: 0,
+                    trigger: 'passive'
+                }));
+                setEffects(migrated);
+            } else {
+                setEffects(occupation.effects || []);
+            }
             setIcon(occupation.icon || "⚙️");
         } else {
             setEditingOccupation(null);
@@ -43,7 +59,7 @@ export function OccupationsView({ occupation }: OccupationsViewProps) {
             category,
             description,
             shortDescription,
-            perks,
+            effects,
             icon,
         };
 
@@ -159,36 +175,11 @@ export function OccupationsView({ occupation }: OccupationsViewProps) {
                 />
             </div>
 
-            <div className="space-y-3">
-                <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Starting Perks</label>
-                <div className="flex flex-col gap-2">
-                    {perks.map((perk, i) => (
-                        <div key={i} className="flex gap-2">
-                            <input
-                                value={perk}
-                                onChange={e => {
-                                    const next = [...perks];
-                                    next[i] = e.target.value;
-                                    setPerks(next);
-                                }}
-                                className="flex-1 bg-black/50 border border-white/10 text-white px-4 py-2 rounded-lg text-xs outline-none focus:border-orange-500/50"
-                            />
-                            <button
-                                onClick={() => setPerks(perks.filter((_, idx) => idx !== i))}
-                                className="px-3 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors"
-                            >
-                                ✕
-                            </button>
-                        </div>
-                    ))}
-                    <button
-                        onClick={() => setPerks([...perks, "New Perk"])}
-                        className="py-2 border border-dashed border-white/10 text-[10px] font-black uppercase text-gray-500 hover:border-orange-500/30 hover:text-orange-400 transition-all rounded-lg"
-                    >
-                        + Add Perk
-                    </button>
-                </div>
-            </div>
+            <ModifierEditor
+                effects={effects}
+                onChange={setEffects}
+                colorScheme="teal"
+            />
 
             <div className="pt-4 border-t border-white/10">
                 <button

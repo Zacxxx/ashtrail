@@ -26,10 +26,11 @@ uniform sampler2D u_baseTexture;
 uniform sampler2D u_provinceIdTexture;
 uniform sampler2D u_duchyIdTexture;
 uniform sampler2D u_kingdomIdTexture;
+uniform sampler2D u_continentIdTexture;
 uniform sampler2D u_heightTexture;
 uniform sampler2D u_biomeTexture;
 uniform sampler2D u_landmaskTexture;
-uniform int u_layer;          // 0=provinces, 1=duchies, 2=kingdoms, 3=biome, 4=height, 5=base
+uniform int u_layer;          // 0=provinces, 1=duchies, 2=kingdoms, 3=continents, 4=biome, 5=height, 6=base
 uniform float u_borderWidth;
 uniform float u_opacity;
 uniform vec2 u_texSize;
@@ -93,15 +94,15 @@ void main() {
 
     vec3 color;
 
-    if (u_layer == 5) {
+    if (u_layer == 6) {
         // Base texture pass-through
         color = base;
-    } else if (u_layer == 4) {
+    } else if (u_layer == 5) {
         // Height visualization
         float h = texture2D(u_heightTexture, v_texCoord).r;
         color = mix(vec3(0.1, 0.3, 0.15), vec3(0.95, 0.9, 0.85), h);
         if (land < 0.5) color = vec3(0.05, 0.12, 0.25);
-    } else if (u_layer == 3) {
+    } else if (u_layer == 4) {
         // Biome visualization
         float b = texture2D(u_biomeTexture, v_texCoord).r;
         color = biomeColor(b);
@@ -136,13 +137,25 @@ void main() {
                     color = mix(color, vec3(1.0, 0.9, 0.4), 0.5);
                 }
             }
-        } else {
+        } else if (u_layer == 2) {
             vec3 id = texture2D(u_kingdomIdTexture, v_texCoord).rgb;
             color = idToColor(id * 255.0);
             float dBorder = detectBorder(u_duchyIdTexture, v_texCoord, texel);
             float kBorder = detectBorder(u_kingdomIdTexture, v_texCoord, texel);
             if (kBorder > 0.5) color = vec3(0.0);
             else if (dBorder > 0.5) color = mix(color, vec3(0.0), 0.3);
+
+            if (u_hasHighlight == 1) {
+                vec3 diff = abs(id * 255.0 - u_highlightId);
+                if (diff.r < 0.5 && diff.g < 0.5 && diff.b < 0.5) {
+                    color = mix(color, vec3(1.0, 0.9, 0.4), 0.5);
+                }
+            }
+        } else {
+            vec3 id = texture2D(u_continentIdTexture, v_texCoord).rgb;
+            color = idToColor(id * 255.0);
+            float cBorder = detectBorder(u_continentIdTexture, v_texCoord, texel);
+            if (cBorder > 0.5) color = vec3(0.0);
 
             if (u_hasHighlight == 1) {
                 vec3 diff = abs(id * 255.0 - u_highlightId);
@@ -164,7 +177,7 @@ void main() {
 
 // ── Types ──
 
-export type ProvinceLayer = "provinces" | "duchies" | "kingdoms" | "biome" | "height" | "base";
+export type ProvinceLayer = "provinces" | "duchies" | "kingdoms" | "continents" | "biome" | "height" | "base";
 
 interface ProvinceMapViewProps {
     planetId: string | null;
@@ -186,9 +199,10 @@ const LAYER_INDEX: Record<ProvinceLayer, number> = {
     provinces: 0,
     duchies: 1,
     kingdoms: 2,
-    biome: 3,
-    height: 4,
-    base: 5,
+    continents: 3,
+    biome: 4,
+    height: 5,
+    base: 6,
 };
 
 const API_BASE = "http://127.0.0.1:8787";
@@ -252,7 +266,7 @@ export function ProvinceMapView({
                 }
 
                 // Cache CPU-side picking data for ID maps
-                if (["province_id", "duchy_id", "kingdom_id"].includes(key)) {
+                if (["province_id", "duchy_id", "kingdom_id", "continent_id"].includes(key)) {
                     const offscreen = document.createElement("canvas");
                     offscreen.width = img.width;
                     offscreen.height = img.height;
@@ -331,6 +345,12 @@ export function ProvinceMapView({
                 await loadTexture(gl, `${worldgenBase}/province_id.png?${cacheBuster}`, "province_id");
                 await loadTexture(gl, `${worldgenBase}/duchy_id.png?${cacheBuster}`, "duchy_id");
                 await loadTexture(gl, `${worldgenBase}/kingdom_id.png?${cacheBuster}`, "kingdom_id");
+                try {
+                    await loadTexture(gl, `${worldgenBase}/continent_id.png?${cacheBuster}`, "continent_id");
+                } catch {
+                    // Backward compatibility for worlds generated before continent layer support.
+                    await loadTexture(gl, `${worldgenBase}/kingdom_id.png?${cacheBuster}`, "continent_id");
+                }
                 await loadTexture(gl, `${worldgenBase}/height16.png?${cacheBuster}`, "height");
                 await loadTexture(gl, `${worldgenBase}/biome.png?${cacheBuster}`, "biome");
                 await loadTexture(gl, `${worldgenBase}/landmask.png?${cacheBuster}`, "landmask");
@@ -440,9 +460,10 @@ export function ProvinceMapView({
                 ["province_id", "u_provinceIdTexture", 1],
                 ["duchy_id", "u_duchyIdTexture", 2],
                 ["kingdom_id", "u_kingdomIdTexture", 3],
-                ["height", "u_heightTexture", 4],
-                ["biome", "u_biomeTexture", 5],
-                ["landmask", "u_landmaskTexture", 6],
+                ["continent_id", "u_continentIdTexture", 4],
+                ["height", "u_heightTexture", 5],
+                ["biome", "u_biomeTexture", 6],
+                ["landmask", "u_landmaskTexture", 7],
             ];
 
             for (const [key, uniform, unit] of texBindings) {
@@ -466,7 +487,6 @@ export function ProvinceMapView({
 
     // ── Interaction: Wheel zoom ──
     const handleWheel = useCallback((e: React.WheelEvent) => {
-        e.preventDefault();
         const delta = e.deltaY > 0 ? 0.9 : 1.1;
         const newZoom = Math.max(0.5, Math.min(8, zoomRef.current * delta));
 
@@ -497,7 +517,13 @@ export function ProvinceMapView({
 
     const handlePointerMove = useCallback((e: PointerEvent<HTMLCanvasElement>) => {
         if (!dragRef.current.dragging && geographyTab === "inspector" && planetId) {
-            const targetKey = layer === "duchies" ? "duchy_id" : layer === "kingdoms" ? "kingdom_id" : "province_id";
+            const targetKey = layer === "duchies"
+                ? "duchy_id"
+                : layer === "kingdoms"
+                    ? "kingdom_id"
+                    : layer === "continents"
+                        ? "continent_id"
+                        : "province_id";
             const data = pickingDataRef.current[targetKey];
             if (data && texSizeRef.current.width > 0) {
                 const rect = canvasRef.current!.getBoundingClientRect();
@@ -636,12 +662,12 @@ export function ProvinceMapView({
             {/* Layer Picker Toolbar */}
             {loaded && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-[#0a0a0a]/90 backdrop-blur-xl border border-white/10 rounded-full px-2 py-1 shadow-2xl">
-                    {(["provinces", "duchies", "kingdoms", "biome", "height", "base"] as ProvinceLayer[]).map((l) => (
+                    {(["provinces", "duchies", "kingdoms", "continents", "biome", "height", "base"] as ProvinceLayer[]).map((l) => (
                         <button
                             key={l}
                             onClick={() => {
                                 setLayer(l);
-                                if (["provinces", "duchies", "kingdoms"].includes(l)) {
+                                if (["provinces", "duchies", "kingdoms", "continents"].includes(l)) {
                                     onLayerChange?.(l);
                                 }
                             }}
@@ -681,10 +707,10 @@ export function ProvinceMapView({
             )}
 
             {/* Legend */}
-            {loaded && (layer === "provinces" || layer === "duchies" || layer === "kingdoms") && (
+            {loaded && (layer === "provinces" || layer === "duchies" || layer === "kingdoms" || layer === "continents") && (
                 <div className="absolute bottom-4 left-4 z-20 bg-[#0a0a0a]/90 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 shadow-2xl">
                     <p className="text-[7px] font-black tracking-[0.2em] text-gray-400 mb-1">
-                        {layer === "provinces" ? "COUNTIES" : layer === "duchies" ? "DUCHIES" : "KINGDOMS"}
+                        {layer === "provinces" ? "COUNTIES" : layer === "duchies" ? "DUCHIES" : layer === "kingdoms" ? "KINGDOMS" : "CONTINENTS"}
                     </p>
                     <p className="text-[9px] text-gray-500">
                         Colors = unique IDs • Black = borders

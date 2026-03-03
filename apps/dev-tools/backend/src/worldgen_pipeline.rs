@@ -9,7 +9,7 @@ use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use tracing::{info, error};
 
@@ -51,6 +51,16 @@ pub struct WorldgenJobStatus {
     pub status: String,
     pub progress: f32,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContinentRecord {
+    id: u32,
+    kingdom_ids: Vec<u32>,
+    duchy_ids: Vec<u32>,
+    province_ids: Vec<u32>,
+    name: String,
 }
 
 // ── Helper: resolve planet worldgen directory ──
@@ -379,6 +389,20 @@ fn run_single_stage(
 
             export::write_id_texture(&duchy_labels, w, h, &out_dir.join("duchy_id.png"))?;
             export::write_id_texture(&kingdom_labels, w, h, &out_dir.join("kingdom_id.png"))?;
+            let continents = build_continents(&provinces, &duchies, &kingdoms, &adj, None);
+            let kingdom_to_continent: HashMap<u32, u32> = continents
+                .iter()
+                .flat_map(|c| c.kingdom_ids.iter().map(move |&kid| (kid, c.id)))
+                .collect();
+            let continent_labels: Vec<u32> = kingdom_labels
+                .iter()
+                .map(|&kid| kingdom_to_continent.get(&kid).copied().unwrap_or(0))
+                .collect();
+            export::write_id_texture(&continent_labels, w, h, &out_dir.join("continent_id.png"))?;
+            let continents_json = serde_json::to_string_pretty(&continents)
+                .map_err(|e| format!("Failed to serialize continents.json: {e}"))?;
+            std::fs::write(out_dir.join("continents.json"), continents_json)
+                .map_err(|e| format!("Failed to write continents.json: {e}"))?;
             export::write_provinces_json(&provinces, &out_dir.join("provinces.json"))?;
             export::write_duchies_json(&duchies, &out_dir.join("duchies.json"))?;
             export::write_kingdoms_json(&kingdoms, &out_dir.join("kingdoms.json"))
@@ -454,4 +478,95 @@ fn load_id_texture(path: &std::path::Path, _w: u32, _h: u32) -> Result<Vec<u32>,
     Ok(rgb.pixels().map(|p| {
         p[0] as u32 | ((p[1] as u32) << 8) | ((p[2] as u32) << 16)
     }).collect())
+}
+
+fn build_continents(
+    provinces: &[cluster::ProvinceRecord],
+    duchies: &[cluster::DuchyRecord],
+    kingdoms: &[cluster::KingdomRecord],
+    adjacency: &[graph::ProvinceAdjacency],
+    previous_names: Option<&HashMap<u32, String>>,
+) -> Vec<ContinentRecord> {
+    let province_to_kingdom: HashMap<u32, u32> = provinces.iter().map(|p| (p.id, p.kingdom_id)).collect();
+    let mut kingdom_graph: HashMap<u32, HashSet<u32>> = kingdoms
+        .iter()
+        .map(|k| (k.id, HashSet::new()))
+        .collect();
+
+    for adj in adjacency {
+        let Some(&k1) = province_to_kingdom.get(&adj.province_id) else { continue; };
+        for edge in &adj.neighbors {
+            let Some(&k2) = province_to_kingdom.get(&edge.neighbor_id) else { continue; };
+            if k1 == k2 {
+                continue;
+            }
+            kingdom_graph.entry(k1).or_default().insert(k2);
+            kingdom_graph.entry(k2).or_default().insert(k1);
+        }
+    }
+
+    let mut kingdom_ids: Vec<u32> = kingdoms.iter().map(|k| k.id).collect();
+    kingdom_ids.sort_unstable();
+    let mut visited: HashSet<u32> = HashSet::new();
+    let mut components: Vec<Vec<u32>> = Vec::new();
+
+    for start in kingdom_ids {
+        if visited.contains(&start) {
+            continue;
+        }
+        let mut stack = vec![start];
+        let mut component: Vec<u32> = Vec::new();
+        visited.insert(start);
+
+        while let Some(node) = stack.pop() {
+            component.push(node);
+            if let Some(neighbors) = kingdom_graph.get(&node) {
+                for &next in neighbors {
+                    if visited.insert(next) {
+                        stack.push(next);
+                    }
+                }
+            }
+        }
+
+        component.sort_unstable();
+        components.push(component);
+    }
+
+    components.sort_by_key(|c| c.first().copied().unwrap_or(0));
+
+    components
+        .into_iter()
+        .enumerate()
+        .map(|(index, kingdom_ids)| {
+            let id = kingdom_ids.first().copied().unwrap_or(index as u32);
+            let mut duchy_ids: Vec<u32> = duchies
+                .iter()
+                .filter(|d| kingdom_ids.contains(&d.kingdom_id))
+                .map(|d| d.id)
+                .collect();
+            duchy_ids.sort_unstable();
+            duchy_ids.dedup();
+
+            let mut province_ids: Vec<u32> = provinces
+                .iter()
+                .filter(|p| kingdom_ids.contains(&p.kingdom_id))
+                .map(|p| p.id)
+                .collect();
+            province_ids.sort_unstable();
+            province_ids.dedup();
+
+            let name = previous_names
+                .and_then(|names| names.get(&id).cloned())
+                .unwrap_or_else(|| format!("Continent {}", index + 1));
+
+            ContinentRecord {
+                id,
+                kingdom_ids,
+                duchy_ids,
+                province_ids,
+                name,
+            }
+        })
+        .collect()
 }

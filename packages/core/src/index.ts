@@ -3,7 +3,4 @@ export * from './mockData';
 export * from './registry';
 export * from './game-engine/gameplay/engine';
 export * from './game-engine/gameplay/clock';
-export * from './game-master/worldbuilder/iteration';
-export * from './game-master/worldarchitect/story';
-export * from './game-master/main/gemini';
 export * from './talentTrees';

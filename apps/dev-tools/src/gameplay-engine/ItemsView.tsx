@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Item, GameRegistry, ItemCategory } from "@ashtrail/core";
+import { Item, GameRegistry, ItemCategory, ItemRarity, GameplayEffect } from "@ashtrail/core";
 import { IconGallerySelector } from "../components/IconGallerySelector";
+import { ModifierEditor } from "../components/ModifierEditor";
 
 interface ItemsViewProps {
     item: Item | null;
@@ -13,8 +14,10 @@ export function ItemsView({ item }: ItemsViewProps) {
     const [id, setId] = useState("");
     const [name, setName] = useState("");
     const [category, setCategory] = useState<ItemCategory>("weapon");
+    const [rarity, setRarity] = useState<ItemRarity>("salvaged");
     const [description, setDescription] = useState("");
     const [cost, setCost] = useState(0);
+    const [effects, setEffects] = useState<GameplayEffect[]>([]);
     const [icon, setIcon] = useState("📦");
 
     // Gallery State
@@ -26,8 +29,10 @@ export function ItemsView({ item }: ItemsViewProps) {
             setId(item.id);
             setName(item.name);
             setCategory(item.category);
+            setRarity(item.rarity || "salvaged");
             setDescription(item.description);
             setCost(item.cost);
+            setEffects(item.effects || []);
             setIcon(item.icon || "📦");
         } else {
             setEditingItem(null);
@@ -39,10 +44,11 @@ export function ItemsView({ item }: ItemsViewProps) {
             id,
             name,
             category,
+            rarity,
             description,
             cost,
             icon,
-            effects: item?.effects, // Preserve effects for now as we don't have a UI for them yet
+            effects,
         };
 
         try {
@@ -145,6 +151,17 @@ export function ItemsView({ item }: ItemsViewProps) {
                     <label className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Cost</label>
                     <input type="number" value={cost} onChange={e => setCost(Number(e.target.value))} className="w-full bg-black/50 border border-white/10 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-yellow-500/50 transition-all" />
                 </div>
+                <div className="col-span-1 space-y-1">
+                    <label className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Rarity</label>
+                    <select value={rarity} onChange={e => setRarity(e.target.value as ItemRarity)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-yellow-500/50 transition-all">
+                        <option value="salvaged">Salvaged</option>
+                        <option value="reinforced">Reinforced</option>
+                        <option value="pre-ash">Pre-Ash</option>
+                        <option value="specialized">Specialized</option>
+                        <option value="relic">Relic</option>
+                        <option value="ashmarked">Ashmarked</option>
+                    </select>
+                </div>
             </div>
 
             <div className="space-y-1">
@@ -158,20 +175,11 @@ export function ItemsView({ item }: ItemsViewProps) {
                 />
             </div>
 
-            {item.effects && item.effects.length > 0 && (
-                <div className="space-y-3">
-                    <label className="text-[10px] font-black text-teal-500 uppercase tracking-widest">Mechanical Effects (Read-Only)</label>
-                    <div className="grid grid-cols-2 gap-2">
-                        {item.effects.map((eff, i) => (
-                            <div key={i} className="p-3 bg-black/40 border border-white/5 rounded-lg text-[10px] font-mono">
-                                <span className="text-teal-400 capitalize">{eff.type.replace('_', ' ')}</span>
-                                <span className="text-gray-500 mx-2">→</span>
-                                <span className="text-white">{eff.value > 0 ? '+' : ''}{eff.value}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
+            <ModifierEditor
+                effects={effects}
+                onChange={setEffects}
+                colorScheme="yellow"
+            />
 
             <div className="pt-4 border-t border-white/10">
                 <button

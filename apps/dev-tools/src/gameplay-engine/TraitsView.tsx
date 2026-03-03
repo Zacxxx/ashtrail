@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Trait, GameRegistry } from "@ashtrail/core";
+import { Trait, GameRegistry, GameplayEffect } from "@ashtrail/core";
 import { IconGallerySelector } from "../components/IconGallerySelector";
+import { ModifierEditor } from "../components/ModifierEditor";
 
 interface TraitsViewProps {
     trait: Trait | null;
@@ -17,6 +18,7 @@ export function TraitsView({ trait }: TraitsViewProps) {
     const [type, setType] = useState<'positive' | 'negative' | 'neutral'>('neutral');
     const [impact, setImpact] = useState("");
     const [icon, setIcon] = useState("🧬");
+    const [effects, setEffects] = useState<GameplayEffect[]>([]);
 
     // Gallery State
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -31,6 +33,7 @@ export function TraitsView({ trait }: TraitsViewProps) {
             setType(trait.type);
             setImpact(trait.impact || "");
             setIcon(trait.icon || "🧬");
+            setEffects(trait.effects || []);
         } else {
             setEditingTrait(null);
             resetForm();
@@ -45,6 +48,7 @@ export function TraitsView({ trait }: TraitsViewProps) {
         setType('neutral');
         setImpact("");
         setIcon("🧬");
+        setEffects([]);
     };
 
     const handleSave = async () => {
@@ -56,6 +60,7 @@ export function TraitsView({ trait }: TraitsViewProps) {
             type,
             impact: impact || undefined,
             icon,
+            effects,
         };
 
         try {
@@ -173,6 +178,12 @@ export function TraitsView({ trait }: TraitsViewProps) {
                     className="w-full bg-black/50 border border-white/10 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-orange-500/50 transition-all resize-none shadow-inner"
                 />
             </div>
+
+            <ModifierEditor
+                effects={effects}
+                onChange={setEffects}
+                colorScheme="orange"
+            />
 
             <div className="pt-4 border-t border-white/10">
                 <button

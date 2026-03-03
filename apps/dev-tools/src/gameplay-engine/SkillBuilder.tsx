@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Skill, GameRegistry, SkillTargetType, SkillAreaType, SkillCategory } from "@ashtrail/core";
+import { Skill, GameRegistry, SkillTargetType, SkillAreaType, SkillCategory, GameplayEffect } from "@ashtrail/core";
 import { IconGallerySelector } from "../components/IconGallerySelector";
+import { ModifierEditor } from "../components/ModifierEditor";
 
 export function SkillBuilder() {
     const [savedSkills, setSavedSkills] = useState<Skill[]>([]);
@@ -23,6 +24,7 @@ export function SkillBuilder() {
     const [damage, setDamage] = useState(0);
     const [healing, setHealing] = useState(0);
     const [pushDistance, setPushDistance] = useState(0);
+    const [effects, setEffects] = useState<GameplayEffect[]>([]);
 
     // Gallery State
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -62,6 +64,7 @@ export function SkillBuilder() {
         setDamage(s.damage || 0);
         setHealing(s.healing || 0);
         setPushDistance(s.pushDistance || 0);
+        setEffects(s.effects || []);
     };
 
     const resetForm = () => {
@@ -82,6 +85,7 @@ export function SkillBuilder() {
         setDamage(0);
         setHealing(0);
         setPushDistance(0);
+        setEffects([]);
     };
 
     const handleSave = async () => {
@@ -103,6 +107,7 @@ export function SkillBuilder() {
         if (damage > 0) payload.damage = damage;
         if (healing > 0) payload.healing = healing;
         if (pushDistance > 0) payload.pushDistance = pushDistance;
+        if (effects.length > 0) payload.effects = effects;
 
         try {
             const res = await fetch("http://127.0.0.1:8787/api/data/skills", {
@@ -332,6 +337,12 @@ export function SkillBuilder() {
                             </select>
                         </div>
                     </div>
+
+                    <ModifierEditor
+                        effects={effects}
+                        onChange={setEffects}
+                        colorScheme="indigo"
+                    />
 
                     <div className="pt-4 border-t border-white/10 space-y-2">
                         <button
