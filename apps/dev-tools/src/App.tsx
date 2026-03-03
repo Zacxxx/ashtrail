@@ -10,9 +10,9 @@ const TOOLS = [
         color: "bg-purple-500",
     },
     {
-        id: "icon-generation",
-        name: "Icon Forge",
-        description: "AI-powered 32×32 pixel art icon generation using Gemini.",
+        id: "image-generator",
+        name: "Image Generator",
+        description: "AI-powered generation of icons and textures for game assets using Gemini.",
         icon: "🎨",
         status: "WIP",
         color: "bg-amber-500",

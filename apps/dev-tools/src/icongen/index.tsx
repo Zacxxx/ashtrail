@@ -1,1 +1,1 @@
-export { IconGenPage } from "./IconGenPage";
+export { IconGenPage } from "./ImageGeneratorPage";

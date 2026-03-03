@@ -10,6 +10,7 @@ export interface GridCell {
     occupantId: string | null;
     isSpawnZone?: 'player' | 'enemy';
     highlight?: 'move' | 'attack' | 'path' | null;
+    textureUrl?: string;
 }
 
 export type Grid = GridCell[][];

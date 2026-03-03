@@ -24,12 +24,13 @@ interface TacticalArenaProps {
     activeEntity: TacticalEntity | undefined;
     meleeAttackCost: number;
     selectedSkill: Skill | null;
+    battlemapUrl?: string | null;
 }
 
 export function TacticalArena({
     grid, entities, turnOrder, activeEntityId, isPlayerTurn,
     phase, playerAction, logs, turnNumber,
-    onCellClick, onEndTurn, onSelectSkill, activeEntity, meleeAttackCost, selectedSkill,
+    onCellClick, onEndTurn, onSelectSkill, activeEntity, meleeAttackCost, selectedSkill, battlemapUrl,
 }: TacticalArenaProps) {
     const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -109,9 +110,31 @@ export function TacticalArena({
                         style={{
                             left: '50%',
                             top: '50%',
+                            width: gridBounds.width,
+                            height: gridBounds.height,
                             transform: `translate(-${gridBounds.width / 2}px, -${gridBounds.height / 2}px) translate(${-gridBounds.minX}px, ${-gridBounds.minY}px)`,
                         }}
                     >
+                        {/* Battlemap Layer */}
+                        {battlemapUrl && (
+                            <img
+                                src={battlemapUrl}
+                                alt="Battlemap"
+                                className="pointer-events-none"
+                                style={{
+                                    position: 'absolute',
+                                    left: gridBounds.minX,
+                                    top: gridBounds.minY,
+                                    width: gridBounds.width,
+                                    height: gridBounds.height,
+                                    opacity: 0.85,
+                                    zIndex: 0,
+                                    objectFit: 'cover',
+                                    clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
+                                }}
+                            />
+                        )}
+
                         {grid.map((row, r) =>
                             row.map((cell, c) => {
                                 const { x, y } = gridToScreen(r, c);
@@ -124,6 +147,7 @@ export function TacticalArena({
                                         entity={cell.occupantId ? entities.get(cell.occupantId) : undefined}
                                         isActive={cell.occupantId === activeEntityId}
                                         isAoe={aoeSet.has(`${r},${c}`)}
+                                        hasBattlemap={!!battlemapUrl}
                                         onClick={() => onCellClick(r, c)}
                                         onHover={() => setHoveredCell({ row: r, col: c })}
                                         onLeave={() => setHoveredCell(null)}
@@ -274,29 +298,31 @@ interface IsometricTileProps {
     entity?: TacticalEntity;
     isActive: boolean;
     isAoe?: boolean;
+    hasBattlemap?: boolean;
     onClick: () => void;
     onHover?: () => void;
     onLeave?: () => void;
 }
 
-function IsometricTile({ cell, x, y, entity, isActive, isAoe, onClick, onHover, onLeave }: IsometricTileProps) {
+function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onClick, onHover, onLeave }: IsometricTileProps) {
     const isDead = entity && entity.hp <= 0;
 
     const halfW = TILE_WIDTH / 2;
     const halfH = TILE_HEIGHT / 2;
+    const clipId = `clip-${cell.row}-${cell.col}`;
     const diamondPath = `M ${halfW} 0 L ${TILE_WIDTH} ${halfH} L ${halfW} ${TILE_HEIGHT} L 0 ${halfH} Z`;
 
-    let fillColor = 'rgba(30, 40, 55, 0.6)';
-    let strokeColor = 'rgba(255,255,255,0.08)';
-    let strokeWidth = 0.5;
+    let fillColor = hasBattlemap ? 'transparent' : 'rgba(30, 40, 55, 0.6)';
+    let strokeColor = 'rgba(255,255,255,0.15)';
+    let strokeWidth = 1;
 
     if (!cell.walkable) {
-        fillColor = 'rgba(15, 20, 30, 0.9)';
-        strokeColor = 'rgba(255,255,255,0.03)';
+        fillColor = hasBattlemap ? 'transparent' : 'rgba(15, 20, 30, 0.9)';
+        strokeColor = 'rgba(255,255,255,0.08)';
     } else if (cell.isSpawnZone === 'player') {
-        fillColor = 'rgba(59, 130, 246, 0.08)';
+        fillColor = 'rgba(59, 130, 246, 0.15)';
     } else if (cell.isSpawnZone === 'enemy') {
-        fillColor = 'rgba(239, 68, 68, 0.08)';
+        fillColor = 'rgba(239, 68, 68, 0.15)';
     }
 
     if (cell.highlight === 'move') {
@@ -343,26 +369,64 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, onClick, onHover, 
                 onMouseEnter={onHover}
                 onMouseLeave={onLeave}
             >
+                <defs>
+                    <clipPath id={clipId}>
+                        <path d={diamondPath} />
+                    </clipPath>
+                </defs>
                 <path
                     d={diamondPath}
                     fill={fillColor}
-                    stroke={strokeColor}
+                    stroke={cell.walkable ? strokeColor : 'none'}
                     strokeWidth={strokeWidth}
                     className="transition-all duration-150 hover:brightness-150"
                 />
+
+                {/* Overlay highlights on top of tile space if needed */}
+                {(cell.highlight || isAoe) && (
+                    <path
+                        d={diamondPath}
+                        fill={fillColor}
+                        stroke={strokeColor}
+                        strokeWidth={strokeWidth}
+                        style={{ pointerEvents: 'none', opacity: 0.6 }}
+                    />
+                )}
+                {/* Grid lines only on walkable tiles — obstacles hide them */}
+                {cell.walkable && (
+                    <path
+                        d={diamondPath}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth={strokeWidth}
+                        style={{ pointerEvents: 'none' }}
+                    />
+                )}
             </svg>
 
-            {!cell.walkable && (
-                <svg width={TILE_WIDTH} height={TILE_HEIGHT + 8} className="absolute pointer-events-none" style={{ top: -8, zIndex: 0 }}>
+            {/* Standalone Sprites for Obstacles */}
+            {cell.textureUrl && !cell.walkable && (
+                <img
+                    src={cell.textureUrl}
+                    alt="obstacle"
+                    className="absolute bottom-0 left-0 w-full object-contain pointer-events-none drop-shadow-lg transition-all duration-150"
+                    style={{ height: TILE_WIDTH, zIndex: 1 }}
+                />
+            )}
+
+            {!cell.walkable && !cell.textureUrl && (
+                <svg width={TILE_WIDTH} height={TILE_HEIGHT + 16} className="absolute pointer-events-none opacity-80" style={{ top: -16, zIndex: 0 }}>
+                    {/* Top Face */}
                     <path d={`M ${halfW} 0 L ${TILE_WIDTH} ${halfH} L ${halfW} ${TILE_HEIGHT} L 0 ${halfH} Z`}
-                        fill="rgba(25, 30, 40, 0.95)" stroke="rgba(255,255,255,0.05)" strokeWidth={0.5}
-                        style={{ transform: 'translateY(-4px)' }}
+                        fill="rgba(25, 30, 40, 0.95)" stroke="rgba(255,255,255,0.15)" strokeWidth={1}
                     />
-                    <path d={`M 0 ${halfH - 4} L ${halfW} ${TILE_HEIGHT - 4} L ${halfW} ${TILE_HEIGHT + 4} L 0 ${halfH + 4} Z`}
-                        fill="rgba(15, 20, 28, 0.95)" stroke="rgba(255,255,255,0.03)" strokeWidth={0.5}
+                    {/* Left Face */}
+                    <path d={`M 0 ${halfH} L ${halfW} ${TILE_HEIGHT} L ${halfW} ${TILE_HEIGHT + 16} L 0 ${halfH + 16} Z`}
+                        fill="rgba(15, 20, 28, 0.95)" stroke="rgba(255,255,255,0.05)" strokeWidth={0.5}
                     />
-                    <path d={`M ${TILE_WIDTH} ${halfH - 4} L ${halfW} ${TILE_HEIGHT - 4} L ${halfW} ${TILE_HEIGHT + 4} L ${TILE_WIDTH} ${halfH + 4} Z`}
-                        fill="rgba(20, 25, 35, 0.95)" stroke="rgba(255,255,255,0.03)" strokeWidth={0.5}
+                    {/* Right Face */}
+                    <path d={`M ${TILE_WIDTH} ${halfH} L ${halfW} ${TILE_HEIGHT} L ${halfW} ${TILE_HEIGHT + 16} L ${TILE_WIDTH} ${halfH + 16} Z`}
+                        fill="rgba(20, 25, 35, 0.95)" stroke="rgba(255,255,255,0.05)" strokeWidth={0.5}
                     />
                 </svg>
             )}
