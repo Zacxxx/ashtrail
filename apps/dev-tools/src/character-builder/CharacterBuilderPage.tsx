@@ -12,6 +12,28 @@ const SLOT_MAP: Record<string, EquipSlot> = {
     "Combat Boots": "boots",
 };
 
+const EQUIPMENT_SLOT_ORDER: EquipSlot[] = [
+    "head",
+    "chest",
+    "gloves",
+    "waist",
+    "legs",
+    "boots",
+    "mainHand",
+    "offHand",
+];
+
+const EQUIPMENT_SLOT_LABELS: Record<EquipSlot, string> = {
+    head: "HEAD",
+    chest: "CHEST",
+    gloves: "GLOVES",
+    waist: "WAIST",
+    legs: "LEGS",
+    boots: "BOOTS",
+    mainHand: "MAIN HAND",
+    offHand: "OFF HAND",
+};
+
 function getEquipSlot(item: Item): EquipSlot | null {
     if (item.equipSlot) return item.equipSlot;
     if (SLOT_MAP[item.name]) return SLOT_MAP[item.name];
@@ -47,6 +69,7 @@ const ITEMS_BY_CATEGORY: Record<string, string[]> = {
 export function CharacterBuilderPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [savedCharacters, setSavedCharacters] = useState<Character[]>([]);
+    const [libraryItems, setLibraryItems] = useState<Item[]>([]);
     const [activeTab, setActiveTab] = useState<BuilderTab>("IDENTITY");
 
     // ── Character Form State ──
@@ -90,7 +113,7 @@ export function CharacterBuilderPage() {
         head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
     });
 
-    const equipItem = (slotId: string, item: Item) => {
+    const equipItem = (slotId: EquipSlot, item: Item) => {
         // If there's already something equipped in that slot, put it back in inventory
         setEquippedItems(prev => {
             const existing = prev[slotId];
@@ -103,7 +126,7 @@ export function CharacterBuilderPage() {
         setInventory(inv => inv.filter(i => i.id !== item.id));
     };
 
-    const unequipItem = (slotId: string) => {
+    const unequipItem = (slotId: EquipSlot) => {
         setEquippedItems(prev => {
             const item = prev[slotId];
             if (item) {
@@ -113,18 +136,11 @@ export function CharacterBuilderPage() {
         });
     };
 
-    const equipFromInventory = (item: Item) => {
+    const equipFromInventory = (item: Item): EquipSlot | null => {
         const slot = getEquipSlot(item);
-        if (!slot) return;
-
-        // For weapons, if mainHand is taken, try offHand
-        if (slot === "mainHand" && equippedItems.mainHand) {
-            if (!equippedItems.offHand) {
-                equipItem("offHand", item);
-                return;
-            }
-        }
+        if (!slot) return null;
         equipItem(slot, item);
+        return slot;
     };
 
     // Effective Stats calculation (Base + Equipment Modifiers)
@@ -174,9 +190,9 @@ export function CharacterBuilderPage() {
     }, [effectiveStats, equippedItems]);
 
     // Check if an item is currently equipped (used by context menu)
-    const isItemEquipped = (item: Item): string | null => {
+    const isItemEquipped = (item: Item): EquipSlot | null => {
         for (const [slotId, equipped] of Object.entries(equippedItems)) {
-            if (equipped && equipped.id === item.id) return slotId;
+            if (equipped && equipped.id === item.id) return slotId as EquipSlot;
         }
         return null;
     };
@@ -185,6 +201,27 @@ export function CharacterBuilderPage() {
     const equipableInventoryItems = useMemo(() => {
         return inventory.filter(item => isEquipable(item));
     }, [inventory]);
+
+    const equipableItemsBySlot = useMemo(() => {
+        const bySlot: Record<EquipSlot, Item[]> = {
+            head: [],
+            chest: [],
+            gloves: [],
+            waist: [],
+            legs: [],
+            boots: [],
+            mainHand: [],
+            offHand: [],
+        };
+
+        equipableInventoryItems.forEach(item => {
+            const slot = getEquipSlot(item);
+            if (!slot) return;
+            bySlot[slot].push(item);
+        });
+
+        return bySlot;
+    }, [equipableInventoryItems]);
 
     const sortByRarity = () => {
         setInventory(prev => [...prev].sort((a, b) => RARITY_ORDER[b.rarity] - RARITY_ORDER[a.rarity]));
@@ -214,11 +251,11 @@ export function CharacterBuilderPage() {
     const [librarySearch, setLibrarySearch] = useState("");
 
     const allLibraryItems = useMemo(() => {
-        return GameRegistry.getAllItems().filter(item =>
+        return libraryItems.filter(item =>
             item.name.toLowerCase().includes(librarySearch.toLowerCase()) ||
             item.category.toLowerCase().includes(librarySearch.toLowerCase())
         );
-    }, [librarySearch]);
+    }, [libraryItems, librarySearch]);
 
     const addItemToInventory = (item: Item) => {
         const newItem: Item = {
@@ -239,10 +276,29 @@ export function CharacterBuilderPage() {
         async function load() {
             await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
             setSavedCharacters(GameRegistry.getAllCharacters());
+            setLibraryItems(GameRegistry.getAllItems());
             setIsLoading(false);
         }
         load();
     }, []);
+
+    useEffect(() => {
+        if (activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT") return;
+
+        let isActive = true;
+
+        async function refreshLibraryItems() {
+            await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+            if (!isActive) return;
+            setLibraryItems(GameRegistry.getAllItems());
+        }
+
+        refreshLibraryItems();
+
+        return () => {
+            isActive = false;
+        };
+    }, [activeTab]);
 
     const allTraits = GameRegistry.getAllTraits().filter(t => !t.id.startsWith("age-"));
     const allOccupations = GameRegistry.getAllOccupations();
@@ -750,7 +806,58 @@ export function CharacterBuilderPage() {
                         {activeTab === "EQUIPEMENT" && (
                             <div className="flex flex-col h-full relative font-mono overflow-hidden py-2 px-2 gap-4 animate-ash-settling" onClick={() => setContextMenu(null)}>
                                 <div className="flex-1 flex items-start justify-center overflow-y-auto custom-scrollbar pt-2 pb-6">
-                                    <div className="w-full max-w-[1100px] flex items-start justify-center gap-6">
+                                    <div className="w-full max-w-[1320px] flex items-start justify-center gap-6">
+
+                                        {/* Equipable Items Sidebar */}
+                                        <div className="w-[220px] h-[540px] shrink-0 flex flex-col bg-black/40 border border-white/5 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden">
+                                            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 bg-white/[0.02]">
+                                                <div className="w-1.5 h-1.5 bg-teal-500 shadow-[0_0_6px_rgba(20,184,166,0.4)]" />
+                                                <span className="text-[10px] text-white font-black uppercase tracking-[0.15em]">EQUIPABLE</span>
+                                                <span className="ml-auto text-[8px] text-gray-600 font-bold">{equipableInventoryItems.length}</span>
+                                            </div>
+
+                                            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
+                                                {equipableInventoryItems.length === 0 ? (
+                                                    <div className="flex items-center justify-center h-full">
+                                                        <p className="text-[8px] text-gray-700 font-bold uppercase tracking-widest italic text-center px-4">No equipable items in inventory</p>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        {EQUIPMENT_SLOT_ORDER.map(slot => {
+                                                            const itemsForSlot = equipableItemsBySlot[slot];
+                                                            if (itemsForSlot.length === 0) return null;
+
+                                                            return (
+                                                                <div key={slot} className="space-y-1">
+                                                                    <div className="text-[7px] font-black text-teal-500/70 uppercase tracking-[0.2em] px-1 flex items-center gap-1.5">
+                                                                        <div className="w-0.5 h-0.5 bg-teal-500/40" />
+                                                                        {EQUIPMENT_SLOT_LABELS[slot]}
+                                                                    </div>
+                                                                    {itemsForSlot.map(item => (
+                                                                        <button
+                                                                            key={`${slot}-${item.id}`}
+                                                                            onClick={() => equipFromInventory(item)}
+                                                                            className="w-full text-left px-2 py-1.5 bg-black/30 border border-white/5 rounded flex items-center gap-2 group hover:border-teal-500/40 hover:bg-teal-500/5 transition-all"
+                                                                        >
+                                                                            <div className={`w-7 h-7 border flex items-center justify-center text-xs shrink-0 rarity-${item.rarity}`}>
+                                                                                {item.icon || "📦"}
+                                                                            </div>
+                                                                            <div className="flex flex-col min-w-0 flex-1">
+                                                                                <span className="text-[8px] text-white font-black uppercase tracking-wider truncate">{item.name}</span>
+                                                                                <div className="flex items-center gap-1">
+                                                                                    <span className="text-[6px] text-gray-600 font-bold uppercase">{EQUIPMENT_SLOT_LABELS[slot]}</span>
+                                                                                    <span className="text-[6px] text-[#c2410c] font-bold">{item.rarity}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
 
                                         {/* Character Block */}
                                         <div className="flex items-start gap-2">
@@ -766,7 +873,7 @@ export function CharacterBuilderPage() {
                                                     return (
                                                         <div key={slot.id} className="flex items-center gap-3 group">
                                                             <div
-                                                                onClick={() => equipped && unequipItem(slot.id)}
+                                                                onClick={() => equipped && unequipItem(slot.id as EquipSlot)}
                                                                 className={`w-14 h-14 bg-black/60 border transition-all flex items-center justify-center relative cursor-pointer shadow-lg overflow-hidden ${equipped ? `rarity-${equipped.rarity} border-2` : 'border-white/10 hover:border-[#c2410c]/50'
                                                                     }`}
                                                             >
@@ -836,7 +943,7 @@ export function CharacterBuilderPage() {
                                                         return (
                                                             <div key={slot.id} className="flex flex-col items-center gap-2">
                                                                 <div
-                                                                    onClick={() => equipped && unequipItem(slot.id)}
+                                                                    onClick={() => equipped && unequipItem(slot.id as EquipSlot)}
                                                                     className={`w-16 h-16 bg-black/60 border transition-all flex items-center justify-center relative cursor-pointer shadow-lg overflow-hidden ${equipped ? `rarity-${equipped.rarity} border-2` : 'border-white/10 hover:border-[#c2410c]/50'
                                                                         }`}
                                                                 >
@@ -879,7 +986,7 @@ export function CharacterBuilderPage() {
                                                                     {equipped && <span className="text-[7px] text-[#c2410c] font-bold uppercase truncate">{equipped.rarity}</span>}
                                                                 </div>
                                                                 <div
-                                                                    onClick={() => equipped && unequipItem(slot.id)}
+                                                                    onClick={() => equipped && unequipItem(slot.id as EquipSlot)}
                                                                     className={`w-14 h-14 bg-black/60 border transition-all flex items-center justify-center relative cursor-pointer shadow-lg overflow-hidden ${equipped ? `rarity-${equipped.rarity} border-2` : 'border-white/10 hover:border-[#c2410c]/50'
                                                                         }`}
                                                                 >
@@ -970,83 +1077,6 @@ export function CharacterBuilderPage() {
                                             </div>
                                         </div>
 
-                                        {/* Equipable Items Sidebar */}
-                                        <div className="w-[200px] h-[540px] shrink-0 flex flex-col bg-black/40 border border-white/5 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden">
-                                            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 bg-white/[0.02]">
-                                                <div className="w-1.5 h-1.5 bg-teal-500 shadow-[0_0_6px_rgba(20,184,166,0.4)]" />
-                                                <span className="text-[10px] text-white font-black uppercase tracking-[0.15em]">EQUIPABLE</span>
-                                                <span className="ml-auto text-[8px] text-gray-600 font-bold">{equipableInventoryItems.length}</span>
-                                            </div>
-
-                                            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-                                                {equipableInventoryItems.length === 0 ? (
-                                                    <div className="flex items-center justify-center h-full">
-                                                        <p className="text-[8px] text-gray-700 font-bold uppercase tracking-widest italic text-center px-4">No equipable items in inventory</p>
-                                                    </div>
-                                                ) : (
-                                                    <>
-                                                        {/* Armor Items */}
-                                                        {equipableInventoryItems.filter(i => i.category === 'armor').length > 0 && (
-                                                            <div className="space-y-1 mb-2">
-                                                                <div className="text-[7px] font-black text-teal-500/70 uppercase tracking-[0.2em] px-1 flex items-center gap-1.5">
-                                                                    <div className="w-0.5 h-0.5 bg-teal-500/40" />
-                                                                    ARMOR
-                                                                </div>
-                                                                {equipableInventoryItems.filter(i => i.category === 'armor').map(item => {
-                                                                    const targetSlot = getEquipSlot(item);
-                                                                    return (
-                                                                        <button
-                                                                            key={item.id}
-                                                                            onClick={() => equipFromInventory(item)}
-                                                                            className="w-full text-left px-2 py-1.5 bg-black/30 border border-white/5 rounded flex items-center gap-2 group hover:border-teal-500/40 hover:bg-teal-500/5 transition-all"
-                                                                        >
-                                                                            <div className={`w-7 h-7 border flex items-center justify-center text-xs shrink-0 rarity-${item.rarity}`}>
-                                                                                {item.icon || "📦"}
-                                                                            </div>
-                                                                            <div className="flex flex-col min-w-0">
-                                                                                <span className="text-[8px] text-white font-black uppercase tracking-wider truncate">{item.name}</span>
-                                                                                <div className="flex items-center gap-1">
-                                                                                    <span className="text-[6px] text-gray-600 font-bold uppercase">{targetSlot}</span>
-                                                                                    <span className="text-[6px] text-[#c2410c] font-bold">{item.rarity}</span>
-                                                                                </div>
-                                                                            </div>
-                                                                        </button>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        )}
-
-                                                        {/* Weapon Items */}
-                                                        {equipableInventoryItems.filter(i => i.category === 'weapon').length > 0 && (
-                                                            <div className="space-y-1">
-                                                                <div className="text-[7px] font-black text-red-500/70 uppercase tracking-[0.2em] px-1 flex items-center gap-1.5">
-                                                                    <div className="w-0.5 h-0.5 bg-red-500/40" />
-                                                                    WEAPONS
-                                                                </div>
-                                                                {equipableInventoryItems.filter(i => i.category === 'weapon').map(item => (
-                                                                    <button
-                                                                        key={item.id}
-                                                                        onClick={() => equipFromInventory(item)}
-                                                                        className="w-full text-left px-2 py-1.5 bg-black/30 border border-white/5 rounded flex items-center gap-2 group hover:border-red-500/40 hover:bg-red-500/5 transition-all"
-                                                                    >
-                                                                        <div className={`w-7 h-7 border flex items-center justify-center text-xs shrink-0 rarity-${item.rarity}`}>
-                                                                            {item.icon || "⚔️"}
-                                                                        </div>
-                                                                        <div className="flex flex-col min-w-0">
-                                                                            <span className="text-[8px] text-white font-black uppercase tracking-wider truncate">{item.name}</span>
-                                                                            <div className="flex items-center gap-1">
-                                                                                <span className="text-[6px] text-gray-600 font-bold uppercase">{getEquipSlot(item)}</span>
-                                                                                <span className="text-[6px] text-[#c2410c] font-bold">{item.rarity}</span>
-                                                                            </div>
-                                                                        </div>
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
