@@ -90,6 +90,7 @@ export function CharacterBuilderPage() {
     // Stats
     const [stats, setStats] = useState<Stats>({ ...DEFAULT_STATS });
     const [statsPoints, setStatsPoints] = useState(18);
+    const [attributePoints, setAttributePoints] = useState(0);
 
     // Occupation
     const [selectedOccupation, setSelectedOccupation] = useState<Occupation | null>(null);
@@ -336,6 +337,22 @@ export function CharacterBuilderPage() {
         setStatsPoints(p => p - delta);
     };
 
+    const updateLevel = (nextLevel: number, grantAttributePoint = false) => {
+        const normalizedLevel = Math.max(1, nextLevel || 1);
+        setLevel(prevLevel => {
+            if (grantAttributePoint && normalizedLevel > prevLevel) {
+                setAttributePoints(points => points + (normalizedLevel - prevLevel));
+            }
+            return normalizedLevel;
+        });
+    };
+
+    const upgradeAttribute = (stat: keyof Stats) => {
+        if (attributePoints <= 0) return;
+        setStats(prev => ({ ...prev, [stat]: prev[stat] + 1 }));
+        setAttributePoints(prev => Math.max(0, prev - 1));
+    };
+
     const loadCharacter = (char: Character) => {
         setEditingId(char.id);
         setCharId(char.id);
@@ -345,7 +362,7 @@ export function CharacterBuilderPage() {
         setHistory(char.history);
         setAppearancePrompt(char.appearancePrompt);
         setIsNPC(char.isNPC || false);
-        setLevel(char.level || 1);
+        updateLevel(char.level || 1);
         setSelectedTraits(char.traits || []);
         setStats(char.stats);
         setSelectedOccupation(char.occupation || null);
@@ -362,6 +379,7 @@ export function CharacterBuilderPage() {
         setTraitPoints(15 - usedTraitPoints);
         const usedStatPoints = Object.values(char.stats).reduce((sum, v) => (sum as number) + (v as number), 0) - 18;
         setStatsPoints(18 - usedStatPoints);
+        setAttributePoints(0);
         setActiveTab("IDENTITY");
     };
 
@@ -374,11 +392,12 @@ export function CharacterBuilderPage() {
         setHistory("");
         setAppearancePrompt("");
         setIsNPC(false);
-        setLevel(1);
+        updateLevel(1);
         setSelectedTraits([]);
         setTraitPoints(15);
         setStats({ ...DEFAULT_STATS });
         setStatsPoints(18);
+        setAttributePoints(0);
         setSelectedOccupation(null);
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
@@ -646,7 +665,7 @@ export function CharacterBuilderPage() {
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-1">
                                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Level</label>
-                                                <input type="number" value={level} onChange={e => setLevel(Math.max(1, parseInt(e.target.value) || 1))} min={1} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
+                                                <input type="number" value={level} onChange={e => updateLevel(Math.max(1, parseInt(e.target.value) || 1), true)} min={1} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                             </div>
                                             <div className="space-y-1">
                                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Gender</label>
@@ -1300,12 +1319,12 @@ export function CharacterBuilderPage() {
                                             <section className="border border-white/5 bg-black/40 p-3 shadow-2xl">
                                                 <div className="mb-3 flex items-center gap-2">
                                                     <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
-                                                    <h4 className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#c2410c]">Records & Achievements</h4>
+                                                    <h4 className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#c2410c]">Story & Reputation</h4>
                                                 </div>
 
                                                 <div className="space-y-2.5">
-                                                    <div className="border border-white/5 bg-black/30 p-2.5">
-                                                        <div className="mb-2 text-[7px] font-bold uppercase tracking-[0.22em] text-gray-500">Field Record</div>
+                                                    <div className="max-h-[168px] overflow-y-auto custom-scrollbar border border-white/5 bg-black/30 p-2.5">
+                                                        <div className="mb-2 text-[7px] font-bold uppercase tracking-[0.22em] text-gray-500">Story</div>
                                                         {history ? (
                                                             <p className="text-[10px] italic leading-relaxed text-gray-400">{history}</p>
                                                         ) : (
@@ -1313,21 +1332,8 @@ export function CharacterBuilderPage() {
                                                         )}
                                                     </div>
 
-                                                    <div className="grid grid-cols-2 gap-2">
-                                                        {[
-                                                            { label: "Achievements", value: "00", note: "Pending system sync" },
-                                                            { label: "Records", value: "00", note: "No milestones logged" },
-                                                        ].map(card => (
-                                                            <div key={card.label} className="min-w-0 border border-white/5 bg-black/30 p-2.5">
-                                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">{card.label}</div>
-                                                                <div className="mt-1 text-base font-bold uppercase text-white">{card.value}</div>
-                                                                <div className="mt-1.5 text-[8px] font-medium uppercase tracking-[0.16em] text-gray-600">{card.note}</div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-
                                                     <div className="border border-dashed border-white/10 bg-black/20 p-2.5">
-                                                        <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]">Future Slots</div>
+                                                        <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]">Reputation</div>
                                                         <div className="mt-2 grid grid-cols-2 gap-2">
                                                             {["Titles", "Badges"].map(slot => (
                                                                 <div key={slot} className="flex h-14 items-center justify-center border border-white/5 bg-black/40 text-center text-[8px] font-bold uppercase tracking-[0.16em] text-gray-700">
@@ -1344,27 +1350,70 @@ export function CharacterBuilderPage() {
                                             <div className="mb-3 flex items-center gap-2">
                                                 <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
                                                 <h4 className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#c2410c]">Core Attributes</h4>
+                                                {attributePoints > 0 && (
+                                                    <div className="ml-auto border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-2 py-1 text-[7px] font-bold uppercase tracking-[0.18em] text-[#c2410c] animate-pulse">
+                                                        {attributePoints} point{attributePoints > 1 ? "s" : ""} available
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
-                                                {(Object.entries(effectiveStats) as [keyof Stats, number][]).map(([stat, val]) => (
-                                                    <div key={stat} className="border border-white/5 bg-black/30 p-2.5">
-                                                        <div className="mb-2 flex items-center justify-between">
-                                                            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">{stat}</span>
-                                                            <span className="text-[12px] font-bold uppercase tracking-[0.1em] text-white">{val}</span>
+                                                {(Object.entries(effectiveStats) as [keyof Stats, number][]).map(([stat, val]) => {
+                                                    const baseValue = stats[stat];
+                                                    const modifier = val - baseValue;
+
+                                                    return (
+                                                        <div
+                                                            key={stat}
+                                                            className={`relative border bg-black/30 p-2.5 transition-all ${attributePoints > 0
+                                                                ? "border-[#c2410c]/20 shadow-[0_0_0_1px_rgba(194,65,12,0.08)]"
+                                                                : "border-white/5"
+                                                                }`}
+                                                        >
+                                                            <div className="mb-2">
+                                                                <div className="min-w-0">
+                                                                    <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">{stat}</span>
+                                                                    <div className="mt-1 flex items-center gap-1.5">
+                                                                        <span className="text-[12px] font-bold uppercase tracking-[0.08em] text-white">{val}</span>
+                                                                        {modifier !== 0 && (
+                                                                            <span className="text-[7px] font-bold uppercase tracking-[0.16em] text-[#c2410c]">
+                                                                                {modifier > 0 ? `+${modifier}` : modifier} gear
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => upgradeAttribute(stat)}
+                                                                disabled={attributePoints <= 0}
+                                                                className={`absolute right-2.5 top-2.5 h-6 w-6 border text-[12px] font-bold transition-all ${attributePoints > 0
+                                                                    ? "border-[#c2410c]/35 bg-[#c2410c]/10 text-[#c2410c] hover:bg-[#c2410c]/20 animate-pulse"
+                                                                    : "cursor-not-allowed border-white/5 bg-black/20 text-gray-700"
+                                                                    }`}
+                                                            >
+                                                                +
+                                                            </button>
+                                                            <div className="relative h-2 overflow-hidden border border-white/8 bg-black/50">
+                                                                <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:12px_100%] opacity-40" />
+                                                                <div
+                                                                    className="relative h-full bg-[linear-gradient(90deg,rgba(194,65,12,0.9),rgba(234,88,12,0.95))] shadow-[0_0_12px_rgba(194,65,12,0.28)]"
+                                                                    style={{ width: `${Math.min((val / 10) * 100, 100)}%` }}
+                                                                >
+                                                                    <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.22),rgba(255,255,255,0))]" />
+                                                                </div>
+                                                            </div>
+                                                            <div className="mt-1.5 flex items-center justify-between text-[7px] font-medium uppercase tracking-[0.18em] text-gray-600">
+                                                                <span>Base {baseValue}</span>
+                                                                {attributePoints > 0 ? (
+                                                                    <span className="text-[#c2410c] animate-pulse">Upgrade ready</span>
+                                                                ) : (
+                                                                    <span>{Math.min(val, 10)}/10</span>
+                                                                )}
+                                                            </div>
                                                         </div>
-                                                        <div className="h-1.5 overflow-hidden border border-white/8 bg-black/40">
-                                                            <div
-                                                                className="h-full bg-[#c2410c] shadow-[0_0_10px_rgba(194,65,12,0.2)]"
-                                                                style={{ width: `${Math.min((val / 10) * 100, 100)}%` }}
-                                                            />
-                                                        </div>
-                                                        <div className="mt-1.5 flex items-center justify-between text-[7px] font-medium uppercase tracking-[0.18em] text-gray-600">
-                                                            <span>Effective output</span>
-                                                            <span>{Math.min(val, 10)}/10</span>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         </section>
                                     </div>
