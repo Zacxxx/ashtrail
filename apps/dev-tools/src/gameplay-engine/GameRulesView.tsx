@@ -244,7 +244,7 @@ function GridPreview({ rules }: { rules: GameRulesConfig }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function GameRulesView() {
-    const { rules, updateRules } = useGameRules();
+    const { rules, updateRules, saveRules } = useGameRules();
     const [activeCategory, setActiveCategory] = useState<Category>("all");
     const [hasUnsaved, setHasUnsaved] = useState(false);
     const [saveFlash, setSaveFlash] = useState(false);
@@ -275,12 +275,13 @@ export function GameRulesView() {
         setHasUnsaved(false);
     };
 
-    const handleApply = () => {
-        // Already live since GameRulesManager propagates changes instantly.
-        // Flash the button to signal success.
-        setSaveFlash(true);
-        setHasUnsaved(false);
-        setTimeout(() => setSaveFlash(false), 1200);
+    const handleApply = async () => {
+        const success = await saveRules(rules);
+        if (success) {
+            setSaveFlash(true);
+            setHasUnsaved(false);
+            setTimeout(() => setSaveFlash(false), 1200);
+        }
     };
 
     const showCore = activeCategory === "all" || activeCategory === "core";

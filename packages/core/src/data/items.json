@@ -1,32 +1,106 @@
 [
-    {
-        "id": "item-rusted-pipe",
-        "name": "Rusted Pipe",
-        "category": "weapon",
-        "description": "A heavy piece of jagged metal. Better than bare hands.",
-        "cost": 10,
-        "effects": [
-            {
-                "type": "COMBAT_BONUS",
-                "target": "strength",
-                "value": 5,
-                "trigger": "passive"
-            }
-        ]
-    },
-    {
-        "id": "item-med-stims",
-        "name": "Military Stims",
-        "category": "consumable",
-        "description": "An emergency cocktail of adrenaline and coagulants.",
-        "cost": 50,
-        "effects": [
-            {
-                "type": "STAT_MODIFIER",
-                "target": "hp",
-                "value": 40,
-                "trigger": "on_turn_start"
-            }
-        ]
-    }
+  {
+    "category": "consumable",
+    "cost": 1000,
+    "description": "A potion tainted by ashes that regenerates your health when you drink it. \nBeware of the mutation side effect. ",
+    "effects": [
+      {
+        "target": "hp",
+        "type": "RESOURCE_MODIFIER",
+        "value": 20
+      }
+    ],
+    "icon": "📦",
+    "id": "item-1772207659997",
+    "name": "Ember potion",
+    "rarity": "ashmarked"
+  },
+  {
+    "category": "armor",
+    "cost": 0,
+    "description": "There's no way that you can equip sterling's set ? WTF ? ",
+    "effects": [
+      {
+        "target": "intelligence",
+        "type": "STAT_MODIFIER",
+        "value": 4
+      },
+      {
+        "target": "strength",
+        "type": "STAT_MODIFIER",
+        "value": -4
+      }
+    ],
+    "equipSlot": "head",
+    "icon": "📦",
+    "id": "item-1772208031388",
+    "name": "Sterling's helmet",
+    "rarity": "ashmarked"
+  },
+  {
+    "category": "armor",
+    "cost": 0,
+    "description": "Un gros gourdin appartenant a Alexandre François avant la chute.\nMefiez-vous du gros gourdin ainsi que de son propriétaire. ",
+    "effects": [
+      {
+        "target": "strength",
+        "type": "STAT_MODIFIER",
+        "value": 200
+      },
+      {
+        "target": "intelligence",
+        "type": "STAT_MODIFIER",
+        "value": -20
+      }
+    ],
+    "equipSlot": "mainHand",
+    "icon": "📦",
+    "id": "item-1772210100258",
+    "name": "Le gourdin d'AF",
+    "rarity": "ashmarked"
+  },
+  {
+    "category": "weapon",
+    "cost": 100,
+    "description": "No description needed",
+    "effects": [
+      {
+        "target": "maxHp",
+        "type": "STAT_MODIFIER",
+        "value": 25
+      }
+    ],
+    "equipSlot": "chest",
+    "icon": "📦",
+    "id": "item-1772540636290",
+    "name": "Base kevlar",
+    "rarity": "reinforced"
+  },
+  {
+    "category": "weapon",
+    "cost": 0,
+    "description": "la griffe de sterling le devoreur de monde. ",
+    "effects": [
+      {
+        "target": "intelligence",
+        "type": "STAT_MODIFIER",
+        "value": 25
+      },
+      {
+        "target": "ap",
+        "type": "STAT_MODIFIER",
+        "value": 2
+      },
+      {
+        "target": "charisma",
+        "type": "STAT_MODIFIER",
+        "value": 30
+      }
+    ],
+    "equipSlot": "offHand",
+    "icon": "📦",
+    "id": "item-1772541756003",
+    "name": "griffe de sterling",
+    "rarity": "relic"
+  }
 ]

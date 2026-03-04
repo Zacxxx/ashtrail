@@ -73,9 +73,11 @@ export interface Occupation {
   icon?: string;           // Emoji or gallery path
 }
 
-export type ItemCategory = "weapon" | "tool" | "armor" | "consumable" | "relic" | "resource" | "junk";
+export type ItemCategory = "weapon" | "consumable" | "resource" | "junk" | "armor";
 
 export type ItemRarity = "salvaged" | "reinforced" | "pre-ash" | "specialized" | "relic" | "ashmarked";
+
+export type EquipSlot = "head" | "chest" | "gloves" | "waist" | "legs" | "boots" | "mainHand" | "offHand";
 
 export interface Item {
   id: string;
@@ -86,6 +88,7 @@ export interface Item {
   cost: number;
   bagIndex?: number;
   slotIndex?: number;
+  equipSlot?: EquipSlot;   // Which equipment slot this item belongs to
   effects?: GameplayEffect[];
   icon?: string;           // Emoji or gallery path
 }
@@ -133,6 +136,13 @@ export interface Character {
   xp: number;
   level: number;
   inventory: Item[];
+  equipped?: Record<string, Item | null>;
+  title?: string;
+  badge?: string;
+  faction?: string;
+  alignment?: string;
+  backstory?: string;
+  currentStory?: string;
 }
 
 /** @deprecated Use `Character` instead. Kept for backward compatibility. */

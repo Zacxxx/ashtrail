@@ -62,16 +62,53 @@ export const GameRulesManager = {
 };
 
 export function useGameRules() {
-    const [rules, setRules] = useState(GameRulesManager.get());
+    const [rules, setRules] = useState<GameRulesConfig>(GameRulesManager.get());
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
+        const loadRules = async () => {
+            try {
+                const res = await fetch("http://127.0.0.1:8787/api/data/game-rules");
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && Object.keys(data).length > 0) {
+                        GameRulesManager.update(data);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch game rules:", e);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        loadRules();
+
         return GameRulesManager.subscribe(() => {
             setRules(GameRulesManager.get());
         });
     }, []);
 
+    const saveRules = async (newRules: GameRulesConfig) => {
+        try {
+            const res = await fetch("http://127.0.0.1:8787/api/data/game-rules", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(newRules),
+            });
+            if (res.ok) {
+                GameRulesManager.update(newRules);
+                return true;
+            }
+        } catch (e) {
+            console.error("Failed to save game rules:", e);
+        }
+        return false;
+    };
+
     return {
         rules,
-        updateRules: GameRulesManager.update
+        isLoading,
+        updateRules: GameRulesManager.update,
+        saveRules
     };
 }
