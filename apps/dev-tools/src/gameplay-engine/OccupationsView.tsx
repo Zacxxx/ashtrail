@@ -5,9 +5,10 @@ import { ModifierEditor } from "../components/ModifierEditor";
 
 interface OccupationsViewProps {
     occupation: Occupation | null;
+    onSave?: () => void;
 }
 
-export function OccupationsView({ occupation }: OccupationsViewProps) {
+export function OccupationsView({ occupation, onSave }: OccupationsViewProps) {
     const [editingOccupation, setEditingOccupation] = useState<Occupation | null>(null);
 
     // Form State
@@ -71,6 +72,7 @@ export function OccupationsView({ occupation }: OccupationsViewProps) {
             });
             if (res.ok) {
                 await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                if (onSave) onSave();
             }
         } catch (e) {
             console.error(e);
@@ -99,7 +101,23 @@ export function OccupationsView({ occupation }: OccupationsViewProps) {
 
             <div className="flex justify-between items-center">
                 <h2 className="text-xl font-black tracking-widest text-teal-400 uppercase">Occupation Editor</h2>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-4">
+                    <button
+                        onClick={async () => {
+                            if (window.confirm(`Delete occupation ${name}?`)) {
+                                try {
+                                    const res = await fetch(`http://127.0.0.1:8787/api/data/occupations/${id}`, { method: "DELETE" });
+                                    if (res.ok) {
+                                        await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                                        if (onSave) onSave();
+                                    }
+                                } catch (e) { console.error(e); }
+                            }
+                        }}
+                        className="px-3 py-1 bg-red-950/30 hover:bg-red-900/50 text-red-500 border border-red-900/30 text-[10px] font-bold uppercase rounded transition-all"
+                    >
+                        Delete
+                    </button>
                     <span className="text-[10px] font-mono text-gray-500">{id}</span>
                 </div>
             </div>

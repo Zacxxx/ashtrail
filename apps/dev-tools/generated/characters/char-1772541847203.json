@@ -1,0 +1,88 @@
+{
+  "age": 37,
+  "appearancePrompt": "un chat sous kippa mais noar",
+  "equipped": {
+    "boots": null,
+    "chest": null,
+    "gloves": null,
+    "head": null,
+    "legs": null,
+    "mainHand": null,
+    "offHand": {
+      "bagIndex": 0,
+      "category": "weapon",
+      "cost": 0,
+      "description": "la griffe de sterling le devoreur de monde. ",
+      "effects": [
+        {
+          "target": "intelligence",
+          "type": "STAT_MODIFIER",
+          "value": 25
+        },
+        {
+          "target": "ap",
+          "type": "STAT_MODIFIER",
+          "value": 2
+        },
+        {
+          "target": "charisma",
+          "type": "STAT_MODIFIER",
+          "value": 30
+        }
+      ],
+      "equipSlot": "offHand",
+      "icon": "📦",
+      "id": "item-1772541756003-1772541851093",
+      "name": "griffe de sterling",
+      "rarity": "relic"
+    },
+    "waist": null
+  },
+  "gender": "Non-Binary",
+  "history": "Un chat sous kippa",
+  "hp": 40,
+  "id": "char-1772541847203",
+  "inventory": [],
+  "isNPC": false,
+  "level": 12,
+  "maxHp": 40,
+  "name": "Sterlmann",
+  "occupation": {
+    "category": "SECURITY",
+    "description": "Served in an organized fighting force before the collapse. Knows formations, weapon maintenance, and how to follow orders under fire. Discipline is second nature.",
+    "id": "occ-soldier",
+    "name": "Soldier",
+    "perks": [
+      "Increased accuracy under suppressive fire",
+      "Faster weapon handling",
+      "Bonus morale in combat situations"
+    ],
+    "shortDescription": "Trained combatant with military discipline."
+  },
+  "stats": {
+    "agility": 6,
+    "charisma": 6,
+    "endurance": 6,
+    "intelligence": 5,
+    "strength": 7,
+    "wisdom": 6
+  },
+  "traits": [
+    {
+      "cost": 10,
+      "description": "A rugged constitution that refuses to break. +15 Max HP.",
+      "effects": [
+        {
+          "target": "maxHp",
+          "trigger": "passive",
+          "type": "STAT_MODIFIER",
+          "value": 15
+        }
+      ],
+      "id": "t-hardy",
+      "name": "Hardy",
+      "type": "positive"
+    }
+  ],
+  "xp": 0
+}

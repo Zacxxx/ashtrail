@@ -115,10 +115,34 @@ export function GameplayEnginePage() {
                 <div className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ${activeStep !== "CHARACTER" && activeStep !== "COMBAT" && activeStep !== "SKILLS" && activeStep !== "RULES" ? "justify-center items-center" : ""}`}>
                     {activeStep === "CHARACTER" && (
                         <div className="w-full h-full flex items-center justify-center relative">
-                            {activeDetailTab === "traits" && <TraitsView trait={selectedTrait} />}
-                            {activeDetailTab === "occupations" && <OccupationsView occupation={selectedOccupation} />}
+                            {activeDetailTab === "traits" && (
+                                <TraitsView
+                                    trait={selectedTrait}
+                                    onSave={async () => {
+                                        await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                                        setCustomTraits(GameRegistry.getAllTraits());
+                                    }}
+                                />
+                            )}
+                            {activeDetailTab === "occupations" && (
+                                <OccupationsView
+                                    occupation={selectedOccupation}
+                                    onSave={async () => {
+                                        await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                                        setCustomOccupations(GameRegistry.getAllOccupations());
+                                    }}
+                                />
+                            )}
                             {activeDetailTab === "characters" && <CharactersView character={selectedCharacter} />}
-                            {activeDetailTab === "items" && <ItemsView item={selectedItem} />}
+                            {activeDetailTab === "items" && (
+                                <ItemsView
+                                    item={selectedItem}
+                                    onSave={async () => {
+                                        await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                                        setCustomItems(GameRegistry.getAllItems());
+                                    }}
+                                />
+                            )}
                         </div>
                     )}
 

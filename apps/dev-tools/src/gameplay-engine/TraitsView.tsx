@@ -5,9 +5,10 @@ import { ModifierEditor } from "../components/ModifierEditor";
 
 interface TraitsViewProps {
     trait: Trait | null;
+    onSave?: () => void;
 }
 
-export function TraitsView({ trait }: TraitsViewProps) {
+export function TraitsView({ trait, onSave }: TraitsViewProps) {
     const [editingTrait, setEditingTrait] = useState<Trait | null>(null);
 
     // Form State
@@ -41,7 +42,7 @@ export function TraitsView({ trait }: TraitsViewProps) {
     }, [trait]);
 
     const resetForm = () => {
-        setId(`trait-${Date.now()}`);
+        setId(`trait - ${Date.now()} `);
         setName("");
         setDescription("");
         setCost(0);
@@ -71,10 +72,13 @@ export function TraitsView({ trait }: TraitsViewProps) {
             });
             if (res.ok) {
                 await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
-                // The parent will re-render and pass down the updated trait if selected
+                if (onSave) onSave();
             }
         } catch (e) {
             console.error(e);
+            // The instruction implies calling onSave() here, but it's usually not desired on error.
+            // If the intent was to refresh data even on error, uncomment the line below.
+            // if (onSave) onSave();
         }
     };
 
@@ -100,7 +104,23 @@ export function TraitsView({ trait }: TraitsViewProps) {
 
             <div className="flex justify-between items-center">
                 <h2 className="text-xl font-black tracking-widest text-orange-400 uppercase">Trait Editor</h2>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-4">
+                    <button
+                        onClick={async () => {
+                            if (window.confirm(`Delete trait ${name}?`)) {
+                                try {
+                                    const res = await fetch(`http://127.0.0.1:8787/api/data/traits/${id}`, { method: "DELETE" });
+                                    if (res.ok) {
+                                        await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                                        if (onSave) onSave();
+                                    }
+                                } catch (e) { console.error(e); }
+                            }
+                        }}
+                        className="px-3 py-1 bg-red-950/30 hover:bg-red-900/50 text-red-500 border border-red-900/30 text-[10px] font-bold uppercase rounded transition-all"
+                    >
+                        Delete
+                    </button>
                     <span className="text-[10px] font-mono text-gray-500">{id}</span>
                 </div>
             </div>
