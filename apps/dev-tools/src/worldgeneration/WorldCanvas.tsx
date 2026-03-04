@@ -26,7 +26,7 @@ interface WorldCanvasProps {
     geographyTool?: GeographyTool;
     activeRegionType?: RegionType;
     geography?: GeographyHook;
-    geographyTab?: "regions" | "cells" | "pipeline" | "inspector";
+    geographyTab?: "regions" | "cells" | "pipeline" | "inspector" | "isolator";
     geoHoveredId?: number | null;
     geoSelectedId?: number | null;
     geoBulkSelectedIds?: number[];

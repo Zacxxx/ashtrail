@@ -20,7 +20,7 @@ use hierarchy::{generate_full_planet_hierarchy, HierarchyGenerateRequest, Planet
 use serde::Deserialize;
 use serde::Serialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -31,6 +31,7 @@ use base64::Engine as _;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
+use worldgen_core::graph::ProvinceAdjacency;
 
 #[derive(Clone)]
 struct AppState {
@@ -39,6 +40,9 @@ struct AppState {
     planet_root: PathBuf,
     icons_dir: PathBuf,
     icons_export_dir: PathBuf,
+    textures_dir: PathBuf,
+    textures_export_dir: PathBuf,
+    isolated_dir: PathBuf,
     supabase: Option<SupabaseStorageConfig>,
 }
 
@@ -157,6 +161,18 @@ struct IconBatchRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct TextureBatchRequest {
+    prompts: Vec<String>,
+    style_prompt: Option<String>,
+    base64_image: Option<String>,
+    batch_name: Option<String>,
+    temperature: Option<f32>,
+    category: String, // "battle_assets", "character", "item"
+    sub_category: Option<String>, // "ground", "obstacle"
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RenameBatchRequest {
     new_name: String,
 }
@@ -168,6 +184,17 @@ struct RegenerateIconRequest {
     style_prompt: String,
     base64_image: Option<String>,
     temperature: Option<f32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegenerateTextureRequest {
+    item_prompt: String,
+    style_prompt: String,
+    base64_image: Option<String>,
+    temperature: Option<f32>,
+    category: String,
+    sub_category: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -184,7 +211,31 @@ struct BatchManifest {
 #[serde(rename_all = "camelCase")]
 struct BatchIcon {
     filename: String,
-    prompt: String, // The full prompt used
+    prompt: String,
+    #[serde(default)]
+    style_prompt: String,
+    #[serde(default)]
+    item_prompt: String,
+    url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TextureBatchManifest {
+    batch_id: String,
+    #[serde(default)]
+    batch_name: String,
+    created_at: String,
+    category: String,
+    sub_category: Option<String>,
+    textures: Vec<BatchTexture>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BatchTexture {
+    filename: String,
+    prompt: String,
     #[serde(default)]
     style_prompt: String,
     #[serde(default)]
@@ -199,6 +250,18 @@ struct BatchSummary {
     batch_name: String,
     icon_count: usize,
     created_at: String,
+    thumbnail_url: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TextureBatchSummary {
+    batch_id: String,
+    batch_name: String,
+    texture_count: usize,
+    created_at: String,
+    category: String,
+    sub_category: Option<String>,
     thumbnail_url: Option<String>,
 }
 
@@ -271,6 +334,16 @@ struct HierarchyRenameResponse {
     success: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContinentRecord {
+    id: u32,
+    kingdom_ids: Vec<u32>,
+    duchy_ids: Vec<u32>,
+    province_ids: Vec<u32>,
+    name: String,
+}
+
 #[derive(Clone)]
 struct RemoteObject {
     path: String,
@@ -320,6 +393,15 @@ async fn main() {
     let icons_export_dir = PathBuf::from("../../game-assets/assets/Icons");
     std::fs::create_dir_all(&icons_export_dir).expect("failed to create game-assets/assets/Icons directory");
 
+    let textures_dir = PathBuf::from("../../game-assets/assets/Textures");
+    std::fs::create_dir_all(&textures_dir).expect("failed to create game-assets/assets/Textures directory");
+
+    let textures_export_dir = PathBuf::from("../../game-assets/assets/Textures");
+    std::fs::create_dir_all(&textures_export_dir).expect("failed to create game-assets/assets/Textures directory");
+
+    let isolated_dir = PathBuf::from("../../game-assets/assets/IsolatedRegions");
+    std::fs::create_dir_all(&isolated_dir).expect("failed to create game-assets/assets/IsolatedRegions directory");
+
     let supabase = load_supabase_storage_config();
     if supabase.is_none() {
         warn!("Supabase storage sync disabled (missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)");
@@ -331,6 +413,9 @@ async fn main() {
         planet_root: PathBuf::from("generated/planet"), // For the hierarchical generator
         icons_dir: icons_dir.clone(),
         icons_export_dir,
+        textures_dir: textures_dir.clone(),
+        textures_export_dir,
+        isolated_dir: isolated_dir.clone(),
         supabase,
     };
 
@@ -365,10 +450,16 @@ async fn main() {
         .route("/api/planet/upscale/{job_id}", get(get_job_status))
         .route("/api/icons/generate-batch", post(generate_icon_batch))
         .route("/api/icons/batches", get(list_icon_batches))
-        .route("/api/icons/batches/{batch_id}", get(get_icon_batch))
+        .route("/api/icons/batches/{batch_id}", get(get_icon_batch).delete(delete_icon_batch))
         .route("/api/icons/batches/{batch_id}/rename", axum::routing::put(rename_icon_batch))
         .route("/api/icons/batches/{batch_id}/icons/{filename}/regenerate", post(regenerate_icon))
         .route("/api/icons/export", post(export_icons_registry))
+        .route("/api/textures/generate-batch", post(generate_texture_batch))
+        .route("/api/textures/batches", get(list_texture_batches))
+        .route("/api/textures/batches/{batch_id}", get(get_texture_batch).delete(delete_texture_batch))
+        .route("/api/textures/batches/{batch_id}/rename", axum::routing::put(rename_texture_batch))
+        .route("/api/textures/batches/{batch_id}/textures/{filename}/regenerate", post(regenerate_texture))
+        .route("/api/textures/export", post(export_textures_registry))
         .route("/api/storage/supabase/browse", get(browse_supabase_objects))
         .route("/api/storage/supabase/sync", post(sync_supabase_storage))
         // ── Worldgen Pipeline ──
@@ -378,6 +469,9 @@ async fn main() {
         .route("/api/worldgen/{planet_id}/clear", delete(worldgen_pipeline::clear_pipeline))
         .route("/api/worldgen/{planet_id}/hierarchy/reassign", post(reassign_worldgen_hierarchy))
         .route("/api/worldgen/{planet_id}/hierarchy/rename", post(rename_worldgen_hierarchy))
+        .route("/api/worldgen/{planet_id}/isolate", post(worldgen_pipeline::isolate_region))
+        .route("/api/worldgen/{planet_id}/isolated", get(worldgen_pipeline::list_isolated_regions))
+        .route("/api/worldgen/isolated/all", get(worldgen_pipeline::list_all_isolated_regions))
         // Static file serving for all planet textures
         .route("/api/data/traits", get(cms::get_traits).post(cms::save_traits))
         .route("/api/data/occupations", get(cms::get_occupations).post(cms::save_occupations))
@@ -386,6 +480,8 @@ async fn main() {
         .route("/api/data/skills", get(cms::get_skills).post(cms::save_skill))
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
+        .nest_service("/api/textures", ServeDir::new(textures_dir.clone()))
+        .nest_service("/api/isolated-assets", ServeDir::new(isolated_dir.clone()))
         .with_state(state)
         .layer(
             CorsLayer::new()
@@ -1405,6 +1501,8 @@ async fn reassign_worldgen_hierarchy(
             .map_err(|e| format!("Failed to parse duchies.json: {e}"))?;
         let mut kingdoms: Vec<KingdomRecord> = serde_json::from_str(&kingdoms_text)
             .map_err(|e| format!("Failed to parse kingdoms.json: {e}"))?;
+        let continents_path = worldgen_dir.join("continents.json");
+        let mut existing_continents = read_continents_file(&continents_path).unwrap_or_default();
 
         let entity_type = request.entity_type.trim().to_ascii_lowercase();
         match entity_type.as_str() {
@@ -1466,8 +1564,19 @@ async fn reassign_worldgen_hierarchy(
                     }
                 }
             }
+            "kingdom" => {
+                let Some(kingdom_index) = kingdoms.iter().position(|k| k.id == request.entity_id) else {
+                    return Err(format!("Kingdom {} not found", request.entity_id));
+                };
+                let target_continent_exists = existing_continents.iter().any(|c| c.id == request.target_id);
+                if !target_continent_exists {
+                    return Err(format!("Target continent {} not found", request.target_id));
+                }
+                // Kingdom reassignment is expressed through continent membership mapping below.
+                let _kingdom_id = kingdoms[kingdom_index].id;
+            }
             _ => {
-                return Err("entityType must be either 'province' or 'duchy'".to_string());
+                return Err("entityType must be one of: province, duchy, kingdom".to_string());
             }
         }
 
@@ -1537,6 +1646,82 @@ async fn reassign_worldgen_hierarchy(
 
         worldgen_core::export::write_id_texture(&duchy_labels, w, h, &worldgen_dir.join("duchy_id.png"))?;
         worldgen_core::export::write_id_texture(&kingdom_labels, w, h, &worldgen_dir.join("kingdom_id.png"))?;
+
+        let mut kingdom_to_continent: HashMap<u32, u32> = HashMap::new();
+        let mut continent_names: HashMap<u32, String> = HashMap::new();
+        for continent in &existing_continents {
+            continent_names.insert(continent.id, continent.name.clone());
+            for &kingdom_id in &continent.kingdom_ids {
+                kingdom_to_continent.insert(kingdom_id, continent.id);
+            }
+        }
+        if entity_type == "kingdom" {
+            kingdom_to_continent.insert(request.entity_id, request.target_id);
+        }
+        // Ensure every kingdom belongs to a continent.
+        for kingdom in &kingdoms {
+            kingdom_to_continent.entry(kingdom.id).or_insert(kingdom.id);
+            continent_names
+                .entry(*kingdom_to_continent.get(&kingdom.id).unwrap_or(&kingdom.id))
+                .or_insert_with(|| format!("Continent {}", kingdom.id + 1));
+        }
+
+        let mut continent_kingdom_ids: HashMap<u32, Vec<u32>> = HashMap::new();
+        for kingdom in &kingdoms {
+            let cid = kingdom_to_continent.get(&kingdom.id).copied().unwrap_or(kingdom.id);
+            continent_kingdom_ids.entry(cid).or_default().push(kingdom.id);
+        }
+
+        let mut continents: Vec<ContinentRecord> = continent_kingdom_ids
+            .into_iter()
+            .map(|(continent_id, mut kingdom_ids)| {
+                kingdom_ids.sort_unstable();
+                kingdom_ids.dedup();
+                let kingdom_set: HashSet<u32> = kingdom_ids.iter().copied().collect();
+
+                let mut duchy_ids: Vec<u32> = duchies
+                    .iter()
+                    .filter(|d| kingdom_set.contains(&d.kingdom_id))
+                    .map(|d| d.id)
+                    .collect();
+                duchy_ids.sort_unstable();
+                duchy_ids.dedup();
+
+                let mut province_ids: Vec<u32> = provinces
+                    .iter()
+                    .filter(|p| kingdom_set.contains(&p.kingdom_id))
+                    .map(|p| p.id)
+                    .collect();
+                province_ids.sort_unstable();
+                province_ids.dedup();
+
+                ContinentRecord {
+                    id: continent_id,
+                    kingdom_ids,
+                    duchy_ids,
+                    province_ids,
+                    name: continent_names
+                        .get(&continent_id)
+                        .cloned()
+                        .unwrap_or_else(|| format!("Continent {}", continent_id + 1)),
+                }
+            })
+            .collect();
+        continents.sort_by_key(|c| c.id);
+
+        let kingdom_to_continent: HashMap<u32, u32> = continents
+            .iter()
+            .flat_map(|c| c.kingdom_ids.iter().map(move |&kid| (kid, c.id)))
+            .collect();
+        let continent_labels: Vec<u32> = kingdom_labels
+            .iter()
+            .map(|&kid| kingdom_to_continent.get(&kid).copied().unwrap_or(0))
+            .collect();
+        worldgen_core::export::write_id_texture(&continent_labels, w, h, &worldgen_dir.join("continent_id.png"))?;
+        let continents_json = serde_json::to_string_pretty(&continents)
+            .map_err(|e| format!("Failed to serialize continents: {e}"))?;
+        std::fs::write(&continents_path, continents_json)
+            .map_err(|e| format!("Failed to write continents.json: {e}"))?;
 
         Ok(())
     })
@@ -1612,7 +1797,19 @@ async fn rename_worldgen_hierarchy(
                 std::fs::write(&kingdoms_path, payload)
                     .map_err(|e| format!("Failed to write kingdoms.json: {e}"))?;
             }
-            _ => return Err("entityType must be one of: province, duchy, kingdom".to_string()),
+            "continent" => {
+                let continents_path = worldgen_dir.join("continents.json");
+                let mut continents = read_continents_file(&continents_path)?;
+                let Some(index) = continents.iter().position(|c| c.id == request.entity_id) else {
+                    return Err(format!("Continent {} not found", request.entity_id));
+                };
+                continents[index].name = clean_name.to_string();
+                let payload = serde_json::to_string_pretty(&continents)
+                    .map_err(|e| format!("Failed to serialize continents: {e}"))?;
+                std::fs::write(&continents_path, payload)
+                    .map_err(|e| format!("Failed to write continents.json: {e}"))?;
+            }
+            _ => return Err("entityType must be one of: province, duchy, kingdom, continent".to_string()),
         }
 
         Ok(())
@@ -1622,6 +1819,109 @@ async fn rename_worldgen_hierarchy(
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     Ok(Json(HierarchyRenameResponse { success: true }))
+}
+
+fn read_continents_file(path: &std::path::Path) -> Result<Vec<ContinentRecord>, String> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read continents.json: {e}"))?;
+    serde_json::from_str(&text)
+        .map_err(|e| format!("Failed to parse continents.json: {e}"))
+}
+
+fn build_continents(
+    provinces: &[ProvinceRecord],
+    duchies: &[DuchyRecord],
+    kingdoms: &[KingdomRecord],
+    adjacency: &[ProvinceAdjacency],
+    previous_names: Option<&HashMap<u32, String>>,
+) -> Vec<ContinentRecord> {
+    let province_to_kingdom: HashMap<u32, u32> = provinces.iter().map(|p| (p.id, p.kingdom_id)).collect();
+    let mut kingdom_graph: HashMap<u32, HashSet<u32>> = kingdoms
+        .iter()
+        .map(|k| (k.id, HashSet::new()))
+        .collect();
+
+    for adj in adjacency {
+        let Some(&k1) = province_to_kingdom.get(&adj.province_id) else { continue; };
+        for edge in &adj.neighbors {
+            let Some(&k2) = province_to_kingdom.get(&edge.neighbor_id) else { continue; };
+            if k1 == k2 {
+                continue;
+            }
+            kingdom_graph.entry(k1).or_default().insert(k2);
+            kingdom_graph.entry(k2).or_default().insert(k1);
+        }
+    }
+
+    let mut kingdom_ids: Vec<u32> = kingdoms.iter().map(|k| k.id).collect();
+    kingdom_ids.sort_unstable();
+    let mut visited: HashSet<u32> = HashSet::new();
+    let mut components: Vec<Vec<u32>> = Vec::new();
+
+    for start in kingdom_ids {
+        if visited.contains(&start) {
+            continue;
+        }
+        let mut stack = vec![start];
+        let mut component: Vec<u32> = Vec::new();
+        visited.insert(start);
+
+        while let Some(node) = stack.pop() {
+            component.push(node);
+            if let Some(neighbors) = kingdom_graph.get(&node) {
+                for &next in neighbors {
+                    if visited.insert(next) {
+                        stack.push(next);
+                    }
+                }
+            }
+        }
+
+        component.sort_unstable();
+        components.push(component);
+    }
+
+    components.sort_by_key(|c| c.first().copied().unwrap_or(0));
+
+    components
+        .into_iter()
+        .enumerate()
+        .map(|(index, kingdom_ids)| {
+            let id = kingdom_ids.first().copied().unwrap_or(index as u32);
+            let kingdom_set: HashSet<u32> = kingdom_ids.iter().copied().collect();
+
+            let mut duchy_ids: Vec<u32> = duchies
+                .iter()
+                .filter(|d| kingdom_set.contains(&d.kingdom_id))
+                .map(|d| d.id)
+                .collect();
+            duchy_ids.sort_unstable();
+            duchy_ids.dedup();
+
+            let mut province_ids: Vec<u32> = provinces
+                .iter()
+                .filter(|p| kingdom_set.contains(&p.kingdom_id))
+                .map(|p| p.id)
+                .collect();
+            province_ids.sort_unstable();
+            province_ids.dedup();
+
+            let name = previous_names
+                .and_then(|names| names.get(&id).cloned())
+                .unwrap_or_else(|| format!("Continent {}", index + 1));
+
+            ContinentRecord {
+                id,
+                kingdom_ids,
+                duchy_ids,
+                province_ids,
+                name,
+            }
+        })
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -2372,7 +2672,6 @@ async fn list_icon_batches(
     Ok(Json(batches))
 }
 
-/// Get a single batch manifest.
 async fn get_icon_batch(
     State(state): State<AppState>,
     Path(batch_id): Path<String>,
@@ -2388,6 +2687,252 @@ async fn get_icon_batch(
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse error: {e}"))
     })?;
     Ok(Json(manifest))
+}
+
+/// Delete an icon batch and its directory.
+async fn delete_icon_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let batch_dir = state.icons_dir.join(&batch_id);
+    if !batch_dir.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+    std::fs::remove_dir_all(&batch_dir).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete batch: {e}"))
+    })?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Generate a batch of textures via Gemini.
+async fn generate_texture_batch(
+    State(state): State<AppState>,
+    Json(request): Json<TextureBatchRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let prompts = request.prompts;
+
+    if prompts.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "No prompts provided".to_string()));
+    }
+
+    let batch_name = request.batch_name
+        .as_deref()
+        .map(|n| n.trim())
+        .filter(|n| !n.is_empty())
+        .unwrap_or("")
+        .to_string();
+
+    let batch_id = if batch_name.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        slugify_prompt(&batch_name)
+    };
+
+    let batch_dir = state.textures_dir.join(&batch_id);
+    std::fs::create_dir_all(&batch_dir).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create batch dir: {e}"))
+    })?;
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let mut textures: Vec<BatchTexture> = Vec::new();
+    let style_prompt = request.style_prompt.unwrap_or_default();
+
+    for (i, item_prompt) in prompts.iter().enumerate() {
+        let full_prompt = if style_prompt.trim().is_empty() {
+            item_prompt.clone()
+        } else {
+            format!("{} {}", style_prompt.trim(), item_prompt.trim())
+        };
+
+        // Tailor the prompt based on category/subcategory
+        let wrapped_prompt = match (request.category.as_str(), request.sub_category.as_deref()) {
+            ("battle_assets", Some("ground")) => format!(
+                "Generate a high-quality top-down flat game texture for an isometric RPG. \
+                Visual content: {}. \
+                Must be seamless and tileable if possible. No perspective, no depth, no borders, no text. \
+                Output ONLY the texture image.",
+                full_prompt
+            ),
+            ("battle_assets", Some("obstacle")) => format!(
+                "Generate a high-quality game asset obstacle. \
+                Visual content: {}. \
+                Isolated object on a solid black or dark background. Centered composition. \
+                Top-down or slight isometric angle to match the game's view. No borders, no text. \
+                Output ONLY the asset image.",
+                full_prompt
+            ),
+            ("character", _) => format!(
+                "Generate a high-quality character texture or portrait. \
+                Visual content: {}. \
+                No borders, no text. Output ONLY the image.",
+                full_prompt
+            ),
+            ("item", _) => format!(
+                "Generate a high-quality item texture. \
+                Visual content: {}. \
+                Centered composition on dark background. No text, no borders. \
+                Output ONLY the item image.",
+                full_prompt
+            ),
+            _ => format!(
+                "Generate a game texture. \
+                Visual content: {}. \
+                No text, no borders. Output ONLY the image.",
+                full_prompt
+            ),
+        };
+
+        info!(batch_id = %batch_id, index = i, prompt = %full_prompt, "generating texture");
+
+        let temperature = request.temperature.or(Some(0.4));
+
+        let image_bytes_result = if let Some(base64_img) = &request.base64_image {
+            gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", temperature, Some("1:1")).await
+        } else {
+            gemini::generate_image_bytes(&wrapped_prompt, temperature, 512, 512, Some("1:1")).await
+        };
+
+        let image_bytes = image_bytes_result.map_err(|(code, msg)| {
+            error!("Texture generation failed for item {}: {}", i, msg);
+            (code, msg)
+        })?;
+
+        let batch_dir_clone = batch_dir.clone();
+        let batch_id_clone = batch_id.clone();
+        let full_prompt_cloned = full_prompt.clone();
+        let item_prompt_cloned = item_prompt.clone();
+        let style_prompt_cloned = style_prompt.clone();
+
+        let texture = tokio::task::spawn_blocking(move || -> Result<BatchTexture, (StatusCode, String)> {
+            let img = image::load_from_memory(&image_bytes).map_err(|e| {
+                error!("Failed to decode texture image: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Image decode error: {e}"))
+            })?;
+
+            let filename = format!("{:03}.png", i);
+            let path = batch_dir_clone.join(&filename);
+
+            img.save(&path).map_err(|e| {
+                error!("Failed to save texture: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}"))
+            })?;
+
+            info!(path = %path.display(), "texture saved");
+            Ok(BatchTexture {
+                filename: filename.clone(),
+                prompt: full_prompt_cloned,
+                style_prompt: style_prompt_cloned,
+                item_prompt: item_prompt_cloned,
+                url: format!("/api/textures/{}/{}", batch_id_clone, filename),
+            })
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {e}")))?
+        .map_err(|e| e)?;
+
+        textures.push(texture);
+    }
+
+    let manifest = TextureBatchManifest {
+        batch_id: batch_id.clone(),
+        batch_name: if batch_name.is_empty() { batch_id[..8].to_uppercase() } else { batch_name },
+        created_at,
+        category: request.category,
+        sub_category: request.sub_category,
+        textures,
+    };
+
+    let manifest_path = batch_dir.join("manifest.json");
+    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {e}"))
+    })?;
+    std::fs::write(&manifest_path, &manifest_json).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Manifest write error: {e}"))
+    })?;
+
+    info!(batch_id = %batch_id, total = manifest.textures.len(), "texture batch completed");
+    Ok(Json(manifest))
+}
+
+/// List all texture batches.
+async fn list_texture_batches(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let textures_dir = state.textures_dir.clone();
+
+    let batches = tokio::task::spawn_blocking(move || -> Result<Vec<TextureBatchSummary>, String> {
+        let mut result = Vec::new();
+        if !textures_dir.exists() {
+            return Ok(result);
+        }
+        let dir = std::fs::read_dir(&textures_dir).map_err(|e| format!("read dir: {e}"))?;
+        for entry in dir {
+            let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let manifest_path = path.join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let data = std::fs::read_to_string(&manifest_path)
+                .map_err(|e| format!("read manifest: {e}"))?;
+            let manifest: TextureBatchManifest = serde_json::from_str(&data)
+                .map_err(|e| format!("parse manifest: {e}"))?;
+
+            let thumbnail_url = manifest.textures.first().map(|i| i.url.clone());
+            result.push(TextureBatchSummary {
+                batch_id: manifest.batch_id,
+                batch_name: manifest.batch_name,
+                texture_count: manifest.textures.len(),
+                created_at: manifest.created_at,
+                category: manifest.category,
+                sub_category: manifest.sub_category,
+                thumbnail_url,
+            });
+        }
+        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(result)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(batches))
+}
+
+/// Get a single texture batch manifest.
+async fn get_texture_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let manifest_path = state.textures_dir.join(&batch_id).join("manifest.json");
+    if !manifest_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+    let data = tokio::fs::read_to_string(&manifest_path).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"))
+    })?;
+    let manifest: TextureBatchManifest = serde_json::from_str(&data).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse error: {e}"))
+    })?;
+    Ok(Json(manifest))
+}
+
+/// Delete a texture batch and its directory.
+async fn delete_texture_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let batch_dir = state.textures_dir.join(&batch_id);
+    if !batch_dir.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+    std::fs::remove_dir_all(&batch_dir).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete batch: {e}"))
+    })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Regenerate a single icon in a batch.
@@ -2700,6 +3245,269 @@ async fn rename_icon_batch(
         }
 
         Ok(manifest)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(result))
+}
+
+/// Rename a texture batch.
+async fn rename_texture_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+    Json(request): Json<RenameBatchRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let new_name = request.new_name.trim().to_string();
+    if new_name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Name cannot be empty".to_string()));
+    }
+
+    let new_batch_id = slugify_prompt(&new_name);
+    let textures_dir = state.textures_dir.clone();
+    let old_dir = textures_dir.join(&batch_id);
+    let new_dir = textures_dir.join(&new_batch_id);
+
+    if !old_dir.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+
+    if new_batch_id != batch_id && new_dir.exists() {
+        return Err((StatusCode::CONFLICT, format!("A batch named '{}' already exists", new_batch_id)));
+    }
+
+    let result = tokio::task::spawn_blocking(move || -> Result<TextureBatchManifest, String> {
+        let manifest_path = old_dir.join("manifest.json");
+        let data = std::fs::read_to_string(&manifest_path).map_err(|e| format!("read manifest: {e}"))?;
+        let mut manifest: TextureBatchManifest = serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
+
+        manifest.batch_name = new_name;
+        manifest.batch_id = new_batch_id.clone();
+
+        for texture in &mut manifest.textures {
+            texture.url = format!("/api/textures/{}/{}", new_batch_id, texture.filename);
+        }
+
+        let updated_json = serde_json::to_string_pretty(&manifest).map_err(|e| format!("serialize manifest: {e}"))?;
+        std::fs::write(&manifest_path, &updated_json).map_err(|e| format!("write manifest: {e}"))?;
+
+        if old_dir != new_dir {
+            std::fs::rename(&old_dir, &new_dir).map_err(|e| format!("rename folder: {e}"))?;
+        }
+
+        Ok(manifest)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(result))
+}
+
+/// Regenerate a single texture in a batch.
+async fn regenerate_texture(
+    State(state): State<AppState>,
+    Path((batch_id, filename)): Path<(String, String)>,
+    Json(request): Json<RegenerateTextureRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let batch_dir = state.textures_dir.join(&batch_id);
+    let manifest_path = batch_dir.join("manifest.json");
+
+    if !manifest_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+
+    let item_text = request.item_prompt;
+    let style_text = request.style_prompt;
+    let full_prompt = if style_text.trim().is_empty() {
+        item_text.clone()
+    } else {
+        format!("{} {}", style_text.trim(), item_text.trim())
+    };
+
+    let wrapped_prompt = match (request.category.as_str(), request.sub_category.as_deref()) {
+        ("battle_assets", Some("ground")) => format!(
+            "Generate a high-quality top-down flat game texture for an isometric RPG. \
+            Visual content: {}. \
+            Must be seamless and tileable if possible. No perspective, no depth, no borders, no text. \
+            Output ONLY the texture image.",
+            full_prompt
+        ),
+        ("battle_assets", Some("obstacle")) => format!(
+            "Generate a high-quality game asset obstacle. \
+            Visual content: {}. \
+            Isolated object on a solid black or dark background. Centered composition. \
+            Top-down or slight isometric angle to match the game's view. No borders, no text. \
+            Output ONLY the asset image.",
+            full_prompt
+        ),
+        _ => format!(
+            "Generate a game texture. Visual content: {}. No text, no borders.",
+            full_prompt
+        ),
+    };
+
+    let temperature = request.temperature.or(Some(0.4));
+    let image_bytes_result = if let Some(base64_img) = &request.base64_image {
+        gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", temperature, Some("1:1")).await
+    } else {
+        gemini::generate_image_bytes(&wrapped_prompt, temperature, 512, 512, Some("1:1")).await
+    };
+
+    let image_bytes = image_bytes_result.map_err(|(code, msg)| (code, msg))?;
+
+    let updated_texture = tokio::task::spawn_blocking(move || -> Result<BatchTexture, (StatusCode, String)> {
+        let img = image::load_from_memory(&image_bytes).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Image decode error: {e}"))
+        })?;
+
+        let path = batch_dir.join(&filename);
+        img.save(&path).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}"))
+        })?;
+
+        let data = std::fs::read_to_string(&manifest_path).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Read manifest error: {e}"))
+        })?;
+        let mut manifest: TextureBatchManifest = serde_json::from_str(&data).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse manifest error: {e}"))
+        })?;
+
+        for texture in &mut manifest.textures {
+            if texture.filename == filename {
+                texture.prompt = full_prompt.clone();
+                texture.item_prompt = item_text.clone();
+                texture.style_prompt = style_text.clone();
+                break;
+            }
+        }
+
+        let updated_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Serialize manifest error: {e}"))
+        })?;
+        std::fs::write(&manifest_path, &updated_json).map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Write manifest error: {e}"))
+        })?;
+
+        Ok(BatchTexture {
+            filename: filename.clone(),
+            prompt: full_prompt,
+            style_prompt: style_text,
+            item_prompt: item_text,
+            url: format!("/api/textures/{}/{}", batch_id, filename),
+        })
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {e}")))?
+    .map_err(|e| e)?;
+
+    Ok(Json(updated_texture))
+}
+
+/// Export textures registry to a TypeScript file.
+async fn export_textures_registry(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let textures_dir = state.textures_dir.clone();
+    let export_dir = state.textures_export_dir.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> Result<ExportResult, String> {
+        let mut all_manifests: Vec<TextureBatchManifest> = Vec::new();
+        if textures_dir.exists() {
+            let dir = std::fs::read_dir(&textures_dir).map_err(|e| format!("read textures dir: {e}"))?;
+            for entry in dir {
+                let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+                let path = entry.path();
+                if !path.is_dir() { continue; }
+                let manifest_path = path.join("manifest.json");
+                if !manifest_path.exists() { continue; }
+                let data = std::fs::read_to_string(&manifest_path).map_err(|e| format!("read manifest: {e}"))?;
+                let manifest: TextureBatchManifest = serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
+                all_manifests.push(manifest);
+            }
+        }
+        all_manifests.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        std::fs::create_dir_all(&export_dir).map_err(|e| format!("create export dir: {e}"))?;
+
+        let mut ts_entries: Vec<String> = Vec::new();
+        let mut total_textures: usize = 0;
+
+        for manifest in &all_manifests {
+            let mut texture_entries: Vec<String> = Vec::new();
+            for texture in &manifest.textures {
+                let key = slugify_prompt(&texture.prompt);
+                texture_entries.push(format!(
+                    "    {{ key: '{}', prompt: '{}', file: './{}/{}' }}",
+                    key,
+                    texture.prompt.replace('\\', "\\\\").replace('\'', "\\'"),
+                    manifest.batch_id,
+                    texture.filename
+                ));
+                total_textures += 1;
+            }
+
+            let display_name = if manifest.batch_name.is_empty() {
+                manifest.batch_id[..8.min(manifest.batch_id.len())].to_uppercase()
+            } else {
+                manifest.batch_name.clone()
+            };
+            ts_entries.push(format!(
+                "  // {} — {} — {} textures\n  {{\n    batchId: '{}',\n    name: '{}',\n    createdAt: '{}',\n    category: '{}',\n    subCategory: {},\n    textures: [\n{}\n    ],\n  }}",
+                display_name,
+                manifest.created_at,
+                manifest.textures.len(),
+                manifest.batch_id,
+                manifest.batch_name.replace('\\', "\\\\").replace('\'', "\\'"),
+                manifest.created_at,
+                manifest.category,
+                manifest.sub_category.as_ref().map(|s| format!("'{}'", s)).unwrap_or("undefined".to_string()),
+                texture_entries.join(",\n")
+            ));
+        }
+
+        let ts_content = format!(
+            "// ──────────────────────────────────────────\n\
+             // AUTO-GENERATED — DO NOT EDIT MANUALLY\n\
+             // Generated by dev-tools texture export\n\
+             // Total: {} textures across {} batches\n\
+             // ──────────────────────────────────────────\n\
+             \n\
+             export interface TextureEntry {{\n\
+             \x20 key: string;\n\
+             \x20 prompt: string;\n\
+             \x20 file: string;\n\
+             }}\n\
+             \n\
+             export interface TextureBatch {{\n\
+             \x20 batchId: string;\n\
+             \x20 name: string;\n\
+             \x20 createdAt: string;\n\
+             \x20 category: string;\n\
+             \x20 subCategory?: string;\n\
+             \x20 textures: TextureEntry[];\n\
+             }}\n\
+             \n\
+             export const TEXTURE_BATCHES: TextureBatch[] = [\n\
+             {}\n\
+             ];\n\
+             \n\
+             export const TEXTURES: Record<string, TextureEntry> = Object.fromEntries(\n\
+             \x20 TEXTURE_BATCHES.flatMap(b => b.textures).map(i => [i.key, i])\n\
+             );\n",
+            total_textures,
+            all_manifests.len(),
+            ts_entries.join(",\n")
+        );
+
+        let index_path = export_dir.join("textures_index.ts");
+        std::fs::write(&index_path, ts_content).map_err(|e| format!("write textures_index.ts: {e}"))?;
+
+        Ok(ExportResult {
+            total_icons: total_textures,
+            total_batches: all_manifests.len(),
+            export_path: index_path.display().to_string(),
+        })
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?

@@ -9,7 +9,7 @@ use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use tracing::{info, error};
 
@@ -19,6 +19,37 @@ use worldgen_core::export::PipelineStatus;
 use crate::{AppState, JobRecord, JobStatus};
 
 // ── Request / Response Types ──
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IsolateRequest {
+    pub entity_type: String, // "province", "duchy", "kingdom", "continent"
+    pub entity_id: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IsolateResponse {
+    pub success: bool,
+    pub filename: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IsolatedImage {
+    pub filename: String,
+    pub entity_type: String,
+    pub entity_id: u32,
+    pub url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListIsolatedResponse {
+    pub images: Vec<IsolatedImage>,
+}
+
+// ── Job Response Types ──
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +82,16 @@ pub struct WorldgenJobStatus {
     pub status: String,
     pub progress: f32,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContinentRecord {
+    id: u32,
+    kingdom_ids: Vec<u32>,
+    duchy_ids: Vec<u32>,
+    province_ids: Vec<u32>,
+    name: String,
 }
 
 // ── Helper: resolve planet worldgen directory ──
@@ -108,6 +149,154 @@ pub async fn clear_pipeline(
     }
 
     Ok(StatusCode::OK)
+}
+
+// ── POST /api/worldgen/{planet_id}/isolate ──
+
+pub async fn isolate_region(
+    State(state): State<AppState>,
+    Path(planet_id): Path<String>,
+    Json(request): Json<IsolateRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let out_dir = worldgen_dir(&state.planets_dir, &planet_id);
+    let isolated_dir = state.isolated_dir.join(&planet_id);
+    if !isolated_dir.exists() {
+        std::fs::create_dir_all(&isolated_dir).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+
+    let map_filename = match request.entity_type.as_str() {
+        "province" => "province_id.png",
+        "duchy" => "duchy_id.png",
+        "kingdom" => "kingdom_id.png",
+        "continent" => "continent_id.png",
+        _ => return Err((StatusCode::BAD_REQUEST, "Invalid entity type".into())),
+    };
+
+    let map_path = out_dir.join(map_filename);
+    if !map_path.exists() {
+         return Err((StatusCode::NOT_FOUND, "Hierarchy map not found. Did you run the pipeline?".into()));
+    }
+
+    let base_path = base_image_path(&state.planets_dir, &planet_id);
+    if !base_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Base texture not found.".into()));
+    }
+
+    let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let (w, h) = get_dimensions(&map_path)?;
+        let id_map = load_id_texture(&map_path, w, h)?;
+        let base_img = load_rgb_png(&base_path, "Failed to load base image")?;
+
+        let mut out_img = image::RgbaImage::new(w, h);
+        
+        for y in 0..h {
+            for x in 0..w {
+                let idx = (y * w + x) as usize;
+                if id_map[idx] == request.entity_id {
+                    let p = base_img.get_pixel(x, y);
+                    out_img.put_pixel(x, y, image::Rgba([p[0], p[1], p[2], 255]));
+                } else {
+                    out_img.put_pixel(x, y, image::Rgba([0, 0, 0, 0]));
+                }
+            }
+        }
+
+        let filename = format!("{}_{}.png", request.entity_type, request.entity_id);
+        let out_path = isolated_dir.join(&filename);
+        
+        out_img.save(&out_path).map_err(|e| format!("Failed to save isolated image: {}", e))?;
+        
+        Ok(filename)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(IsolateResponse { success: true, filename: result }))
+}
+
+// ── GET /api/worldgen/{planet_id}/isolated ──
+
+pub async fn list_isolated_regions(
+    State(state): State<AppState>,
+    Path(planet_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let isolated_dir = state.isolated_dir.join(&planet_id);
+
+    let mut images = Vec::new();
+    
+    if isolated_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(isolated_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    if ext == "png" {
+                        if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                            let parts: Vec<&str> = filename.trim_end_matches(".png").split('_').collect();
+                            if parts.len() == 2 {
+                                let entity_type = parts[0].to_string();
+                                if let Ok(entity_id) = parts[1].parse::<u32>() {
+                                    images.push(IsolatedImage {
+                                        filename: filename.to_string(),
+                                        entity_type,
+                                        entity_id,
+                                        url: format!("/api/isolated-assets/{}/{}", planet_id, filename), // Note this path needs to match how planets are hosted
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Json(ListIsolatedResponse { images }))
+}
+
+// ── GET /api/worldgen/isolated/all ──
+
+pub async fn list_all_isolated_regions(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let mut images = Vec::new();
+    
+    if state.isolated_dir.exists() {
+        if let Ok(planets) = std::fs::read_dir(&state.isolated_dir) {
+            for planet_entry in planets.flatten() {
+                let planet_id = planet_entry.file_name().to_string_lossy().to_string();
+                let isolated_dir = planet_entry.path();
+                
+                if isolated_dir.exists() {
+                    if let Ok(entries) = std::fs::read_dir(isolated_dir) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if let Some(ext) = path.extension() {
+                                if ext == "png" {
+                                    if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                                        let parts: Vec<&str> = filename.trim_end_matches(".png").split('_').collect();
+                                        if parts.len() == 2 {
+                                            let entity_type = parts[0].to_string();
+                                            if let Ok(entity_id) = parts[1].parse::<u32>() {
+                                                images.push(IsolatedImage {
+                                                    filename: filename.to_string(),
+                                                    entity_type,
+                                                    entity_id,
+                                                    url: format!("/api/isolated-assets/{}/{}", planet_id, filename),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Json(ListIsolatedResponse { images }))
 }
 
 // ── POST /api/worldgen/{planet_id}/run/{stage_name} ──
@@ -379,6 +568,20 @@ fn run_single_stage(
 
             export::write_id_texture(&duchy_labels, w, h, &out_dir.join("duchy_id.png"))?;
             export::write_id_texture(&kingdom_labels, w, h, &out_dir.join("kingdom_id.png"))?;
+            let continents = build_continents(&provinces, &duchies, &kingdoms, &adj, None);
+            let kingdom_to_continent: HashMap<u32, u32> = continents
+                .iter()
+                .flat_map(|c| c.kingdom_ids.iter().map(move |&kid| (kid, c.id)))
+                .collect();
+            let continent_labels: Vec<u32> = kingdom_labels
+                .iter()
+                .map(|&kid| kingdom_to_continent.get(&kid).copied().unwrap_or(0))
+                .collect();
+            export::write_id_texture(&continent_labels, w, h, &out_dir.join("continent_id.png"))?;
+            let continents_json = serde_json::to_string_pretty(&continents)
+                .map_err(|e| format!("Failed to serialize continents.json: {e}"))?;
+            std::fs::write(out_dir.join("continents.json"), continents_json)
+                .map_err(|e| format!("Failed to write continents.json: {e}"))?;
             export::write_provinces_json(&provinces, &out_dir.join("provinces.json"))?;
             export::write_duchies_json(&duchies, &out_dir.join("duchies.json"))?;
             export::write_kingdoms_json(&kingdoms, &out_dir.join("kingdoms.json"))
@@ -454,4 +657,95 @@ fn load_id_texture(path: &std::path::Path, _w: u32, _h: u32) -> Result<Vec<u32>,
     Ok(rgb.pixels().map(|p| {
         p[0] as u32 | ((p[1] as u32) << 8) | ((p[2] as u32) << 16)
     }).collect())
+}
+
+fn build_continents(
+    provinces: &[cluster::ProvinceRecord],
+    duchies: &[cluster::DuchyRecord],
+    kingdoms: &[cluster::KingdomRecord],
+    adjacency: &[graph::ProvinceAdjacency],
+    previous_names: Option<&HashMap<u32, String>>,
+) -> Vec<ContinentRecord> {
+    let province_to_kingdom: HashMap<u32, u32> = provinces.iter().map(|p| (p.id, p.kingdom_id)).collect();
+    let mut kingdom_graph: HashMap<u32, HashSet<u32>> = kingdoms
+        .iter()
+        .map(|k| (k.id, HashSet::new()))
+        .collect();
+
+    for adj in adjacency {
+        let Some(&k1) = province_to_kingdom.get(&adj.province_id) else { continue; };
+        for edge in &adj.neighbors {
+            let Some(&k2) = province_to_kingdom.get(&edge.neighbor_id) else { continue; };
+            if k1 == k2 {
+                continue;
+            }
+            kingdom_graph.entry(k1).or_default().insert(k2);
+            kingdom_graph.entry(k2).or_default().insert(k1);
+        }
+    }
+
+    let mut kingdom_ids: Vec<u32> = kingdoms.iter().map(|k| k.id).collect();
+    kingdom_ids.sort_unstable();
+    let mut visited: HashSet<u32> = HashSet::new();
+    let mut components: Vec<Vec<u32>> = Vec::new();
+
+    for start in kingdom_ids {
+        if visited.contains(&start) {
+            continue;
+        }
+        let mut stack = vec![start];
+        let mut component: Vec<u32> = Vec::new();
+        visited.insert(start);
+
+        while let Some(node) = stack.pop() {
+            component.push(node);
+            if let Some(neighbors) = kingdom_graph.get(&node) {
+                for &next in neighbors {
+                    if visited.insert(next) {
+                        stack.push(next);
+                    }
+                }
+            }
+        }
+
+        component.sort_unstable();
+        components.push(component);
+    }
+
+    components.sort_by_key(|c| c.first().copied().unwrap_or(0));
+
+    components
+        .into_iter()
+        .enumerate()
+        .map(|(index, kingdom_ids)| {
+            let id = kingdom_ids.first().copied().unwrap_or(index as u32);
+            let mut duchy_ids: Vec<u32> = duchies
+                .iter()
+                .filter(|d| kingdom_ids.contains(&d.kingdom_id))
+                .map(|d| d.id)
+                .collect();
+            duchy_ids.sort_unstable();
+            duchy_ids.dedup();
+
+            let mut province_ids: Vec<u32> = provinces
+                .iter()
+                .filter(|p| kingdom_ids.contains(&p.kingdom_id))
+                .map(|p| p.id)
+                .collect();
+            province_ids.sort_unstable();
+            province_ids.dedup();
+
+            let name = previous_names
+                .and_then(|names| names.get(&id).cloned())
+                .unwrap_or_else(|| format!("Continent {}", index + 1));
+
+            ContinentRecord {
+                id,
+                kingdom_ids,
+                duchy_ids,
+                province_ids,
+                name,
+            }
+        })
+        .collect()
 }

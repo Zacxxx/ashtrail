@@ -10,7 +10,7 @@ interface HistoryGalleryProps {
     showExtendedTabs?: boolean;
 }
 
-type TabType = "planets" | "textures" | "icons" | "characters";
+type TabType = "planets" | "textures" | "icons" | "characters" | "isolated";
 
 interface IconImageItem {
     id: string;
@@ -26,6 +26,22 @@ interface CharacterPortraitItem {
     portraitUrl: string;
 }
 
+interface IsolatedImageItem {
+    id: string;
+    url: string;
+    entityType: string;
+    entityId: number;
+    filename: string;
+}
+
+interface TextureImageItem {
+    id: string;
+    url: string;
+    batchName: string;
+    createdAt: string;
+    prompt: string;
+}
+
 export function HistoryGallery({
     history,
     activePlanetId,
@@ -36,7 +52,9 @@ export function HistoryGallery({
 }: HistoryGalleryProps) {
     const [activeTab, setActiveTab] = useState<TabType>("planets");
     const [iconImages, setIconImages] = useState<IconImageItem[]>([]);
+    const [textureImages, setTextureImages] = useState<TextureImageItem[]>([]);
     const [characterPortraits, setCharacterPortraits] = useState<CharacterPortraitItem[]>([]);
+    const [isolatedImages, setIsolatedImages] = useState<IsolatedImageItem[]>([]);
     const [isLoadingExtended, setIsLoadingExtended] = useState(false);
     const [extendedError, setExtendedError] = useState<string | null>(null);
 
@@ -61,7 +79,7 @@ export function HistoryGallery({
     const activePlanet = history.find(p => p.id === activePlanetId);
     // Include the base planet itself as a texture option
     const activeVariants = activePlanet ? [activePlanet, ...(textureVariants.get(activePlanet.id) || [])] : [];
-    const contentGridClassName = activeTab === "icons"
+    const contentGridClassName = (activeTab === "icons" || activeTab === "isolated")
         ? "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8 gap-2.5"
         : activeTab === "characters"
             ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5"
@@ -81,21 +99,44 @@ export function HistoryGallery({
                 const batches = await batchesRes.json();
                 const batchList = Array.isArray(batches) ? batches : [];
 
-                const iconGroups = await Promise.all(
-                    batchList.map(async (batch: any) => {
+                const [iconGroups, textureGroups] = await Promise.all([
+                    Promise.all(batchList.map(async (batch: any) => {
                         const res = await fetch(`/api/icons/batches/${batch.batchId}`);
                         if (!res.ok) return [];
                         const manifest = await res.json();
                         const icons = Array.isArray(manifest.icons) ? manifest.icons : [];
                         return icons.map((icon: any, index: number) => ({
-                            id: `${manifest.batchId}-${icon.filename}-${index}`,
+                            id: `icon-${manifest.batchId}-${icon.filename}-${index}`,
                             url: icon.url,
                             batchName: manifest.batchName || manifest.batchId,
                             createdAt: manifest.createdAt || "",
                             prompt: icon.itemPrompt || icon.prompt || icon.filename || "Icon",
                         } as IconImageItem));
-                    })
-                );
+                    })),
+                    (async () => {
+                        try {
+                            const texBatchesRes = await fetch("/api/textures/batches");
+                            if (!texBatchesRes.ok) return [];
+                            const texBatches = await texBatchesRes.json();
+                            const texBatchList = Array.isArray(texBatches) ? texBatches : [];
+
+                            const results = await Promise.all(texBatchList.map(async (batch: any) => {
+                                const res = await fetch(`/api/textures/batches/${batch.batchId}`);
+                                if (!res.ok) return [];
+                                const manifest = await res.json();
+                                const textures = Array.isArray(manifest.textures) ? manifest.textures : [];
+                                return textures.map((tex: any, index: number) => ({
+                                    id: `tex-${manifest.batchId}-${tex.filename}-${index}`,
+                                    url: tex.url,
+                                    batchName: manifest.batchName || manifest.batchId,
+                                    createdAt: manifest.createdAt || "",
+                                    prompt: tex.itemPrompt || tex.prompt || tex.filename || "Texture",
+                                } as TextureImageItem));
+                            }));
+                            return results.flat();
+                        } catch { return []; }
+                    })()
+                ]);
 
                 const charsRes = await fetch("/api/data/characters");
                 const charsRaw = charsRes.ok ? await charsRes.json() : [];
@@ -108,9 +149,21 @@ export function HistoryGallery({
                         portraitUrl: c.portraitUrl,
                     } as CharacterPortraitItem));
 
+                const isolatedRes = await fetch("/api/worldgen/isolated/all");
+                const isolatedRaw = isolatedRes.ok ? await isolatedRes.json() : { images: [] };
+                const isolatedItems = (isolatedRaw.images || []).map((img: any, index: number) => ({
+                    id: `isolated-${img.filename}-${index}`,
+                    url: img.url,
+                    entityType: img.entityType,
+                    entityId: img.entityId,
+                    filename: img.filename,
+                } as IsolatedImageItem));
+
                 if (!isCancelled) {
                     setIconImages(iconGroups.flat());
+                    setTextureImages(textureGroups);
                     setCharacterPortraits(portraits);
+                    setIsolatedImages(isolatedItems);
                 }
             } catch (e) {
                 if (!isCancelled) {
@@ -138,7 +191,7 @@ export function HistoryGallery({
                 </button>
                 <button
                     onClick={() => setActiveTab("textures")}
-                    disabled={!activePlanetId}
+                    disabled={!activePlanetId && !showExtendedTabs}
                     className={`flex-1 py-3 text-[10px] font-black tracking-widest uppercase transition-all disabled:opacity-30 disabled:cursor-not-allowed ${activeTab === "textures" ? "text-[#E6E6FA] bg-white/10" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"}`}
                 >
                     Textures
@@ -157,6 +210,14 @@ export function HistoryGallery({
                         className={`flex-1 py-3 text-[10px] font-black tracking-widest uppercase transition-all ${activeTab === "characters" ? "text-emerald-300 bg-white/10" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"}`}
                     >
                         Characters
+                    </button>
+                )}
+                {showExtendedTabs && (
+                    <button
+                        onClick={() => setActiveTab("isolated")}
+                        className={`flex-1 py-3 text-[10px] font-black tracking-widest uppercase transition-all ${activeTab === "isolated" ? "text-purple-300 bg-white/10" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"}`}
+                    >
+                        Isolated
                     </button>
                 )}
             </div>
@@ -199,28 +260,34 @@ export function HistoryGallery({
                     </div>
                 ))}
 
-                {activeTab === "textures" && activeVariants.map(variant => (
+                {activeTab === "textures" && (activePlanetId ? activeVariants : textureImages).map(variant => (
                     <div key={variant.id} className={`relative justify-end flex flex-col aspect-[2/1] group border border-white/10 bg-black/40 rounded-xl overflow-hidden cursor-pointer hover:border-[#E6E6FA]/40 transition-all shadow-lg`}
                         onClick={() => {
                             if (activePlanetId) onSelectTexture(activePlanetId, variant.textureUrl);
+                            else if ('url' in variant) onSelectTexture("batch", (variant as any).url);
                         }}
                     >
-                        <img src={variant.textureUrl} alt="Texture variant" className="absolute top-0 left-0 w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-all duration-300" />
-                        {variant.isUpscaled && (
+                        <img src={'textureUrl' in variant ? variant.textureUrl : (variant as any).url} alt="Texture variant" className="absolute top-0 left-0 w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-all duration-300" />
+                        {('isUpscaled' in variant && variant.isUpscaled) && (
                             <div className="absolute top-3 right-3 bg-fuchsia-600/80 text-white text-[8px] font-black tracking-widest px-2 py-1 rounded-md shadow-lg border border-fuchsia-400/50 backdrop-blur-sm z-10 flex items-center gap-1">
                                 <span>✨</span>
                                 4x HD
                             </div>
                         )}
-                        {!variant.isUpscaled && (
+                        {('isUpscaled' in variant && !variant.isUpscaled) && (
                             <div className="absolute top-3 right-3 bg-blue-600/80 text-white text-[8px] font-black tracking-widest px-2 py-1 rounded-md shadow-lg border border-blue-400/50 backdrop-blur-sm z-10 flex items-center gap-1">
                                 Base Map
+                            </div>
+                        )}
+                        {('batchName' in variant) && (
+                            <div className="absolute top-3 right-3 bg-emerald-600/80 text-white text-[8px] font-black tracking-widest px-2 py-1 rounded-md shadow-lg border border-emerald-400/50 backdrop-blur-sm z-10">
+                                {String(variant.batchName).toUpperCase()}
                             </div>
                         )}
                         <div className="relative p-3 bg-black/70 backdrop-blur-sm pointer-events-none mt-auto">
                             <p className="text-[10px] text-gray-200 truncate">{variant.prompt || "Upscaled Variant"}</p>
                             <div className="flex justify-between items-center mt-1">
-                                <p className="text-[8px] font-bold tracking-widest text-gray-500">{new Date(variant.timestamp).toLocaleDateString()}</p>
+                                <p className="text-[8px] font-bold tracking-widest text-gray-500">{new Date('timestamp' in variant ? variant.timestamp : (variant as any).createdAt).toLocaleDateString()}</p>
                                 <p className="text-[8px] font-mono tracking-widest text-gray-400 opacity-70">ID: {variant.id.substring(0, 8)}</p>
                             </div>
                         </div>
@@ -271,6 +338,32 @@ export function HistoryGallery({
                         <div className="relative p-3 bg-black/70 backdrop-blur-sm mt-auto">
                             <p className="text-[10px] text-gray-100 truncate">{character.name}</p>
                             <p className="text-[8px] text-emerald-300 mt-1">Character Portrait</p>
+                        </div>
+                    </div>
+                ))}
+
+                {activeTab === "isolated" && showExtendedTabs && isLoadingExtended && (
+                    <div className="col-span-full text-xs text-gray-500">Loading isolated regions...</div>
+                )}
+                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedImages.length === 0 && (
+                    <div className="col-span-full text-xs text-gray-500">No isolated regions found yet.</div>
+                )}
+                {activeTab === "isolated" && showExtendedTabs && isolatedImages.map((img) => (
+                    <div
+                        key={img.id}
+                        className="bg-black/40 border border-white/10 rounded-xl overflow-hidden group cursor-pointer hover:border-purple-400/40 transition-all shadow-lg"
+                        onClick={() => onSelectTexture("isolated", img.url)}
+                    >
+                        <div className="aspect-square bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiMzMzMiLz48cGF0aCBkPSJNMCAwdjRoNHYtNEh6IiBmaWxsPSIjNDQ0Ii8+PHBvbHlnb24gcG9pbnRzPSI0IDggOCA4IDggNCA0IDQiIGZpbGw9IiM0NDQiLz48L3N2Zz+')] relative">
+                            <img
+                                src={img.url}
+                                className="absolute inset-0 w-full h-full object-contain p-2 group-hover:scale-105 transition-transform"
+                                alt={img.filename}
+                            />
+                        </div>
+                        <div className="p-2 border-t border-white/5 bg-black/60">
+                            <p className="text-[9px] text-cyan-400 font-black tracking-widest uppercase">{img.entityType}</p>
+                            <p className="text-[10px] text-gray-400 font-mono">ID: {img.entityId}</p>
                         </div>
                     </div>
                 ))}

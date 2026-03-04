@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 const API_BASE = "http://127.0.0.1:8787";
 
-export type InspectorLayer = "provinces" | "duchies" | "kingdoms";
+export type InspectorLayer = "provinces" | "duchies" | "kingdoms" | "continents";
 
 interface GeographyInspectorPanelProps {
     planetId: string | null;
@@ -21,20 +21,21 @@ interface RegionRecord {
     id: number;
     name: string;
     area?: number;
-    seed_x?: number;
-    seed_y?: number;
-    biome_primary?: number;
-    duchy_id?: number;
-    kingdom_id?: number;
-    province_ids?: number[];
-    duchy_ids?: number[];
+    seedX?: number;
+    seedY?: number;
+    biomePrimary?: number;
+    duchyId?: number;
+    kingdomId?: number;
+    provinceIds?: number[];
+    duchyIds?: number[];
+    kingdomIds?: number[];
 }
 
-type EntityType = "province" | "duchy" | "kingdom";
+type EntityType = "province" | "duchy" | "kingdom" | "continent";
 
 interface ReassignHistoryOp {
     kind: "reassign";
-    entityType: "province" | "duchy";
+    entityType: "province" | "duchy" | "kingdom";
     entityId: number;
     fromParentId: number;
     toParentId: number;
@@ -70,6 +71,7 @@ export function GeographyInspectorPanel({
     const [provinces, setProvinces] = useState<Record<number, RegionRecord>>({});
     const [duchies, setDuchies] = useState<Record<number, RegionRecord>>({});
     const [kingdoms, setKingdoms] = useState<Record<number, RegionRecord>>({});
+    const [continents, setContinents] = useState<Record<number, RegionRecord>>({});
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [targetParentId, setTargetParentId] = useState<number | null>(null);
@@ -90,24 +92,31 @@ export function GeographyInspectorPanel({
         }
         setLoading(true);
         setError(null);
+        const cacheBust = Date.now();
 
         return Promise.all([
-            fetch(`${API_BASE}/api/planets/${planetId}/worldgen/provinces.json`).then(r => r.json()),
-            fetch(`${API_BASE}/api/planets/${planetId}/worldgen/duchies.json`).then(r => r.json()),
-            fetch(`${API_BASE}/api/planets/${planetId}/worldgen/kingdoms.json`).then(r => r.json())
+            fetch(`${API_BASE}/api/planets/${planetId}/worldgen/provinces.json?v=${cacheBust}`, { cache: "no-store" }).then(r => r.json()),
+            fetch(`${API_BASE}/api/planets/${planetId}/worldgen/duchies.json?v=${cacheBust}`, { cache: "no-store" }).then(r => r.json()),
+            fetch(`${API_BASE}/api/planets/${planetId}/worldgen/kingdoms.json?v=${cacheBust}`, { cache: "no-store" }).then(r => r.json()),
+            fetch(`${API_BASE}/api/planets/${planetId}/worldgen/continents.json?v=${cacheBust}`, { cache: "no-store" })
+                .then(r => (r.ok ? r.json() : []))
+                .catch(() => []),
         ])
-            .then(([pList, dList, kList]) => {
+            .then(([pList, dList, kList, cList]) => {
                 const pMap: Record<number, RegionRecord> = {};
                 const dMap: Record<number, RegionRecord> = {};
                 const kMap: Record<number, RegionRecord> = {};
+                const cMap: Record<number, RegionRecord> = {};
 
                 (pList as RegionRecord[]).forEach(x => pMap[x.id] = x);
                 (dList as RegionRecord[]).forEach(x => dMap[x.id] = x);
                 (kList as RegionRecord[]).forEach(x => kMap[x.id] = x);
+                (cList as RegionRecord[]).forEach(x => cMap[x.id] = x);
 
                 setProvinces(pMap);
                 setDuchies(dMap);
                 setKingdoms(kMap);
+                setContinents(cMap);
                 setLoading(false);
             })
             .catch(err => {
@@ -131,6 +140,7 @@ export function GeographyInspectorPanel({
         if (activeLayer === "provinces") activeData = provinces[targetId];
         else if (activeLayer === "duchies") activeData = duchies[targetId];
         else if (activeLayer === "kingdoms") activeData = kingdoms[targetId];
+        else if (activeLayer === "continents") activeData = continents[targetId];
     }
 
     useEffect(() => {
@@ -139,15 +149,19 @@ export function GeographyInspectorPanel({
             return;
         }
         if (activeLayer === "provinces") {
-            setTargetParentId(activeData.duchy_id ?? null);
+            setTargetParentId(activeData.duchyId ?? null);
             return;
         }
         if (activeLayer === "duchies") {
-            setTargetParentId(activeData.kingdom_id ?? null);
+            setTargetParentId(activeData.kingdomId ?? null);
+            return;
+        }
+        if (activeLayer === "kingdoms") {
+            setTargetParentId(kingdomToContinent[activeData.id]?.id ?? null);
             return;
         }
         setTargetParentId(null);
-    }, [activeData, activeLayer]);
+    }, [activeData, activeLayer, continents]);
 
     useEffect(() => {
         setSaveState("idle");
@@ -169,23 +183,37 @@ export function GeographyInspectorPanel({
         return <div className="p-4 text-xs text-center text-red-500/70 font-mono bg-red-500/10 rounded-xl mx-4">{error}</div>;
     }
 
-    const isReassignable = activeLayer === "provinces" || activeLayer === "duchies";
+    const isReassignable = activeLayer === "provinces" || activeLayer === "duchies" || activeLayer === "kingdoms";
     const availableEntities = activeLayer === "provinces"
         ? Object.values(provinces).sort((a, b) => a.name.localeCompare(b.name))
         : activeLayer === "duchies"
             ? Object.values(duchies).sort((a, b) => a.name.localeCompare(b.name))
+            : activeLayer === "kingdoms"
+                ? Object.values(kingdoms).sort((a, b) => a.name.localeCompare(b.name))
             : [];
     const validBulkIds = isReassignable
-        ? bulkSelectedIds.filter((id) => activeLayer === "provinces" ? Boolean(provinces[id]) : Boolean(duchies[id]))
+        ? bulkSelectedIds.filter((id) => {
+            if (activeLayer === "provinces") return Boolean(provinces[id]);
+            if (activeLayer === "duchies") return Boolean(duchies[id]);
+            return Boolean(kingdoms[id]);
+        })
         : [];
     const selectedBulkRecords = validBulkIds
-        .map((id) => activeLayer === "provinces" ? provinces[id] : duchies[id])
+        .map((id) => activeLayer === "provinces" ? provinces[id] : activeLayer === "duchies" ? duchies[id] : kingdoms[id])
         .filter(Boolean) as RegionRecord[];
-    const selectedEntityIds = (bulkMode && validBulkIds.length > 0)
-        ? validBulkIds
+    const kingdomToContinent = Object.values(continents).reduce<Record<number, RegionRecord>>((acc, continent) => {
+        (continent.kingdomIds || []).forEach((kid) => {
+            acc[kid] = continent;
+        });
+        return acc;
+    }, {});
+    const selectedEntityIds = bulkMode
+        ? (validBulkIds.length > 0
+            ? validBulkIds
+            : (selectedId !== null ? [selectedId] : []))
         : (activeData ? [activeData.id] : []);
 
-    const postReassign = async (entityType: "province" | "duchy", entityId: number, targetId: number) => {
+    const postReassign = async (entityType: "province" | "duchy" | "kingdom", entityId: number, targetId: number) => {
         const response = await fetch(`${API_BASE}/api/worldgen/${planetId}/hierarchy/reassign`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -221,19 +249,30 @@ export function GeographyInspectorPanel({
         if (!isReassignable || targetParentId === null) {
             return [];
         }
-        const isProvince = activeLayer === "provinces";
-        const toName = isProvince
+        const toName = activeLayer === "provinces"
             ? duchies[targetParentId]?.name ?? `Duchy #${targetParentId}`
-            : kingdoms[targetParentId]?.name ?? `Kingdom #${targetParentId}`;
+            : activeLayer === "duchies"
+                ? kingdoms[targetParentId]?.name ?? `Kingdom #${targetParentId}`
+                : continents[targetParentId]?.name ?? `Continent #${targetParentId}`;
         return selectedEntityIds
             .map((id) => {
-                const entity = isProvince ? provinces[id] : duchies[id];
+                const entity = activeLayer === "provinces"
+                    ? provinces[id]
+                    : activeLayer === "duchies"
+                        ? duchies[id]
+                        : kingdoms[id];
                 if (!entity) return null;
-                const fromId = isProvince ? entity.duchy_id : entity.kingdom_id;
+                const fromId = activeLayer === "provinces"
+                    ? entity.duchyId
+                    : activeLayer === "duchies"
+                        ? entity.kingdomId
+                        : kingdomToContinent[entity.id]?.id;
                 if (fromId === undefined || fromId === targetParentId) return null;
-                const fromName = isProvince
+                const fromName = activeLayer === "provinces"
                     ? duchies[fromId]?.name ?? `Duchy #${fromId}`
-                    : kingdoms[fromId]?.name ?? `Kingdom #${fromId}`;
+                    : activeLayer === "duchies"
+                        ? kingdoms[fromId]?.name ?? `Kingdom #${fromId}`
+                        : continents[fromId]?.name ?? `Continent #${fromId}`;
                 return {
                     id: entity.id,
                     name: entity.name,
@@ -248,7 +287,8 @@ export function GeographyInspectorPanel({
 
     const handleReassign = async () => {
         if (!planetId || targetParentId === null || !isReassignable || selectedEntityIds.length === 0) return;
-        const isProvince = activeLayer === "provinces";
+        const entityType: "province" | "duchy" | "kingdom" =
+            activeLayer === "provinces" ? "province" : activeLayer === "duchies" ? "duchy" : "kingdom";
 
         setSaveState("saving");
         setSaveError(null);
@@ -256,25 +296,39 @@ export function GeographyInspectorPanel({
         try {
             const appliedOps: ReassignHistoryOp[] = [];
             for (const entityId of selectedEntityIds) {
-                const source = isProvince ? provinces[entityId] : duchies[entityId];
+                const source = entityType === "province"
+                    ? provinces[entityId]
+                    : entityType === "duchy"
+                        ? duchies[entityId]
+                        : kingdoms[entityId];
                 if (!source) {
                     continue;
                 }
-                const currentParent = isProvince ? source.duchy_id : source.kingdom_id;
+                const currentParent = entityType === "province"
+                    ? source.duchyId
+                    : entityType === "duchy"
+                        ? source.kingdomId
+                        : kingdomToContinent[source.id]?.id;
                 if (currentParent === targetParentId) {
                     continue;
                 }
                 if (currentParent === undefined) {
                     continue;
                 }
-                await postReassign(isProvince ? "province" : "duchy", entityId, targetParentId);
+                await postReassign(entityType, entityId, targetParentId);
                 appliedOps.push({
                     kind: "reassign",
-                    entityType: isProvince ? "province" : "duchy",
+                    entityType,
                     entityId,
                     fromParentId: currentParent,
                     toParentId: targetParentId,
                 });
+            }
+
+            if (appliedOps.length === 0) {
+                setSaveState("error");
+                setSaveError("No effective changes to apply for current selection and destination.");
+                return;
             }
 
             await loadHierarchy();
@@ -284,7 +338,7 @@ export function GeographyInspectorPanel({
             }
             if (appliedOps.length > 0) {
                 setUndoStack((prev) => [...prev, {
-                    label: `${isProvince ? "Province" : "Duchy"} reassignment (${appliedOps.length})`,
+                    label: `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} reassignment (${appliedOps.length})`,
                     ops: appliedOps,
                 }]);
                 setRedoStack([]);
@@ -307,7 +361,13 @@ export function GeographyInspectorPanel({
         setRenameState("saving");
         setRenameError(null);
 
-        const entityType = activeLayer === "provinces" ? "province" : activeLayer === "duchies" ? "duchy" : "kingdom";
+        const entityType = activeLayer === "provinces"
+            ? "province"
+            : activeLayer === "duchies"
+                ? "duchy"
+                : activeLayer === "kingdoms"
+                    ? "kingdom"
+                    : "continent";
 
         try {
             if (activeData.name.trim() === cleanName) {
@@ -395,7 +455,7 @@ export function GeographyInspectorPanel({
             <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl p-4 shadow-lg backdrop-blur-md">
                 <h2 className="text-[10px] font-black tracking-[0.2em] text-cyan-400 mb-4 flex items-center gap-2">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-                    PROVINCE INSPECTOR
+                    HIERARCHY INSPECTOR
                 </h2>
 
                 <p className="text-[11px] text-gray-400 leading-relaxed font-mono">
@@ -452,7 +512,7 @@ export function GeographyInspectorPanel({
                             onChange={(e) => setBulkPickerId(e.target.value === "" ? null : Number(e.target.value))}
                             className="flex-1 bg-black/40 border border-white/10 rounded-lg px-2 py-2 text-[11px] font-mono text-gray-200 focus:outline-none focus:border-cyan-500/50"
                         >
-                            <option value="">Choose {activeLayer === "provinces" ? "province" : "duchy"}…</option>
+                            <option value="">Choose {activeLayer === "provinces" ? "province" : activeLayer === "duchies" ? "duchy" : "kingdom"}…</option>
                             {availableEntities.map((item) => (
                                 <option key={item.id} value={item.id}>
                                     {item.name} (#{item.id})
@@ -511,13 +571,21 @@ export function GeographyInspectorPanel({
                                                 {d.name}
                                             </option>
                                         ))
-                                    : Object.values(kingdoms)
-                                        .sort((a, b) => a.name.localeCompare(b.name))
-                                        .map((k) => (
-                                            <option key={k.id} value={k.id}>
-                                                {k.name}
-                                            </option>
-                                        ))}
+                                    : activeLayer === "duchies"
+                                        ? Object.values(kingdoms)
+                                            .sort((a, b) => a.name.localeCompare(b.name))
+                                            .map((k) => (
+                                                <option key={k.id} value={k.id}>
+                                                    {k.name}
+                                                </option>
+                                            ))
+                                        : Object.values(continents)
+                                            .sort((a, b) => a.name.localeCompare(b.name))
+                                            .map((c) => (
+                                                <option key={c.id} value={c.id}>
+                                                    {c.name}
+                                                </option>
+                                            ))}
                             </select>
                             <div className="rounded-lg border border-white/10 bg-black/20 p-2 space-y-2">
                                 <p className="text-[9px] text-gray-500 font-mono tracking-widest">BULK DIFF PREVIEW</p>
@@ -570,34 +638,55 @@ export function GeographyInspectorPanel({
                                 <span className="text-cyan-300">{activeData.area} px²</span>
                             </div>
                         )}
-                        {activeData.biome_primary !== undefined && (
+                        {activeData.biomePrimary !== undefined && (
                             <div className="flex justify-between text-[11px] font-mono">
                                 <span className="text-gray-500">PRIMARY BIOME</span>
-                                <span className="text-green-400 text-right">#{activeData.biome_primary}</span>
+                                <span className="text-green-400 text-right">#{activeData.biomePrimary}</span>
                             </div>
                         )}
-                        {activeData.duchy_id !== undefined && duchies[activeData.duchy_id] && activeLayer === "provinces" && (
+                        {activeData.duchyId !== undefined && duchies[activeData.duchyId] && activeLayer === "provinces" && (
                             <div className="flex justify-between text-[11px] font-mono">
                                 <span className="text-gray-500">DE JURE DUCHY</span>
-                                <span className="text-yellow-500 text-right">{duchies[activeData.duchy_id].name}</span>
+                                <span className="text-yellow-500 text-right">{duchies[activeData.duchyId].name}</span>
                             </div>
                         )}
-                        {activeData.kingdom_id !== undefined && kingdoms[activeData.kingdom_id] && (activeLayer === "provinces" || activeLayer === "duchies") && (
+                        {activeData.kingdomId !== undefined && kingdoms[activeData.kingdomId] && (activeLayer === "provinces" || activeLayer === "duchies") && (
                             <div className="flex justify-between text-[11px] font-mono">
                                 <span className="text-gray-500">DE JURE KINGDOM</span>
-                                <span className="text-purple-400 text-right">{kingdoms[activeData.kingdom_id].name}</span>
+                                <span className="text-purple-400 text-right">{kingdoms[activeData.kingdomId].name}</span>
                             </div>
                         )}
-                        {activeData.province_ids && (
+                        {activeLayer === "kingdoms" && kingdomToContinent[activeData.id] && (
+                            <div className="flex justify-between text-[11px] font-mono">
+                                <span className="text-gray-500">CONTINENT</span>
+                                <span className="text-cyan-300 text-right">{kingdomToContinent[activeData.id].name}</span>
+                            </div>
+                        )}
+                        {activeData.provinceIds && (
                             <div className="flex justify-between text-[11px] font-mono">
                                 <span className="text-gray-500">COUNTIES</span>
-                                <span className="text-white text-right">{activeData.province_ids.length}</span>
+                                <span className="text-white text-right">{activeData.provinceIds.length}</span>
                             </div>
                         )}
-                        {activeData.duchy_ids && (
+                        {activeData.duchyIds && (
                             <div className="flex justify-between text-[11px] font-mono">
                                 <span className="text-gray-500">DUCHIES</span>
-                                <span className="text-white text-right">{activeData.duchy_ids.length}</span>
+                                <span className="text-white text-right">{activeData.duchyIds.length}</span>
+                            </div>
+                        )}
+                        {activeData.kingdomIds && (
+                            <div className="flex justify-between text-[11px] font-mono">
+                                <span className="text-gray-500">KINGDOMS</span>
+                                <span className="text-white text-right">{activeData.kingdomIds.length}</span>
+                            </div>
+                        )}
+                        {activeLayer === "continents" && activeData.kingdomIds && activeData.kingdomIds.length > 0 && (
+                            <div className="pt-2 space-y-1 max-h-36 overflow-y-auto">
+                                {activeData.kingdomIds.slice().sort((a, b) => a - b).map((kid) => (
+                                    <div key={kid} className="text-[10px] font-mono text-gray-300">
+                                        {kingdoms[kid]?.name ?? `Kingdom #${kid}`} (#{kid})
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
@@ -626,7 +715,11 @@ export function GeographyInspectorPanel({
                     {!bulkMode && isReassignable && (
                         <div className="pt-3 border-t border-white/10 space-y-3">
                             <p className="text-[9px] text-gray-500 font-mono tracking-widest">
-                                {activeLayer === "provinces" ? "REASSIGN COUNTY TO DUCHY" : "REASSIGN DUCHY TO KINGDOM"}
+                                {activeLayer === "provinces"
+                                    ? "REASSIGN COUNTY TO DUCHY"
+                                    : activeLayer === "duchies"
+                                        ? "REASSIGN DUCHY TO KINGDOM"
+                                        : "REASSIGN KINGDOM TO CONTINENT"}
                             </p>
                             <select
                                 value={targetParentId ?? ""}
@@ -642,13 +735,21 @@ export function GeographyInspectorPanel({
                                                 {d.name}
                                             </option>
                                         ))
-                                    : Object.values(kingdoms)
-                                        .sort((a, b) => a.name.localeCompare(b.name))
-                                        .map((k) => (
-                                            <option key={k.id} value={k.id}>
-                                                {k.name}
-                                            </option>
-                                        ))}
+                                    : activeLayer === "duchies"
+                                        ? Object.values(kingdoms)
+                                            .sort((a, b) => a.name.localeCompare(b.name))
+                                            .map((k) => (
+                                                <option key={k.id} value={k.id}>
+                                                    {k.name}
+                                                </option>
+                                            ))
+                                        : Object.values(continents)
+                                            .sort((a, b) => a.name.localeCompare(b.name))
+                                            .map((c) => (
+                                                <option key={c.id} value={c.id}>
+                                                    {c.name}
+                                                </option>
+                                            ))}
                             </select>
                             <div className="rounded-lg border border-white/10 bg-black/20 p-2 space-y-2">
                                 <p className="text-[9px] text-gray-500 font-mono tracking-widest">DIFF PREVIEW</p>

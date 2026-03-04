@@ -28,12 +28,11 @@ import { GameClock } from './UI/GameClock';
 // Engine & Logic
 import {
   consumeResources,
-  updateCrewTension,
-  iterateNarrative,
-  architectInitialLore
+  updateCrewTension
 } from '@ashtrail/core';
 import { supabase } from './services/supabaseClient';
 import { save_player_character, load_latest_player_character } from './services/characterPersistence';
+import { iterateNarrativeViaApi, architectInitialLoreViaApi } from './services/gmApi';
 
 const SERVER_START_TIME = Date.now() - (45 * 60 * 1000);
 
@@ -157,11 +156,16 @@ const App: React.FC = () => {
       addLog(`${actionType}`, 'action');
     }
 
-    const narrative = await iterateNarrative(nextState, actionType);
-    nextState.history.push({ type: 'narrative', content: narrative, timestamp: Date.now() });
-
-    setState(nextState);
-    setIsLoading(false);
+    try {
+      const narrative = await iterateNarrativeViaApi(nextState, actionType);
+      nextState.history.push({ type: 'narrative', content: narrative, timestamp: Date.now() });
+      setState(nextState);
+    } catch (error) {
+      console.error("Narrative API failed:", error);
+      addLog("GM uplink failed. Verify server/API availability.", 'system');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const navigateTo = (node: Node) => {
@@ -190,7 +194,14 @@ const App: React.FC = () => {
       }
     }
 
-    const lore = await architectInitialLore(prepared_player.name, prepared_player.history);
+    let lore: string | null = null;
+    try {
+      lore = await architectInitialLoreViaApi(prepared_player.name, prepared_player.history);
+    } catch (error) {
+      console.error("Initial lore API failed:", error);
+      addLog("Lore architect uplink failed. Continuing with fallback.", 'system');
+    }
+
     setArchitectedLore(lore);
     setState(s => ({ ...s, player: prepared_player, screen: 'LORE_INTRO' }));
     setIsLoading(false);

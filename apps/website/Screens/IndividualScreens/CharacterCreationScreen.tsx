@@ -9,12 +9,14 @@ import {
   OccupationCategory,
   ALL_TRAITS,
   ALL_OCCUPATIONS,
-  MOCK_TALENT_TREES,
-  generateCharacterPortrait,
-  enhanceAppearancePrompt
+  MOCK_TALENT_TREES
 } from '@ashtrail/core';
 import { ReactFlow, Edge as RFEdge, Node as RFNode, Position, Handle, ConnectionLineType, Background, ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import {
+  generateCharacterPortraitViaApi,
+  enhanceAppearancePromptViaApi
+} from '../../services/gmApi';
 
 const TALENT_ANIMATIONS = `
 @keyframes shimmer {
@@ -386,10 +388,14 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
     const contextPrompt = `A ${gender} wasteland explorer, aged ${age}. Overall characteristics: ${selectorsSummary}. Detailed appearance: ${specificText || appearancePrompt}`;
 
-    const url = await generateCharacterPortrait(contextPrompt);
-    if (url) {
-      setPortraitUrl(url);
-      setIsProfileModified(false);
+    try {
+      const url = await generateCharacterPortraitViaApi(contextPrompt);
+      if (url) {
+        setPortraitUrl(url);
+        setIsProfileModified(false);
+      }
+    } catch (error) {
+      console.error("Portrait API failed:", error);
     }
     setIsGeneratingPortrait(false);
   };
@@ -399,13 +405,19 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 
     // Step 1: Synthesize Narrative from Selectors
     setIsSyncing(true);
-    const narrative = await enhanceAppearancePrompt({
-      ...appearanceSelectors,
-      age: age.toString(),
-      gender: gender
-    });
-    setAppearancePrompt(narrative || '');
-    setIsSyncing(false);
+    let narrative = '';
+    try {
+      narrative = await enhanceAppearancePromptViaApi({
+        ...appearanceSelectors,
+        age: age.toString(),
+        gender: gender
+      });
+      setAppearancePrompt(narrative || '');
+    } catch (error) {
+      console.error("Appearance prompt API failed:", error);
+    } finally {
+      setIsSyncing(false);
+    }
 
     // Step 2: Manifest Portrait using the new narrative
     if (narrative) {

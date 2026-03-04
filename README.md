@@ -109,6 +109,20 @@ bun run dev:dev-tools:frontend
 
 ---
 
+## 🚀 Deployment
+
+Split deployment:
+
+- **`apps/server`** on **Google Cloud Run**
+- **`apps/website`** on **Firebase Hosting Spark**
+
+
+Full step-by-step instructions are in:
+
+- [`documentation/deploy-website-firebase.md`](documentation/deploy-website-firebase.md)
+
+---
+
 ## 📖 Deep Dive
 
 <details>

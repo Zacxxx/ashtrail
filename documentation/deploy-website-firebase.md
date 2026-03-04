@@ -1,82 +1,99 @@
-# Deploy `apps/website` to Google Firebase Hosting (Free Spark tier)
+# Deploy Ashtrail properly (free tiers): server + website
 
-This setup deploys only the website client (`apps/website`) as a static SPA.
+This setup keeps Gemini keys on the server only.
+
+- `apps/server`: deploy to **Cloud Run** (free tier quotas)
+- `apps/website`: deploy to **Firebase Hosting Spark** (free)
 
 ## 0) Prerequisites
 
-- Node.js and Bun installed
-- Google account with access to Firebase
-- Firebase CLI (one-time):
+- Bun, Node.js, Docker
+- `gcloud` CLI logged in
+- `firebase-tools` installed (`npm i -g firebase-tools`)
+- A Google Cloud project with billing enabled (needed for Cloud Run usage, still has free tier)
+
+## 1) Enable APIs (one-time)
 
 ```bash
-npm i -g firebase-tools
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
 ```
 
-## 1) Create a free Firebase project (Spark)
+## 2) Deploy `apps/server` to Cloud Run
 
-1. Open https://console.firebase.google.com/
-2. Create Project
-3. Keep **Spark (No-cost)** plan
-4. Skip optional products for now (Analytics, etc.)
-
-## 2) Configure this repo with your project id
-
-From repo root (`/home/moebius/dev/projects/ashtrail`):
+Set values:
 
 ```bash
-cp .firebaserc.example .firebaserc
+export PROJECT_ID="your-gcp-project-id"
+export REGION="us-central1"
+export SERVICE_NAME="ashtrail-gm-api"
+export GOOGLE_GENAI_API_KEY="your_real_key"
 ```
 
-Edit `.firebaserc` and replace:
-
-- `your-firebase-project-id` -> your actual Firebase project id
-
-## 3) Login once in CLI
+Build container from repo root using `apps/server/Dockerfile`:
 
 ```bash
-firebase login
+gcloud builds submit \
+  --project "$PROJECT_ID" \
+  --tag "gcr.io/$PROJECT_ID/$SERVICE_NAME:latest" \
+  -f apps/server/Dockerfile \
+  .
 ```
 
-## 4) Set required frontend env vars
+Deploy image to Cloud Run:
 
-Because this is a static build, frontend env values are baked into JS at build time.
+```bash
+gcloud run deploy "$SERVICE_NAME" \
+  --project "$PROJECT_ID" \
+  --region "$REGION" \
+  --image "gcr.io/$PROJECT_ID/$SERVICE_NAME:latest" \
+  --platform managed \
+  --allow-unauthenticated \
+  --port 8080 \
+  --set-env-vars "GOOGLE_GENAI_API_KEY=$GOOGLE_GENAI_API_KEY"
+```
 
-Create/update root `.env.local` with at least:
+Get the service URL:
+
+```bash
+export API_BASE_URL="$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')/api"
+echo "$API_BASE_URL"
+```
+
+## 3) Configure website to use Cloud Run API
+
+Create/update root `.env.local`:
 
 ```env
 VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...
 VITE_SUPABASE_CHARACTER_BUCKET=public-assets
+VITE_API_BASE_URL=https://your-cloud-run-url/api
 ```
 
-Optional (if using Gemini directly in browser):
+Do **not** put `GOOGLE_GENAI_API_KEY` in website env.
 
-```env
-GOOGLE_GENAI_API_KEY=...
-```
+## 4) Deploy `apps/website` to Firebase Hosting (Spark)
 
-## 5) Build + deploy only website hosting
+Create Firebase project (Spark) in console, then:
 
 ```bash
+cp .firebaserc.example .firebaserc
+# edit .firebaserc -> set your firebase project id
+firebase login
 firebase deploy --only hosting
 ```
 
-This uses repo `firebase.json`:
+`firebase.json` already builds and publishes only website:
 
-- Builds `apps/website` via `bun run build:website`
-- Publishes `apps/website/dist`
-- Rewrites all routes to `index.html` (SPA)
+- `bun run build:website`
+- publish directory: `apps/website/dist`
 
-## 6) Future deploys
+## 5) Local development
 
-After changes to website client:
+Run server + website together:
 
 ```bash
-firebase deploy --only hosting
+bun run dev:website:full
 ```
 
-## Notes / security
-
-- Any key bundled into the frontend is public by definition.
-- In this project, `GOOGLE_GENAI_API_KEY` can be embedded client-side by Vite config.
-- For production security, route Gemini calls through `apps/server` and keep private keys server-side.
+The Vite dev server proxies `/api/*` to local server `http://127.0.0.1:8788`.

@@ -10,6 +10,7 @@ import { useWorldGeneration } from "./useWorldGeneration";
 import { GeologyPanel } from "./GeologyPanel";
 import { GeographyPipelinePanel } from "./GeographyPipelinePanel";
 import { GeographyInspectorPanel, type InspectorLayer } from "./GeographyInspectorPanel";
+import { GeographyIsolatorPanel } from "./GeographyIsolatorPanel";
 import { EcologyPanel } from "./EcologyPanel";
 import { HumanityPanel } from "./HumanityPanel";
 import { WorldCanvas } from "./WorldCanvas";
@@ -23,7 +24,7 @@ export function WorldGenPage() {
     const [viewMode, setViewMode] = useState<ViewMode>("3d");
     const [activeStep, setActiveStep] = useState<WorkflowStep>("GEO");
     const [inspectorTab, setInspectorTab] = useState<InspectorTab>("base");
-    const [geographyTab, setGeographyTab] = useState<"pipeline" | "inspector">("pipeline");
+    const [geographyTab, setGeographyTab] = useState<"pipeline" | "inspector" | "isolator">("pipeline");
     const [geoSelectedId, setGeoSelectedId] = useState<number | null>(null);
     const [geoHoveredId, setGeoHoveredId] = useState<number | null>(null);
     const [geoBulkSelectedIds, setGeoBulkSelectedIds] = useState<number[]>([]);
@@ -200,7 +201,7 @@ export function WorldGenPage() {
                         <div className="flex flex-col gap-4 h-full">
                             <div className="shrink-0 flex items-center justify-center p-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md">
                                 <TabBar
-                                    tabs={["pipeline", "inspector"]}
+                                    tabs={["pipeline", "inspector", "isolator"]}
                                     activeTab={geographyTab}
                                     onTabChange={(t) => setGeographyTab(t as any)}
                                 />
@@ -211,7 +212,7 @@ export function WorldGenPage() {
                                         activeHistoryId={activeHistoryId}
                                         globeWorld={globeWorld}
                                     />
-                                ) : (
+                                ) : geographyTab === "inspector" ? (
                                     <GeographyInspectorPanel
                                         planetId={activeHistoryId}
                                         selectedId={geoSelectedId}
@@ -223,6 +224,12 @@ export function WorldGenPage() {
                                         onClearBulkSelection={handleGeoBulkClear}
                                         activeLayer={inspectorLayer}
                                         onHierarchyChanged={() => setProvinceTextureVersion(v => v + 1)}
+                                    />
+                                ) : (
+                                    <GeographyIsolatorPanel
+                                        planetId={activeHistoryId}
+                                        selectedId={geoSelectedId}
+                                        activeLayer={inspectorLayer}
                                     />
                                 )}
                             </div>
