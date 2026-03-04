@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { GameRegistry, Character, Skill, ALL_SKILLS } from '@ashtrail/core';
 import { TacticalArena } from './TacticalArena';
 import { useTacticalCombat, createTacticalEntity, TacticalEntity, CombatConfig } from './useTacticalCombat';
-import { Grid, buildMapPrompt, parseAIGridResponse } from './tacticalGrid';
+import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacticalGrid';
 import { GameRulesManager } from '../rules/useGameRules';
 
 // ── Default skills given to characters without their own ──
@@ -79,6 +79,16 @@ export function CombatSimulator() {
     const [mapName, setMapName] = useState<string | null>(null);
     const [mapError, setMapError] = useState<string | null>(null);
 
+    // Visual Assets configuration
+    const [textureBatches, setTextureBatches] = useState<any[]>([]);
+    const [groundMode, setGroundMode] = useState<'battlemap' | 'tiles'>('battlemap');
+    const [linkBatches, setLinkBatches] = useState(true);
+    const [groundBatchId, setGroundBatchId] = useState<string>("");
+    const [obstacleBatchId, setObstacleBatchId] = useState<string>("");
+
+    const [isApplyingTextures, setIsApplyingTextures] = useState(false);
+    const [battlemapUrl, setBattlemapUrl] = useState<string | null>(null);
+
     const updatePlayerCount = (count: number) => {
         setPlayerCount(count);
         setPlayerIds(prev => {
@@ -102,6 +112,15 @@ export function CombatSimulator() {
     const setEnemyId = (index: number, id: string) => {
         setEnemyIds(prev => { const n = [...prev]; n[index] = id; return n; });
     };
+
+    React.useEffect(() => {
+        fetch("/api/textures/batches")
+            .then(res => res.json())
+            .then(data => {
+                if (Array.isArray(data)) setTextureBatches(data);
+            })
+            .catch(err => console.error("Failed to fetch texture batches:", err));
+    }, []);
 
     const generateAIMap = async () => {
         if (!mapPrompt.trim() || isGenerating) return;
@@ -138,9 +157,122 @@ export function CombatSimulator() {
         }
     };
 
-    const startCombat = () => {
-        setCombatKey(k => k + 1);
-        setCombatStarted(true);
+    const startCombat = async () => {
+        setIsApplyingTextures(true);
+        try {
+            let baseGrid = aiGrid ? JSON.parse(JSON.stringify(aiGrid)) : generateGrid(gridRows, gridCols, 0.12);
+            let resolvedBattlemapUrl: string | null = null;
+
+            const effectiveObstacleBatchId = linkBatches ? groundBatchId : obstacleBatchId;
+
+            // Fetch generic textures
+            let groundTextures: any[] = [];
+            let obstacleTextures: any[] = [];
+
+            if (groundBatchId) {
+                const res = await fetch(`/api/textures/batches/${groundBatchId}`);
+                if (res.ok) {
+                    const manifest = await res.json();
+                    groundTextures = Array.isArray(manifest.textures)
+                        ? manifest.textures.map((t: any) => ({ ...t, batchSubCategory: manifest.subCategory }))
+                        : [];
+                }
+            }
+
+            if (effectiveObstacleBatchId && effectiveObstacleBatchId !== groundBatchId) {
+                const res = await fetch(`/api/textures/batches/${effectiveObstacleBatchId}`);
+                if (res.ok) {
+                    const manifest = await res.json();
+                    obstacleTextures = Array.isArray(manifest.textures)
+                        ? manifest.textures.map((t: any) => ({ ...t, batchSubCategory: manifest.subCategory }))
+                        : [];
+                }
+            } else {
+                obstacleTextures = groundTextures;
+            }
+
+            // --- Process Ground ---
+            let gPool: any[] = [];
+            if (groundTextures.length > 0) {
+                if (groundMode === 'battlemap') {
+                    const battlemapT = groundTextures.filter((t: any) =>
+                        t.batchSubCategory === 'battlemap' ||
+                        t.prompt.toLowerCase().includes('battlemap') ||
+                        t.prompt.toLowerCase().includes('terrain') ||
+                        t.prompt.toLowerCase().includes('background')
+                    );
+                    // Use matched battlemaps, or fall back to ANY texture in the batch
+                    const bmPool = battlemapT.length > 0 ? battlemapT : groundTextures;
+                    resolvedBattlemapUrl = bmPool[Math.floor(Math.random() * bmPool.length)].url;
+                } else {
+                    gPool = groundTextures.filter((t: any) =>
+                        t.batchSubCategory === 'ground' ||
+                        t.prompt.toLowerCase().includes('ground') ||
+                        t.prompt.toLowerCase().includes('floor') ||
+                        t.prompt.toLowerCase().includes('dirt') ||
+                        t.prompt.toLowerCase().includes('grass')
+                    );
+                    if (gPool.length === 0) gPool = groundTextures; // fallback
+                }
+            }
+
+            // --- Process Obstacles ---
+            let oPool: any[] = [];
+            if (obstacleTextures.length > 0) {
+                oPool = obstacleTextures.filter((t: any) =>
+                    t.batchSubCategory !== 'battlemap' &&
+                    t.batchSubCategory !== 'ground' &&
+                    !t.prompt.toLowerCase().includes('battlemap') &&
+                    (t.prompt.toLowerCase().includes('obstacle') ||
+                        t.prompt.toLowerCase().includes('wall') ||
+                        t.prompt.toLowerCase().includes('object') ||
+                        t.prompt.toLowerCase().includes('rock') ||
+                        t.prompt.toLowerCase().includes('tree'))
+                );
+                if (oPool.length === 0) {
+                    // fallback: basically anything that isn't a battlemap or pure ground/terrain
+                    oPool = obstacleTextures.filter((t: any) => {
+                        if (t.batchSubCategory === 'battlemap' || t.batchSubCategory === 'ground') return false;
+                        const pr = t.prompt.toLowerCase();
+                        return !pr.includes('battlemap') &&
+                            !pr.includes('ground') &&
+                            !pr.includes('terrain') &&
+                            !pr.includes('background') &&
+                            !pr.includes('floor') &&
+                            !pr.includes('dirt') &&
+                            !pr.includes('grass');
+                    });
+                }
+            }
+
+            // --- Apply to Grid ---
+            baseGrid.forEach((row: any[]) => {
+                row.forEach(cell => {
+                    if (cell.walkable) {
+                        if (groundMode === 'battlemap' || gPool.length === 0) {
+                            cell.textureUrl = undefined;
+                        } else {
+                            cell.textureUrl = gPool[Math.floor(Math.random() * gPool.length)].url;
+                        }
+                    } else if (oPool.length > 0) {
+                        cell.textureUrl = oPool[Math.floor(Math.random() * oPool.length)].url;
+                    }
+                });
+            });
+
+            setBattlemapUrl(resolvedBattlemapUrl);
+            setAiGrid(baseGrid);
+            setCombatKey(k => k + 1);
+            setCombatStarted(true);
+        } catch (e) {
+            console.error("Failed to start combat with textures:", e);
+            // Fallback to basic start
+            setBattlemapUrl(null);
+            setCombatKey(k => k + 1);
+            setCombatStarted(true);
+        } finally {
+            setIsApplyingTextures(false);
+        }
     };
 
     const returnToSetup = () => {
@@ -250,6 +382,85 @@ export function CombatSimulator() {
                             </section>
                         </div>
 
+                        {/* ── Visual Assets ── */}
+                        <section>
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Visual Assets</h3>
+                                <label className="flex items-center gap-2 cursor-pointer group" onClick={() => setLinkBatches(!linkBatches)}>
+                                    <div className={`w-8 h-4 rounded-full transition-colors flex items-center p-0.5 ${linkBatches ? 'bg-emerald-500' : 'bg-gray-700'}`}>
+                                        <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${linkBatches ? 'translate-x-4' : 'translate-x-0'}`} />
+                                    </div>
+                                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest group-hover:text-gray-200 transition-colors select-none">
+                                        Bundle Packs
+                                    </span>
+                                </label>
+                            </div>
+
+                            <div className="flex gap-4">
+                                {/* Ground Configuration */}
+                                <div className="flex-1 bg-black/30 p-4 rounded-xl border border-white/5 space-y-4">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-[9px] font-bold text-gray-500 uppercase">Ground Rendering</label>
+                                        <div className="flex bg-black/50 rounded-lg p-1 border border-white/5">
+                                            <button
+                                                onClick={() => setGroundMode('battlemap')}
+                                                className={`px-3 py-1 text-[9px] font-bold tracking-widest uppercase rounded ${groundMode === 'battlemap' ? 'bg-emerald-500/20 text-emerald-400' : 'text-gray-500 hover:text-gray-300'}`}
+                                            >
+                                                Battlemap
+                                            </button>
+                                            <button
+                                                onClick={() => setGroundMode('tiles')}
+                                                className={`px-3 py-1 text-[9px] font-bold tracking-widest uppercase rounded ${groundMode === 'tiles' ? 'bg-emerald-500/20 text-emerald-400' : 'text-gray-500 hover:text-gray-300'}`}
+                                            >
+                                                Tiles
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-[9px] text-gray-500 uppercase mb-1 block">Ground Pack</label>
+                                        <select
+                                            value={groundBatchId}
+                                            onChange={e => setGroundBatchId(e.target.value)}
+                                            className="w-full bg-black/60 border border-emerald-500/20 text-white text-xs px-3 py-2.5 rounded-lg outline-none focus:border-emerald-500/50"
+                                        >
+                                            <option value="">No Ground Asset (Default)</option>
+                                            {textureBatches.map(batch => (
+                                                <option key={batch.batchId} value={batch.batchId}>
+                                                    {batch.subCategory ? `[${batch.subCategory.toUpperCase()}] ` : ''}{batch.batchName || batch.batchId} ({batch.createdAt.split('T')[0]})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Obstacle Configuration */}
+                                <div className={`flex-1 p-4 rounded-xl border border-white/5 space-y-4 transition-all ${linkBatches ? 'bg-black/10 opacity-50 pointer-events-none' : 'bg-black/30'}`}>
+                                    <label className="text-[9px] font-bold text-gray-500 uppercase block">Obstacle Rendering</label>
+                                    <div>
+                                        <label className="text-[9px] text-gray-500 uppercase mb-1 block">Obstacle Pack</label>
+                                        <select
+                                            value={linkBatches ? groundBatchId : obstacleBatchId}
+                                            onChange={e => setObstacleBatchId(e.target.value)}
+                                            className="w-full bg-black/60 border border-emerald-500/20 text-white text-xs px-3 py-2.5 rounded-lg outline-none focus:border-emerald-500/50"
+                                            disabled={linkBatches}
+                                        >
+                                            <option value="">{linkBatches ? '(Linked to Ground Pack)' : 'No Obstacle Asset (Default)'}</option>
+                                            {!linkBatches && textureBatches.map(batch => (
+                                                <option key={batch.batchId} value={batch.batchId}>
+                                                    {batch.subCategory ? `[${batch.subCategory.toUpperCase()}] ` : ''}{batch.batchName || batch.batchId} ({batch.createdAt.split('T')[0]})
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <div className="mt-3 text-[9px] text-gray-500 leading-relaxed">
+                                            {linkBatches
+                                                ? "Obstacles will be extraced from the same pack as the Ground."
+                                                : "Obstacles will be rendered using 'obstacle', 'tree', or 'wall' prompts from this separate pack."}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
                         {/* ── AI Map Generation ── */}
                         <section>
                             <h3 className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-3">AI Map Generation <span className="text-gray-600 font-normal">(optional)</span></h3>
@@ -282,8 +493,9 @@ export function CombatSimulator() {
                                 {mapName ? ` • ${mapName}` : ' • Random map'}
                             </div>
                             <button onClick={startCombat}
-                                className="px-8 py-3 bg-orange-500 hover:bg-orange-400 text-black font-black uppercase tracking-[0.2em] rounded-xl text-sm transition-all shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40">
-                                ⚔️ Start Combat
+                                disabled={isApplyingTextures}
+                                className="px-8 py-3 bg-orange-500 hover:bg-orange-400 disabled:bg-orange-950 disabled:text-orange-900 text-black font-black uppercase tracking-[0.2em] rounded-xl text-sm transition-all shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40">
+                                {isApplyingTextures ? 'Initializing...' : '⚔️ Start Combat'}
                             </button>
                         </div>
                     </div>
@@ -316,6 +528,7 @@ export function CombatSimulator() {
                     enemyIds={enemyIds}
                     aiGrid={aiGrid}
                     config={config}
+                    battlemapUrl={battlemapUrl}
                 />
             </div>
         </div>
@@ -323,12 +536,13 @@ export function CombatSimulator() {
 }
 
 function TacticalCombatArena({
-    playerIds, enemyIds, aiGrid, config,
+    playerIds, enemyIds, aiGrid, config, battlemapUrl
 }: {
     playerIds: string[];
     enemyIds: string[];
     aiGrid: Grid | null;
     config: CombatConfig;
+    battlemapUrl: string | null;
 }) {
     const playerEntities = playerIds.map((id, i) => {
         const char = GameRegistry.getCharacter(id);
@@ -362,6 +576,7 @@ function TacticalCombatArena({
             onSelectSkill={selectSkill}
             meleeAttackCost={MELEE_ATTACK_COST}
             selectedSkill={selectedSkill}
+            battlemapUrl={battlemapUrl}
         />
     );
 }

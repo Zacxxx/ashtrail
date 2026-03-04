@@ -1,1 +1,12 @@
-{"name":"@ashtrail/server","version":"0.0.0","type":"module"}
+{
+  "name": "@ashtrail/server",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^1.41.0"
+  }
+}

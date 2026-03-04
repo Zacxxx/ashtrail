@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Item, GameRegistry, ItemCategory, ItemRarity } from "@ashtrail/core";
+import { Item, GameRegistry, ItemCategory, ItemRarity, GameplayEffect } from "@ashtrail/core";
 import { IconGallerySelector } from "../components/IconGallerySelector";
 
 interface ItemsViewProps {
@@ -46,8 +47,8 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
     const [rarity, setRarity] = useState<ItemRarity>("salvaged");
     const [description, setDescription] = useState("");
     const [cost, setCost] = useState(0);
+    const [effects, setEffects] = useState<GameplayEffect[]>([]);
     const [icon, setIcon] = useState("📦");
-    const [effects, setEffects] = useState<any[]>([]);
 
     // Gallery State
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -62,10 +63,11 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
             setRarity(item.rarity || "salvaged");
             setDescription(item.description);
             setCost(item.cost);
-            setIcon(item.icon || "📦");
             setEffects(item.effects || []);
+            setIcon(item.icon || "📦");
         } else {
             setEditingItem(null);
+            setEquipSlot("");
         }
     }, [item]);
 
@@ -450,6 +452,17 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                     >
                         📸 Modify Visual Artifact
                     </button>
+                </div>
+                <div className="col-span-1 space-y-1">
+                    <label className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Rarity</label>
+                    <select value={rarity} onChange={e => setRarity(e.target.value as ItemRarity)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-yellow-500/50 transition-all">
+                        <option value="salvaged">Salvaged</option>
+                        <option value="reinforced">Reinforced</option>
+                        <option value="pre-ash">Pre-Ash</option>
+                        <option value="specialized">Specialized</option>
+                        <option value="relic">Relic</option>
+                        <option value="ashmarked">Ashmarked</option>
+                    </select>
                 </div>
             </div>
         </div>

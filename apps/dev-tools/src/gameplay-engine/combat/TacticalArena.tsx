@@ -24,12 +24,13 @@ interface TacticalArenaProps {
     activeEntity: TacticalEntity | undefined;
     meleeAttackCost: number;
     selectedSkill: Skill | null;
+    battlemapUrl?: string | null;
 }
 
 export function TacticalArena({
     grid, entities, turnOrder, activeEntityId, isPlayerTurn,
     phase, playerAction, logs, turnNumber,
-    onCellClick, onEndTurn, onSelectSkill, activeEntity, meleeAttackCost, selectedSkill,
+    onCellClick, onEndTurn, onSelectSkill, activeEntity, meleeAttackCost, selectedSkill, battlemapUrl,
 }: TacticalArenaProps) {
     const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -109,9 +110,31 @@ export function TacticalArena({
                         style={{
                             left: '50%',
                             top: '50%',
+                            width: gridBounds.width,
+                            height: gridBounds.height,
                             transform: `translate(-${gridBounds.width / 2}px, -${gridBounds.height / 2}px) translate(${-gridBounds.minX}px, ${-gridBounds.minY}px)`,
                         }}
                     >
+                        {/* Battlemap Layer */}
+                        {battlemapUrl && (
+                            <img
+                                src={battlemapUrl}
+                                alt="Battlemap"
+                                className="pointer-events-none"
+                                style={{
+                                    position: 'absolute',
+                                    left: gridBounds.minX,
+                                    top: gridBounds.minY,
+                                    width: gridBounds.width,
+                                    height: gridBounds.height,
+                                    opacity: 0.85,
+                                    zIndex: 0,
+                                    objectFit: 'cover',
+                                    clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
+                                }}
+                            />
+                        )}
+
                         {grid.map((row, r) =>
                             row.map((cell, c) => {
                                 const { x, y } = gridToScreen(r, c);
@@ -124,6 +147,7 @@ export function TacticalArena({
                                         entity={cell.occupantId ? entities.get(cell.occupantId) : undefined}
                                         isActive={cell.occupantId === activeEntityId}
                                         isAoe={aoeSet.has(`${r},${c}`)}
+                                        hasBattlemap={!!battlemapUrl}
                                         onClick={() => onCellClick(r, c)}
                                         onHover={() => setHoveredCell({ row: r, col: c })}
                                         onLeave={() => setHoveredCell(null)}
@@ -134,8 +158,8 @@ export function TacticalArena({
                     </div>
                 </div>
 
-                {/* Turn Order Timeline */}
-                <div className="w-[180px] shrink-0 bg-black/80 border-l border-white/5 flex flex-col overflow-hidden">
+                {/* Turn Order Timeline & Actions Panel */}
+                <div className="w-[320px] shrink-0 bg-black/80 border-l border-white/5 flex flex-col overflow-hidden">
                     <div className="px-3 py-2 border-b border-white/10">
                         <h3 className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Timeline</h3>
                     </div>
@@ -169,81 +193,128 @@ export function TacticalArena({
 
             {/* Bottom Panel: Skills + Actions + Log */}
             <div className="h-[200px] shrink-0 flex gap-0 border-t border-white/5">
-                {/* Skills + Action Buttons */}
-                <div className="w-[360px] p-3 bg-white/5 border-r border-white/5 flex flex-col gap-2 overflow-hidden">
-                    <div className="flex justify-between items-center">
-                        <h3 className="text-[9px] font-black uppercase text-gray-500 tracking-widest">Actions</h3>
-                        {playerAction === 'targeting_skill' && selectedSkill && (
-                            <button onClick={() => onSelectSkill(null)} className="text-[9px] text-gray-400 hover:text-white transition-all">
+                {/* Actions / Spell Bar HUD (Dofus Style) */}
+                <div className="flex-1 p-0 bg-black/90 flex flex-col justify-end items-center relative overflow-visible bg-[radial-gradient(ellipse_at_bottom,_var(--tw-gradient-stops))] from-slate-900 via-black to-black border-r border-white/5">
+                    {/* Targeting Cancel Bar */}
+                    {playerAction === 'targeting_skill' && selectedSkill && (
+                        <div className="absolute top-0 left-0 w-full bg-orange-500/20 text-orange-400 text-xs py-1.5 text-center font-bold tracking-widest border-b border-orange-500/50 flex justify-center items-center gap-4 z-10 shadow-lg">
+                            Targeting: {selectedSkill.name}
+                            <button onClick={() => onSelectSkill(null)} className="px-3 py-0.5 bg-black/50 hover:bg-orange-500 hover:text-black rounded border border-orange-500 text-white transition-all uppercase text-[10px]">
                                 ✕ Cancel
                             </button>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
-                    {/* Skill Buttons Grid */}
                     {activeEntity && isPlayerTurn && phase === 'combat' && (
-                        <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
-                            {/* Skill buttons */}
-                            <div className="grid grid-cols-2 gap-1">
-                                {activeEntity.skills.map(skill => {
-                                    const cd = activeEntity.skillCooldowns[skill.id] || 0;
-                                    const canUse = activeEntity.ap >= skill.apCost && cd === 0;
-                                    const isSelected = selectedSkill?.id === skill.id;
-                                    return (
-                                        <button
-                                            key={skill.id}
-                                            onClick={() => onSelectSkill(isSelected ? null : skill)}
-                                            disabled={!canUse}
-                                            title={`${skill.description}\nAP: ${skill.apCost} | Range: ${skill.minRange}-${skill.maxRange}${cd > 0 ? `\nCooldown: ${cd} turns` : ''}`}
-                                            className={`text-left p-2 rounded-lg border text-[10px] transition-all ${isSelected
-                                                ? 'bg-orange-500/30 border-orange-500 text-orange-300'
-                                                : canUse
-                                                    ? 'bg-black/40 border-white/10 hover:border-white/30 text-gray-300'
-                                                    : 'bg-black/20 border-white/5 text-gray-600 opacity-50'
-                                                }`}
-                                        >
-                                            <div className="flex items-center justify-between gap-1">
-                                                <span className="font-bold truncate">
-                                                    {skill.icon || '✨'} {skill.name}
-                                                </span>
-                                                <span className="text-[8px] font-mono text-blue-400 shrink-0">{skill.apCost}AP</span>
-                                            </div>
-                                            <div className="flex items-center gap-2 mt-0.5">
-                                                {skill.damage && <span className="text-[8px] text-red-400">{skill.damage}dmg</span>}
-                                                {skill.healing && <span className="text-[8px] text-green-400">{skill.healing}hp</span>}
-                                                <span className="text-[8px] text-gray-600">r:{skill.minRange}-{skill.maxRange}</span>
-                                                {cd > 0 && <span className="text-[8px] text-yellow-500">cd:{cd}</span>}
-                                            </div>
-                                        </button>
-                                    );
-                                })}
+                        <div className="w-full max-w-5xl px-4 flex flex-col items-center justify-center gap-4 h-full">
+
+                            {/* HUD: Stats */}
+                            <div className="flex items-center gap-8 px-8 py-2 bg-black/80 rounded-full border border-white/10 shadow-2xl backdrop-blur-sm relative z-0">
+                                <div className="flex items-baseline gap-1" title="Health Points">
+                                    <span className="text-red-500 text-sm font-black mr-1">❤️</span>
+                                    <span className="text-white font-black text-xl">{activeEntity.hp}</span>
+                                    <span className="text-gray-500 text-xs font-bold">/ {activeEntity.maxHp}</span>
+                                </div>
+                                <div className="w-px h-6 bg-white/10" />
+                                <div className="flex items-baseline gap-1" title="Action Points">
+                                    <span className="text-blue-400 text-sm font-black mr-1">⭐</span>
+                                    <span className="text-white font-black text-xl">{activeEntity.ap}</span>
+                                    <span className="text-blue-500/50 text-xs font-bold uppercase">ap</span>
+                                </div>
+                                <div className="w-px h-6 bg-white/10" />
+                                <div className="flex items-baseline gap-1" title="Movement Points">
+                                    <span className="text-green-400 text-sm font-black mr-1">👟</span>
+                                    <span className="text-white font-black text-xl">{activeEntity.mp}</span>
+                                    <span className="text-green-500/50 text-xs font-bold uppercase">mp</span>
+                                </div>
                             </div>
 
-                            {/* Basic actions */}
-                            <div className="flex gap-1 mt-1">
+                            {/* Hotbar */}
+                            <div className="flex items-center gap-6 w-full justify-center">
+                                {/* Skills */}
+                                <div className="grid grid-cols-10 grid-rows-2 gap-2 bg-black/40 p-3 rounded-2xl border border-white/10 shadow-inner backdrop-blur-md">
+                                    {Array.from({ length: 20 }).map((_, idx) => {
+                                        const skill = activeEntity.skills[idx];
+
+                                        // Empty slot
+                                        if (!skill) {
+                                            return <div key={`empty-${idx}`} className="w-12 h-12 rounded-lg border-2 border-white/5 bg-black/20 shadow-inner" />;
+                                        }
+
+                                        const cd = activeEntity.skillCooldowns[skill.id] || 0;
+                                        const canUse = activeEntity.ap >= skill.apCost && cd === 0;
+                                        const isSelected = selectedSkill?.id === skill.id;
+                                        return (
+                                            <button
+                                                key={skill.id}
+                                                onClick={() => onSelectSkill(isSelected ? null : skill)}
+                                                disabled={!canUse}
+                                                className={`relative group w-12 h-12 rounded-lg border-2 flex items-center justify-center text-xl transition-all ${isSelected
+                                                    ? 'bg-orange-500/40 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] scale-110 z-10'
+                                                    : canUse
+                                                        ? 'bg-gradient-to-br from-slate-700 to-slate-900 border-slate-600 hover:border-slate-400 hover:scale-110 z-0 hover:z-20'
+                                                        : 'bg-slate-900/50 border-slate-800 opacity-50 grayscale'
+                                                    }`}
+                                            >
+                                                {skill.icon || '✨'}
+
+                                                {/* AP Cost Badge */}
+                                                <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 bg-blue-600 rounded-full border-2 border-black flex items-center justify-center text-[9px] font-black text-white shadow-md">
+                                                    {skill.apCost}
+                                                </div>
+
+                                                {/* Cooldown Overlay */}
+                                                {cd > 0 && (
+                                                    <div className="absolute inset-0 bg-black/70 rounded-md flex items-center justify-center font-black text-yellow-500 text-lg backdrop-blur-[1px]">
+                                                        {cd}
+                                                    </div>
+                                                )}
+
+                                                {/* Dofus Style Tooltip (Hover) */}
+                                                <div className="absolute bottom-[110%] mb-2 left-1/2 -translate-x-1/2 w-48 p-2.5 bg-slate-900/95 backdrop-blur-md border border-slate-600 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 translate-y-2 group-hover:translate-y-0 z-[100] flex flex-col gap-1.5">
+                                                    <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 border-b border-r border-slate-600 rotate-45"></div>
+                                                    <div className="font-bold text-white text-xs text-center border-b border-slate-700 pb-1.5">{skill.name}</div>
+                                                    <div className="text-[10px] text-gray-400 text-center leading-snug mb-1">{skill.description}</div>
+                                                    <div className="flex justify-center gap-3 text-[10px] font-mono bg-black/50 py-1 rounded">
+                                                        {skill.damage && <span className="text-red-400">{skill.damage} dmg</span>}
+                                                        {skill.healing && <span className="text-green-400">{skill.healing} heal</span>}
+                                                        <span className="text-gray-400">R: {skill.minRange}-{skill.maxRange}</span>
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* End Turn Button */}
                                 <button
                                     onClick={onEndTurn}
                                     disabled={!isPlayerTurn || phase !== 'combat'}
-                                    className="flex-1 py-2 bg-orange-500 hover:bg-orange-400 disabled:opacity-30 text-black font-black uppercase tracking-widest rounded-lg text-[10px] transition-all"
+                                    className="h-[104px] px-6 bg-gradient-to-b from-orange-400 to-orange-600 hover:from-orange-300 hover:to-orange-500 border-2 border-orange-300 disabled:opacity-30 disabled:grayscale text-black font-black uppercase tracking-widest rounded-2xl text-sm transition-all shadow-[0_0_20px_rgba(249,115,22,0.2)] hover:shadow-[0_0_30px_rgba(249,115,22,0.5)] flex flex-col justify-center items-center gap-1 shrink-0 hover:scale-105"
                                 >
-                                    ⏭ End Turn
+                                    <span>End Turn</span>
+                                    <span className="text-lg">⏭</span>
                                 </button>
                             </div>
                         </div>
                     )}
 
-                    {/* Stats when it's not player's turn or combat ended */}
                     {(!isPlayerTurn || phase !== 'combat') && activeEntity && (
-                        <div className="flex-1 flex items-center justify-center text-center">
-                            {phase === 'combat' && <span className="text-xs text-gray-500 italic">Waiting for {activeEntity.name}...</span>}
-                            {phase === 'victory' && <span className="text-xl">🏆</span>}
-                            {phase === 'defeat' && <span className="text-xl">💀</span>}
+                        <div className="w-full flex-1 flex flex-col items-center justify-center gap-3 text-center opacity-70">
+                            {phase === 'combat' && (
+                                <>
+                                    <div className={`w-6 h-6 rounded-full animate-ping ${activeEntity.isPlayer ? 'bg-blue-500' : 'bg-red-500'}`} />
+                                    <span className="text-sm font-bold tracking-widest uppercase text-gray-400">{activeEntity.name}'s Turn</span>
+                                </>
+                            )}
+                            {phase === 'victory' && <span className="text-4xl font-black text-yellow-500 drop-shadow-[0_0_20px_rgba(234,179,8,0.5)] tracking-widest">🏆 VICTORY</span>}
+                            {phase === 'defeat' && <span className="text-4xl font-black text-red-500 drop-shadow-[0_0_20px_rgba(239,68,68,0.5)] tracking-widest">💀 DEFEAT</span>}
                         </div>
                     )}
                 </div>
 
                 {/* Combat Log */}
-                <div className="flex-1 p-3 bg-black/80 flex flex-col overflow-hidden font-mono text-xs">
+                <div className="w-[320px] shrink-0 p-3 bg-black/80 flex flex-col overflow-hidden font-mono text-xs border-l border-white/10">
                     <h3 className="text-[9px] font-black uppercase text-gray-500 tracking-widest border-b border-white/10 pb-1 mb-1 shrink-0">Combat Log</h3>
                     <div className="flex-1 overflow-y-auto space-y-0.5 pr-2 custom-scrollbar">
                         {logs.map(log => (
@@ -274,29 +345,31 @@ interface IsometricTileProps {
     entity?: TacticalEntity;
     isActive: boolean;
     isAoe?: boolean;
+    hasBattlemap?: boolean;
     onClick: () => void;
     onHover?: () => void;
     onLeave?: () => void;
 }
 
-function IsometricTile({ cell, x, y, entity, isActive, isAoe, onClick, onHover, onLeave }: IsometricTileProps) {
+function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onClick, onHover, onLeave }: IsometricTileProps) {
     const isDead = entity && entity.hp <= 0;
 
     const halfW = TILE_WIDTH / 2;
     const halfH = TILE_HEIGHT / 2;
+    const clipId = `clip-${cell.row}-${cell.col}`;
     const diamondPath = `M ${halfW} 0 L ${TILE_WIDTH} ${halfH} L ${halfW} ${TILE_HEIGHT} L 0 ${halfH} Z`;
 
-    let fillColor = 'rgba(30, 40, 55, 0.6)';
-    let strokeColor = 'rgba(255,255,255,0.08)';
-    let strokeWidth = 0.5;
+    let fillColor = hasBattlemap ? 'transparent' : 'rgba(30, 40, 55, 0.6)';
+    let strokeColor = 'rgba(255,255,255,0.15)';
+    let strokeWidth = 1;
 
     if (!cell.walkable) {
-        fillColor = 'rgba(15, 20, 30, 0.9)';
-        strokeColor = 'rgba(255,255,255,0.03)';
+        fillColor = 'transparent'; // Let the 3D block handle all rendering
+        strokeColor = 'rgba(255,255,255,0.08)';
     } else if (cell.isSpawnZone === 'player') {
-        fillColor = 'rgba(59, 130, 246, 0.08)';
+        fillColor = 'rgba(59, 130, 246, 0.15)';
     } else if (cell.isSpawnZone === 'enemy') {
-        fillColor = 'rgba(239, 68, 68, 0.08)';
+        fillColor = 'rgba(239, 68, 68, 0.15)';
     }
 
     if (cell.highlight === 'move') {
@@ -343,26 +416,64 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, onClick, onHover, 
                 onMouseEnter={onHover}
                 onMouseLeave={onLeave}
             >
+                <defs>
+                    <clipPath id={clipId}>
+                        <path d={diamondPath} />
+                    </clipPath>
+                </defs>
                 <path
                     d={diamondPath}
                     fill={fillColor}
-                    stroke={strokeColor}
+                    stroke={cell.walkable ? strokeColor : 'none'}
                     strokeWidth={strokeWidth}
                     className="transition-all duration-150 hover:brightness-150"
                 />
+
+                {/* Overlay highlights on top of tile space if needed */}
+                {(cell.highlight || isAoe) && (
+                    <path
+                        d={diamondPath}
+                        fill={fillColor}
+                        stroke={strokeColor}
+                        strokeWidth={strokeWidth}
+                        style={{ pointerEvents: 'none', opacity: 0.6 }}
+                    />
+                )}
+                {/* Grid lines only on walkable tiles — obstacles hide them */}
+                {cell.walkable && (
+                    <path
+                        d={diamondPath}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth={strokeWidth}
+                        style={{ pointerEvents: 'none' }}
+                    />
+                )}
             </svg>
 
-            {!cell.walkable && (
-                <svg width={TILE_WIDTH} height={TILE_HEIGHT + 8} className="absolute pointer-events-none" style={{ top: -8, zIndex: 0 }}>
+            {/* Standalone Sprites for Obstacles */}
+            {cell.textureUrl && !cell.walkable && (
+                <img
+                    src={cell.textureUrl}
+                    alt="obstacle"
+                    className="absolute bottom-0 left-0 w-full object-contain pointer-events-none drop-shadow-lg transition-all duration-150"
+                    style={{ height: TILE_WIDTH, zIndex: 1 }}
+                />
+            )}
+
+            {!cell.walkable && !cell.textureUrl && (
+                <svg width={TILE_WIDTH} height={TILE_HEIGHT + 16} className="absolute pointer-events-none" style={{ top: -16, zIndex: 2 }}>
+                    {/* Top Face */}
                     <path d={`M ${halfW} 0 L ${TILE_WIDTH} ${halfH} L ${halfW} ${TILE_HEIGHT} L 0 ${halfH} Z`}
-                        fill="rgba(25, 30, 40, 0.95)" stroke="rgba(255,255,255,0.05)" strokeWidth={0.5}
-                        style={{ transform: 'translateY(-4px)' }}
+                        fill="#191e28" stroke="rgba(255,255,255,0.15)" strokeWidth={1}
                     />
-                    <path d={`M 0 ${halfH - 4} L ${halfW} ${TILE_HEIGHT - 4} L ${halfW} ${TILE_HEIGHT + 4} L 0 ${halfH + 4} Z`}
-                        fill="rgba(15, 20, 28, 0.95)" stroke="rgba(255,255,255,0.03)" strokeWidth={0.5}
+                    {/* Left Face */}
+                    <path d={`M 0 ${halfH} L ${halfW} ${TILE_HEIGHT} L ${halfW} ${TILE_HEIGHT + 16} L 0 ${halfH + 16} Z`}
+                        fill="#0f141c" stroke="rgba(255,255,255,0.05)" strokeWidth={0.5}
                     />
-                    <path d={`M ${TILE_WIDTH} ${halfH - 4} L ${halfW} ${TILE_HEIGHT - 4} L ${halfW} ${TILE_HEIGHT + 4} L ${TILE_WIDTH} ${halfH + 4} Z`}
-                        fill="rgba(20, 25, 35, 0.95)" stroke="rgba(255,255,255,0.03)" strokeWidth={0.5}
+                    {/* Right Face */}
+                    <path d={`M ${TILE_WIDTH} ${halfH} L ${halfW} ${TILE_HEIGHT} L ${halfW} ${TILE_HEIGHT + 16} L ${TILE_WIDTH} ${halfH + 16} Z`}
+                        fill="#141923" stroke="rgba(255,255,255,0.05)" strokeWidth={0.5}
                     />
                 </svg>
             )}

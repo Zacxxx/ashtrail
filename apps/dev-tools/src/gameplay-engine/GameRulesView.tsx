@@ -3,7 +3,7 @@ import { useGameRules, GameRulesConfig, GameRulesManager } from "./rules/useGame
 
 // ─── Category type ───────────────────────────────────────────────────────────
 
-type Category = "all" | "core" | "combat" | "grid" | "aoe" | "status";
+type Category = "all" | "core" | "combat" | "grid" | "aoe" | "status" | "modifiers";
 
 const CATEGORIES: { id: Category; label: string; icon: string; color: string }[] = [
     { id: "all", label: "All Rules", icon: "📋", color: "text-gray-400" },
@@ -12,6 +12,7 @@ const CATEGORIES: { id: Category; label: string; icon: string; color: string }[]
     { id: "grid", label: "Grid & Move", icon: "🗺️", color: "text-teal-400" },
     { id: "aoe", label: "Area of Effect", icon: "💥", color: "text-indigo-400" },
     { id: "status", label: "Status Effects", icon: "🩹", color: "text-yellow-400" },
+    { id: "modifiers", label: "Modifiers", icon: "⚙️", color: "text-purple-400" },
 ];
 
 // ─── Reusable field components ────────────────────────────────────────────────
@@ -288,6 +289,7 @@ export function GameRulesView() {
     const showGrid = activeCategory === "all" || activeCategory === "grid";
     const showAoe = activeCategory === "all" || activeCategory === "aoe";
     const showStatus = activeCategory === "all" || activeCategory === "status";
+    const showModifiers = activeCategory === "all" || activeCategory === "modifiers";
 
     return (
         <div className="flex w-full h-full gap-0 overflow-hidden">
@@ -563,6 +565,70 @@ Initiative: descending Agility → Endurance tiebreak`}
                                 <p className="font-bold text-yellow-300">Status Effect Conditions</p>
                                 <p className="mt-1 text-gray-400">Conditions are read from the <code className="text-yellow-300 font-mono bg-white/10 px-1 rounded">entity.conditions</code> array and resolved in order every turn-start tick.</p>
                             </div>
+                        </div>
+                    </section>
+                )}
+
+                {/* ─── Modifiers System ─── */}
+                {showModifiers && (
+                    <section className="space-y-6">
+                        <SectionHeader icon="⚙️" label="Unified Modifiers System" color="text-purple-400" badge="Core Logic" />
+
+                        <div className="bg-black/30 border border-white/5 rounded-xl p-5 space-y-5">
+                            <p className="text-[12px] text-gray-400 leading-relaxed">
+                                The <span className="text-white font-bold">GameplayEffect</span> system provides a unified way to handle all
+                                passive bonuses, active debuffs, and temporary status conditions. These can be attached to
+                                <span className="text-purple-400"> Traits</span>, <span className="text-purple-400"> Skills</span>,
+                                <span className="text-purple-400"> Items</span>, or <span className="text-purple-400"> Occupations</span>.
+                            </p>
+
+                            <div className="grid grid-cols-2 gap-6">
+                                <div className="space-y-4">
+                                    <h4 className="text-[10px] font-black uppercase text-purple-400/70 tracking-widest">Effect Types</h4>
+                                    <div className="space-y-2">
+                                        {[
+                                            { t: 'STAT_MODIFIER', d: 'Modifies base stats (STR, AGI, etc.) or derived values (MaxHP, Evasion).' },
+                                            { t: 'DAMAGE_OVER_TIME', d: 'Applies damage (e.g. fire_damage, poison_damage) at start of turn.' },
+                                            { t: 'HEAL_OVER_TIME', d: 'Applies healing at start of turn.' },
+                                            { t: 'STATUS_IMMUNITY', d: 'Prevents specific status effects from being applied.' },
+                                            { t: 'LORE_EFFECT', d: 'Descriptive or narrative perks with no direct engine math.' }
+                                        ].map(item => (
+                                            <div key={item.t} className="bg-black/40 border border-white/5 p-3 rounded-lg">
+                                                <code className="text-[10px] text-purple-300 font-mono">{item.t}</code>
+                                                <p className="text-[10px] text-gray-500 mt-1">{item.d}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <h4 className="text-[10px] font-black uppercase text-purple-400/70 tracking-widest">Execution Triggers</h4>
+                                    <div className="space-y-2">
+                                        {[
+                                            { t: 'passive', d: 'Always active as long as the source is equipped/unlocked.' },
+                                            { t: 'on_turn_start', d: 'Triggered at the beginning of the owner\'s turn (DoTs/HoTs).' },
+                                            { t: 'on_hit', d: 'Triggered when the owner successfully hits a target.' },
+                                            { t: 'on_defend', d: 'Triggered when the owner is attacked.' },
+                                            { t: 'on_kill', d: 'Triggered when the owner reduces a target to 0 HP.' }
+                                        ].map(item => (
+                                            <div key={item.t} className="bg-black/40 border border-white/5 p-3 rounded-lg">
+                                                <code className="text-[10px] text-teal-300 font-mono">{item.t}</code>
+                                                <p className="text-[10px] text-gray-500 mt-1">{item.d}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <FormulaBox>
+                                {`FinalStat = (BaseStat + FlatModifiers) * (1 + Sum(PercentageModifiers))
+
+Example: 'Burning' Status
+Type: DAMAGE_OVER_TIME, Target: fire_damage, Value: 5, Duration: 3, Trigger: on_turn_start
+
+Example: 'Iron Skin' Trait
+Type: STAT_MODIFIER, Target: defense, Value: 2, Trigger: passive`}
+                            </FormulaBox>
                         </div>
                     </section>
                 )}

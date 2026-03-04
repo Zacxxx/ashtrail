@@ -87,7 +87,7 @@ export const PIPELINE_STAGES: PipelineStage[] = [
         id: "clustering",
         name: "Hierarchy Clustering",
         description: "Group counties into duchies and kingdoms",
-        outputs: ["duchy_id.png", "kingdom_id.png", "provinces.json", "duchies.json", "kingdoms.json"],
+        outputs: ["duchy_id.png", "kingdom_id.png", "continent_id.png", "provinces.json", "duchies.json", "kingdoms.json", "continents.json"],
         requires: ["adjacency"],
     },
     {
