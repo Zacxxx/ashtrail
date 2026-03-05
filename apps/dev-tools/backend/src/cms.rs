@@ -210,6 +210,21 @@ pub async fn save_skill(State(_state): State<AppState>, Json(payload): Json<serd
     }
 }
 
+pub async fn delete_skill(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
+    tracing::info!("Deleting skill with ID: {}", id);
+    let path = std::env::current_dir().unwrap().join("generated").join("skills").join(format!("{}.json", id));
+    
+    if path.exists() {
+        match fs::remove_file(&path) {
+            Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
+            Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+        }
+    } else {
+        // Even if file doesn't exist, we consider it "deleted" from backend perspective
+        Ok((StatusCode::OK, Json(serde_json::json!({ "success": true }))))
+    }
+}
+
 pub async fn delete_trait(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
     tracing::info!("Deleting trait with ID: {}", id);
     let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/traits.json");

@@ -6,13 +6,17 @@ import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacti
 import { GameRulesManager } from '../rules/useGameRules';
 
 // ── Default skills given to characters without their own ──
-const DEFAULT_PLAYER_SKILLS: Skill[] = GameRegistry.getAllSkills().filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot'].includes(s.id));
-const DEFAULT_ENEMY_SKILLS: Skill[] = GameRegistry.getAllSkills().filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+function getDefaultPlayerSkills(): Skill[] {
+    return GameRegistry.getAllSkills().filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot'].includes(s.id));
+}
+function getDefaultEnemySkills(): Skill[] {
+    return GameRegistry.getAllSkills().filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+}
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number): TacticalEntity {
     const skills = char.skills && char.skills.length > 0
         ? char.skills
-        : isPlayer ? DEFAULT_PLAYER_SKILLS : DEFAULT_ENEMY_SKILLS;
+        : isPlayer ? getDefaultPlayerSkills() : getDefaultEnemySkills();
 
     return createTacticalEntity(
         `${char.id}_${isPlayer ? 'p' : 'e'}${index}`,
@@ -52,7 +56,7 @@ function getMockTactical(isPlayer: boolean, index: number): TacticalEntity {
         isPlayer ? 2 : 1,    // defense
         0, 0, // hp, maxHp (engine will calc)
         [],
-        isPlayer ? DEFAULT_PLAYER_SKILLS : DEFAULT_ENEMY_SKILLS,
+        isPlayer ? getDefaultPlayerSkills() : getDefaultEnemySkills(),
         { row: 0, col: 0 }
     );
 }
@@ -114,6 +118,10 @@ export function CombatSimulator() {
     };
 
     React.useEffect(() => {
+        // Sync registry with backend
+        GameRegistry.fetchFromBackend("http://127.0.0.1:8787").catch(err => console.warn(err));
+
+        // Fetch texture batches
         fetch("/api/textures/batches")
             .then(res => res.json())
             .then(data => {

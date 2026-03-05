@@ -2,7 +2,6 @@
 import { ResourceType, Node, CrewMember, Resources, Trait, Occupation, OccupationCategory, Skill } from './types';
 
 // ── Combat Skills ──
-
 export const ALL_SKILLS: Skill[] = [
   {
     id: 'slash', name: 'Slash', description: 'A quick melee strike.', icon: '🗡️',

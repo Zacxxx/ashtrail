@@ -1,0 +1,16 @@
+{
+    "id": "war-cry",
+    "name": "War Cry",
+    "description": "Intimidate enemies in a 2-cell radius around you.",
+    "icon": "📯",
+    "category": "occupation",
+    "apCost": 4,
+    "minRange": 0,
+    "maxRange": 0,
+    "areaType": "circle",
+    "areaSize": 2,
+    "targetType": "self",
+    "damage": 5,
+    "cooldown": 3,
+    "effectType": "physical"
+}

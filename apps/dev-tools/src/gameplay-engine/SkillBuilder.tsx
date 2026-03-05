@@ -34,7 +34,9 @@ export function SkillBuilder() {
     const [filterCategory, setFilterCategory] = useState<SkillCategory | "all">("all");
 
     useEffect(() => {
-        setSavedSkills(GameRegistry.getAllSkills());
+        GameRegistry.fetchFromBackend("http://127.0.0.1:8787").then(() => {
+            setSavedSkills(GameRegistry.getAllSkills());
+        });
     }, []);
 
     const filteredSkills = useMemo(() => {
@@ -119,6 +121,24 @@ export function SkillBuilder() {
                 await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
                 setSavedSkills(GameRegistry.getAllSkills());
                 setEditingId(id);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!editingId) return;
+        if (!confirm(`Are you sure you want to delete the skill "${name}"? This will remove the file from disk.`)) return;
+
+        try {
+            const res = await fetch(`http://127.0.0.1:8787/api/data/skills/${editingId}`, {
+                method: "DELETE"
+            });
+            if (res.ok) {
+                await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                setSavedSkills(GameRegistry.getAllSkills());
+                resetForm();
             }
         } catch (e) {
             console.error(e);
@@ -354,6 +374,14 @@ export function SkillBuilder() {
                         >
                             💾 {editingId ? "Update Skill" : "Save Skill to Disk"}
                         </button>
+                        {editingId && (
+                            <button
+                                onClick={handleDelete}
+                                className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 font-black uppercase tracking-[0.2em] rounded-xl transition-all text-[10px]"
+                            >
+                                🗑️ Delete Skill PERMANENTLY
+                            </button>
+                        )}
                     </div>
 
                 </div>
