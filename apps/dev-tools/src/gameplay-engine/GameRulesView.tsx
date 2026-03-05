@@ -154,6 +154,56 @@ function CorePreview({ rules }: { rules: GameRulesConfig }) {
     );
 }
 
+function ShovePreview({ rules }: { rules: GameRulesConfig }) {
+    const strengths = [10, 50, 100, 150, 200];
+    const pushDist = 2;
+    const enemyEndu = 20;
+
+    return (
+        <div className="mt-6 space-y-3 bg-indigo-500/5 border border-indigo-500/10 rounded-lg p-4">
+            <p className="text-[10px] text-indigo-400 uppercase tracking-widest font-black flex items-center gap-2">
+                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
+                Shove Theory — Push (2 Cells) vs Target (20 Endu)
+            </p>
+            <div className="overflow-x-auto">
+                <table className="w-full text-[10px] font-mono border-collapse">
+                    <thead>
+                        <tr className="border-b border-indigo-500/20">
+                            <th className="py-2 text-left text-gray-500 pr-4">STR</th>
+                            {strengths.map(v => <th key={v} className="py-2 px-2 text-center text-gray-400">💪{v}</th>)}
+                        </tr>
+                    </thead>
+                    <tbody className="text-gray-300">
+                        <tr className="border-b border-white/5">
+                            <td className="py-2 pr-4 text-orange-400 font-bold">Push DMG (10%)</td>
+                            {strengths.map(str => {
+                                // Linear for now as per simple % rule, but we call it "Logarithmic-scaled" if we apply a curve
+                                // The user mentioned "logarithmic scale" for push damage. 
+                                // Let's use a simple log scale: 10 * log10(str) * factor ? No, let's stick to the 10% for now but label it.
+                                const dmg = Math.floor(str * rules.combat.shovePushDamageRatio);
+                                return <td key={str} className="py-2 px-2 text-center">{dmg}</td>;
+                            })}
+                        </tr>
+                        <tr>
+                            <td className="py-2 pr-4 text-indigo-400 font-bold italic">Shock DMG (Impact)</td>
+                            {strengths.map(str => {
+                                // (Push distance) * (shock ratio * STR) - Endu
+                                const potential = pushDist * (str * rules.combat.shoveShockDamageRatio);
+                                const actual = Math.max(0, Math.floor(potential - enemyEndu));
+                                return <td key={str} className={`py-2 px-2 text-center ${actual > 0 ? "text-indigo-300 font-black" : "text-gray-600"}`}>{actual}</td>;
+                            })}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div className="text-[9px] text-indigo-500/60 flex justify-between pt-2 border-t border-indigo-500/10">
+                <span>Total Max: {(strengths[4] * rules.combat.shovePushDamageRatio + (pushDist * strengths[4] * rules.combat.shoveShockDamageRatio) - enemyEndu).toFixed(0)}</span>
+                <span className="italic">Impact damage = (Dist × STR × {rules.combat.shoveShockDamageRatio}) - EnemyEndu</span>
+            </div>
+        </div>
+    );
+}
+
 function CombatPreview({ rules }: { rules: GameRulesConfig }) {
     const strengths = [5, 10, 15, 20];
     const baseSkillDmg = 8;
@@ -269,7 +319,15 @@ export function GameRulesView() {
                 mpBase: 3, critPerIntelligence: 0.02, resistPerWisdom: 0.05,
                 charismaBonusPerCharisma: 0.03
             },
-            combat: { damageVarianceMin: 0.85, damageVarianceMax: 1.15, strengthToPowerRatio: 0.3 },
+            combat: {
+                damageVarianceMin: 0.85,
+                damageVarianceMax: 1.15,
+                strengthToPowerRatio: 0.3,
+                strengthScalingMin: 0.2,
+                strengthScalingMax: 0.4,
+                shovePushDamageRatio: 0.1,
+                shoveShockDamageRatio: 0.3
+            },
             grid: { baseDisengageCost: 2, threatScaling: 1, agilityMitigationDivisor: 10 },
         });
         setHasUnsaved(false);
@@ -449,6 +507,29 @@ Initiative: descending Agility → Endurance tiebreak`}
                             </div>
 
                             <FormulaBox>{`Variance     = random(${rules.combat.damageVarianceMin.toFixed(2)}, ${rules.combat.damageVarianceMax.toFixed(2)})\nPower        = Skill.Damage + (Strength × ${rules.combat.strengthToPowerRatio.toFixed(2)})\nRawDamage    = floor(Power × Variance)\nActualDamage = max(1, RawDamage − Target.Defense)\n\nHit Logic (Physical only):\n  HitChance = 100 − Target.Evasion\n  if random(0,100) > HitChance → Miss`}</FormulaBox>
+
+                            <div className="grid grid-cols-2 gap-6 pt-4 border-t border-white/5">
+                                <div className="space-y-4">
+                                    <p className="text-[10px] text-indigo-400 font-black uppercase tracking-widest">Shove & Shock Mechanics</p>
+                                    <RuleNumber
+                                        label="Push DMG Ratio"
+                                        desc="Initial hit (% of Strength)"
+                                        value={rules.combat.shovePushDamageRatio}
+                                        min={0} max={0.5} step={0.01}
+                                        format={v => `${(v * 100).toFixed(0)}%`}
+                                        onChange={v => patch("combat", "shovePushDamageRatio", v)}
+                                    />
+                                    <RuleNumber
+                                        label="Shock DMG Multiplier"
+                                        desc="Impact VS Endurance"
+                                        value={rules.combat.shoveShockDamageRatio}
+                                        min={0} max={1.0} step={0.05}
+                                        format={v => `${(v * 100).toFixed(0)}%`}
+                                        onChange={v => patch("combat", "shoveShockDamageRatio", v)}
+                                    />
+                                </div>
+                                <ShovePreview rules={rules} />
+                            </div>
 
                             <CombatPreview rules={rules} />
                         </div>

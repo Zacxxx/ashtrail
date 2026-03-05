@@ -17,6 +17,8 @@ export interface GameRulesConfig {
         strengthToPowerRatio: number;
         strengthScalingMin: number;
         strengthScalingMax: number;
+        shovePushDamageRatio: number;
+        shoveShockDamageRatio: number;
     };
     grid: {
         baseDisengageCost: number;
@@ -42,6 +44,8 @@ const DEFAULT_RULES: GameRulesConfig = {
         strengthToPowerRatio: 0.3,
         strengthScalingMin: 0.2,
         strengthScalingMax: 0.4,
+        shovePushDamageRatio: 0.1,
+        shoveShockDamageRatio: 0.3,
     },
     grid: {
         baseDisengageCost: 2,

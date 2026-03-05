@@ -365,12 +365,15 @@ export function useTacticalCombat(
 
                 const rules = GameRulesManager.get();
 
-                // Use the same scaling as the UI: 0.2 for min, 0.4 for max
-                const minStrengthBonus = c.strength * (rules.combat.strengthScalingMin || 0.2);
-                const maxStrengthBonus = c.strength * (rules.combat.strengthScalingMax || 0.4);
-
-                // Randomly pick a value between min and max bonus
-                const strBonus = minStrengthBonus + (Math.random() * (maxStrengthBonus - minStrengthBonus));
+                // Special handling for push damage
+                let strBonus = 0;
+                if (skill.pushDistance && skill.pushDistance > 0) {
+                    strBonus = c.strength * (rules.combat.shovePushDamageRatio || 0.1);
+                } else {
+                    const minStrengthBonus = c.strength * (rules.combat.strengthScalingMin || 0.2);
+                    const maxStrengthBonus = c.strength * (rules.combat.strengthScalingMax || 0.4);
+                    strBonus = minStrengthBonus + (Math.random() * (maxStrengthBonus - minStrengthBonus));
+                }
 
                 // Apply variance to the whole package
                 const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
@@ -398,7 +401,58 @@ export function useTacticalCombat(
                 logsToAdd.push({ msg: `${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${tCopy.name} → ${isCrit ? 'CRITICAL ' : ''}${actualDamage} damage!`, type: 'damage' });
 
                 if (skill.pushDistance && skill.pushDistance > 0 && newHp > 0) {
-                    // Push logic could go here
+                    const rowDiff = tCopy.gridPos.row - c.gridPos.row;
+                    const colDiff = tCopy.gridPos.col - c.gridPos.col;
+                    const dr = rowDiff > 0 ? 1 : rowDiff < 0 ? -1 : 0;
+                    const dc = colDiff > 0 ? 1 : colDiff < 0 ? -1 : 0;
+
+                    let distRemaining = skill.pushDistance;
+                    let currentRow = tCopy.gridPos.row;
+                    let currentCol = tCopy.gridPos.col;
+                    let hitObstacle = false;
+
+                    while (distRemaining > 0 && !hitObstacle) {
+                        const nextRow = currentRow + dr;
+                        const nextCol = currentCol + dc;
+                        if (nextRow < 0 || nextRow >= grid.length || nextCol < 0 || nextCol >= grid[0].length) {
+                            hitObstacle = true;
+                            break;
+                        }
+
+                        const cell = grid[nextRow][nextCol];
+                        const isOccupied = Array.from(nextEntities.values()).some((e: TacticalEntity) =>
+                            e.id !== tCopy.id && e.gridPos.row === nextRow && e.gridPos.col === nextCol
+                        );
+
+                        if (!cell.walkable || isOccupied) {
+                            hitObstacle = true;
+                            break;
+                        }
+
+                        currentRow = nextRow;
+                        currentCol = nextCol;
+                        distRemaining--;
+                    }
+
+                    if (currentRow !== tCopy.gridPos.row || currentCol !== tCopy.gridPos.col) {
+                        tCopy.gridPos = { row: currentRow, col: currentCol };
+                    }
+
+                    if (hitObstacle) {
+                        const shockPot = distRemaining * (c.strength * (rules.combat.shoveShockDamageRatio || 0.3));
+                        const targetEndu = tCopy.endurance || 0;
+                        const shockDmg = Math.max(0, Math.floor(shockPot - targetEndu));
+
+                        if (shockDmg > 0) {
+                            tCopy.hp = Math.max(0, tCopy.hp - shockDmg);
+                            logsToAdd.push({
+                                msg: `💥 ${tCopy.name} hits an obstacle! ${distRemaining}m remaining → +${shockDmg} shock damage (vs ${targetEndu} endu)!`,
+                                type: 'damage'
+                            });
+                        }
+                    } else {
+                        logsToAdd.push({ msg: `🌬️ ${tCopy.name} is pushed back ${skill.pushDistance} cells.`, type: 'info' });
+                    }
                 }
             }
 

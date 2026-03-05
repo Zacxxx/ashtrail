@@ -7,6 +7,7 @@ import { Skill } from '@ashtrail/core';
 import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells } from './tacticalGrid';
 import { TacticalEntity, CombatPhase, PlayerAction } from './useTacticalCombat';
 import { CombatLogMessage } from './useCombatEngine';
+import { GameRulesManager } from '../rules/useGameRules';
 
 interface TacticalArenaProps {
     grid: Grid;
@@ -277,9 +278,16 @@ export function TacticalArena({
                                                     <div className="text-[10px] text-gray-400 text-center leading-snug mb-1">{skill.description}</div>
                                                     <div className="flex justify-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono bg-black/50 py-1.5 px-2 rounded-lg border border-white/5">
                                                         {(() => {
+                                                            const rules = GameRulesManager.get();
                                                             const hasWeaponScaling = skill.effects?.some(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT');
                                                             const weapon = activeEntity?.equipped?.mainHand;
-                                                            const strBonus = activeEntity ? Math.floor(activeEntity.strength * 0.3) : 0;
+
+                                                            let strBonus = 0;
+                                                            if (skill.pushDistance && skill.pushDistance > 0) {
+                                                                strBonus = activeEntity ? Math.floor(activeEntity.strength * (rules.combat.shovePushDamageRatio || 0.1)) : 0;
+                                                            } else {
+                                                                strBonus = activeEntity ? Math.floor(activeEntity.strength * 0.3) : 0;
+                                                            }
 
                                                             let baseVal = skill.damage || 0;
                                                             if (hasWeaponScaling && weapon) {
@@ -291,13 +299,29 @@ export function TacticalArena({
 
                                                             const total = baseVal + strBonus;
 
-                                                            if (baseVal > 0 || strBonus > 0) {
+                                                            if (baseVal > 0 || strBonus > 0 || skill.pushDistance) {
                                                                 return (
-                                                                    <div className="flex items-center gap-1.5">
-                                                                        <span className="text-red-400 font-black">{total} dmg</span>
-                                                                        <span className="text-[8px] text-gray-500">
-                                                                            ({hasWeaponScaling ? (weapon ? '⚔️' : '👊') : ''}{baseVal} + 💪{strBonus})
-                                                                        </span>
+                                                                    <div className="flex flex-col gap-1 w-full">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span className="text-red-400 font-black">{total} dmg</span>
+                                                                            <span className="text-[8px] text-gray-500">
+                                                                                ({hasWeaponScaling ? (weapon ? '⚔️' : '👊') : ''}{baseVal} + 💪{strBonus})
+                                                                            </span>
+                                                                        </div>
+                                                                        {skill.pushDistance && (
+                                                                            <div className="flex flex-col gap-0.5 border-t border-white/5 pt-1 mt-0.5">
+                                                                                <div className="flex items-center justify-between text-[9px]">
+                                                                                    <span className="text-indigo-400 font-bold uppercase">Pushback</span>
+                                                                                    <span className="text-white font-mono">{skill.pushDistance} cells</span>
+                                                                                </div>
+                                                                                <div className="flex items-center justify-between text-[9px]">
+                                                                                    <span className="text-indigo-400/70 italic">Shock Potential</span>
+                                                                                    <span className="text-indigo-300 font-mono">
+                                                                                        ~{activeEntity ? Math.floor(1 * activeEntity.strength * (rules.combat.shoveShockDamageRatio || 0.3)) : 0}/cell
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
                                                                     </div>
                                                                 );
                                                             }
