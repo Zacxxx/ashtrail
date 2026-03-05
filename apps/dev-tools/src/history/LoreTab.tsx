@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
-import { HistoryGallery } from "../worldgeneration/HistoryGallery";
-import { Button, Card, Input } from "@ashtrail/ui";
+import { type GenerationHistoryItem } from "../hooks/useGenerationHistory";
+import { Button, Card } from "@ashtrail/ui";
 
-interface WorldTabProps {
+interface LoreTabProps {
     selectedWorld: GenerationHistoryItem | null;
     onSelectWorld: (world: GenerationHistoryItem) => void;
 }
@@ -15,8 +14,7 @@ interface LoreSnippet {
     content: string;
 }
 
-export function WorldTab({ selectedWorld, onSelectWorld }: WorldTabProps) {
-    const { history, deleteFromHistory } = useGenerationHistory();
+export function LoreTab({ selectedWorld, onSelectWorld }: LoreTabProps) {
     const [snippets, setSnippets] = useState<LoreSnippet[]>([]);
 
     // Snippet Draft State
@@ -38,7 +36,7 @@ export function WorldTab({ selectedWorld, onSelectWorld }: WorldTabProps) {
                 body: JSON.stringify({
                     context: {
                         factions: "Unknown Actors",
-                        worldLore: selectedWorld.prompt,
+                        worldLore: selectedWorld.prompt || "An unknown world",
                         areas: draftLocation,
                         previousEvents: snippets.map(s => ({ month: s.targetMonth, description: s.content }))
                     },
@@ -69,33 +67,8 @@ export function WorldTab({ selectedWorld, onSelectWorld }: WorldTabProps) {
 
     return (
         <div className="flex-1 flex gap-8 overflow-hidden min-h-0">
-            {/* Left Panel: World Selection */}
-            <div className="w-[500px] flex flex-col bg-[#121820] border border-[#1f2937] rounded-xl overflow-hidden relative shadow-2xl">
-                <div className="p-6 border-b border-white/5 bg-[#0a0f14]/50 backdrop-blur-sm z-10 shrink-0">
-                    <h2 className="text-lg font-bold tracking-[0.2em] text-gray-200">WORLD SELECTION</h2>
-                    <p className="text-xs text-gray-500 mt-1">PICK A GENERATED PLANET</p>
-                    {selectedWorld && (
-                        <div className="mt-4 flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-lg shrink-0">
-                            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                            <span className="text-[10px] font-bold text-cyan-300 tracking-widest uppercase truncate">{selectedWorld.prompt.substring(0, 40)}...</span>
-                        </div>
-                    )}
-                </div>
-
-                <div className="flex-1 overflow-hidden relative">
-                    <HistoryGallery
-                        history={history}
-                        activePlanetId={selectedWorld?.id || null}
-                        deleteFromHistory={deleteFromHistory}
-                        onSelectPlanet={onSelectWorld}
-                        onSelectTexture={() => { }}
-                        showExtendedTabs={false}
-                    />
-                </div>
-            </div>
-
-            {/* Right Panel: Lore Snippets */}
-            <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
+            {/* Lore Snippets */}
+            <div className="flex-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar flex-grow p-4">
                 {!selectedWorld ? (
                     <div className="h-full flex flex-col items-center justify-center text-center opacity-50 bg-[#121820] rounded-xl border border-white/5">
                         <div className="text-4xl mb-4">🌍</div>
