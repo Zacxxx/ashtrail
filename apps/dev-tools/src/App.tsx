@@ -48,6 +48,14 @@ const TOOLS = [
         icon: "👤",
         status: "WIP",
         color: "bg-indigo-500",
+    },
+    {
+        id: "history",
+        name: "History Generator",
+        description: "AI powered tool to generate game history for lore, world, and factions.",
+        icon: "📜",
+        status: "WIP",
+        color: "bg-red-500",
     }
 ];
 
