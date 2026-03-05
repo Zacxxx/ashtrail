@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { Item, GameRegistry, ItemCategory, ItemRarity } from "@ashtrail/core";
 import { Item, GameRegistry, ItemCategory, ItemRarity, GameplayEffect } from "@ashtrail/core";
 import { IconGallerySelector } from "../components/IconGallerySelector";
 

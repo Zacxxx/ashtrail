@@ -6,6 +6,7 @@ import {
   enhanceAppearancePrompt,
   generateCharacterPortrait
 } from '../../../packages/core/src/game-master/worldarchitect/story';
+import { generateHistoryEvent } from '../../../packages/core/src/game-master/worldbuilder/history';
 
 const PORT = Number(process.env.PORT || 8788);
 const ALLOWED_ORIGIN = process.env.WEBSITE_ORIGIN || '*';
@@ -88,6 +89,16 @@ Bun.serve({
 
       const dataUrl = await generateCharacterPortrait(body.prompt);
       return jsonResponse({ dataUrl: dataUrl || null });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/gm/generate-history-event') {
+      const body = await parseJson(request);
+      if (!body?.context || typeof body?.action !== 'string' || typeof body?.month !== 'number') {
+        return jsonResponse({ error: 'Invalid payload.' }, 400);
+      }
+
+      const text = await generateHistoryEvent(body.context, body.action, body.month);
+      return jsonResponse({ text: text || '' });
     }
 
     return jsonResponse({ error: 'Not found.' }, 404);

@@ -8,6 +8,7 @@ import { TravelPage } from "./travel";
 import { GalleryPage } from "./gallery";
 import { GameplayEnginePage } from "./gameplay-engine";
 import { CharacterBuilderPage } from "./character-builder";
+import { HistoryPage } from "./history";
 
 const router = createBrowserRouter([
     { path: "/", element: <App /> },
@@ -17,6 +18,7 @@ const router = createBrowserRouter([
     { path: "/gallery", element: <GalleryPage /> },
     { path: "/gameplay-engine", element: <GameplayEnginePage /> },
     { path: "/character-builder", element: <CharacterBuilderPage /> },
+    { path: "/history", element: <HistoryPage /> },
 ]);
 
 createRoot(document.getElementById("root")!).render(
