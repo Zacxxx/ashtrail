@@ -67,8 +67,9 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
                     maxApBonus += effect.value;
                 } else if (target === 'maxMp' || target === 'mp') {
                     maxMpBonus += effect.value;
-                } else if (target && target in stats) {
-                    (stats as any)[target] += effect.value;
+                } else if (target && (target in stats || target === 'armor')) {
+                    const finalTarget = target === 'armor' ? 'defense' : target;
+                    (stats as any)[finalTarget] += effect.value;
                 }
             }
         });
@@ -87,8 +88,9 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
                         maxApBonus += effect.value;
                     } else if (target === 'maxMp' || target === 'mp') {
                         maxMpBonus += effect.value;
-                    } else if (target && target in stats) {
-                        (stats as any)[target] += effect.value;
+                    } else if (target && (target in stats || target === 'armor')) {
+                        const finalTarget = target === 'armor' ? 'defense' : target;
+                        (stats as any)[finalTarget] += effect.value;
                     }
                 }
             });
@@ -105,21 +107,34 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
                     maxApBonus += effect.value;
                 } else if (effect.target === 'maxMp') {
                     maxMpBonus += effect.value;
-                } else if (effect.target && effect.target in stats) {
-                    (stats as any)[effect.target] += effect.value;
+                } else if (effect.target && (effect.target in stats || effect.target === 'armor')) {
+                    const finalTarget = effect.target === 'armor' ? 'defense' : effect.target;
+                    (stats as any)[finalTarget] += effect.value;
                 }
             }
         });
     }
 
     // Derived from rules
-    let maxHp = (rules.core.hpBase + (stats.endurance * rules.core.hpPerEndurance)) + maxHpBonus;
-    const maxAp = (rules.core.apBase + Math.floor(stats.agility / rules.core.apAgilityDivisor)) + maxApBonus;
-    const maxMp = rules.core.mpBase + maxMpBonus;
+    let maxHp = ((rules.core.hpBase || 10) + (stats.endurance * (rules.core.hpPerEndurance || 5))) + maxHpBonus;
+    const maxAp = ((rules.core.apBase || 5) + Math.floor(stats.agility / (rules.core.apAgilityDivisor || 2))) + maxApBonus;
+    const maxMp = (rules.core.mpBase || 3) + maxMpBonus;
 
-    const critChance = stats.intelligence * rules.core.critPerIntelligence;
-    const resistance = stats.wisdom * rules.core.resistPerWisdom;
-    const socialBonus = stats.charisma * rules.core.charismaBonusPerCharisma;
+    // --- NEW ARMOR CALCULATION ---
+    // Logarithmic Base Armor = (agiScale * ln(agi + 1)) + (enduScale * ln(endu + 1))
+    // Diminishing returns ensures high stat investment is rewarded but not broken.
+    const agiScale = rules.core.armorAgiScale || 2.5;
+    const enduScale = rules.core.armorEnduScale || 3.5;
+    const baseArmor = Math.floor(
+        agiScale * Math.log(stats.agility + 1) +
+        enduScale * Math.log(stats.endurance + 1)
+    );
+    // stats.defense already contains equipment bonuses
+    const finalDefense = baseArmor + (stats.defense || 0);
+
+    const critChance = stats.intelligence * (rules.core.critPerIntelligence || 0.02);
+    const resistance = stats.wisdom * (rules.core.resistPerWisdom || 0.05);
+    const socialBonus = stats.charisma * (rules.core.charismaBonusPerCharisma || 0.03);
 
     const effective: CombatEntity = {
         id: baseEntity.id || Math.random().toString(36).substring(7),
@@ -140,7 +155,7 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
         critChance,
         resistance,
         socialBonus,
-        defense: stats.defense,
+        defense: finalDefense,
         evasion: stats.evasion,
         equipped: baseEntity.equipped,
         traits,
@@ -202,7 +217,9 @@ export function useCombatEngine(initialPlayer: CombatEntity, initialEnemy: Comba
         // Damage Calculation
         // Base damage = strength with +/- 20% variance. Minus flat defense.
         const rules = GameRulesManager.get();
-        const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
+        const vMin = rules.combat.damageVarianceMin || 0.85;
+        const vMax = rules.combat.damageVarianceMax || 1.15;
+        const variance = vMin + (Math.random() * (vMax - vMin));
         let rawDamage = Math.floor(attacker.strength * variance);
 
         if (isCrit) {

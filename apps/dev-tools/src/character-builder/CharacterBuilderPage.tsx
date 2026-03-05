@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot } from "@ashtrail/core";
 import { TabBar } from "@ashtrail/ui";
+import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 
 // Map item category + name to an equipment slot
 const SLOT_MAP: Record<string, EquipSlot> = {
@@ -212,16 +213,27 @@ export function CharacterBuilderPage() {
     // Derived values from effective stats
     const derivedStats = useMemo(() => {
         const s = effectiveStats;
-        const hp = 10 + s.endurance * 5;
-        const ap = s.agility <= 5 ? 7 : s.agility <= 10 ? 10 : s.agility <= 15 ? 12 : 15;
+        const rules = GameRulesManager.get();
+        const hp = (rules.core.hpBase || 10) + s.endurance * (rules.core.hpPerEndurance || 5);
+        const ap = (rules.core.apBase || 5) + Math.floor(s.agility / (rules.core.apAgilityDivisor || 2));
 
-        // Add direct HP modifiers from items if any
+        // Calculate Armor
+        const baseArmor = Math.floor(
+            (rules.core.armorAgiScale || 2.5) * Math.log(s.agility + 1) +
+            (rules.core.armorEnduScale || 3.5) * Math.log(s.endurance + 1)
+        );
+
+        // Add direct HP and Armor modifiers from items if any
         let directHp = 0;
+        let modArmor = 0;
         Object.values(equippedItems).forEach(item => {
             if (item && item.effects) {
                 item.effects.forEach(eff => {
                     if (eff.target === 'hp' || eff.target === 'maxHp') {
-                        directHp += eff.value;
+                        directHp += (eff.value || 0);
+                    }
+                    if (eff.target === 'armor' || eff.target === 'defense') {
+                        modArmor += (eff.value || 0);
                     }
                 });
             }
@@ -230,9 +242,10 @@ export function CharacterBuilderPage() {
         return {
             hp: hp + directHp,
             ap: ap,
-            crit: `${s.intelligence * 2}%`,
-            resist: `${s.wisdom * 5}%`,
-            social: `${s.charisma * 3}%`,
+            armor: baseArmor + modArmor,
+            crit: `${(s.intelligence * (rules.core.critPerIntelligence || 0.02) * 100).toFixed(1)}%`,
+            resist: `${(s.wisdom * (rules.core.resistPerWisdom || 0.05) * 100).toFixed(0)}%`,
+            social: `${(s.charisma * (rules.core.charismaBonusPerCharisma || 0.03) * 100).toFixed(1)}%`,
             minDmg: (() => {
                 const weapon = equippedItems.mainHand;
                 let base = 4;
@@ -1425,6 +1438,7 @@ export function CharacterBuilderPage() {
                                                         {[
                                                             { label: "HP", value: derivedStats.hp },
                                                             { label: "AP", value: derivedStats.ap },
+                                                            { label: "Armor", value: derivedStats.armor },
                                                             { label: "Crit", value: derivedStats.crit },
                                                             { label: "Resist", value: derivedStats.resist },
                                                             { label: "Social", value: derivedStats.social },
@@ -2286,16 +2300,21 @@ export function CharacterBuilderPage() {
                                                 {hoverInfo.item.effects && hoverInfo.item.effects.length > 0 && (
                                                     <div className="mt-2 pt-2 border-t border-white/5 space-y-1">
                                                         <div className="text-[6px] font-black text-orange-500/70 uppercase tracking-widest mb-1">Effects:</div>
-                                                        {hoverInfo.item.effects.map((eff: any, idx: number) => (
-                                                            <div key={idx} className="flex justify-between items-center bg-white/[0.02] px-1.5 py-1 rounded border border-white/5">
-                                                                <span className="text-[7px] font-black text-gray-500 uppercase tracking-widest truncate max-w-[80px]">
-                                                                    {eff.target === 'damage' ? 'Weapon Damage' : eff.target}
-                                                                </span>
-                                                                <span className={`text-[8px] font-black ${eff.value >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                                                    {eff.value >= 0 ? '+' : ''}{eff.value}
-                                                                </span>
-                                                            </div>
-                                                        ))}
+                                                        {hoverInfo.item.effects.map((eff: any, idx: number) => {
+                                                            let label = eff.target === 'damage' ? 'Weapon Damage' : eff.target;
+                                                            if (eff.target === 'armor' || eff.target === 'defense') label = 'Armor';
+
+                                                            return (
+                                                                <div key={idx} className="flex justify-between items-center bg-white/[0.02] px-1.5 py-1 rounded border border-white/5">
+                                                                    <span className="text-[7px] font-black text-gray-500 uppercase tracking-widest truncate max-w-[80px]">
+                                                                        {label}
+                                                                    </span>
+                                                                    <span className={`text-[8px] font-black ${eff.value >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                                        {eff.value >= 0 ? '+' : ''}{eff.value}
+                                                                    </span>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 )}
                                             </div>
@@ -2321,7 +2340,14 @@ export function CharacterBuilderPage() {
                                             </span>
                                         </div>
                                     </div>
-                                    <p className="text-xs text-gray-500">Age {age} | {gender} | HP: {10 + stats.endurance * 5}</p>
+                                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                                        Age {age} | {gender} | Level {level}
+                                    </p>
+                                    <div className="flex gap-4 pt-1">
+                                        <div className="text-[9px] font-black text-emerald-500 uppercase">HP: {derivedStats.hp}</div>
+                                        <div className="text-[9px] font-black text-blue-500 uppercase">AP: {derivedStats.ap}</div>
+                                        <div className="text-[9px] font-black text-orange-500 uppercase">Armor: {derivedStats.armor}</div>
+                                    </div>
 
                                     {/* Simple Status visualization */}
                                     <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">

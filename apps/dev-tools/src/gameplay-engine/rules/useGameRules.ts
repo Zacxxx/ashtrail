@@ -10,6 +10,8 @@ export interface GameRulesConfig {
         critPerIntelligence: number;
         resistPerWisdom: number;
         charismaBonusPerCharisma: number;
+        armorAgiScale: number;
+        armorEnduScale: number;
     };
     combat: {
         damageVarianceMin: number;
@@ -37,6 +39,8 @@ const DEFAULT_RULES: GameRulesConfig = {
         critPerIntelligence: 0.02, // 2% crit per INT
         resistPerWisdom: 0.05,     // 5% resist per WIS
         charismaBonusPerCharisma: 0.03, // 3% bonus per CHA
+        armorAgiScale: 2.5,            // Scaling factor for Agility
+        armorEnduScale: 3.5,           // Scaling factor for Endurance
     },
     combat: {
         damageVarianceMin: 0.85,
@@ -59,8 +63,12 @@ const listeners = new Set<() => void>();
 
 export const GameRulesManager = {
     get: () => globalRules,
-    update: (newRules: GameRulesConfig) => {
-        globalRules = { ...newRules };
+    update: (newRules: Partial<GameRulesConfig>) => {
+        globalRules = {
+            core: { ...DEFAULT_RULES.core, ...(newRules.core || {}) },
+            combat: { ...DEFAULT_RULES.combat, ...(newRules.combat || {}) },
+            grid: { ...DEFAULT_RULES.grid, ...(newRules.grid || {}) },
+        };
         listeners.forEach(l => l());
     },
     subscribe: (listener: () => void) => {

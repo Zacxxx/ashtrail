@@ -77,6 +77,60 @@ function FormulaBox({ children }: { children: React.ReactNode }) {
     );
 }
 
+function ArmorPreview({ rules }: { rules: GameRulesConfig }) {
+    const statValues = [10, 50, 100, 150, 200];
+    const agiScale = rules.core.armorAgiScale || 2.5;
+    const enduScale = rules.core.armorEnduScale || 3.5;
+
+    return (
+        <div className="mt-6 space-y-3 bg-blue-500/5 border border-blue-500/10 rounded-lg p-4">
+            <p className="text-[10px] text-blue-400 uppercase tracking-widest font-black flex items-center gap-2">
+                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                Armor Projection (Logarithmic Scaling)
+            </p>
+            <div className="overflow-x-auto">
+                <table className="w-full text-[10px] font-mono border-collapse">
+                    <thead>
+                        <tr className="border-b border-blue-500/20">
+                            <th className="py-2 text-left text-gray-500 pr-4 italic">Stat points</th>
+                            {statValues.map(v => <th key={v} className="py-2 px-2 text-center text-gray-400">{v}pts</th>)}
+                        </tr>
+                    </thead>
+                    <tbody className="text-gray-300">
+                        <tr className="border-b border-white/5">
+                            <td className="py-2 pr-4 text-teal-400 font-bold">Base Armor (AGI)</td>
+                            {statValues.map(v => {
+                                const val = Math.floor(agiScale * Math.log(v + 1));
+                                return <td key={v} className="py-2 px-2 text-center">{val}</td>;
+                            })}
+                        </tr>
+                        <tr className="border-b border-white/5">
+                            <td className="py-2 pr-4 text-orange-400 font-bold">Base Armor (ENDU)</td>
+                            {statValues.map(v => {
+                                const val = Math.floor(enduScale * Math.log(v + 1));
+                                return <td key={v} className="py-2 px-2 text-center">{val}</td>;
+                            })}
+                        </tr>
+                        <tr>
+                            <td className="py-2 pr-4 text-indigo-400 font-black">Total Base Armor</td>
+                            {statValues.map(v => {
+                                // Assuming equal distribution of AGI and ENDU for total preview
+                                const total = Math.floor(agiScale * Math.log(v + 1) + enduScale * Math.log(v + 1));
+                                return <td key={v} className="py-2 px-2 text-center text-white font-black">{total}</td>;
+                            })}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div className="text-[9px] text-blue-500/60 leading-tight">
+                Formula: <span className="italic">floor({agiScale} × ln(Agi+1) + {enduScale} × ln(Endu+1)) + Mod Armor</span>
+                <br />
+                <span className="text-gray-500">Logarithmic scaling ensures diminishing returns with high stat investment.</span>
+            </div>
+        </div>
+    );
+}
+
 function SectionHeader({ icon, label, color, badge }: { icon: string; label: string; color: string; badge?: string }) {
     return (
         <div className="flex items-center gap-3 pb-3 border-b border-white/5">
@@ -317,7 +371,8 @@ export function GameRulesView() {
             core: {
                 hpBase: 10, hpPerEndurance: 5, apBase: 5, apAgilityDivisor: 2,
                 mpBase: 3, critPerIntelligence: 0.02, resistPerWisdom: 0.05,
-                charismaBonusPerCharisma: 0.03
+                charismaBonusPerCharisma: 0.03,
+                armorAgiScale: 2.5, armorEnduScale: 3.5
             },
             combat: {
                 damageVarianceMin: 0.85,
@@ -447,12 +502,33 @@ export function GameRulesView() {
                                     format={v => `${(v * 100).toFixed(1)}%`}
                                     onChange={v => patch("core", "charismaBonusPerCharisma", v)}
                                 />
+                                <div className="space-y-4 pt-2 col-span-3">
+                                    <p className="text-[10px] text-blue-400/70 font-bold uppercase tracking-widest">Base Armor Scaling</p>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <RuleNumber
+                                            label="Agi Scale Factor"
+                                            desc="Armor gain curve from Agility"
+                                            value={rules.core.armorAgiScale}
+                                            min={0} max={10} step={0.1}
+                                            onChange={v => patch("core", "armorAgiScale", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Endu Scale Factor"
+                                            desc="Armor gain curve from Endurance"
+                                            value={rules.core.armorEnduScale}
+                                            min={0} max={10} step={0.1}
+                                            onChange={v => patch("core", "armorEnduScale", v)}
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
                             <FormulaBox>
                                 {`HP = ${rules.core.hpBase} + (Endurance × ${rules.core.hpPerEndurance})
 AP = ${rules.core.apBase} + floor(Agility ÷ ${rules.core.apAgilityDivisor})
 MP = ${rules.core.mpBase} (Fixed)
+
+Base Armor = floor(${rules.core.armorAgiScale || 2.5} × ln(Agi+1) + ${rules.core.armorEnduScale || 3.5} × ln(Endu+1))
 
 Crit %   = Int × ${(rules.core.critPerIntelligence * 100).toFixed(1)}%
 Resist % = Wis × ${(rules.core.resistPerWisdom * 100).toFixed(0)}%
@@ -461,6 +537,7 @@ Social % = Cha × ${(rules.core.charismaBonusPerCharisma * 100).toFixed(1)}%
 Initiative: descending Agility → Endurance tiebreak`}
                             </FormulaBox>
 
+                            <ArmorPreview rules={rules} />
                             <CorePreview rules={rules} />
                         </div>
                     </section>

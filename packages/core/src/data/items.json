@@ -70,9 +70,9 @@
     "description": "No description needed",
     "effects": [
       {
-        "target": "maxHp",
+        "target": "armor",
         "type": "STAT_MODIFIER",
-        "value": 25
+        "value": 35
       }
     ],
     "equipSlot": "chest",
