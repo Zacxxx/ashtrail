@@ -6,8 +6,8 @@ import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacti
 import { GameRulesManager } from '../rules/useGameRules';
 
 // ── Default skills given to characters without their own ──
-const DEFAULT_PLAYER_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot'].includes(s.id));
-const DEFAULT_ENEMY_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+const DEFAULT_PLAYER_SKILLS: Skill[] = GameRegistry.getAllSkills().filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot'].includes(s.id));
+const DEFAULT_ENEMY_SKILLS: Skill[] = GameRegistry.getAllSkills().filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number): TacticalEntity {
     const skills = char.skills && char.skills.length > 0

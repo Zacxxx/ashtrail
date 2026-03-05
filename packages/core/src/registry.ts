@@ -1,3 +1,4 @@
+import { ALL_SKILLS } from './mockData';
 import traitsData from './data/traits.json';
 import occupationsData from './data/occupations.json';
 import itemsData from './data/items.json';
@@ -27,15 +28,14 @@ export class GameRegistry {
         const itemsArray = Array.isArray(iData) ? iData : (iData && typeof iData === 'object' && iData.id ? [iData] : []);
         itemsArray.forEach(i => this.items.set(i.id, i));
 
-        import('./mockData').then(({ ALL_SKILLS }) => {
-            ALL_SKILLS.forEach(s => this.skills.set(s.id, s));
-        });
+        ALL_SKILLS.forEach(s => this.skills.set(s.id, s));
 
         this.initialized = true;
     }
 
     // Reloads data from the dev-tools backend (used in dev-tools CMS)
     public static async fetchFromBackend(backendUrl: string = 'http://127.0.0.1:8787') {
+        this.initialize();
         try {
             const tRes = await fetch(`${backendUrl}/api/data/traits`);
             if (tRes.ok) {

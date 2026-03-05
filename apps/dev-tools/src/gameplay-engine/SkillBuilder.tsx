@@ -158,7 +158,7 @@ export function SkillBuilder() {
                             className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-[11px] text-white outline-none focus:border-indigo-500/40 transition-all"
                         />
                         <div className="flex gap-1">
-                            {["all", "base", "occupation", "unique"].map(cat => (
+                            {["all", "base", "occupation", "unique", "equipment"].map(cat => (
                                 <button
                                     key={cat}
                                     onClick={() => setFilterCategory(cat as any)}
@@ -193,7 +193,8 @@ export function SkillBuilder() {
                                 <div className="flex items-center gap-2">
                                     <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${s.category === 'unique' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
                                         s.category === 'occupation' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
-                                            'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+                                            s.category === 'equipment' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                                'bg-gray-500/20 text-gray-400 border border-gray-500/30'
                                         }`}>
                                         {s.category}
                                     </span>
@@ -261,6 +262,7 @@ export function SkillBuilder() {
                                 <option value="base">Base</option>
                                 <option value="occupation">Occupation</option>
                                 <option value="unique">Unique</option>
+                                <option value="equipment">Equipment</option>
                             </select>
                         </div>
                         <div className="col-span-2 space-y-1">

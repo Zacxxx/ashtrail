@@ -1,0 +1,16 @@
+{
+    "id": "slash",
+    "name": "Slash",
+    "description": "A quick melee strike.",
+    "icon": "🗡️",
+    "category": "base",
+    "apCost": 3,
+    "minRange": 1,
+    "maxRange": 1,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 10,
+    "cooldown": 0,
+    "effectType": "physical"
+}

@@ -1,0 +1,16 @@
+{
+    "id": "fireball",
+    "name": "Fireball",
+    "description": "Hurl a ball of flame at range 2-4. Hits a 1-cell radius.",
+    "icon": "🔥",
+    "category": "base",
+    "apCost": 4,
+    "minRange": 2,
+    "maxRange": 4,
+    "areaType": "circle",
+    "areaSize": 1,
+    "targetType": "cell",
+    "damage": 14,
+    "cooldown": 1,
+    "effectType": "magical"
+}

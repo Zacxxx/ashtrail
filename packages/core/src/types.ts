@@ -96,7 +96,7 @@ export interface Item {
 export type SkillTargetType = 'enemy' | 'ally' | 'self' | 'cell';
 export type SkillAreaType = 'single' | 'cross' | 'circle' | 'line';
 
-export type SkillCategory = 'occupation' | 'base' | 'unique';
+export type SkillCategory = 'occupation' | 'base' | 'unique' | 'equipment';
 
 export interface Skill {
   id: string;
