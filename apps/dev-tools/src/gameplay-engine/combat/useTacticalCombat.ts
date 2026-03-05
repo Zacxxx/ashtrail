@@ -26,6 +26,7 @@ export interface TacticalEntity {
     intelligence: number;
     wisdom: number;
     charisma: number;
+    endurance: number;
     critChance: number;
     resistance: number;
     socialBonus: number;
@@ -35,6 +36,7 @@ export interface TacticalEntity {
     traits: Trait[];
     skills: Skill[];
     skillCooldowns: Record<string, number>; // skillId -> turns remaining
+    activeEffects: any[]; // GameplayEffect[]
     // Tactical additions
     ap: number;
     maxAp: number;
@@ -89,17 +91,21 @@ export function createTacticalEntity(
     traits: Trait[],
     skills: Skill[],
     gridPos: { row: number; col: number },
-    equipped?: Record<string, any>
+    equipped?: Record<string, any>,
+    activeEffects: any[] = []
 ): TacticalEntity {
-    const base = calculateEffectiveStats(
-        { id, isPlayer, name, hp, maxHp, strength, agility, endurance, intelligence, wisdom, charisma, evasion, defense, traits, equipped } as any,
-        traits
-    );
+    const baseEntity: Partial<TacticalEntity> = {
+        id, isPlayer, name, hp, maxHp, strength, agility, endurance, intelligence, wisdom, charisma, evasion, defense, traits, equipped, activeEffects
+    };
+    const effective = calculateEffectiveStats(baseEntity as any, traits); // Cast to any because calculateEffectiveStats expects CombatEntity
+
     return {
-        ...base,
+        ...effective,
         skills,
         skillCooldowns: {},
+        activeEffects: effective.activeEffects || [],
         gridPos,
+        endurance: effective.endurance,
     };
 }
 
@@ -223,9 +229,12 @@ export function useTacticalCombat(
         if (phase !== 'combat' || !activeEntity || !isPlayerTurn) return;
         if (playerAction === 'idle') {
             const reachable = getReachableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, activeEntity.mp);
-            setGrid(prev => highlightCells(prev, reachable, 'move'));
+            setGrid(prev => {
+                const cleared = clearHighlights(prev);
+                return highlightCells(cleared, reachable, 'move');
+            });
         }
-    }, [activeEntityId, playerAction, phase]);
+    }, [activeEntityId, playerAction, activeEntity?.mp, activeEntity?.gridPos?.row, activeEntity?.gridPos?.col, phase]);
 
     // ── Show attackable cells when skill is selected ──
     useEffect(() => {
@@ -384,6 +393,37 @@ export function useTacticalCombat(
                     // Push logic could go here
                 }
             }
+
+            // --- APPLY ACTIVE EFFECTS (Buffs/Debuffs) ---
+            if (skill.effects && skill.effects.length > 0) {
+                skill.effects.forEach(eff => {
+                    // Store the effect on the target
+                    tCopy.activeEffects = [...(tCopy.activeEffects || []), { ...eff }];
+
+                    // Specific feedback for some targets
+                    if (eff.type === 'STAT_MODIFIER' || eff.type === 'COMBAT_BONUS') {
+                        logsToAdd.push({
+                            msg: `✨ ${tCopy.name} receives ${eff.target} modifier: ${eff.value >= 0 ? '+' : ''}${eff.value} (${eff.duration || '∞'} turns)`,
+                            type: 'info'
+                        });
+                    }
+                });
+
+                // Recalculate stats immediately to apply the new effects
+                const prevMaxMp = tCopy.maxMp;
+                const prevMaxAp = tCopy.maxAp;
+
+                const recalculated = calculateEffectiveStats(tCopy, tCopy.traits);
+                Object.assign(tCopy, recalculated);
+
+                // If Max stats increased, give the bonus current pool for immediate use
+                const diffMp = tCopy.maxMp - prevMaxMp;
+                if (diffMp > 0) tCopy.mp += diffMp;
+
+                const diffAp = tCopy.maxAp - prevMaxAp;
+                if (diffAp > 0) tCopy.ap += diffAp;
+            }
+
             nextEntities.set(targetId, tCopy);
         }
 
@@ -622,17 +662,48 @@ export function useTacticalCombat(
             setTurnNumber(t => t + 1);
         }
 
-        // Reset AP/MP and tick cooldowns for the next entity
+        // Reset AP/MP and tick cooldowns/active effects for the next entity
         const nextEntityId = turnOrder[nextIndex];
         setEntities(prev => {
             const next = new Map(prev);
             const e = next.get(nextEntityId);
             if (e) {
+                const nextE = { ...e };
+
+                // 1. Tick Cooldowns
                 const newCooldowns: Record<string, number> = {};
-                for (const [skillId, cd] of Object.entries(e.skillCooldowns)) {
+                for (const [skillId, cd] of Object.entries(nextE.skillCooldowns)) {
                     if (cd > 1) newCooldowns[skillId] = cd - 1;
                 }
-                next.set(nextEntityId, { ...e, ap: e.maxAp, mp: e.maxMp, skillCooldowns: newCooldowns });
+                nextE.skillCooldowns = newCooldowns;
+
+                // 2. Tick Active Effects (Buffs)
+                const remainingEffects = (nextE.activeEffects || []).map(eff => ({
+                    ...eff,
+                    duration: eff.duration !== undefined ? eff.duration - 1 : undefined
+                })).filter(eff => eff.duration === undefined || eff.duration > 0);
+
+                const effectsChanged = remainingEffects.length !== (nextE.activeEffects || []).length;
+                nextE.activeEffects = remainingEffects;
+
+                // 3. Recalculate stats if effects changed
+                if (effectsChanged) {
+                    const recalculated = calculateEffectiveStats(nextE, nextE.traits);
+                    // We preserve current HP/AP/MP but update Max values and other stats
+                    Object.assign(nextE, {
+                        ...recalculated,
+                        hp: Math.min(nextE.hp, recalculated.maxHp),
+                        ap: Math.min(nextE.ap, recalculated.maxAp),
+                        mp: Math.min(nextE.mp, recalculated.maxMp)
+                    });
+                    addLog(`✨ Some effects on ${nextE.name} have expired.`, 'info');
+                }
+
+                // Reset per-turn resources
+                nextE.ap = nextE.maxAp;
+                nextE.mp = nextE.maxMp;
+
+                next.set(nextEntityId, nextE);
             }
             return next;
         });

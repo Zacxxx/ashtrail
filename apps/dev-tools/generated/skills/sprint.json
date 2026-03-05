@@ -1,0 +1,26 @@
+{
+    "id": "sprint",
+    "name": "Sprint",
+    "description": "A quick burst of speed. +3 Movement Points for the current turn.",
+    "category": "base",
+    "icon": "👟",
+    "apCost": 2,
+    "minRange": 0,
+    "maxRange": 0,
+    "targetType": "self",
+    "areaType": "single",
+    "areaSize": 0,
+    "cooldown": 2,
+    "effects": [
+        {
+            "id": "effect-sprint-mp",
+            "name": "Sprint Bonus",
+            "description": "Increases Movement Points.",
+            "type": "STAT_MODIFIER",
+            "target": "maxMp",
+            "value": 3,
+            "duration": 1,
+            "trigger": "passive"
+        }
+    ]
+}

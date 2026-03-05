@@ -17,6 +17,7 @@ export interface CombatEntity {
     intelligence: number;
     wisdom: number;
     charisma: number;
+    endurance: number;
     critChance: number;
     resistance: number;
     socialBonus: number;
@@ -24,6 +25,7 @@ export interface CombatEntity {
     defense: number;
     equipped?: Record<string, any>;
     traits: Trait[];
+    activeEffects?: any[]; // GameplayEffect[] but avoid circular/type issues if any
 }
 
 export interface CombatLogMessage {
@@ -45,12 +47,11 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
         charisma: baseEntity.charisma || 10,
     };
 
-    // Derived from rules
-    let maxHp = rules.core.hpBase + (stats.endurance * rules.core.hpPerEndurance);
-    const maxAp = rules.core.apBase + Math.floor(stats.agility / rules.core.apAgilityDivisor);
-    const maxMp = rules.core.mpBase;
+    let maxHpBonus = 0;
+    let maxApBonus = 0;
+    let maxMpBonus = 0;
 
-    // Apply trait effects
+    // Apply trait effects (Passive)
     traits.forEach(trait => {
         if (!trait.effects) return;
         trait.effects.forEach(effect => {
@@ -58,13 +59,39 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
 
             if (effect.type === 'STAT_MODIFIER' || effect.type === 'COMBAT_BONUS') {
                 if (effect.target === 'maxHp') {
-                    maxHp += effect.value;
+                    maxHpBonus += effect.value;
+                } else if (effect.target === 'maxAp') {
+                    maxApBonus += effect.value;
+                } else if (effect.target === 'maxMp') {
+                    maxMpBonus += effect.value;
                 } else if (effect.target && effect.target in stats) {
                     (stats as any)[effect.target] += effect.value;
                 }
             }
         });
     });
+
+    // Apply Active Effects (Buffs/Debuffs)
+    if (baseEntity.activeEffects) {
+        baseEntity.activeEffects.forEach(effect => {
+            if (effect.type === 'STAT_MODIFIER' || effect.type === 'COMBAT_BONUS') {
+                if (effect.target === 'maxHp') {
+                    maxHpBonus += effect.value;
+                } else if (effect.target === 'maxAp') {
+                    maxApBonus += effect.value;
+                } else if (effect.target === 'maxMp') {
+                    maxMpBonus += effect.value;
+                } else if (effect.target && effect.target in stats) {
+                    (stats as any)[effect.target] += effect.value;
+                }
+            }
+        });
+    }
+
+    // Derived from rules
+    let maxHp = (rules.core.hpBase + (stats.endurance * rules.core.hpPerEndurance)) + maxHpBonus;
+    const maxAp = (rules.core.apBase + Math.floor(stats.agility / rules.core.apAgilityDivisor)) + maxApBonus;
+    const maxMp = rules.core.mpBase + maxMpBonus;
 
     const critChance = stats.intelligence * rules.core.critPerIntelligence;
     const resistance = stats.wisdom * rules.core.resistPerWisdom;
@@ -85,13 +112,15 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
         intelligence: stats.intelligence,
         wisdom: stats.wisdom,
         charisma: stats.charisma,
+        endurance: stats.endurance,
         critChance,
         resistance,
         socialBonus,
         evasion: baseEntity.evasion || 5, // Evasion still from baseEntity or could be agility based?
         defense: baseEntity.defense || 0,
         equipped: baseEntity.equipped,
-        traits: traits
+        traits: traits,
+        activeEffects: baseEntity.activeEffects || []
     };
 
     // Clamp HP if MaxHP was modified
