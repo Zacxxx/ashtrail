@@ -1,12 +1,19 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Card, CollapsibleSection } from "@ashtrail/ui";
+import { type GenerationHistoryItem, type TemporalityConfig } from "../hooks/useGenerationHistory";
+import { DateSelector } from "../components/DateSelector";
+import { AshtrailDate, formatAshtrailDate } from "../lib/calendar";
 
 export interface HistoryEvent {
-    month: number;
+    date: AshtrailDate;
     description: string;
 }
 
-export function TimelineTab() {
+interface TimelineTabProps {
+    selectedWorld: GenerationHistoryItem | null;
+}
+
+export function TimelineTab({ selectedWorld }: TimelineTabProps) {
     const [factions, setFactions] = useState("The Crimson Guard, Nomads of the Ash, The Synthetic Collective");
     const [worldLore, setWorldLore] = useState("The world is a harsh desert wasteland, recovering from a catastrophic AI war centuries ago. Resources are scarce, and water is power.");
     const [areas, setAreas] = useState("The Obsidian Spire (capital), The Rusting Wastes (scavenger territory), Oasis Prime (neutral zone).");
@@ -15,7 +22,27 @@ export function TimelineTab() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [isContextCollapsed, setIsContextCollapsed] = useState(false);
 
-    const targetMonth = events.length + 1;
+    const [temporality, setTemporality] = useState<TemporalityConfig | null>(null);
+    const [targetDate, setTargetDate] = useState<AshtrailDate>({ year: 31, era: 'AC', month: 1, day: 1 });
+
+    useEffect(() => {
+        if (!selectedWorld) {
+            setTemporality(null);
+            return;
+        }
+
+        fetch(`http://localhost:8787/api/planet/temporality/${selectedWorld.id}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.eras) {
+                    setTemporality(data);
+                    setTargetDate(data.currentDate);
+                } else {
+                    setTemporality(null);
+                }
+            })
+            .catch(() => setTemporality(null));
+    }, [selectedWorld]);
 
     const handleGenerate = async () => {
         if (!action.trim()) return;
@@ -26,16 +53,23 @@ export function TimelineTab() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    context: { factions, worldLore, areas, previousEvents: events },
-                    action,
-                    month: targetMonth
+                    context: {
+                        factions,
+                        worldLore,
+                        areas,
+                        previousEvents: events.map(e => ({ date: formatAshtrailDate(e.date, temporality || undefined), description: e.description })),
+                        temporalityRules: temporality
+                            ? `This world uses a custom calendar. Eras are ${temporality.eras.before} and ${temporality.eras.after}. The current date is ${formatAshtrailDate(targetDate, temporality)}.`
+                            : "Standard time reckoning."
+                    },
+                    action
                 })
             });
 
             if (!res.ok) throw new Error("Generation failed");
             const data = await res.json();
 
-            setEvents(prev => [...prev, { month: targetMonth, description: data.text }]);
+            setEvents(prev => [...prev, { date: targetDate, description: data.text }]);
             setAction("");
         } catch (e) {
             console.error("Failed to generate history", e);
@@ -85,10 +119,15 @@ export function TimelineTab() {
                 </CollapsibleSection>
 
                 <Card className="flex flex-col gap-4 bg-[#121820] border-red-500/20 shadow-lg shadow-red-500/5 mt-auto shrink-0">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                        <h2 className="text-sm font-bold tracking-widest text-red-500 uppercase">
-                            NEXT EVENT: MONTH {targetMonth}
+                    <div className="flex flex-col gap-2 border-b border-white/5 pb-3">
+                        <h2 className="text-[10px] font-bold tracking-widest text-red-500 uppercase">
+                            NEXT EVENT TARGET DATE
                         </h2>
+                        <DateSelector
+                            config={temporality || undefined}
+                            date={targetDate}
+                            onChange={setTargetDate}
+                        />
                     </div>
                     <div className="flex flex-col gap-3">
                         <label className="text-xs font-bold text-gray-500 tracking-widest">PROPOSED ACTION</label>
@@ -137,7 +176,7 @@ export function TimelineTab() {
                                     <div className="shrink-0 w-4 h-4 rounded-full bg-red-500 border-[3px] border-[#121820] shadow-[0_0_10px_rgba(239,68,68,0.5)] z-10 -ml-[7px] mt-1.5 transition-transform group-hover:scale-125" />
                                     <div className="flex-1">
                                         <div className="text-xs font-bold text-red-500 tracking-widest mb-2 flex items-center gap-2">
-                                            <span>MONTH {event.month}</span>
+                                            <span>{formatAshtrailDate(event.date, temporality || undefined)}</span>
                                             <div className="flex-1 h-px bg-white/5" />
                                         </div>
                                         <div className="bg-[#0a0f14] border border-white/5 rounded-xl p-5 shadow-lg group-hover:border-red-500/30 transition-colors">
@@ -153,7 +192,7 @@ export function TimelineTab() {
                                     <div className="shrink-0 w-4 h-4 rounded-full bg-gray-500 border-[3px] border-[#121820] z-10 -ml-[7px] mt-1.5 animate-pulse" />
                                     <div className="flex-1">
                                         <div className="text-xs font-bold text-gray-500 tracking-widest mb-2 flex items-center gap-2">
-                                            <span>MONTH {targetMonth}</span>
+                                            <span>{formatAshtrailDate(targetDate, temporality || undefined)}</span>
                                             <div className="flex-1 h-px bg-white/5" />
                                         </div>
                                         <div className="bg-[#0a0f14] border border-white/5 rounded-xl p-5 flex items-center gap-3">

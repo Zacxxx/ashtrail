@@ -442,10 +442,12 @@ async fn main() {
         .route("/api/history", get(get_history).post(save_history).delete(clear_history))
         .route("/api/history/{id}", delete(delete_history))
         .route("/api/planet/geography/{id}", get(get_geography).post(save_geography))
+        .route("/api/planet/worldgen-regions/{id}", get(get_worldgen_regions))
         .route("/api/planet/lore-snippets/{id}", get(get_lore_snippets).post(save_lore_snippets))
         .route("/api/planet/factions/{id}", get(get_factions).post(save_factions))
-        .route("/api/planet/areas/{id}", get(get_areas).post(save_areas))
+        .route("/api/planet/locations/{id}", get(get_locations).post(save_locations))
         .route("/api/planet/characters/{id}", get(get_characters).post(save_characters))
+        .route("/api/planet/temporality/{id}", get(get_temporality).post(save_temporality))
         .route("/api/planet/cells/job", post(start_cells_job))
         .route("/api/planet/cells/job/{job_id}", get(get_job_status))
         .route("/api/planet/cells/{id}", get(get_cells).post(save_cells))
@@ -1436,6 +1438,92 @@ async fn save_geography(
     }
 }
 
+/// Returns a merged flat list of all worldgen hierarchy entities (continents, kingdoms, duchies, provinces).
+async fn get_worldgen_regions(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let worldgen_dir = state.planets_dir.join(&id).join("worldgen");
+    if !worldgen_dir.exists() {
+        return (StatusCode::OK, Json(serde_json::json!([]))).into_response();
+    }
+
+    let mut regions: Vec<serde_json::Value> = Vec::new();
+
+    // Read continents
+    if let Ok(data) = std::fs::read_to_string(worldgen_dir.join("continents.json")) {
+        if let Ok(continents) = serde_json::from_str::<Vec<serde_json::Value>>(&data) {
+            for c in continents {
+                let raw_id = c.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                regions.push(serde_json::json!({
+                    "id": format!("wgen_continents_{}", raw_id),
+                    "rawId": raw_id,
+                    "name": c.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown Continent"),
+                    "type": "Continent",
+                    "kingdomIds": c.get("kingdomIds").cloned().unwrap_or(serde_json::json!([])),
+                }));
+            }
+        }
+    }
+
+    // Read kingdoms
+    if let Ok(data) = std::fs::read_to_string(worldgen_dir.join("kingdoms.json")) {
+        if let Ok(kingdoms) = serde_json::from_str::<Vec<serde_json::Value>>(&data) {
+            for k in kingdoms {
+                let raw_id = k.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                regions.push(serde_json::json!({
+                    "id": format!("wgen_kingdoms_{}", raw_id),
+                    "rawId": raw_id,
+                    "name": k.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown Kingdom"),
+                    "type": "Kingdom",
+                    "duchyIds": k.get("duchyIds").cloned().unwrap_or(serde_json::json!([])),
+                }));
+            }
+        }
+    }
+
+    // Read duchies
+    if let Ok(data) = std::fs::read_to_string(worldgen_dir.join("duchies.json")) {
+        if let Ok(duchies) = serde_json::from_str::<Vec<serde_json::Value>>(&data) {
+            for d in duchies {
+                let raw_id = d.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                regions.push(serde_json::json!({
+                    "id": format!("wgen_duchies_{}", raw_id),
+                    "rawId": raw_id,
+                    "name": d.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown Duchy"),
+                    "type": "Duchy",
+                    "kingdomId": d.get("kingdomId").cloned().unwrap_or(serde_json::json!(0)),
+                    "provinceIds": d.get("provinceIds").cloned().unwrap_or(serde_json::json!([])),
+                }));
+            }
+        }
+    }
+
+    // Read provinces
+    if let Ok(data) = std::fs::read_to_string(worldgen_dir.join("provinces.json")) {
+        if let Ok(provinces) = serde_json::from_str::<Vec<serde_json::Value>>(&data) {
+            for p in provinces {
+                let raw_id = p.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                regions.push(serde_json::json!({
+                    "id": format!("wgen_provinces_{}", raw_id),
+                    "rawId": raw_id,
+                    "name": p.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown Province"),
+                    "type": "Province",
+                    "duchyId": p.get("duchyId").cloned().unwrap_or(serde_json::json!(0)),
+                    "kingdomId": p.get("kingdomId").cloned().unwrap_or(serde_json::json!(0)),
+                    "area": p.get("area").cloned().unwrap_or(serde_json::json!(0)),
+                    "biomePrimary": p.get("biomePrimary").cloned().unwrap_or(serde_json::json!(0)),
+                    "population": p.get("population").cloned().unwrap_or(serde_json::json!(null)),
+                    "wealth": p.get("wealth").cloned().unwrap_or(serde_json::json!(null)),
+                    "development": p.get("development").cloned().unwrap_or(serde_json::json!(null)),
+                }));
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!(regions))).into_response()
+}
+
 async fn get_lore_snippets(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1461,6 +1549,37 @@ async fn save_lore_snippets(
 
     let file_path = planet_dir.join("lore_snippets.json");
     match std::fs::write(&file_path, serde_json::to_string_pretty(&snippets).unwrap_or_default()) {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+async fn get_temporality(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let file_path = state.planets_dir.join(&id).join("temporality.json");
+    if let Ok(data) = std::fs::read_to_string(&file_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+            return (StatusCode::OK, Json(json)).into_response();
+        }
+    }
+    // Return empty payload if not found
+    (StatusCode::OK, Json(serde_json::Value::Null)).into_response()
+}
+
+async fn save_temporality(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(temporality): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let planet_dir = state.planets_dir.join(&id);
+    if let Err(e) = std::fs::create_dir_all(&planet_dir) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+    }
+
+    let file_path = planet_dir.join("temporality.json");
+    match std::fs::write(&file_path, serde_json::to_string_pretty(&temporality).unwrap_or_default()) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -1496,11 +1615,11 @@ async fn save_factions(
     }
 }
 
-async fn get_areas(
+async fn get_locations(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let file_path = state.planets_dir.join(&id).join("areas.json");
+    let file_path = state.planets_dir.join(&id).join("locations.json");
     if let Ok(data) = std::fs::read_to_string(&file_path) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
             return (StatusCode::OK, Json(json)).into_response();
@@ -1509,18 +1628,18 @@ async fn get_areas(
     (StatusCode::OK, Json(serde_json::json!([]))).into_response()
 }
 
-async fn save_areas(
+async fn save_locations(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(areas): Json<serde_json::Value>,
+    Json(locations): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let planet_dir = state.planets_dir.join(&id);
     if let Err(e) = std::fs::create_dir_all(&planet_dir) {
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
     }
 
-    let file_path = planet_dir.join("areas.json");
-    match std::fs::write(&file_path, serde_json::to_string_pretty(&areas).unwrap_or_default()) {
+    let file_path = planet_dir.join("locations.json");
+    match std::fs::write(&file_path, serde_json::to_string_pretty(&locations).unwrap_or_default()) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }

@@ -5,12 +5,14 @@ import { TabBar, Modal } from "@ashtrail/ui";
 import { TimelineTab } from "./TimelineTab";
 import { LoreTab } from "./LoreTab";
 import { FactionsTab } from "./FactionsTab";
-import { AreasTab } from "./AreasTab";
+import { LocationsTab } from "./LocationsTab";
+import { RegionsTab } from "./RegionsTab";
 import { CharactersTab } from "./CharactersTab";
+import { TemporalityTab } from "./TemporalityTab";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 
-export type HistoryTab = "lore" | "factions" | "areas" | "characters" | "timeline";
+export type HistoryTab = "lore" | "regions" | "locations" | "factions" | "characters" | "timeline" | "temporality";
 
 export function HistoryPage() {
     const [activeTab, setActiveTab] = useState<HistoryTab>("lore");
@@ -19,7 +21,7 @@ export function HistoryPage() {
     const { history, deleteFromHistory } = useGenerationHistory();
 
     return (
-        <div className="min-h-screen bg-[#070b12] text-gray-300 font-sans p-8 flex flex-col">
+        <div className="h-screen overflow-hidden bg-[#070b12] text-gray-300 font-sans p-8 flex flex-col">
             {/* Header */}
             <header className="mb-6 flex items-center gap-6 shrink-0 border-b border-white/5 pb-6">
                 <div className="flex items-center gap-4">
@@ -36,7 +38,7 @@ export function HistoryPage() {
 
                 <div className="h-8 border-l border-white/10 ml-2 pl-6 flex-1 max-w-2xl">
                     <TabBar
-                        tabs={["lore", "factions", "areas", "characters", "timeline"]}
+                        tabs={["lore", "regions", "locations", "factions", "characters", "timeline", "temporality"]}
                         activeTab={activeTab}
                         onTabChange={(tab) => setActiveTab(tab as HistoryTab)}
                     />
@@ -71,9 +73,11 @@ export function HistoryPage() {
                 />
             )}
             {activeTab === "factions" && <FactionsTab selectedWorld={selectedWorld} setActiveTab={setActiveTab} />}
-            {activeTab === "areas" && <AreasTab selectedWorld={selectedWorld} setActiveTab={setActiveTab} />}
+            {activeTab === "regions" && <RegionsTab selectedWorld={selectedWorld} />}
+            {activeTab === "locations" && <LocationsTab selectedWorld={selectedWorld} setActiveTab={setActiveTab} />}
             {activeTab === "characters" && <CharactersTab selectedWorld={selectedWorld} setActiveTab={setActiveTab} />}
-            {activeTab === "timeline" && <TimelineTab />}
+            {activeTab === "timeline" && <TimelineTab selectedWorld={selectedWorld} />}
+            {activeTab === "temporality" && <TemporalityTab selectedWorld={selectedWorld} onSelectWorld={setSelectedWorld} />}
 
             {/* Gallery Modal */}
             <Modal open={showGalleryModal} onClose={() => setShowGalleryModal(false)} title="ARCHIVES - PICK A WORLD">

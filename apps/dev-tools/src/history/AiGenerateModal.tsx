@@ -1,13 +1,13 @@
 import { useState, useCallback } from "react";
 import { Modal, Button, Slider } from "@ashtrail/ui";
 import type { Faction } from "./FactionsTab";
-import type { Area } from "./AreasTab";
+import type { Area } from "./LocationsTab";
 import type { Character } from "./CharactersTab";
 
 // ── Types ──
 
-type EntityType = "faction" | "area" | "character";
-type GeneratedEntity = Faction | Area | Character;
+type EntityType = "faction" | "area" | "character" | "lore";
+type GeneratedEntity = Faction | Area | Character | any; // Use any for lore to avoid circular dependency, we'll cast it in LoreTab
 
 interface AiGenerateModalProps {
     open: boolean;
@@ -15,6 +15,7 @@ interface AiGenerateModalProps {
     entityType: EntityType;
     onConfirm: (items: GeneratedEntity[]) => void;
     existingItems?: GeneratedEntity[];
+    additionalContext?: string;
 }
 
 interface GeneratedPreview {
@@ -53,12 +54,20 @@ const SCHEMA_HINTS: Record<EntityType, string> = {
   affiliation: string,
   lore: string (2-4 sentences of rich character backstory),
   relationships: string`,
+    lore: `Each object MUST have exactly these fields:
+  id: string (UUID format),
+  date: { year: number, era: string, month: number, day: number },
+  location: string,
+  content: string (2-4 sentences describing a historical event or lore snippet),
+  involvedFactions: string[] (array of faction names involved),
+  involvedCharacters: string[] (array of character names involved)`,
 };
 
 const ENTITY_LABELS: Record<EntityType, string> = {
     faction: "Factions",
     area: "Areas",
     character: "Characters",
+    lore: "Lore Snippets",
 };
 
 function buildPrompt(
@@ -67,6 +76,7 @@ function buildPrompt(
     count: number,
     mode: "shared" | "individual",
     existingItems: GeneratedEntity[],
+    additionalContext?: string
 ): string {
     const existingContext = existingItems.length > 0
         ? `\nExisting ${ENTITY_LABELS[entityType]} in this world (avoid duplicating these):\n${existingItems.map(e => `- ${(e as any).name}`).join("\n")}\n`
@@ -77,10 +87,13 @@ function buildPrompt(
         : `Generate exactly ${count} items. Each item must uniquely follow its corresponding creative direction from the list below:
 ${(userPrompt as string[]).map((p, i) => `Item ${i + 1}: "${p || 'Use your own creativity'}"`).join("\n")}`;
 
+    const additionalCtx = additionalContext ? `\nWorld Context:\n${additionalContext}\n` : "";
+
     return `You are a fantasy worldbuilding assistant. Generate exactly ${count} unique ${ENTITY_LABELS[entityType].toLowerCase()} for a dark fantasy world.
 
 ${modeInstruction}
 ${existingContext}
+${additionalCtx}
 ${SCHEMA_HINTS[entityType]}
 
 CRITICAL: Respond ONLY with a valid JSON array. No markdown fences, no explanation, no comments. Just the raw JSON array.
@@ -96,6 +109,7 @@ export function AiGenerateModal({
     entityType,
     onConfirm,
     existingItems = [],
+    additionalContext,
 }: AiGenerateModalProps) {
     const [prompt, setPrompt] = useState("");
     const [individualPrompts, setIndividualPrompts] = useState<string[]>(Array(10).fill(""));
@@ -115,7 +129,7 @@ export function AiGenerateModal({
         setError(null);
 
         try {
-            const fullPrompt = buildPrompt(entityType, activePrompt, count, mode, existingItems);
+            const fullPrompt = buildPrompt(entityType, activePrompt, count, mode, existingItems, additionalContext);
             const res = await fetch("/api/text/generate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -143,7 +157,7 @@ export function AiGenerateModal({
         } finally {
             setIsGenerating(false);
         }
-    }, [prompt, individualPrompts, count, mode, entityType, existingItems]);
+    }, [prompt, individualPrompts, count, mode, entityType, existingItems, additionalContext]);
 
     const toggleSelection = (idx: number) => {
         setPreviews(prev => prev.map((p, i) => i === idx ? { ...p, selected: !p.selected } : p));
@@ -199,6 +213,13 @@ export function AiGenerateModal({
                     subtitle: `${e.role} · ${e.status}`,
                     stats: e.affiliation || "Unaffiliated",
                 };
+            case "lore":
+                const d = e.date || { year: 0, era: '?', month: 1, day: 1 };
+                return {
+                    name: e.location || "Unknown Location",
+                    subtitle: `${d.day}/${d.month}/${d.year} ${d.era}`,
+                    stats: e.involvedFactions?.length ? e.involvedFactions.join(", ") : "No factions",
+                };
         }
     };
 
@@ -206,6 +227,7 @@ export function AiGenerateModal({
         faction: { bg: "bg-purple-500", text: "text-purple-400", border: "border-purple-500/30", glow: "bg-purple-500/10" },
         area: { bg: "bg-emerald-500", text: "text-emerald-400", border: "border-emerald-500/30", glow: "bg-emerald-500/10" },
         character: { bg: "bg-amber-500", text: "text-amber-400", border: "border-amber-500/30", glow: "bg-amber-500/10" },
+        lore: { bg: "bg-cyan-500", text: "text-cyan-400", border: "border-cyan-500/30", glow: "bg-cyan-500/10" },
     }[entityType];
 
     return (
@@ -381,7 +403,7 @@ export function AiGenerateModal({
                                                 <span className="text-[9px] text-gray-500 font-mono tracking-wider shrink-0">{summary.subtitle}</span>
                                             </div>
                                             <p className="text-[11px] text-gray-400 line-clamp-2 leading-relaxed">
-                                                {(preview.entity as any).lore}
+                                                {entityType === "lore" ? (preview.entity as any).content : (preview.entity as any).lore}
                                             </p>
                                             <p className="text-[9px] text-gray-600 font-mono mt-1">{summary.stats}</p>
                                         </div>

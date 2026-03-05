@@ -4,7 +4,7 @@ import { Button, Card } from "@ashtrail/ui";
 import { AiGenerateModal } from "./AiGenerateModal";
 
 import { type HistoryTab } from "./HistoryPage";
-import { type Area } from "./AreasTab";
+import { type Area } from "./LocationsTab";
 
 interface FactionsTabProps {
     selectedWorld: GenerationHistoryItem | null;

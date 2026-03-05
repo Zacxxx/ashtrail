@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import type { SimulationConfig } from "../modules/geo/types";
+export interface TemporalityConfig {
+    eras: { before: string; after: string; splitEvent: string };
+    months: { name: string; days: number }[];
+    currentDate: { year: number; era: string; month: number; day: number };
+}
 
 export interface GenerationHistoryItem {
     id: string;            // The job ID or UUID
@@ -10,6 +15,7 @@ export interface GenerationHistoryItem {
     thumbnailUrl?: string; // Smaller version for gallery
     isUpscaled?: boolean;  // True if generated via ESRGAN
     parentId?: string;     // History ID of the original non-upscaled map
+    temporality?: TemporalityConfig; // The custom time system
 }
 
 const API_URL = "/api/history";

@@ -4,7 +4,7 @@ import { Button } from "@ashtrail/ui";
 import { AiGenerateModal } from "./AiGenerateModal";
 
 import { type HistoryTab } from "./HistoryPage";
-import { type Area } from "./AreasTab";
+import { type Area } from "./LocationsTab";
 import { type Faction } from "./FactionsTab";
 
 interface CharactersTabProps {
@@ -255,7 +255,7 @@ export function CharactersTab({ selectedWorld, setActiveTab }: CharactersTabProp
                                         </select>
                                         {editingCharacter.location && editingCharacter.location !== "Unknown" && (
                                             <Button
-                                                onClick={() => setActiveTab("areas")}
+                                                onClick={() => setActiveTab("locations")}
                                                 className="px-4 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 rounded-lg shrink-0"
                                                 title="View Area"
                                             >
