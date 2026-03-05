@@ -118,7 +118,12 @@ export function SkillBuilder() {
                 body: JSON.stringify(payload)
             });
             if (res.ok) {
+                // Save locally first for instant persistence
+                GameRegistry.addSkill(payload);
+
+                // Then sync with backend to ensure disk JSON is updated
                 await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+
                 setSavedSkills(GameRegistry.getAllSkills());
                 setEditingId(id);
             }
@@ -136,7 +141,12 @@ export function SkillBuilder() {
                 method: "DELETE"
             });
             if (res.ok) {
+                // Remove from in-memory registry immediately
+                GameRegistry.removeSkill(editingId);
+
+                // Re-sync with backend (this will reload base skills if deleted)
                 await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+
                 setSavedSkills(GameRegistry.getAllSkills());
                 resetForm();
             }
