@@ -381,7 +381,12 @@ export function GameRulesView() {
                 strengthScalingMin: 0.2,
                 strengthScalingMax: 0.4,
                 shovePushDamageRatio: 0.1,
-                shoveShockDamageRatio: 0.3
+                shoveShockDamageRatio: 0.3,
+                defendPartialThreshold: 5,
+                defendSuccessThreshold: 10,
+                defendFailReduction: 0.1,
+                defendPartialReduction: 0.2,
+                defendSuccessReduction: 0.6
             },
             grid: { baseDisengageCost: 2, threatScaling: 1, agilityMitigationDivisor: 10 },
         });
@@ -508,14 +513,14 @@ export function GameRulesView() {
                                         <RuleNumber
                                             label="Agi Scale Factor"
                                             desc="Armor gain curve from Agility"
-                                            value={rules.core.armorAgiScale}
+                                            value={rules.core.armorAgiScale || 2.5}
                                             min={0} max={10} step={0.1}
                                             onChange={v => patch("core", "armorAgiScale", v)}
                                         />
                                         <RuleNumber
                                             label="Endu Scale Factor"
                                             desc="Armor gain curve from Endurance"
-                                            value={rules.core.armorEnduScale}
+                                            value={rules.core.armorEnduScale || 3.5}
                                             min={0} max={10} step={0.1}
                                             onChange={v => patch("core", "armorEnduScale", v)}
                                         />
@@ -606,6 +611,64 @@ Initiative: descending Agility → Endurance tiebreak`}
                                     />
                                 </div>
                                 <ShovePreview rules={rules} />
+                            </div>
+
+                            <div className="pt-4 border-t border-white/5 space-y-4">
+                                <p className="text-[10px] text-yellow-400 font-black uppercase tracking-widest">Defend Mechanics (Protection)</p>
+                                <div className="grid grid-cols-3 gap-6">
+                                    <div className="space-y-4">
+                                        <p className="text-[9px] text-gray-500 uppercase font-bold italic">Thresholds (Endu vs DMG)</p>
+                                        <RuleNumber
+                                            label="Partial Success"
+                                            desc="Endu >= Damage + X"
+                                            value={rules.combat.defendPartialThreshold ?? 5}
+                                            min={0} max={20}
+                                            onChange={v => patch("combat", "defendPartialThreshold", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Total Success"
+                                            desc="Endu >= Damage + X"
+                                            value={rules.combat.defendSuccessThreshold ?? 10}
+                                            min={0} max={40}
+                                            onChange={v => patch("combat", "defendSuccessThreshold", v)}
+                                        />
+                                    </div>
+                                    <div className="space-y-4">
+                                        <p className="text-[9px] text-gray-500 uppercase font-bold italic">Armor Reduction Ratios</p>
+                                        <RuleNumber
+                                            label="Fail Ratio"
+                                            desc="% Armor block on Fail"
+                                            value={rules.combat.defendFailReduction ?? 0.1}
+                                            min={0} max={1.0} step={0.05}
+                                            format={v => `${(v * 100).toFixed(0)}%`}
+                                            onChange={v => patch("combat", "defendFailReduction", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Partial Ratio"
+                                            desc="% Armor block on Partial"
+                                            value={rules.combat.defendPartialReduction ?? 0.2}
+                                            min={0} max={1.0} step={0.05}
+                                            format={v => `${(v * 100).toFixed(0)}%`}
+                                            onChange={v => patch("combat", "defendPartialReduction", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Success Ratio"
+                                            desc="% Armor block on Success"
+                                            value={rules.combat.defendSuccessReduction ?? 0.6}
+                                            min={0} max={1.0} step={0.05}
+                                            format={v => `${(v * 100).toFixed(0)}%`}
+                                            onChange={v => patch("combat", "defendSuccessReduction", v)}
+                                        />
+                                    </div>
+                                    <div className="bg-yellow-500/5 border border-yellow-500/10 rounded-lg p-4 space-y-2">
+                                        <p className="text-[10px] text-yellow-500 font-black uppercase">Logic Summary</p>
+                                        <ul className="text-[9px] text-gray-400 space-y-1.5 list-disc pl-4">
+                                            <li><span className="text-red-400">Fail:</span> 100% DMG, -{rules.combat.defendFailReduction * 100}% Armor</li>
+                                            <li><span className="text-orange-400">Partial:</span> 50% DMG, -{rules.combat.defendPartialReduction * 100}% Armor</li>
+                                            <li><span className="text-green-400">Success:</span> 0% DMG (Ally), -{rules.combat.defendSuccessReduction * 100}% Armor</li>
+                                        </ul>
+                                    </div>
+                                </div>
                             </div>
 
                             <CombatPreview rules={rules} />

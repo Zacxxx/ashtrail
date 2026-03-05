@@ -2,7 +2,94 @@
 import { ResourceType, Node, CrewMember, Resources, Trait, Occupation, OccupationCategory, Skill } from './types';
 
 // ── Combat Skills ──
-export const ALL_SKILLS: Skill[] = [];
+export const ALL_SKILLS: Skill[] = [
+  {
+    id: 'slash',
+    name: 'Slash',
+    description: 'A quick melee strike with a blade.',
+    category: 'base',
+    apCost: 3,
+    minRange: 1,
+    maxRange: 1,
+    areaType: 'single',
+    areaSize: 0,
+    targetType: 'enemy',
+    damage: 12,
+    cooldown: 0,
+    effectType: 'physical',
+    icon: '⚔️'
+  },
+  {
+    id: 'first-aid',
+    name: 'First Aid',
+    description: 'Basic medical patch-up.',
+    category: 'base',
+    apCost: 4,
+    minRange: 1,
+    maxRange: 1,
+    areaType: 'single',
+    areaSize: 0,
+    targetType: 'ally',
+    healing: 15,
+    cooldown: 1,
+    effectType: 'support',
+    icon: '🩹'
+  },
+  {
+    id: 'fireball',
+    name: 'Fireball',
+    description: 'Launch a sphere of burning ash.',
+    category: 'base',
+    apCost: 6,
+    minRange: 2,
+    maxRange: 5,
+    areaType: 'circle',
+    areaSize: 1,
+    targetType: 'enemy',
+    damage: 20,
+    cooldown: 2,
+    effectType: 'magical',
+    icon: '🔥'
+  },
+  {
+    id: 'shove',
+    name: 'Shove',
+    description: 'Push an enemy back and potentially cause shock damage.',
+    category: 'base',
+    apCost: 3,
+    minRange: 1,
+    maxRange: 1,
+    areaType: 'single',
+    areaSize: 0,
+    targetType: 'enemy',
+    pushDistance: 2,
+    cooldown: 1,
+    effectType: 'physical',
+    icon: '✋'
+  },
+  {
+    id: 'defend',
+    name: 'Defend',
+    description: 'Protect an ally for 1 turn. You tank damage redirected to them with reductions based on your Endurance vs Incoming Damage.',
+    category: 'base',
+    apCost: 4,
+    minRange: 1,
+    maxRange: 2,
+    areaType: 'single',
+    areaSize: 0,
+    targetType: 'ally',
+    cooldown: 3,
+    effectType: 'support',
+    icon: '🛡️',
+    effects: [
+      {
+        type: 'PROTECTION_STANCE',
+        duration: 1,
+        value: 0
+      }
+    ]
+  }
+];
 
 export const INITIAL_RESOURCES: Resources = {
   [ResourceType.FOOD]: 20,

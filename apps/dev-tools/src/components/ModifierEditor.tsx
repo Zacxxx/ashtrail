@@ -17,6 +17,7 @@ const EFFECT_TYPES: EffectType[] = [
     'STATUS_IMMUNITY',
     'ACTION_MODIFIER',
     'WEAPON_DAMAGE_REPLACEMENT',
+    'PROTECTION_STANCE',
     'LORE_EFFECT'
 ];
 
@@ -25,7 +26,7 @@ const COMMON_TARGETS = [
     'maxHp', 'hp', 'maxAp', 'ap', 'maxMp', 'mp',
     'evasion', 'defense', 'critChance', 'resistance',
     'fire_damage', 'poison_damage', 'physical_damage', 'damage',
-    'mainHand', 'offHand',
+    'mainHand', 'offHand', 'protection',
     'food', 'water', 'fuel', 'parts'
 ];
 

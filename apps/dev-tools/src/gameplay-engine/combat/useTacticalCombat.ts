@@ -395,10 +395,65 @@ export function useTacticalCombat(
                     actualDamage = Math.max(1, actualDamage - (tCopy.defense || 0));
                 }
 
-                const newHp = Math.max(0, tCopy.hp - actualDamage);
-                tCopy.hp = newHp;
+                let newHp = tCopy.hp;
+                // --- PROTECTION CHECK (Defend Skill) ---
+                const protectionEffect = tCopy.activeEffects?.find(e => e.type === 'PROTECTION_STANCE');
+                let protector = protectionEffect ? nextEntities.get(protectionEffect.protectorId) : null;
 
-                logsToAdd.push({ msg: `${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${tCopy.name} → ${isCrit ? 'CRITICAL ' : ''}${actualDamage} damage!`, type: 'damage' });
+                if (protector && protector.hp > 0) {
+                    const dice = Math.floor(Math.random() * 3) + 1;
+                    const rollValue = (protector.endurance || 0) * dice;
+                    const diff = rollValue - actualDamage;
+
+                    let redoDamageToAlly = 0;
+                    let damageToProtector = 0;
+                    let armorRatio = 0;
+                    let outcome = "";
+
+                    if (diff >= (rules.combat.defendSuccessThreshold || 10)) {
+                        // Success: Protector takes all, high armor reduction
+                        damageToProtector = actualDamage;
+                        armorRatio = rules.combat.defendSuccessReduction || 0.6;
+                        outcome = "TOTAL SUCCESS";
+                    } else if (diff >= (rules.combat.defendPartialThreshold || 5)) {
+                        // Partial: Split damage
+                        redoDamageToAlly = Math.floor(actualDamage / 2);
+                        damageToProtector = Math.floor(actualDamage / 2);
+                        armorRatio = rules.combat.defendPartialReduction || 0.2;
+                        outcome = "PARTIAL SUCCESS";
+                    } else {
+                        // Fail: Ally takes mostly all
+                        redoDamageToAlly = actualDamage;
+                        armorRatio = rules.combat.defendFailReduction || 0.1;
+                        outcome = "FAILED";
+                    }
+
+                    // Apply armor reduction for protector
+                    const armorBlock = Math.floor((protector.defense || 0) * armorRatio);
+                    const finalProtDmg = Math.max(0, damageToProtector - armorBlock);
+
+                    // Apply to protector
+                    const pCopy = { ...protector };
+                    pCopy.hp = Math.max(0, pCopy.hp - finalProtDmg);
+                    nextEntities.set(pCopy.id, pCopy);
+
+                    // Apply remaining to ally
+                    const finalAllyDmg = redoDamageToAlly;
+                    newHp = Math.max(0, tCopy.hp - finalAllyDmg);
+                    tCopy.hp = newHp;
+
+                    logsToAdd.push({
+                        msg: `🛡️ ${pCopy.name} tanks for ${tCopy.name}! [Dice: ${dice} | Endu: ${rollValue} vs DMG ${actualDamage} | Roll: ${outcome}] → ${pCopy.name} absorbs ${finalProtDmg} (${armorBlock} armor block), ${tCopy.name} takes ${finalAllyDmg}`,
+                        type: 'info'
+                    });
+
+                    // Consume protection after one hit? user didn't specify, but usually "one turn" means one hit or multiple. 
+                    // Let's keep it for now as per "activeEffect" duration.
+                } else {
+                    newHp = Math.max(0, tCopy.hp - actualDamage);
+                    tCopy.hp = newHp;
+                    logsToAdd.push({ msg: `${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${tCopy.name} → ${isCrit ? 'CRITICAL ' : ''}${actualDamage} damage!`, type: 'damage' });
+                }
 
                 if (skill.pushDistance && skill.pushDistance > 0 && newHp > 0) {
                     const rowDiff = tCopy.gridPos.row - c.gridPos.row;
@@ -459,13 +514,23 @@ export function useTacticalCombat(
             // --- APPLY ACTIVE EFFECTS (Buffs/Debuffs) ---
             if (skill.effects && skill.effects.length > 0) {
                 skill.effects.forEach(eff => {
+                    const newEff = { ...eff };
+                    if (eff.type === 'PROTECTION_STANCE') {
+                        (newEff as any).protectorId = casterId;
+                    }
                     // Store the effect on the target
-                    tCopy.activeEffects = [...(tCopy.activeEffects || []), { ...eff }];
+                    tCopy.activeEffects = [...(tCopy.activeEffects || []), { ...newEff, justApplied: true }];
 
                     // Specific feedback for some targets
                     if (eff.type === 'STAT_MODIFIER' || eff.type === 'COMBAT_BONUS') {
                         logsToAdd.push({
                             msg: `✨ ${tCopy.name} receives ${eff.target} modifier: ${eff.value >= 0 ? '+' : ''}${eff.value} (${eff.duration || '∞'} turns)`,
+                            type: 'info'
+                        });
+                    }
+                    if (eff.type === 'PROTECTION_STANCE') {
+                        logsToAdd.push({
+                            msg: `🛡️ ${tCopy.name} is now protected by ${c.name} (${eff.duration || 1} turns)`,
                             type: 'info'
                         });
                     }
@@ -740,10 +805,15 @@ export function useTacticalCombat(
                 nextE.skillCooldowns = newCooldowns;
 
                 // 2. Tick Active Effects (Buffs)
-                const remainingEffects = (nextE.activeEffects || []).map(eff => ({
-                    ...eff,
-                    duration: eff.duration !== undefined ? eff.duration - 1 : undefined
-                })).filter(eff => eff.duration === undefined || eff.duration > 0);
+                const remainingEffects = (nextE.activeEffects || []).map(eff => {
+                    if (eff.justApplied) {
+                        return { ...eff, justApplied: false };
+                    }
+                    return {
+                        ...eff,
+                        duration: eff.duration !== undefined ? eff.duration - 1 : undefined
+                    };
+                }).filter(eff => eff.duration === undefined || eff.duration > 0);
 
                 const effectsChanged = remainingEffects.length !== (nextE.activeEffects || []).length;
                 nextE.activeEffects = remainingEffects;

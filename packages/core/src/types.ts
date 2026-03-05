@@ -36,6 +36,7 @@ export type EffectType =
   | 'STATUS_IMMUNITY'
   | 'ACTION_MODIFIER'
   | 'WEAPON_DAMAGE_REPLACEMENT'
+  | 'PROTECTION_STANCE'
   | 'LORE_EFFECT';
 
 export interface GameplayEffect {
