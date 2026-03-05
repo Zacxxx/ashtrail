@@ -10,10 +10,10 @@ import { CharactersTab } from "./CharactersTab";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 
-export type HistoryTab = "timeline" | "lore" | "factions" | "areas" | "characters";
+export type HistoryTab = "lore" | "factions" | "areas" | "characters" | "timeline";
 
 export function HistoryPage() {
-    const [activeTab, setActiveTab] = useState<HistoryTab>("timeline");
+    const [activeTab, setActiveTab] = useState<HistoryTab>("lore");
     const [selectedWorld, setSelectedWorld] = useState<GenerationHistoryItem | null>(null);
     const [showGalleryModal, setShowGalleryModal] = useState(false);
     const { history, deleteFromHistory } = useGenerationHistory();
@@ -36,7 +36,7 @@ export function HistoryPage() {
 
                 <div className="h-8 border-l border-white/10 ml-2 pl-6 flex-1 max-w-2xl">
                     <TabBar
-                        tabs={["timeline", "lore", "factions", "areas", "characters"]}
+                        tabs={["lore", "factions", "areas", "characters", "timeline"]}
                         activeTab={activeTab}
                         onTabChange={(tab) => setActiveTab(tab as HistoryTab)}
                     />
@@ -64,16 +64,16 @@ export function HistoryPage() {
             </header>
 
             {/* Tab Content Area */}
-            {activeTab === "timeline" && <TimelineTab />}
             {activeTab === "lore" && (
                 <LoreTab
                     selectedWorld={selectedWorld}
                     onSelectWorld={setSelectedWorld}
                 />
             )}
-            {activeTab === "factions" && <FactionsTab selectedWorld={selectedWorld} />}
-            {activeTab === "areas" && <AreasTab selectedWorld={selectedWorld} />}
-            {activeTab === "characters" && <CharactersTab selectedWorld={selectedWorld} />}
+            {activeTab === "factions" && <FactionsTab selectedWorld={selectedWorld} setActiveTab={setActiveTab} />}
+            {activeTab === "areas" && <AreasTab selectedWorld={selectedWorld} setActiveTab={setActiveTab} />}
+            {activeTab === "characters" && <CharactersTab selectedWorld={selectedWorld} setActiveTab={setActiveTab} />}
+            {activeTab === "timeline" && <TimelineTab />}
 
             {/* Gallery Modal */}
             <Modal open={showGalleryModal} onClose={() => setShowGalleryModal(false)} title="ARCHIVES - PICK A WORLD">
