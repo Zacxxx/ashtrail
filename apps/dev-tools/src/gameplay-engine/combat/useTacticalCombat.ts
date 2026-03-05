@@ -364,10 +364,18 @@ export function useTacticalCombat(
                 const isCrit = Math.random() < c.critChance;
 
                 const rules = GameRulesManager.get();
+
+                // Use the same scaling as the UI: 0.2 for min, 0.4 for max
+                const minStrengthBonus = c.strength * (rules.combat.strengthScalingMin || 0.2);
+                const maxStrengthBonus = c.strength * (rules.combat.strengthScalingMax || 0.4);
+
+                // Randomly pick a value between min and max bonus
+                const strBonus = minStrengthBonus + (Math.random() * (maxStrengthBonus - minStrengthBonus));
+
+                // Apply variance to the whole package
                 const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
 
-                // Base scaled damage
-                let scaledDamage = Math.floor((baseDmg + c.strength * rules.combat.strengthToPowerRatio) * variance);
+                let scaledDamage = Math.floor((baseDmg + strBonus) * variance);
 
                 if (isCrit) {
                     scaledDamage = Math.floor(scaledDamage * 1.5);

@@ -15,6 +15,8 @@ export interface GameRulesConfig {
         damageVarianceMin: number;
         damageVarianceMax: number;
         strengthToPowerRatio: number;
+        strengthScalingMin: number;
+        strengthScalingMax: number;
     };
     grid: {
         baseDisengageCost: number;
@@ -38,6 +40,8 @@ const DEFAULT_RULES: GameRulesConfig = {
         damageVarianceMin: 0.85,
         damageVarianceMax: 1.15,
         strengthToPowerRatio: 0.3,
+        strengthScalingMin: 0.2,
+        strengthScalingMax: 0.4,
     },
     grid: {
         baseDisengageCost: 2,

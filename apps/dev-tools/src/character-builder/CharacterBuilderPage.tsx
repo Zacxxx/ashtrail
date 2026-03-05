@@ -233,8 +233,24 @@ export function CharacterBuilderPage() {
             crit: `${s.intelligence * 2}%`,
             resist: `${s.wisdom * 5}%`,
             social: `${s.charisma * 3}%`,
-            minDmg: (4 + s.strength * 0.2).toFixed(1),
-            maxDmg: (5 + s.strength * 0.4).toFixed(1)
+            minDmg: (() => {
+                const weapon = equippedItems.mainHand;
+                let base = 4;
+                if (weapon) {
+                    const dmgEff = weapon.effects?.find(e => e.target === 'damage' || e.type === 'COMBAT_BONUS');
+                    if (dmgEff) base = dmgEff.value;
+                }
+                return (base + s.strength * 0.2).toFixed(1);
+            })(),
+            maxDmg: (() => {
+                const weapon = equippedItems.mainHand;
+                let base = 5;
+                if (weapon) {
+                    const dmgEff = weapon.effects?.find(e => e.target === 'damage' || e.type === 'COMBAT_BONUS');
+                    if (dmgEff) base = dmgEff.value;
+                }
+                return (base + s.strength * 0.4).toFixed(1);
+            })()
         };
     }, [effectiveStats, equippedItems]);
 

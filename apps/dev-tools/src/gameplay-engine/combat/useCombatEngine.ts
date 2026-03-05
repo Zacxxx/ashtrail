@@ -45,6 +45,8 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
         intelligence: baseEntity.intelligence || 10,
         wisdom: baseEntity.wisdom || 10,
         charisma: baseEntity.charisma || 10,
+        defense: baseEntity.defense || 0,
+        evasion: baseEntity.evasion || 5,
     };
 
     let maxHpBonus = 0;
@@ -58,18 +60,40 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
             if (effect.trigger !== 'passive') return;
 
             if (effect.type === 'STAT_MODIFIER' || effect.type === 'COMBAT_BONUS') {
-                if (effect.target === 'maxHp') {
+                const target = effect.target as string;
+                if (target === 'maxHp' || target === 'hp') {
                     maxHpBonus += effect.value;
-                } else if (effect.target === 'maxAp') {
+                } else if (target === 'maxAp' || target === 'ap') {
                     maxApBonus += effect.value;
-                } else if (effect.target === 'maxMp') {
+                } else if (target === 'maxMp' || target === 'mp') {
                     maxMpBonus += effect.value;
-                } else if (effect.target && effect.target in stats) {
-                    (stats as any)[effect.target] += effect.value;
+                } else if (target && target in stats) {
+                    (stats as any)[target] += effect.value;
                 }
             }
         });
     });
+
+    // Apply Equipment effects
+    if (baseEntity.equipped) {
+        Object.values(baseEntity.equipped).forEach(item => {
+            if (!item || !item.effects) return;
+            item.effects.forEach((effect: any) => {
+                const target = effect.target as string;
+                if (effect.type === 'STAT_MODIFIER' || effect.type === 'COMBAT_BONUS') {
+                    if (target === 'maxHp' || target === 'hp') {
+                        maxHpBonus += effect.value;
+                    } else if (target === 'maxAp' || target === 'ap') {
+                        maxApBonus += effect.value;
+                    } else if (target === 'maxMp' || target === 'mp') {
+                        maxMpBonus += effect.value;
+                    } else if (target && target in stats) {
+                        (stats as any)[target] += effect.value;
+                    }
+                }
+            });
+        });
+    }
 
     // Apply Active Effects (Buffs/Debuffs)
     if (baseEntity.activeEffects) {
@@ -116,11 +140,11 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
         critChance,
         resistance,
         socialBonus,
-        evasion: baseEntity.evasion || 5, // Evasion still from baseEntity or could be agility based?
-        defense: baseEntity.defense || 0,
+        defense: stats.defense,
+        evasion: stats.evasion,
         equipped: baseEntity.equipped,
-        traits: traits,
-        activeEffects: baseEntity.activeEffects || []
+        traits,
+        activeEffects: baseEntity.activeEffects
     };
 
     // Clamp HP if MaxHP was modified

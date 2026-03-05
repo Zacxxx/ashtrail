@@ -275,23 +275,36 @@ export function TacticalArena({
                                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 border-b border-r border-slate-600 rotate-45"></div>
                                                     <div className="font-bold text-white text-xs text-center border-b border-slate-700 pb-1.5">{skill.name}</div>
                                                     <div className="text-[10px] text-gray-400 text-center leading-snug mb-1">{skill.description}</div>
-                                                    <div className="flex justify-center gap-3 text-[10px] font-mono bg-black/50 py-1 rounded">
+                                                    <div className="flex justify-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono bg-black/50 py-1.5 px-2 rounded-lg border border-white/5">
                                                         {(() => {
                                                             const hasWeaponScaling = skill.effects?.some(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT');
-                                                            if (hasWeaponScaling) {
-                                                                const weapon = activeEntity?.equipped?.mainHand;
-                                                                const weaponDmgEffect = weapon?.effects?.find((e: any) => e.target === 'damage');
-                                                                const dmgValue = weaponDmgEffect ? weaponDmgEffect.value : skill.damage;
+                                                            const weapon = activeEntity?.equipped?.mainHand;
+                                                            const strBonus = activeEntity ? Math.floor(activeEntity.strength * 0.3) : 0;
+
+                                                            let baseVal = skill.damage || 0;
+                                                            if (hasWeaponScaling && weapon) {
+                                                                const weaponDmgEffect = weapon.effects?.find((e: any) =>
+                                                                    e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS'
+                                                                );
+                                                                if (weaponDmgEffect) baseVal = weaponDmgEffect.value;
+                                                            }
+
+                                                            const total = baseVal + strBonus;
+
+                                                            if (baseVal > 0 || strBonus > 0) {
                                                                 return (
-                                                                    <span className="text-red-400">
-                                                                        {weapon ? '⚔️' : '👊'} {dmgValue} dmg
-                                                                    </span>
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <span className="text-red-400 font-black">{total} dmg</span>
+                                                                        <span className="text-[8px] text-gray-500">
+                                                                            ({hasWeaponScaling ? (weapon ? '⚔️' : '👊') : ''}{baseVal} + 💪{strBonus})
+                                                                        </span>
+                                                                    </div>
                                                                 );
                                                             }
-                                                            return skill.damage ? <span className="text-red-400">{skill.damage} dmg</span> : null;
+                                                            return null;
                                                         })()}
-                                                        {skill.healing && <span className="text-green-400">{skill.healing} heal</span>}
-                                                        <span className="text-gray-400">R: {skill.minRange}-{skill.maxRange}</span>
+                                                        {skill.healing && <span className="text-green-400 font-black">{skill.healing} heal</span>}
+                                                        <span className="text-gray-400 font-bold border-l border-white/10 pl-2 ml-1">R: {skill.minRange}-{skill.maxRange}</span>
                                                     </div>
                                                 </div>
                                             </button>
