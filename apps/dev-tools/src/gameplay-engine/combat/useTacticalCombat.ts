@@ -31,6 +31,7 @@ export interface TacticalEntity {
     socialBonus: number;
     evasion: number;
     defense: number;
+    equipped?: Record<string, any>;
     traits: Trait[];
     skills: Skill[];
     skillCooldowns: Record<string, number>; // skillId -> turns remaining
@@ -87,10 +88,11 @@ export function createTacticalEntity(
     maxHp: number,
     traits: Trait[],
     skills: Skill[],
-    gridPos: { row: number; col: number }
+    gridPos: { row: number; col: number },
+    equipped?: Record<string, any>
 ): TacticalEntity {
     const base = calculateEffectiveStats(
-        { id, isPlayer, name, hp, maxHp, strength, agility, endurance, intelligence, wisdom, charisma, evasion, defense, traits } as any,
+        { id, isPlayer, name, hp, maxHp, strength, agility, endurance, intelligence, wisdom, charisma, evasion, defense, traits, equipped } as any,
         traits
     );
     return {
@@ -324,6 +326,31 @@ export function useTacticalCombat(
                     }
                 }
 
+                // --- NEW DAMAGE CALCULATION LOGIC ---
+                let baseDmg = skill.damage;
+                const weaponReplacement = skill.effects?.find(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT');
+
+                if (weaponReplacement && c.equipped?.mainHand) {
+                    const weapon = c.equipped.mainHand;
+                    // Find a damage effect on the weapon
+                    const weaponDmgEffect = weapon.effects?.find((e: any) =>
+                        e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS'
+                    );
+
+                    if (weaponDmgEffect) {
+                        if (weaponDmgEffect.isPercentage) {
+                            baseDmg = Math.floor(baseDmg * (1 + (weaponDmgEffect.value / 100)));
+                        } else {
+                            // Flat replace
+                            baseDmg = weaponDmgEffect.value;
+                        }
+                    } else if (weapon.id) {
+                        // Fallback: If it's a weapon but no dmg effect found, maybe it has inherent value or we use a small bonus?
+                        // For now we keep baseDmg = 10 (fists) if no damage effect is found on the item.
+                    }
+                }
+                // ------------------------------------
+
                 // Critical Hit check
                 const isCrit = Math.random() < c.critChance;
 
@@ -331,7 +358,7 @@ export function useTacticalCombat(
                 const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
 
                 // Base scaled damage
-                let scaledDamage = Math.floor((skill.damage + c.strength * rules.combat.strengthToPowerRatio) * variance);
+                let scaledDamage = Math.floor((baseDmg + c.strength * rules.combat.strengthToPowerRatio) * variance);
 
                 if (isCrit) {
                     scaledDamage = Math.floor(scaledDamage * 1.5);
@@ -341,11 +368,11 @@ export function useTacticalCombat(
                 let actualDamage = scaledDamage;
                 if (isMagical) {
                     // Magical damage is resisted by Wisdom
-                    const resistAmount = Math.floor(actualDamage * tCopy.resistance);
+                    const resistAmount = Math.floor(actualDamage * (tCopy.resistance || 0));
                     actualDamage = Math.max(1, actualDamage - resistAmount);
                 } else {
                     // Physical damage is reduced by flat defense
-                    actualDamage = Math.max(1, actualDamage - tCopy.defense);
+                    actualDamage = Math.max(1, actualDamage - (tCopy.defense || 0));
                 }
 
                 const newHp = Math.max(0, tCopy.hp - actualDamage);

@@ -34,7 +34,8 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number): T
         0, // maxHp (engine will calculate)
         char.traits,
         skills,
-        { row: 0, col: 0 }
+        { row: 0, col: 0 },
+        char.equipped
     );
 }
 

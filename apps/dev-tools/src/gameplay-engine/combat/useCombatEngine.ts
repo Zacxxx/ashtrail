@@ -22,6 +22,7 @@ export interface CombatEntity {
     socialBonus: number;
     evasion: number;
     defense: number;
+    equipped?: Record<string, any>;
     traits: Trait[];
 }
 
@@ -89,6 +90,7 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
         socialBonus,
         evasion: baseEntity.evasion || 5, // Evasion still from baseEntity or could be agility based?
         defense: baseEntity.defense || 0,
+        equipped: baseEntity.equipped,
         traits: traits
     };
 

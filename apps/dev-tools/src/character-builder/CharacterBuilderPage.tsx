@@ -2273,7 +2273,7 @@ export function CharacterBuilderPage() {
                                                         {hoverInfo.item.effects.map((eff: any, idx: number) => (
                                                             <div key={idx} className="flex justify-between items-center bg-white/[0.02] px-1.5 py-1 rounded border border-white/5">
                                                                 <span className="text-[7px] font-black text-gray-500 uppercase tracking-widest truncate max-w-[80px]">
-                                                                    {eff.target}
+                                                                    {eff.target === 'damage' ? 'Weapon Damage' : eff.target}
                                                                 </span>
                                                                 <span className={`text-[8px] font-black ${eff.value >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                                                                     {eff.value >= 0 ? '+' : ''}{eff.value}

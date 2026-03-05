@@ -35,6 +35,7 @@ export type EffectType =
   | 'HEAL_OVER_TIME'
   | 'STATUS_IMMUNITY'
   | 'ACTION_MODIFIER'
+  | 'WEAPON_DAMAGE_REPLACEMENT'
   | 'LORE_EFFECT';
 
 export interface GameplayEffect {

@@ -276,7 +276,20 @@ export function TacticalArena({
                                                     <div className="font-bold text-white text-xs text-center border-b border-slate-700 pb-1.5">{skill.name}</div>
                                                     <div className="text-[10px] text-gray-400 text-center leading-snug mb-1">{skill.description}</div>
                                                     <div className="flex justify-center gap-3 text-[10px] font-mono bg-black/50 py-1 rounded">
-                                                        {skill.damage && <span className="text-red-400">{skill.damage} dmg</span>}
+                                                        {(() => {
+                                                            const hasWeaponScaling = skill.effects?.some(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT');
+                                                            if (hasWeaponScaling) {
+                                                                const weapon = activeEntity?.equipped?.mainHand;
+                                                                const weaponDmgEffect = weapon?.effects?.find((e: any) => e.target === 'damage');
+                                                                const dmgValue = weaponDmgEffect ? weaponDmgEffect.value : skill.damage;
+                                                                return (
+                                                                    <span className="text-red-400">
+                                                                        {weapon ? '⚔️' : '👊'} {dmgValue} dmg
+                                                                    </span>
+                                                                );
+                                                            }
+                                                            return skill.damage ? <span className="text-red-400">{skill.damage} dmg</span> : null;
+                                                        })()}
                                                         {skill.healing && <span className="text-green-400">{skill.healing} heal</span>}
                                                         <span className="text-gray-400">R: {skill.minRange}-{skill.maxRange}</span>
                                                     </div>

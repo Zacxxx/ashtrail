@@ -51,6 +51,11 @@
         "target": "intelligence",
         "type": "STAT_MODIFIER",
         "value": -20
+      },
+      {
+        "target": "damage",
+        "type": "COMBAT_BONUS",
+        "value": 25
       }
     ],
     "equipSlot": "mainHand",
