@@ -532,6 +532,7 @@ export function useTacticalCombat(
                         const factor = rules.combat.stealthScaleFactor || 1.4;
                         const bonus = Math.floor(factor * Math.log((c.wisdom || 0) + 1));
                         newEff.duration = baseDur + bonus;
+                        (newEff as any).lastKnownPosition = { ...c.gridPos };
                     }
 
                     // Store the effect on the target
@@ -874,7 +875,7 @@ export function useTacticalCombat(
         }
     }, [activeEntityIndex, entities, turnOrder, phase, addLog]);
 
-    // ── AI Turn (Enhanced: uses skills) ──
+    // ── AI Turn (Enhanced: handles Stealth Search) ──
     useEffect(() => {
         if (phase !== 'combat') return;
         if (!activeEntity || activeEntity.isPlayer || activeEntity.hp <= 0) return;
@@ -885,18 +886,42 @@ export function useTacticalCombat(
             const ai = currentEntities.get(activeEntityId);
             if (!ai || ai.hp <= 0) { endTurn(); return; }
 
-            const playerTargets = [...currentEntities.values()].filter(e => e.isPlayer && e.hp > 0);
-            if (playerTargets.length === 0) { endTurn(); return; }
+            const allPlayerTargets = [...currentEntities.values()].filter(e => e.isPlayer && e.hp > 0);
+            if (allPlayerTargets.length === 0) { endTurn(); return; }
 
-            // Pick closest target
-            let closestTarget = playerTargets[0];
+            const visibleTargets = allPlayerTargets.filter(e => !e.activeEffects?.some(eff => eff.type === 'STEALTH'));
+            const hiddenPlayers = allPlayerTargets.filter(e => e.activeEffects?.some(eff => eff.type === 'STEALTH'));
+
+            const isSearching = visibleTargets.length === 0 && hiddenPlayers.length > 0;
+
+            let targetPos: { row: number, col: number } = { row: 0, col: 0 };
+            let targetId: string | null = null;
             let closestDist = Infinity;
-            for (const target of playerTargets) {
-                const d = Math.abs(target.gridPos.row - ai.gridPos.row) + Math.abs(target.gridPos.col - ai.gridPos.col);
-                if (d < closestDist) { closestDist = d; closestTarget = target; }
+
+            if (!isSearching) {
+                let closestTarget = visibleTargets[0];
+                for (const target of visibleTargets) {
+                    const d = Math.abs(target.gridPos.row - ai.gridPos.row) + Math.abs(target.gridPos.col - ai.gridPos.col);
+                    if (d < closestDist) { closestDist = d; closestTarget = target; }
+                }
+                targetPos = { ...closestTarget.gridPos };
+                targetId = closestTarget.id;
+                closestDist = Math.abs(targetPos.row - ai.gridPos.row) + Math.abs(targetPos.col - ai.gridPos.col);
+            } else {
+                // SEARCHING: Find the closest lastKnownPosition from stealth effects
+                let closestLKP = { row: 0, col: 0 };
+                for (const hp of hiddenPlayers) {
+                    const stealthEff = hp.activeEffects.find((eff: any) => eff.type === 'STEALTH');
+                    const lkp = stealthEff?.lastKnownPosition || hp.gridPos;
+                    const d = Math.abs(lkp.row - ai.gridPos.row) + Math.abs(lkp.col - ai.gridPos.col);
+                    if (d < closestDist) { closestDist = d; closestLKP = lkp; }
+                }
+                targetPos = { ...closestLKP };
+                closestDist = Math.abs(targetPos.row - ai.gridPos.row) + Math.abs(targetPos.col - ai.gridPos.col);
+                addLog(`🔍 ${ai.name} is looking for someone near [${targetPos.row}, ${targetPos.col}]...`, 'info');
             }
 
-            // === AI Skill-based decision ===
+            // === AI Decision ===
 
             // 1. If low HP and has a self-heal, use it
             if (ai.hp < ai.maxHp * 0.4) {
@@ -910,69 +935,75 @@ export function useTacticalCombat(
                 }
             }
 
-            // 2. Try a ranged skill if target is far
-            if (closestDist > MELEE_RANGE) {
-                const rangedSkill = ai.skills.find(s =>
-                    s.targetType === 'enemy' && s.damage && s.maxRange >= closestDist && s.minRange <= closestDist &&
-                    s.apCost <= ai.ap && !(ai.skillCooldowns[s.id] > 0)
-                );
-                if (rangedSkill) {
-                    executeSkill(ai.id, closestTarget.gridPos.row, closestTarget.gridPos.col, rangedSkill);
-                    // After using ranged skill, maybe still move or end turn
-                    setTimeout(() => endTurn(), 800);
-                    return;
-                }
-            }
-
-            // 3. Move closer if needed
+            // 2. Move closer if needed
             if (ai.mp > 0 && closestDist > MELEE_RANGE) {
                 const tackleCost = calculateTackleCost(currentGrid, currentEntities, ai.id);
                 if (ai.ap >= tackleCost) {
                     const reachable = getReachableCells(currentGrid, ai.gridPos.row, ai.gridPos.col, ai.mp);
-                    let bestCell = null as GridCell | null;
+                    let bestCell = null;
                     let bestDist = closestDist;
                     for (const cell of reachable) {
-                        const d = Math.abs(cell.row - closestTarget.gridPos.row) + Math.abs(cell.col - closestTarget.gridPos.col);
+                        const d = Math.abs(cell.row - targetPos.row) + Math.abs(cell.col - targetPos.col);
                         if (d < bestDist) { bestDist = d; bestCell = cell; }
                     }
                     if (bestCell) {
                         const path = findPath(currentGrid, ai.gridPos.row, ai.gridPos.col, bestCell.row, bestCell.col);
-                        if (path) performMove(ai.id, bestCell.row, bestCell.col, path.length, tackleCost);
+                        if (path) {
+                            performMove(ai.id, bestCell.row, bestCell.col, path.length, tackleCost);
+                            closestDist = bestDist;
+                        }
                     }
                 }
             }
 
-            // 4. Use melee skill or basic attack after moving
+            // 3. Attack or Search
             setTimeout(() => {
                 const updatedAi = entitiesRef.current.get(activeEntityId);
                 if (!updatedAi || updatedAi.hp <= 0) { endTurn(); return; }
 
-                const updatedTarget = entitiesRef.current.get(closestTarget.id);
-                if (!updatedTarget || updatedTarget.hp <= 0) { endTurn(); return; }
+                if (isSearching) {
+                    // Choose an offensive skill to "blind fire"
+                    const searchSkill = updatedAi.skills.find(s => s.damage && s.apCost <= updatedAi.ap && !(updatedAi.skillCooldowns[s.id] > 0));
 
-                const newDist = Math.abs(updatedAi.gridPos.row - updatedTarget.gridPos.row) + Math.abs(updatedAi.gridPos.col - updatedTarget.gridPos.col);
+                    if (searchSkill) {
+                        const neighbors = getNeighbors(currentGrid, targetPos.row, targetPos.col);
+                        const possibleCells = [targetPos, ...neighbors].filter(n => {
+                            const d = Math.abs(n.row - updatedAi.gridPos.row) + Math.abs(n.col - updatedAi.gridPos.col);
+                            return d >= searchSkill.minRange && d <= searchSkill.maxRange;
+                        });
 
-                if (newDist <= MELEE_RANGE) {
-                    // Try a melee skill first (pick highest damage that we can afford)
-                    const meleeSkill = updatedAi.skills
-                        .filter(s => s.targetType === 'enemy' && s.damage && s.maxRange >= newDist && s.minRange <= newDist &&
-                            s.apCost <= updatedAi.ap && !(updatedAi.skillCooldowns[s.id] > 0))
-                        .sort((a, b) => (b.damage || 0) - (a.damage || 0))[0];
+                        if (possibleCells.length > 0) {
+                            const luckyShot = possibleCells[Math.floor(Math.random() * possibleCells.length)];
+                            addLog(`🎯 ${updatedAi.name} attacks blindly towards [${luckyShot.row}, ${luckyShot.col}] with ${searchSkill.name}!`, 'info');
+                            executeSkill(updatedAi.id, luckyShot.row, luckyShot.col, searchSkill);
+                        }
+                    } else if (updatedAi.ap >= MELEE_ATTACK_COST && closestDist <= MELEE_RANGE) {
+                        addLog(`🎯 ${updatedAi.name} swings blindly around!`, 'info');
+                        executeSkill(updatedAi.id, targetPos.row, targetPos.col, { id: 'basic', name: 'Slash', apCost: 3, damage: 10, icon: '⚔️' } as Skill);
+                    }
+                } else if (targetId) {
+                    const updatedTarget = entitiesRef.current.get(targetId);
+                    if (!updatedTarget) { endTurn(); return; }
 
-                    if (meleeSkill) {
-                        executeSkill(updatedAi.id, updatedTarget.gridPos.row, updatedTarget.gridPos.col, meleeSkill);
-                    } else if (updatedAi.ap >= MELEE_ATTACK_COST) {
-                        // Fallback to basic attack
+                    const distNow = Math.abs(updatedAi.gridPos.row - updatedTarget.gridPos.row) + Math.abs(updatedAi.gridPos.col - updatedTarget.gridPos.col);
+                    const attackSkill = updatedAi.skills.find(s =>
+                        s.damage && s.maxRange >= distNow && s.minRange <= distNow &&
+                        s.apCost <= updatedAi.ap && !(updatedAi.skillCooldowns[s.id] > 0)
+                    );
+
+                    if (attackSkill) {
+                        executeSkill(updatedAi.id, updatedTarget.gridPos.row, updatedTarget.gridPos.col, attackSkill);
+                    } else if (distNow <= MELEE_RANGE && updatedAi.ap >= MELEE_ATTACK_COST) {
                         performAttack(updatedAi.id, updatedTarget.id);
                     }
                 }
 
-                setTimeout(() => endTurn(), 600);
+                setTimeout(() => endTurn(), 800);
             }, 600);
         }, 800);
 
         return () => clearTimeout(timer);
-    }, [activeEntityId, phase]);
+    }, [activeEntityId, phase, addLog, endTurn, executeSkill, performAttack, performMove]);
 
     return {
         grid,
