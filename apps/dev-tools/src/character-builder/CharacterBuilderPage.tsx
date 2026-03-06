@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory } from "@ashtrail/core";
 import { TabBar } from "@ashtrail/ui";
 import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 
@@ -98,6 +98,7 @@ export function CharacterBuilderPage() {
     const [savedCharacters, setSavedCharacters] = useState<Character[]>([]);
     const [libraryItems, setLibraryItems] = useState<Item[]>([]);
     const [activeTab, setActiveTab] = useState<BuilderTab>("IDENTITY");
+    const [librarySkills, setLibrarySkills] = useState<Skill[]>([]);
 
     // ── Character Form State ──
     const [charId, setCharId] = useState(`char-${Date.now()}`);
@@ -137,6 +138,11 @@ export function CharacterBuilderPage() {
 
     // Load character for editing
     const [editingId, setEditingId] = useState<string | null>(null);
+
+    // Skills State
+    const [selectedSkills, setSelectedSkills] = useState<Skill[]>([]);
+    const [skillSearch, setSkillSearch] = useState("");
+    const [skillCategoryFilter, setSkillCategoryFilter] = useState<SkillCategory | "ALL">("ALL");
 
     // Inventory State
     const [inventory, setInventory] = useState<Item[]>([]);
@@ -355,6 +361,7 @@ export function CharacterBuilderPage() {
             await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
             setSavedCharacters(GameRegistry.getAllCharacters());
             setLibraryItems(GameRegistry.getAllItems());
+            setLibrarySkills(GameRegistry.getAllSkills());
             setIsLoading(false);
         }
         load();
@@ -413,6 +420,15 @@ export function CharacterBuilderPage() {
         if (delta < 0 && stats[stat] <= 1) return;
         setStats(p => ({ ...p, [stat]: p[stat] + delta }));
         setStatsPoints(p => p - delta);
+    };
+
+    const toggleSkill = (skill: Skill) => {
+        const isSelected = selectedSkills.find(s => s.id === skill.id);
+        if (isSelected) {
+            setSelectedSkills(p => p.filter(s => s.id !== skill.id));
+        } else {
+            setSelectedSkills(p => [...p, skill]);
+        }
     };
 
     const updateLevel = (nextLevel: number, grantAttributePoint = false) => {
@@ -506,6 +522,7 @@ export function CharacterBuilderPage() {
         setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
         setInventory(char.inventory || []);
+        setSelectedSkills(char.skills || []);
         if (char.equipped) {
             setEquippedItems(char.equipped);
         } else {
@@ -554,6 +571,7 @@ export function CharacterBuilderPage() {
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
         });
+        setSelectedSkills([]);
         setActiveTab("IDENTITY");
         // Also reset inventory to fresh mock data
         const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
@@ -594,6 +612,7 @@ export function CharacterBuilderPage() {
             xp: 0,
             level: level,
             inventory: inventory,
+            skills: selectedSkills,
             equipped: equippedItems,
             title: characterTitle,
             badge: characterBadge,
@@ -743,7 +762,7 @@ export function CharacterBuilderPage() {
                 `}</style>
 
                 {/* Left: Saved Characters Sidebar */}
-                {activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT" && activeTab !== "CHARACTER_SHEET" && (
+                {activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT" && activeTab !== "CHARACTER_SHEET" && activeTab !== "SKILLS" && (
                     <aside className="w-[260px] flex flex-col gap-4 shrink-0">
                         <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
                             <h3 className="text-[10px] font-black text-indigo-500/70 uppercase tracking-widest border-b border-indigo-900/30 pb-2">
@@ -1180,28 +1199,143 @@ export function CharacterBuilderPage() {
                             </div>
                         )}
 
-                        {/* ═══ SKILLS TAB ═══ */}
+                        {/* ═══ SKILLS TAB (SKILL BOOK) ═══ */}
                         {activeTab === "SKILLS" && (
-                            <div className="space-y-6">
-                                <div className="flex items-center gap-3">
-                                    <h2 className="text-xl font-black tracking-[0.2em] text-indigo-400 uppercase">Neural Skills & Combat Masteries</h2>
-                                    <div className="h-px flex-1 bg-gradient-to-r from-indigo-500/20 to-transparent" />
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    {[1, 2, 3].map(i => (
-                                        <div key={i} className="group bg-black/40 border border-white/5 p-6 rounded-2xl hover:border-indigo-500/30 transition-all flex flex-col gap-4 opacity-50 cursor-not-allowed">
-                                            <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-xl grayscale text-white">
-                                                🧠
-                                            </div>
-                                            <div>
-                                                <h3 className="text-xs font-black text-white uppercase tracking-wider">Skill Node {i}</h3>
-                                                <p className="text-[10px] text-gray-500 mt-1 uppercase font-bold tracking-widest">Locked / Under Construction</p>
-                                            </div>
-                                            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                                                <div className="h-full bg-indigo-500/30 w-0" />
-                                            </div>
+                            <div className="flex h-full relative font-mono overflow-hidden py-1 px-1 gap-6 animate-ash-settling">
+                                {/* Left Sidebar: Skill Database */}
+                                <aside className="w-[320px] flex flex-col gap-4 shrink-0 bg-black/40 border border-white/5 p-4 rounded-xl shadow-2xl backdrop-blur-md">
+                                    <div className="flex flex-col gap-1.5 border-b border-white/5 pb-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1.5 h-3 bg-[#c2410c]" />
+                                            <label className="text-[10px] text-white font-black uppercase tracking-[0.2em]">Neural Database</label>
                                         </div>
-                                    ))}
+                                        <input
+                                            value={skillSearch}
+                                            onChange={e => setSkillSearch(e.target.value)}
+                                            placeholder="SEARCH PROTOCOLS..."
+                                            className="w-full bg-black/40 border border-white/10 text-[10px] text-gray-400 px-3 py-2 rounded outline-none focus:border-[#c2410c]/40 transition-all font-mono italic"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-1 mb-2">
+                                        {(["ALL", "BASE", "OCCUPATION", "EQUIPMENT", "UNIQUE"] as const).map(f => (
+                                            <button
+                                                key={f}
+                                                onClick={() => setSkillCategoryFilter(f as any)}
+                                                className={`px-2 py-1 text-[8px] font-black uppercase tracking-widest transition-all border ${skillCategoryFilter === f ? "bg-[#c2410c]/20 border-[#c2410c] text-white" : "border-white/5 text-gray-600 hover:text-gray-300 hover:bg-white/5"}`}
+                                            >
+                                                {f}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                                        {librarySkills
+                                            .filter(s => (skillCategoryFilter === "ALL" || s.category === skillCategoryFilter.toLowerCase()) &&
+                                                (s.name.toLowerCase().includes(skillSearch.toLowerCase()) || s.description.toLowerCase().includes(skillSearch.toLowerCase())))
+                                            .map(skill => {
+                                                const isOwned = selectedSkills.some(s => s.id === skill.id);
+                                                return (
+                                                    <button
+                                                        key={skill.id}
+                                                        onClick={() => toggleSkill(skill)}
+                                                        className={`w-full text-left p-3 border rounded-lg flex items-center gap-3 group transition-all relative overflow-hidden active:scale-95 ${isOwned ? "bg-[#c2410c]/10 border-[#c2410c]/40" : "bg-black/20 border-white/5 hover:border-[#c2410c]/40 hover:bg-white/[0.02]"}`}
+                                                    >
+                                                        <div className={`w-10 h-10 border rounded flex items-center justify-center text-lg relative z-10 ${isOwned ? "border-[#c2410c]/40 bg-[#c2410c]/20" : "bg-black/40 border-white/10"}`}>
+                                                            <span>{skill.icon || "🧠"}</span>
+                                                        </div>
+                                                        <div className="flex flex-col gap-0.5 relative z-10 truncate">
+                                                            <span className={`text-[10px] font-black uppercase tracking-wider truncate ${isOwned ? "text-orange-400" : "text-white"}`}>{skill.name}</span>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-[8px] text-gray-500 font-bold uppercase">{skill.category}</span>
+                                                                <span className="text-[8px] text-[#c2410c]/80 font-black ml-auto">{skill.apCost} AP</span>
+                                                            </div>
+                                                        </div>
+                                                        {isOwned && <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-[#c2410c] rounded-full shadow-[0_0_5px_#c2410c]" />}
+                                                    </button>
+                                                );
+                                            })}
+                                    </div>
+                                </aside>
+
+                                <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-2">
+                                    <div className="bg-black/40 border border-white/5 p-6 rounded-2xl shadow-xl relative overflow-hidden min-h-[500px]">
+                                        {/* Background Grid */}
+                                        <div className="absolute inset-0 bg-[linear-gradient(rgba(194,65,12,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(194,65,12,0.02)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none opacity-40" />
+
+                                        <div className="relative z-10 flex flex-col gap-8">
+                                            <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                                                <div className="flex flex-col gap-1">
+                                                    <h3 className="text-sm font-black text-white uppercase tracking-[0.3em] flex items-center gap-3">
+                                                        <div className="w-2 h-2 bg-[#c2410c] shadow-[0_0_10px_#c2410c]" />
+                                                        Active Neural Protocols
+                                                    </h3>
+                                                    <span className="text-[9px] text-gray-600 font-bold uppercase tracking-widest">{selectedSkills.length} SKILLS INITIALIZED</span>
+                                                </div>
+                                            </div>
+
+                                            {selectedSkills.length === 0 ? (
+                                                <div className="flex-1 flex flex-col items-center justify-center py-20 opacity-30">
+                                                    <div className="text-4xl mb-4">🧠</div>
+                                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em] italic">No active skills in this unit's neural buffer</p>
+                                                    <p className="text-[8px] text-gray-600 mt-2 uppercase tracking-widest">Select skills from the database to synchronize</p>
+                                                </div>
+                                            ) : (
+                                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                                    {selectedSkills.map(skill => (
+                                                        <div key={skill.id} className="bg-black/60 border border-white/10 p-5 rounded-xl group relative overflow-hidden hover:border-[#c2410c]/30 transition-all">
+                                                            <div className="flex items-start gap-4">
+                                                                <div className="w-14 h-14 bg-black/40 border border-[#c2410c]/40 rounded-xl flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                                                                    {skill.icon || "🧠"}
+                                                                </div>
+                                                                <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <h4 className="text-[12px] font-black text-white uppercase tracking-wider truncate">{skill.name}</h4>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-[9px] text-[#c2410c] font-black">{skill.apCost} AP</span>
+                                                                            <button onClick={() => toggleSkill(skill)} className="text-[9px] text-gray-600 hover:text-red-500 font-black px-1 transition-colors uppercase">✕</button>
+                                                                        </div>
+                                                                    </div>
+                                                                    <p className="text-[10px] text-gray-500 leading-relaxed italic">{skill.description}</p>
+                                                                    <div className="flex items-center gap-3 mt-1 pt-2 border-t border-white/5">
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-[7px] text-gray-700 font-black uppercase tracking-widest">RANGE</span>
+                                                                            <span className="text-[9px] text-gray-400 font-bold">{skill.minRange}-{skill.maxRange} m</span>
+                                                                        </div>
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-[7px] text-gray-700 font-black uppercase tracking-widest">COOLDOWN</span>
+                                                                            <span className="text-[9px] text-gray-400 font-bold">{skill.cooldown} TURNS</span>
+                                                                        </div>
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-[7px] text-gray-700 font-black uppercase tracking-widest">TYPE</span>
+                                                                            <span className="text-[9px] text-gray-400 font-bold uppercase">{skill.effectType || "base"}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            {/* Bottom Glow */}
+                                                            <div className="absolute inset-x-0 bottom-0 h-0.5 bg-[#c2410c]/0 group-hover:bg-[#c2410c]/20 transition-all" />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Skill Details Bar (Flavor) */}
+                                    <div className="bg-[#c2410c]/5 border border-[#c2410c]/20 p-4 rounded-xl flex items-start gap-4">
+                                        <div className="w-10 h-10 shrink-0 bg-[#c2410c]/20 border border-[#c2410c]/40 rounded-full flex items-center justify-center text-orange-500">
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[10px] text-white font-black uppercase tracking-widest">Skill Management Protocol</span>
+                                            <p className="text-[9px] text-gray-500 leading-relaxed uppercase tracking-widest opacity-80">
+                                                Active skills are burned into the neural processor. Ensure compatibility with occupation archetypes for maximum effectiveness in the ash.
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}

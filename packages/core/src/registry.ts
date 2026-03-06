@@ -73,6 +73,7 @@ export class GameRegistry {
                 const sData: Skill[] = await sRes.json();
                 if (Array.isArray(sData)) {
                     console.log(`[GameRegistry] Received ${sData.length} skills from backend.`);
+                    this.skills.clear();
                     sData.forEach(s => this.skills.set(s.id, s));
                     this.saveSkillsToLocalStorage();
                 } else {

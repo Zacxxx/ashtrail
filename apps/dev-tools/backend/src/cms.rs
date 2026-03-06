@@ -180,62 +180,76 @@ pub async fn save_character(State(_state): State<AppState>, Json(payload): Json<
 }
 
 pub async fn get_skills(State(_state): State<AppState>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dir = std::env::current_dir().unwrap_or_default().join("generated").join("skills");
-    let mut skills = Vec::new();
-
-    if !dir.exists() {
-        tracing::warn!("Skills directory not found at {}", dir.display());
-        return Ok((StatusCode::OK, Json(serde_json::Value::Array(skills))));
+    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/skills.json");
+    match fs::read_to_string(&path) {
+        Ok(data) => {
+            let json: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            Ok((StatusCode::OK, Json(json)))
+        },
+        Err(_) => {
+            // It's okay if it doesn't exist yet
+            Ok((StatusCode::OK, Json(serde_json::json!([]))))
+        },
     }
-
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                        skills.push(json);
-                    }
-                }
-            }
-        }
-    }
-    
-    tracing::info!("Loaded {} skills from {}", skills.len(), dir.display());
-    Ok((StatusCode::OK, Json(serde_json::Value::Array(skills))))
 }
 
 pub async fn save_skill(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dir = std::env::current_dir().unwrap_or_default().join("generated").join("skills");
-    if let Err(e) = fs::create_dir_all(&dir) {
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create skills dir: {}", e)));
+    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/skills.json");
+    
+    let mut skills: Vec<serde_json::Value> = match fs::read_to_string(&path) {
+        Ok(data) => {
+            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            if val.is_array() {
+                val.as_array().unwrap().clone()
+            } else if val.is_object() {
+                vec![val]
+            } else {
+                Vec::new()
+            }
+        },
+        Err(_) => Vec::new(),
+    };
+
+    let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if !id.is_empty() {
+        if let Some(pos) = skills.iter().position(|s| s.get("id").and_then(|v| v.as_str()) == Some(id)) {
+            skills[pos] = payload;
+        } else {
+            skills.push(payload);
+        }
     }
 
-    let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let path = dir.join(format!("{}.json", id));
-    
-    let json_string = serde_json::to_string_pretty(&payload).unwrap();
+    let json_string = serde_json::to_string_pretty(&skills).unwrap();
     match fs::write(&path, json_string) {
-        Ok(_) => {
-            tracing::info!("Saved skill {} to {}", id, path.display());
-            Ok((StatusCode::OK, Json(serde_json::json!({ "success": true }))))
-        },
+        Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
 
 pub async fn delete_skill(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
     tracing::info!("Deleting skill with ID: {}", id);
-    let path = std::env::current_dir().unwrap().join("generated").join("skills").join(format!("{}.json", id));
+    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/skills.json");
     
-    if path.exists() {
-        match fs::remove_file(&path) {
-            Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
-            Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-        }
-    } else {
-        // Even if file doesn't exist, we consider it "deleted" from backend perspective
-        Ok((StatusCode::OK, Json(serde_json::json!({ "success": true }))))
+    let mut data: Vec<serde_json::Value> = match fs::read_to_string(&path) {
+        Ok(data) => {
+            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            if val.is_array() {
+                val.as_array().unwrap().clone()
+            } else {
+                Vec::new()
+            }
+        },
+        Err(_) => Vec::new(),
+    };
+
+    let initial_len = data.len();
+    data.retain(|v| v.get("id").and_then(|id_val| id_val.as_str()) != Some(id.as_str()));
+    tracing::info!("Removed {} items", initial_len - data.len());
+    
+    let json_string = serde_json::to_string_pretty(&data).unwrap();
+    match fs::write(&path, json_string) {
+        Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
 
