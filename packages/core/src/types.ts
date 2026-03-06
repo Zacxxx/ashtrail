@@ -37,6 +37,7 @@ export type EffectType =
   | 'ACTION_MODIFIER'
   | 'WEAPON_DAMAGE_REPLACEMENT'
   | 'PROTECTION_STANCE'
+  | 'STEALTH'
   | 'LORE_EFFECT';
 
 export interface GameplayEffect {

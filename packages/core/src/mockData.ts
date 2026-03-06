@@ -88,6 +88,28 @@ export const ALL_SKILLS: Skill[] = [
         value: 0
       }
     ]
+  },
+  {
+    id: 'hide',
+    name: 'Hide',
+    description: 'Become invisible to enemies. Any damage taken will reveal you. Duration increases with Wisdom.',
+    category: 'base',
+    apCost: 3,
+    minRange: 0,
+    maxRange: 0,
+    areaType: 'single',
+    areaSize: 0,
+    targetType: 'self',
+    cooldown: 4,
+    effectType: 'support',
+    icon: '👤',
+    effects: [
+      {
+        type: 'STEALTH',
+        duration: 1, // Base will be modified by Wisdom in the engine
+        value: 0
+      }
+    ]
   }
 ];
 

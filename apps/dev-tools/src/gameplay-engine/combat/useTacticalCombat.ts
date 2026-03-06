@@ -297,6 +297,7 @@ export function useTacticalCombat(
         const logsToAdd: { msg: string, type: CombatLogMessage['type'] }[] = [];
 
         // Deduct AP caster
+        const rules = GameRulesManager.get();
         const c = { ...nextEntities.get(casterId)! };
         c.ap -= skill.apCost;
         if (skill.cooldown > 0) {
@@ -314,7 +315,6 @@ export function useTacticalCombat(
 
             // For AoE, we generally apply to all. We could filter by targetType if we wanted strict friend/foe AoE.
             if (skill.healing) {
-                const rules = GameRulesManager.get();
                 const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
                 const charismaBonus = 1 + c.socialBonus;
                 const healAmount = Math.floor(skill.healing * charismaBonus * variance);
@@ -362,8 +362,6 @@ export function useTacticalCombat(
 
                 // Critical Hit check
                 const isCrit = Math.random() < c.critChance;
-
-                const rules = GameRulesManager.get();
 
                 // Special handling for push damage
                 let strBonus = 0;
@@ -455,6 +453,16 @@ export function useTacticalCombat(
                     logsToAdd.push({ msg: `${skill.icon || '✨'} ${c.name} uses ${skill.name} on ${tCopy.name} → ${isCrit ? 'CRITICAL ' : ''}${actualDamage} damage!`, type: 'damage' });
                 }
 
+                // --- STEALTH BREAK CHECK ---
+                const stealthEffect = tCopy.activeEffects?.find(e => e.type === 'STEALTH');
+                if (stealthEffect && actualDamage > 0) {
+                    tCopy.activeEffects = tCopy.activeEffects?.filter(e => e.type !== 'STEALTH') || [];
+                    logsToAdd.push({
+                        msg: `👁️ ${tCopy.name} was REVEALED at [${tCopy.gridPos.row}, ${tCopy.gridPos.col}] by taking damage!`,
+                        type: 'info'
+                    });
+                }
+
                 if (skill.pushDistance && skill.pushDistance > 0 && newHp > 0) {
                     const rowDiff = tCopy.gridPos.row - c.gridPos.row;
                     const colDiff = tCopy.gridPos.col - c.gridPos.col;
@@ -518,6 +526,14 @@ export function useTacticalCombat(
                     if (eff.type === 'PROTECTION_STANCE') {
                         (newEff as any).protectorId = casterId;
                     }
+
+                    if (eff.type === 'STEALTH') {
+                        const baseDur = rules.combat.stealthBaseDuration || 1;
+                        const factor = rules.combat.stealthScaleFactor || 1.4;
+                        const bonus = Math.floor(factor * Math.log((c.wisdom || 0) + 1));
+                        newEff.duration = baseDur + bonus;
+                    }
+
                     // Store the effect on the target
                     tCopy.activeEffects = [...(tCopy.activeEffects || []), { ...newEff, justApplied: true }];
 
@@ -531,6 +547,12 @@ export function useTacticalCombat(
                     if (eff.type === 'PROTECTION_STANCE') {
                         logsToAdd.push({
                             msg: `🛡️ ${tCopy.name} is now protected by ${c.name} (${eff.duration || 1} turns)`,
+                            type: 'info'
+                        });
+                    }
+                    if (eff.type === 'STEALTH') {
+                        logsToAdd.push({
+                            msg: `👤 ${tCopy.name} hides during ${newEff.duration} turns (Wisdom bonus: +${Math.floor((newEff.duration || 1) - (rules.combat.stealthBaseDuration || 1))})`,
                             type: 'info'
                         });
                     }
@@ -817,6 +839,11 @@ export function useTacticalCombat(
 
                 const effectsChanged = remainingEffects.length !== (nextE.activeEffects || []).length;
                 nextE.activeEffects = remainingEffects;
+
+                const stealthRemaining = remainingEffects.find(eff => eff.type === 'STEALTH');
+                if (stealthRemaining) {
+                    addLog(`👤 ${nextE.name} is still invisible (${stealthRemaining.duration} turns left)`, 'info');
+                }
 
                 // 3. Recalculate stats if effects changed
                 if (effectsChanged) {

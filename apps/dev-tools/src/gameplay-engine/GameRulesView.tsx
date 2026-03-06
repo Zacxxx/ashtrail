@@ -386,7 +386,9 @@ export function GameRulesView() {
                 defendSuccessThreshold: 10,
                 defendFailReduction: 0.1,
                 defendPartialReduction: 0.2,
-                defendSuccessReduction: 0.6
+                defendSuccessReduction: 0.6,
+                stealthBaseDuration: 1,
+                stealthScaleFactor: 1.4,
             },
             grid: { baseDisengageCost: 2, threatScaling: 1, agilityMitigationDivisor: 10 },
         });
@@ -667,6 +669,50 @@ Initiative: descending Agility → Endurance tiebreak`}
                                             <li><span className="text-orange-400">Partial:</span> 50% DMG, -{rules.combat.defendPartialReduction * 100}% Armor</li>
                                             <li><span className="text-green-400">Success:</span> 0% DMG (Ally), -{rules.combat.defendSuccessReduction * 100}% Armor</li>
                                         </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-black/30 border border-white/5 rounded-xl p-5 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">Stealth & Hiding</h4>
+                                    <span className="text-[9px] text-gray-500 font-mono italic">Wisdom Scaling (Log)</span>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="space-y-4">
+                                        <RuleNumber
+                                            label="Base Duration"
+                                            desc="Hide duration with 0 Wisdom"
+                                            value={rules.combat.stealthBaseDuration ?? 1}
+                                            min={1} max={5}
+                                            onChange={v => patch("combat", "stealthBaseDuration", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Wisdom Scale Factor"
+                                            desc="Curve intensity (Scale * ln(Wis + 1))"
+                                            value={rules.combat.stealthScaleFactor ?? 1.4}
+                                            min={0} max={5} step={0.1}
+                                            onChange={v => patch("combat", "stealthScaleFactor", v)}
+                                        />
+                                    </div>
+
+                                    <div className="bg-black/40 rounded-lg p-4 border border-white/5 space-y-3">
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase">Duration Projection (Turns)</p>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {[10, 20, 30].map(wis => {
+                                                const dur = (rules.combat.stealthBaseDuration ?? 1) + Math.floor((rules.combat.stealthScaleFactor ?? 1.4) * Math.log(wis + 1));
+                                                return (
+                                                    <div key={wis} className="bg-white/5 p-2 rounded text-center border border-white/5">
+                                                        <div className="text-[8px] text-gray-500 uppercase">Wis {wis}</div>
+                                                        <div className="text-xs font-black text-indigo-400">{dur}T</div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="text-[8px] text-gray-500 leading-relaxed italic">
+                                            Formula: Base ({rules.combat.stealthBaseDuration}) + floor({rules.combat.stealthScaleFactor} × ln(Wisdom + 1))
+                                        </div>
                                     </div>
                                 </div>
                             </div>

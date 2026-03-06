@@ -297,9 +297,42 @@ export function TacticalArena({
                                                                 if (weaponDmgEffect) baseVal = weaponDmgEffect.value;
                                                             }
 
-                                                            const total = baseVal + strBonus;
+                                                            const total = (skill.damage || 0) + strBonus;
+                                                            const isStealth = skill.effects?.some(e => e.type === 'STEALTH');
+                                                            const isProtection = skill.effects?.some(e => e.type === 'PROTECTION_STANCE');
 
-                                                            if (baseVal > 0 || strBonus > 0 || skill.pushDistance) {
+                                                            if (isStealth) {
+                                                                const baseDur = rules.combat.stealthBaseDuration || 1;
+                                                                const factor = rules.combat.stealthScaleFactor || 1.4;
+                                                                const bonus = activeEntity ? Math.floor(factor * Math.log(activeEntity.wisdom + 1)) : 0;
+                                                                const totalDur = baseDur + bonus;
+                                                                return (
+                                                                    <div className="flex flex-col gap-1 w-full">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="text-indigo-400 font-black uppercase">Duration</span>
+                                                                            <span className="text-white font-mono">{totalDur} turns</span>
+                                                                        </div>
+                                                                        <div className="text-[8px] text-gray-500 italic">
+                                                                            Base {baseDur} + floor({factor} × ln(Wisdom {activeEntity?.wisdom}))
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            if (isProtection) {
+                                                                return (
+                                                                    <div className="flex flex-col gap-1 w-full">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="text-blue-400 font-black uppercase">Protection</span>
+                                                                            <span className="text-white font-mono">1 turn</span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            if (skill.damage || strBonus > 0 || skill.pushDistance) {
+                                                                // Only show damage block if the skill ACTUALLY has a damage property or is a push skill
+                                                                if (!skill.damage && !skill.pushDistance) return null;
                                                                 return (
                                                                     <div className="flex flex-col gap-1 w-full">
                                                                         <div className="flex items-center gap-1.5">
@@ -529,7 +562,22 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
             )}
 
             {entity && !isDead && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ top: -12, zIndex: 2 }}>
+                <div className={`
+                    absolute inset-0 flex items-center justify-center pointer-events-none 
+                    transition-all duration-500
+                    ${entity.activeEffects?.some((e: any) => e.type === 'STEALTH') ? 'opacity-30 grayscale-[50%] blur-[0.5px]' : 'opacity-100'}
+                `} style={{ top: -12, zIndex: 2 }}>
+
+                    {/* Status Icons Above Head */}
+                    <div className="absolute -top-5 flex gap-1 z-10">
+                        {entity.activeEffects?.some((e: any) => e.type === 'PROTECTION_STANCE') && (
+                            <span className="text-[10px] drop-shadow-[0_0_5px_rgba(255,255,255,0.8)] animate-pulse">🛡️</span>
+                        )}
+                        {entity.activeEffects?.some((e: any) => e.type === 'STEALTH') && (
+                            <span className="text-[10px] drop-shadow-[0_0_5px_rgba(99,102,241,0.8)] animate-bounce">👤</span>
+                        )}
+                    </div>
+
                     <div className={`
                         w-7 h-7 rounded-full border-2 flex items-center justify-center text-[10px] font-black
                         shadow-lg transition-all duration-300

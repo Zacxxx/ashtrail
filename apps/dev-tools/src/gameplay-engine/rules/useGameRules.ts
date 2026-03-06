@@ -26,6 +26,8 @@ export interface GameRulesConfig {
         defendFailReduction: number;
         defendPartialReduction: number;
         defendSuccessReduction: number;
+        stealthBaseDuration: number;
+        stealthScaleFactor: number;
     };
     grid: {
         baseDisengageCost: number;
@@ -60,6 +62,8 @@ const DEFAULT_RULES: GameRulesConfig = {
         defendFailReduction: 0.1,
         defendPartialReduction: 0.2,
         defendSuccessReduction: 0.6,
+        stealthBaseDuration: 1,
+        stealthScaleFactor: 1.4,
     },
     grid: {
         baseDisengageCost: 2,
