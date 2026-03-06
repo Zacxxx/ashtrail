@@ -389,6 +389,7 @@ export function GameRulesView() {
                 defendSuccessReduction: 0.6,
                 stealthBaseDuration: 1,
                 stealthScaleFactor: 1.4,
+                distractCharismaScale: 0.42,
             },
             grid: { baseDisengageCost: 2, threatScaling: 1, agilityMitigationDivisor: 10 },
         });
@@ -712,6 +713,38 @@ Initiative: descending Agility → Endurance tiebreak`}
                                         </div>
                                         <div className="text-[8px] text-gray-500 leading-relaxed italic">
                                             Formula: Base ({rules.combat.stealthBaseDuration}) + floor({rules.combat.stealthScaleFactor} × ln(Wisdom + 1))
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-black/30 border border-white/5 rounded-xl p-5 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-[0.2em]">Social Mechanics</h4>
+                                    <span className="text-[9px] text-gray-500 font-mono italic">Charisma Scaling (Log)</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="space-y-4">
+                                        <RuleNumber
+                                            label="Distract Scale Factor"
+                                            desc="MP reduction formula (1 + floor(Scale * ln(Cha + 1)))"
+                                            value={rules.combat.distractCharismaScale ?? 0.42}
+                                            min={0} max={2} step={0.01}
+                                            onChange={v => patch("combat", "distractCharismaScale", v)}
+                                        />
+                                    </div>
+                                    <div className="bg-black/40 rounded-lg p-4 border border-white/5 space-y-3">
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase">MP Reduction Projection</p>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {[10, 25, 40].map(cha => {
+                                                const red = 1 + Math.floor((rules.combat.distractCharismaScale ?? 0.42) * Math.log(cha + 1));
+                                                return (
+                                                    <div key={cha} className="bg-white/5 p-2 rounded text-center border border-white/5">
+                                                        <div className="text-[8px] text-gray-500 uppercase">Cha {cha}</div>
+                                                        <div className="text-xs font-black text-rose-400">-{red} MP</div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </div>

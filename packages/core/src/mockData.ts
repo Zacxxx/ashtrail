@@ -110,6 +110,24 @@ export const ALL_SKILLS: Skill[] = [
         value: 0
       }
     ]
+  },
+  {
+    id: 'distract',
+    name: 'Distract',
+    description: 'Bother the enemy with your charisma, reducing their MP based on your Charisma vs target Wisdom.',
+    category: 'base',
+    apCost: 3,
+    minRange: 1,
+    maxRange: 4,
+    areaType: 'single',
+    areaSize: 0,
+    targetType: 'enemy',
+    cooldown: 3,
+    effectType: 'magical',
+    icon: '🎭',
+    effects: [
+      { type: 'STAT_MODIFIER', target: 'mp', value: 0, duration: 1 }
+    ]
   }
 ];
 

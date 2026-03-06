@@ -298,8 +298,29 @@ export function TacticalArena({
                                                             }
 
                                                             const total = (skill.damage || 0) + strBonus;
+                                                            const isDistract = skill.id === 'distract';
                                                             const isStealth = skill.effects?.some(e => e.type === 'STEALTH');
                                                             const isProtection = skill.effects?.some(e => e.type === 'PROTECTION_STANCE');
+
+                                                            if (isDistract) {
+                                                                const scale = rules.combat.distractCharismaScale || 0.42;
+                                                                const mpReduction = 1 + Math.floor(scale * Math.log((activeEntity?.charisma || 0) + 1));
+                                                                return (
+                                                                    <div className="flex flex-col gap-1 w-full text-rose-300">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="font-black uppercase">Stat Check</span>
+                                                                            <span className="font-mono">Cha vs Wis</span>
+                                                                        </div>
+                                                                        <div className="flex items-center justify-between border-t border-rose-300/10 pt-1 mt-0.5">
+                                                                            <span className="font-black uppercase">MP Loss</span>
+                                                                            <span className="font-mono">-{mpReduction} MP</span>
+                                                                        </div>
+                                                                        <div className="text-[8px] text-rose-300/60 italic leading-snug">
+                                                                            1 + floor({scale} × ln(Cha {activeEntity?.charisma}))
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
 
                                                             if (isStealth) {
                                                                 const baseDur = rules.combat.stealthBaseDuration || 1;

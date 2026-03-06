@@ -313,6 +313,36 @@ export function useTacticalCombat(
 
             const tCopy = { ...t };
 
+            // ── Distract (Charisma vs Wisdom) ──
+            if (skill.id === 'distract') {
+                const casterCha = c.charisma || 0;
+                const targetWis = t.wisdom || 0;
+
+                if (casterCha > targetWis) {
+                    const scale = rules.combat.distractCharismaScale || 0.42;
+                    const mpReduction = 1 + Math.floor(scale * Math.log(casterCha + 1));
+
+                    // Apply immediate MP reduction for current turn if its target turn (optional, usually next)
+                    // But user said "next turn", so we apply a 1 turn buff that reduces maxMp and thus resets to lower next turn
+                    tCopy.activeEffects = [
+                        ...(tCopy.activeEffects || []),
+                        { type: 'STAT_MODIFIER', target: 'mp', value: -mpReduction, duration: 1, name: 'Distracted' }
+                    ];
+
+                    logsToAdd.push({
+                        msg: `🎭 ${c.name} bothers ${t.name}, they lose ${mpReduction} movement points!`,
+                        type: 'info'
+                    });
+                } else {
+                    logsToAdd.push({
+                        msg: `🛡️ ${t.name} is too wise to be distracted by ${c.name}.`,
+                        type: 'info'
+                    });
+                }
+                nextEntities.set(targetId, tCopy);
+                continue; // Skip normal processing for this skill
+            }
+
             // For AoE, we generally apply to all. We could filter by targetType if we wanted strict friend/foe AoE.
             if (skill.healing) {
                 const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));

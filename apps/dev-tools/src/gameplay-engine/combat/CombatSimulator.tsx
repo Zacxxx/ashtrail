@@ -7,7 +7,7 @@ import { GameRulesManager } from '../rules/useGameRules';
 
 // ── Default skills given to characters without their own ──
 function getDefaultPlayerSkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide'].includes(s.id));
+    return GameRegistry.getAllSkills().filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract'].includes(s.id));
 }
 function getDefaultEnemySkills(): Skill[] {
     return GameRegistry.getAllSkills().filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
