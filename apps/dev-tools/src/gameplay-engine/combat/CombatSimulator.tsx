@@ -566,6 +566,7 @@ function TacticalCombatArena({
         grid, entities, turnOrder, activeEntityId, activeEntity,
         isPlayerTurn, phase, playerAction, logs, turnNumber,
         handleCellClick, endTurn, selectSkill, selectedSkill, MELEE_ATTACK_COST,
+        getDamagePreview
     } = useTacticalCombat(playerEntities, enemyEntities, aiGrid || undefined, config);
 
     return (
@@ -586,6 +587,7 @@ function TacticalCombatArena({
             meleeAttackCost={MELEE_ATTACK_COST}
             selectedSkill={selectedSkill}
             battlemapUrl={battlemapUrl}
+            getDamagePreview={getDamagePreview}
         />
     );
 }

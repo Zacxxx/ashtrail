@@ -7,41 +7,26 @@ import { Trait, Skill } from '@ashtrail/core';
 import { GameRulesManager } from '../rules/useGameRules';
 import {
     Grid, GridCell,
-    generateGrid, getReachableCells, getAttackableCells, getNeighbors, getAoECells,
-    findPath, moveEntityOnGrid, placeEntity, removeEntity,
-    clearHighlights, highlightCells,
+    moveEntityOnGrid, getReachableCells, getAttackableCells,
+    clearHighlights, highlightCells, getNeighbors, findPath,
+    generateGrid, getAoECells, placeEntity, removeEntity
 } from './tacticalGrid';
-import { CombatLogMessage, calculateEffectiveStats } from './useCombatEngine';
+import { CombatLogMessage, CombatEntity, calculateEffectiveStats, BaseStats } from './useCombatEngine';
 
 // ── Types ──
 
-export interface TacticalEntity {
-    id: string;
-    isPlayer: boolean;
-    name: string;
-    hp: number;
-    maxHp: number;
-    strength: number;
-    agility: number;
-    intelligence: number;
-    wisdom: number;
-    charisma: number;
-    endurance: number;
+export interface DamagePreview {
+    min: number;
+    max: number;
+    critMin: number;
+    critMax: number;
+    isMagical: boolean;
     critChance: number;
-    resistance: number;
-    socialBonus: number;
-    evasion: number;
-    defense: number;
-    equipped?: Record<string, any>;
-    traits: Trait[];
+}
+
+export interface TacticalEntity extends CombatEntity {
     skills: Skill[];
     skillCooldowns: Record<string, number>; // skillId -> turns remaining
-    activeEffects: any[]; // GameplayEffect[]
-    // Tactical additions
-    ap: number;
-    maxAp: number;
-    mp: number;
-    maxMp: number;
     gridPos: { row: number; col: number };
     level: number;
 }
@@ -96,19 +81,21 @@ export function createTacticalEntity(
     activeEffects: any[] = [],
     level: number = 10
 ): TacticalEntity {
-    const baseEntity: Partial<TacticalEntity> = {
-        id, isPlayer, name, hp, maxHp, strength, agility, endurance, intelligence, wisdom, charisma, evasion, defense, traits, equipped, activeEffects, level
+    const baseStats: BaseStats = { strength, agility, endurance, intelligence, wisdom, charisma, evasion, defense };
+
+    // Create temp entity to calculate effective initial stats
+    const tempEntity: any = {
+        id, isPlayer, name, hp, maxHp, traits, equipped, activeEffects, baseStats
     };
-    const effective = calculateEffectiveStats(baseEntity as any, traits); // Cast to any because calculateEffectiveStats expects CombatEntity
+    const effective = calculateEffectiveStats(tempEntity, traits);
 
     return {
-        ...effective,
-        level: effective.level || level,
+        ...effective, // This now includes baseStats: baseStats
+        level,
         skills,
         skillCooldowns: {},
         activeEffects: effective.activeEffects || [],
         gridPos,
-        endurance: effective.endurance,
     };
 }
 
@@ -237,7 +224,7 @@ export function useTacticalCombat(
                 return highlightCells(cleared, reachable, 'move');
             });
         }
-    }, [activeEntityId, playerAction, activeEntity?.mp, activeEntity?.gridPos?.row, activeEntity?.gridPos?.col, phase]);
+    }, [activeEntityId, playerAction, activeEntity?.mp, activeEntity?.gridPos?.row, activeEntity?.gridPos?.col, phase, grid, entities]);
 
     // ── Show attackable cells when skill is selected ──
     useEffect(() => {
@@ -278,6 +265,22 @@ export function useTacticalCombat(
         setSelectedSkill(skill);
         setPlayerAction('targeting_skill');
     }, [activeEntity]);
+
+    // ── Win/Loss check ──
+    const checkWinLoss = useCallback((defeatedId: string) => {
+        const currentEntities = entitiesRef.current;
+        const allAlive = [...currentEntities.values()].filter(e => e.hp > 0 && e.id !== defeatedId);
+        const playersAlive = allAlive.filter(e => e.isPlayer);
+        const enemiesAlive = allAlive.filter(e => !e.isPlayer);
+
+        if (enemiesAlive.length === 0) {
+            addLog('🏆 VICTORY! All enemies defeated!', 'system');
+            setPhase('victory');
+        } else if (playersAlive.length === 0) {
+            addLog('💀 DEFEAT... All allies have fallen.', 'system');
+            setPhase('defeat');
+        }
+    }, [addLog]);
 
     // ── Execute Skill ──
     const executeSkill = useCallback((casterId: string, targetRow: number, targetCol: number, skill: Skill) => {
@@ -357,10 +360,10 @@ export function useTacticalCombat(
                         type: 'info'
                     });
                 } else {
-                    const scale = rules.combat.analyzeIntelScale || 0.6;
-                    const baseBonus = rules.combat.analyzeBaseCrit || 30;
+                    const scale = (rules.combat?.analyzeIntelScale !== undefined) ? rules.combat.analyzeIntelScale : 0.6;
+                    const baseBonus = (rules.combat?.analyzeBaseCrit !== undefined) ? rules.combat.analyzeBaseCrit : 30;
                     const logVal = Math.log((c.intelligence || 0) + 1);
-                    const critBonus = baseBonus + Math.floor(scale * logVal * 10);
+                    const critBonus = Math.max(0, baseBonus + Math.floor(scale * logVal * 10));
 
                     tCopy.activeEffects = [
                         ...(tCopy.activeEffects || []),
@@ -633,16 +636,20 @@ export function useTacticalCombat(
 
                 // If Max stats increased, give the bonus current pool for immediate use
                 const diffMp = tCopy.maxMp - prevMaxMp;
-                if (diffMp > 0) tCopy.mp += diffMp;
-
+                if (diffMp > 0) tCopy.mp = Math.min(tCopy.maxMp, tCopy.mp + diffMp);
                 const diffAp = tCopy.maxAp - prevMaxAp;
-                if (diffAp > 0) tCopy.ap += diffAp;
+                if (diffAp > 0) tCopy.ap = Math.min(tCopy.maxAp, tCopy.ap + diffAp);
             }
 
-            nextEntities.set(targetId, tCopy);
+            // Ensure the target entity (tCopy) is updated in the map
+            if (targetId && tCopy) {
+                nextEntities.set(targetId, tCopy);
+            }
         }
 
-        setEntities(nextEntities);
+        // nextEntities already contains the caster with updated AP/Cooldowns (set at line 296)
+        // and any effect updates from the loop if the caster was a target.
+        setEntities(new Map(nextEntities));
         logsToAdd.forEach(l => addLog(l.msg, l.type));
 
         setTimeout(() => {
@@ -659,29 +666,13 @@ export function useTacticalCombat(
                         checkWinLoss(d.id);
                     });
                 }
-                return currEntities;
+                return new Map(currEntities);
             });
         }, 50);
 
         setSelectedSkill(null);
         setPlayerAction('idle');
-    }, [entities, grid, addLog]);
-
-    // ── Win/Loss check ──
-    const checkWinLoss = useCallback((defeatedId: string) => {
-        const currentEntities = entitiesRef.current;
-        const allAlive = [...currentEntities.values()].filter(e => e.hp > 0 && e.id !== defeatedId);
-        const playersAlive = allAlive.filter(e => e.isPlayer);
-        const enemiesAlive = allAlive.filter(e => !e.isPlayer);
-
-        if (enemiesAlive.length === 0) {
-            addLog('🏆 VICTORY! All enemies defeated!', 'system');
-            setPhase('victory');
-        } else if (playersAlive.length === 0) {
-            addLog('💀 DEFEAT... All allies have fallen.', 'system');
-            setPhase('defeat');
-        }
-    }, [addLog]);
+    }, [entities, grid, addLog, checkWinLoss]);
 
     // ── Cell Click Handler ──
     const handleCellClick = useCallback((row: number, col: number) => {
@@ -1070,6 +1061,57 @@ export function useTacticalCombat(
         return () => clearTimeout(timer);
     }, [activeEntityId, phase, addLog, endTurn, executeSkill, performAttack, performMove]);
 
+    // ── Previews ──
+    const getDamagePreview = useCallback((attacker: TacticalEntity, target: TacticalEntity, skill: Skill): DamagePreview | null => {
+        if (!skill.damage && !skill.pushDistance) return null;
+
+        const rules = GameRulesManager.get();
+        const isMagical = skill.effectType === 'magical';
+
+        let baseDmg = skill.damage || 0;
+        const weaponReplacement = skill.effects?.find(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT');
+        if (weaponReplacement && attacker.equipped?.mainHand) {
+            const weapon = attacker.equipped.mainHand;
+            const weaponDmgEffect = weapon.effects?.find((e: any) =>
+                e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS'
+            );
+            if (weaponDmgEffect) {
+                if (weaponDmgEffect.isPercentage) baseDmg = Math.floor(baseDmg * (1 + (weaponDmgEffect.value / 100)));
+                else baseDmg = weaponDmgEffect.value;
+            }
+        }
+
+        const minStrBonus = skill.pushDistance ? attacker.strength * (rules.combat.shovePushDamageRatio || 0.1) : attacker.strength * (rules.combat.strengthScalingMin || 0.2);
+        const maxStrBonus = skill.pushDistance ? attacker.strength * (rules.combat.shovePushDamageRatio || 0.1) : attacker.strength * (rules.combat.strengthScalingMax || 0.4);
+
+        const vMin = rules.combat.damageVarianceMin || 0.85;
+        const vMax = rules.combat.damageVarianceMax || 1.15;
+
+        // Critical Hit check
+        const analyzedBonus = target.activeEffects?.filter((e: any) => e.type === 'ANALYZED').reduce((sum: number, e: any) => sum + (e.value || 0), 0) || 0;
+        const finalCritChance = attacker.critChance + (analyzedBonus / 100);
+
+        const calc = (str: number, v: number, crit: boolean) => {
+            let d = Math.floor((baseDmg + str) * v);
+            if (crit) d = Math.floor(d * 1.5);
+            if (isMagical) {
+                const resist = Math.floor(d * (target.resistance || 0));
+                return Math.max(1, d - resist);
+            } else {
+                return Math.max(1, d - (target.defense || 0));
+            }
+        };
+
+        return {
+            min: calc(minStrBonus, vMin, false),
+            max: calc(maxStrBonus, vMax, false),
+            critMin: calc(minStrBonus, vMin, true),
+            critMax: calc(maxStrBonus, vMax, true),
+            isMagical,
+            critChance: finalCritChance
+        };
+    }, []);
+
     return {
         grid,
         entities,
@@ -1088,5 +1130,6 @@ export function useTacticalCombat(
         selectSkill,
         setPlayerAction,
         MELEE_ATTACK_COST,
+        getDamagePreview
     };
 }

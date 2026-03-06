@@ -5,7 +5,7 @@
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Skill } from '@ashtrail/core';
 import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells } from './tacticalGrid';
-import { TacticalEntity, CombatPhase, PlayerAction } from './useTacticalCombat';
+import { TacticalEntity, CombatPhase, PlayerAction, DamagePreview } from './useTacticalCombat';
 import { CombatLogMessage } from './useCombatEngine';
 import { GameRulesManager } from '../rules/useGameRules';
 
@@ -26,12 +26,16 @@ interface TacticalArenaProps {
     meleeAttackCost: number;
     selectedSkill: Skill | null;
     battlemapUrl?: string | null;
+    getDamagePreview: (attacker: TacticalEntity, target: TacticalEntity, skill: Skill) => DamagePreview | null;
 }
 
 export function TacticalArena({
     grid, entities, turnOrder, activeEntityId, isPlayerTurn,
     phase, playerAction, logs, turnNumber,
-    onCellClick, onEndTurn, onSelectSkill, activeEntity, meleeAttackCost, selectedSkill, battlemapUrl,
+    onCellClick, onEndTurn, onSelectSkill, activeEntity, meleeAttackCost,
+    selectedSkill,
+    battlemapUrl,
+    getDamagePreview
 }: TacticalArenaProps) {
     const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -147,6 +151,10 @@ export function TacticalArena({
                                     }
                                 }
 
+                                const damagePreview = (occupant && activeEntity && selectedSkill)
+                                    ? getDamagePreview(activeEntity, occupant, selectedSkill)
+                                    : null;
+
                                 return (
                                     <IsometricTile
                                         key={`${r}-${c}`}
@@ -164,6 +172,7 @@ export function TacticalArena({
                                         onHover={() => setHoveredCell({ row: r, col: c })}
                                         onLeave={() => setHoveredCell(null)}
                                         errorMessage={error}
+                                        damagePreview={damagePreview}
                                     />
                                 );
                             })
@@ -484,9 +493,10 @@ interface IsometricTileProps {
     onHover?: () => void;
     onLeave?: () => void;
     errorMessage?: string;
+    damagePreview?: DamagePreview | null;
 }
 
-function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onClick, onHover, onLeave, errorMessage }: IsometricTileProps) {
+function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onClick, onHover, onLeave, errorMessage, damagePreview }: IsometricTileProps) {
     const isDead = entity && entity.hp <= 0;
     const [isHovered, setIsHovered] = useState(false);
 
@@ -502,51 +512,33 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
 
     const halfW = TILE_WIDTH / 2;
     const halfH = TILE_HEIGHT / 2;
-    const clipId = `clip-${cell.row}-${cell.col}`;
     const diamondPath = `M ${halfW} 0 L ${TILE_WIDTH} ${halfH} L ${halfW} ${TILE_HEIGHT} L 0 ${halfH} Z`;
 
     let fillColor = hasBattlemap ? 'transparent' : 'rgba(30, 40, 55, 0.6)';
-    let strokeColor = 'rgba(255,255,255,0.15)';
+    let strokeColor = 'rgba(255,255,255,0.05)';
     let strokeWidth = 1;
 
-    if (!cell.walkable) {
-        fillColor = 'transparent'; // Let the 3D block handle all rendering
-        strokeColor = 'rgba(255,255,255,0.08)';
-    } else if (cell.isSpawnZone === 'player') {
-        fillColor = 'rgba(59, 130, 246, 0.15)';
-    } else if (cell.isSpawnZone === 'enemy') {
-        fillColor = 'rgba(239, 68, 68, 0.15)';
-    }
-
     if (cell.highlight === 'move') {
-        fillColor = 'rgba(59, 130, 246, 0.25)';
-        strokeColor = 'rgba(59, 130, 246, 0.5)';
-        strokeWidth = 1;
-    } else if (cell.highlight === 'attack') {
-        fillColor = 'rgba(239, 68, 68, 0.25)';
-        strokeColor = 'rgba(239, 68, 68, 0.5)';
-        strokeWidth = 1;
-    } else if (cell.highlight === 'path') {
-        fillColor = 'rgba(234, 179, 8, 0.3)';
-        strokeColor = 'rgba(234, 179, 8, 0.6)';
-        strokeWidth = 1;
-    }
-
-    if (isActive && entity) {
-        strokeColor = 'rgba(249, 115, 22, 0.8)';
+        fillColor = 'rgba(45, 212, 191, 0.4)';
+        strokeColor = 'rgba(255,255,255,0.7)';
         strokeWidth = 2;
     }
-
-    // AoE overrides previous highlights to pop out
+    if (cell.highlight === 'attack') {
+        fillColor = 'rgba(244, 63, 94, 0.25)';
+        strokeColor = 'rgba(255,255,255,0.4)';
+    }
+    if (cell.highlight === 'path') {
+        fillColor = 'rgba(45, 212, 191, 0.6)';
+    }
     if (isAoe) {
-        fillColor = 'rgba(239, 68, 68, 0.6)';
-        strokeColor = 'rgba(255, 100, 100, 1)';
-        strokeWidth = 2;
+        fillColor = 'rgba(251, 146, 60, 0.35)';
     }
+
+    const showAnalyzed = entity?.activeEffects?.some(e => e.type === 'ANALYZED');
 
     return (
         <div
-            className="absolute"
+            className="absolute transition-all duration-200"
             style={{
                 left: x,
                 top: y,
@@ -554,55 +546,44 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
                 height: TILE_HEIGHT,
                 zIndex: cell.row + cell.col,
             }}
+            onClick={onClick}
+            onMouseEnter={handleHover}
+            onMouseLeave={handleLeave}
         >
-            {/* Clickable diamond — only the SVG path receives pointer events */}
-            <svg width={TILE_WIDTH} height={TILE_HEIGHT} className="absolute inset-0 cursor-pointer"
-                style={{ zIndex: 1 }}
-                onClick={onClick}
-                onMouseEnter={handleHover}
-                onMouseLeave={handleLeave}
-            >
-                <defs>
-                    <clipPath id={clipId}>
-                        <path d={diamondPath} />
-                    </clipPath>
-                </defs>
+            <svg width={TILE_WIDTH} height={TILE_HEIGHT} className="overflow-visible pointer-events-none">
                 <path
                     d={diamondPath}
                     fill={fillColor}
-                    stroke={cell.walkable ? strokeColor : 'none'}
+                    stroke={strokeColor}
                     strokeWidth={strokeWidth}
-                    className="transition-all duration-150 hover:brightness-150"
                 />
-
-                {/* Overlay highlights on top of tile space if needed */}
-                {(cell.highlight || isAoe) && (
-                    <path
-                        d={diamondPath}
-                        fill={fillColor}
-                        stroke={strokeColor}
-                        strokeWidth={strokeWidth}
-                        style={{ pointerEvents: 'none', opacity: 0.6 }}
-                    />
-                )}
-                {/* Grid lines only on walkable tiles — obstacles hide them */}
-                {cell.walkable && (
-                    <path
-                        d={diamondPath}
-                        fill="none"
-                        stroke={strokeColor}
-                        strokeWidth={strokeWidth}
-                        style={{ pointerEvents: 'none' }}
-                    />
-                )}
             </svg>
 
             {/* Error Message on Hover */}
             {isHovered && errorMessage && (
-                <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-red-950/90 border border-red-500/50 px-2 py-1 rounded shadow-xl z-[100] whitespace-nowrap">
-                    <span className="text-[10px] font-black text-red-100 uppercase tracking-wider flex items-center gap-1.5">
-                        <span className="text-xs">⚠️</span> {errorMessage}
-                    </span>
+                <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-red-600/90 text-white text-[9px] px-2 py-1 rounded shadow-xl whitespace-nowrap z-50 animate-bounce">
+                    ⚠️ {errorMessage}
+                </div>
+            )}
+
+            {/* Damage Preview Badge */}
+            {isHovered && damagePreview && !isDead && (
+                <div className="absolute -top-20 left-1/2 -translate-x-1/2 bg-black/90 border border-red-500/50 p-1.5 rounded shadow-xl z-50 min-w-[90px] pointer-events-none">
+                    <div className="text-[8px] uppercase font-black text-red-500/70 mb-0.5 tracking-tighter">Est. Impact</div>
+                    <div className="flex flex-col gap-0.5">
+                        <div className="flex justify-between items-center text-[10px]">
+                            <span className="text-gray-400">Hits</span>
+                            <span className="font-mono font-bold text-white">{damagePreview.min}-{damagePreview.max}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px]">
+                            <span className="text-amber-400">CRIT</span>
+                            <span className="font-mono font-bold text-amber-400">{damagePreview.critMin}-{damagePreview.critMax}</span>
+                        </div>
+                        <div className="mt-1 border-t border-white/10 pt-0.5 flex justify-between items-center text-[7px] text-gray-500 uppercase">
+                            <span>Chance</span>
+                            <span>{Math.round(damagePreview.critChance * 100)}%</span>
+                        </div>
+                    </div>
                 </div>
             )}
 

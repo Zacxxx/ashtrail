@@ -2,7 +2,18 @@ import { useState, useCallback, useEffect } from 'react';
 import { Trait } from '@ashtrail/core';
 import { GameRulesManager } from "../rules/useGameRules";
 
-export interface CombatEntity {
+export interface BaseStats {
+    strength: number;
+    agility: number;
+    intelligence: number;
+    wisdom: number;
+    charisma: number;
+    endurance: number;
+    evasion: number;
+    defense: number;
+}
+
+export interface CombatEntity extends BaseStats {
     id: string;
     isPlayer: boolean;
     name: string;
@@ -12,20 +23,13 @@ export interface CombatEntity {
     maxAp: number;
     mp: number;
     maxMp: number;
-    strength: number;
-    agility: number;
-    intelligence: number;
-    wisdom: number;
-    charisma: number;
-    endurance: number;
     critChance: number;
     resistance: number;
     socialBonus: number;
-    evasion: number;
-    defense: number;
     equipped?: Record<string, any>;
     traits: Trait[];
     activeEffects?: any[]; // GameplayEffect[] but avoid circular/type issues if any
+    baseStats: BaseStats; // Immortal source of truth
 }
 
 export interface CombatLogMessage {
@@ -34,19 +38,20 @@ export interface CombatLogMessage {
     type: 'system' | 'damage' | 'heal' | 'info';
 }
 
-export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, traits: Trait[] = []): CombatEntity {
+export function calculateEffectiveStats(baseEntity: CombatEntity, traits: Trait[] = []): CombatEntity {
     const rules = GameRulesManager.get();
+    const source = baseEntity.baseStats || baseEntity;
 
-    // Start with base stats
+    // Project everything from baseStats to avoid feedback loops
     const stats = {
-        strength: baseEntity.strength || 10,
-        agility: baseEntity.agility || 10,
-        endurance: (baseEntity as any).endurance || 10,
-        intelligence: baseEntity.intelligence || 10,
-        wisdom: baseEntity.wisdom || 10,
-        charisma: baseEntity.charisma || 10,
-        defense: baseEntity.defense || 0,
-        evasion: baseEntity.evasion || 5,
+        strength: source.strength || 10,
+        agility: source.agility || 10,
+        endurance: source.endurance || 10,
+        intelligence: source.intelligence || 10,
+        wisdom: source.wisdom || 10,
+        charisma: source.charisma || 10,
+        defense: source.defense || 0,
+        evasion: source.evasion || 5,
     };
 
     let maxHpBonus = 0;
@@ -140,11 +145,11 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
         id: baseEntity.id || Math.random().toString(36).substring(7),
         isPlayer: baseEntity.isPlayer || false,
         name: baseEntity.name || 'Unknown Entity',
-        hp: baseEntity.hp || maxHp,
+        hp: baseEntity.maxHp > 0 ? (baseEntity.hp ?? maxHp) : maxHp,
         maxHp: maxHp,
-        ap: baseEntity.ap || maxAp,
+        ap: baseEntity.maxAp > 0 ? (baseEntity.ap ?? maxAp) : maxAp,
         maxAp: maxAp,
-        mp: baseEntity.mp || maxMp,
+        mp: baseEntity.maxMp > 0 ? (baseEntity.mp ?? maxMp) : maxMp,
         maxMp: maxMp,
         strength: stats.strength,
         agility: stats.agility,
@@ -159,7 +164,8 @@ export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, trait
         evasion: stats.evasion,
         equipped: baseEntity.equipped,
         traits,
-        activeEffects: baseEntity.activeEffects
+        activeEffects: baseEntity.activeEffects,
+        baseStats: source // Keep the unmutated base
     };
 
     // Clamp HP if MaxHP was modified
