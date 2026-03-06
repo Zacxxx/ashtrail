@@ -128,6 +128,24 @@ export const ALL_SKILLS: Skill[] = [
     effects: [
       { type: 'STAT_MODIFIER', target: 'mp', value: 0, duration: 1 }
     ]
+  },
+  {
+    id: 'analyze',
+    name: 'Analyze',
+    description: 'Find weaknesses in the target, increasing critical chance for all attackers based on your Intelligence. (Max difference: 5 levels)',
+    category: 'base',
+    apCost: 3,
+    minRange: 1,
+    maxRange: 5,
+    areaType: 'single',
+    areaSize: 0,
+    targetType: 'enemy',
+    cooldown: 4,
+    effectType: 'magical',
+    icon: '🔍',
+    effects: [
+      { type: 'ANALYZED', duration: 2, value: 0 }
+    ]
   }
 ];
 

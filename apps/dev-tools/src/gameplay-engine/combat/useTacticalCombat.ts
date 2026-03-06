@@ -43,6 +43,7 @@ export interface TacticalEntity {
     mp: number;
     maxMp: number;
     gridPos: { row: number; col: number };
+    level: number;
 }
 
 export type CombatPhase = 'placement' | 'combat' | 'victory' | 'defeat';
@@ -92,15 +93,17 @@ export function createTacticalEntity(
     skills: Skill[],
     gridPos: { row: number; col: number },
     equipped?: Record<string, any>,
-    activeEffects: any[] = []
+    activeEffects: any[] = [],
+    level: number = 10
 ): TacticalEntity {
     const baseEntity: Partial<TacticalEntity> = {
-        id, isPlayer, name, hp, maxHp, strength, agility, endurance, intelligence, wisdom, charisma, evasion, defense, traits, equipped, activeEffects
+        id, isPlayer, name, hp, maxHp, strength, agility, endurance, intelligence, wisdom, charisma, evasion, defense, traits, equipped, activeEffects, level
     };
     const effective = calculateEffectiveStats(baseEntity as any, traits); // Cast to any because calculateEffectiveStats expects CombatEntity
 
     return {
         ...effective,
+        level: effective.level || level,
         skills,
         skillCooldowns: {},
         activeEffects: effective.activeEffects || [],
@@ -343,6 +346,36 @@ export function useTacticalCombat(
                 continue; // Skip normal processing for this skill
             }
 
+            // ── Analyze (Intelligence Scaling) ──
+            if (skill.id === 'analyze') {
+                const casterLevel = c.level || 10;
+                const targetLevel = t.level || 10;
+
+                if (targetLevel > casterLevel + 5) {
+                    logsToAdd.push({
+                        msg: `⚠️ ${t.name} is too powerful to be analyzed by ${c.name}!`,
+                        type: 'info'
+                    });
+                } else {
+                    const scale = rules.combat.analyzeIntelScale || 0.6;
+                    const baseBonus = rules.combat.analyzeBaseCrit || 30;
+                    const logVal = Math.log((c.intelligence || 0) + 1);
+                    const critBonus = baseBonus + Math.floor(scale * logVal * 10);
+
+                    tCopy.activeEffects = [
+                        ...(tCopy.activeEffects || []),
+                        { type: 'ANALYZED', value: critBonus, duration: 2, name: 'Weakness Revealed', casterId: c.id }
+                    ];
+
+                    logsToAdd.push({
+                        msg: `🔍 ${c.name} identifies flaws in ${t.name}! +${critBonus}% Crit chance for everyone.`,
+                        type: 'info'
+                    });
+                }
+                nextEntities.set(targetId, tCopy);
+                continue;
+            }
+
             // For AoE, we generally apply to all. We could filter by targetType if we wanted strict friend/foe AoE.
             if (skill.healing) {
                 const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
@@ -391,7 +424,9 @@ export function useTacticalCombat(
                 // ------------------------------------
 
                 // Critical Hit check
-                const isCrit = Math.random() < c.critChance;
+                const analyzedBonus = tCopy.activeEffects?.filter(e => e.type === 'ANALYZED').reduce((sum, e) => sum + (e.value || 0), 0) || 0;
+                const finalCritChance = c.critChance + (analyzedBonus / 100);
+                const isCrit = Math.random() < finalCritChance;
 
                 // Special handling for push damage
                 let strBonus = 0;

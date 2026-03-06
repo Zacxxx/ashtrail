@@ -390,6 +390,8 @@ export function GameRulesView() {
                 stealthBaseDuration: 1,
                 stealthScaleFactor: 1.4,
                 distractCharismaScale: 0.42,
+                analyzeBaseCrit: 30,
+                analyzeIntelScale: 0.6,
             },
             grid: { baseDisengageCost: 2, threatScaling: 1, agilityMitigationDivisor: 10 },
         });
@@ -713,6 +715,45 @@ Initiative: descending Agility → Endurance tiebreak`}
                                         </div>
                                         <div className="text-[8px] text-gray-500 leading-relaxed italic">
                                             Formula: Base ({rules.combat.stealthBaseDuration}) + floor({rules.combat.stealthScaleFactor} × ln(Wisdom + 1))
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-black/30 border border-white/5 rounded-xl p-5 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">Tactical Intel</h4>
+                                    <span className="text-[9px] text-gray-500 font-mono italic">Intelligence Scaling (Log)</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="space-y-4">
+                                        <RuleNumber
+                                            label="Base Crit Bonus %"
+                                            desc="Base bonus for Analysis"
+                                            value={rules.combat.analyzeBaseCrit ?? 30}
+                                            min={0} max={100} step={1}
+                                            onChange={v => patch("combat", "analyzeBaseCrit", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Intel Scale Factor"
+                                            desc="Scaling curve (Base + Scale * ln(Int + 1))"
+                                            value={rules.combat.analyzeIntelScale ?? 0.6}
+                                            min={0} max={5} step={0.1}
+                                            onChange={v => patch("combat", "analyzeIntelScale", v)}
+                                        />
+                                    </div>
+                                    <div className="bg-black/40 rounded-lg p-4 border border-white/5 space-y-3">
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase">Crit Bonus Projection</p>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {[10, 25, 40].map(intel => {
+                                                const bonus = (rules.combat.analyzeBaseCrit ?? 30) + Math.floor((rules.combat.analyzeIntelScale ?? 0.6) * Math.log(intel + 1) * 10);
+                                                return (
+                                                    <div key={intel} className="bg-white/5 p-2 rounded text-center border border-white/5">
+                                                        <div className="text-[8px] text-gray-500 uppercase">Int {intel}</div>
+                                                        <div className="text-xs font-black text-indigo-400">+{bonus}%</div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </div>

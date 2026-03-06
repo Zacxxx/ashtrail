@@ -38,7 +38,7 @@
     "rarity": "ashmarked"
   },
   {
-    "category": "armor",
+    "category": "weapon",
     "cost": 0,
     "description": "Un gros gourdin appartenant a Alexandre François avant la chute.\nMefiez-vous du gros gourdin ainsi que de son propriétaire. ",
     "effects": [
@@ -65,7 +65,7 @@
     "rarity": "ashmarked"
   },
   {
-    "category": "weapon",
+    "category": "armor",
     "cost": 100,
     "description": "No description needed",
     "effects": [

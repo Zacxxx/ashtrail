@@ -29,6 +29,8 @@ export interface GameRulesConfig {
         stealthBaseDuration: number;
         stealthScaleFactor: number;
         distractCharismaScale: number;
+        analyzeBaseCrit: number;
+        analyzeIntelScale: number;
     };
     grid: {
         baseDisengageCost: number;
@@ -66,6 +68,8 @@ const DEFAULT_RULES: GameRulesConfig = {
         stealthBaseDuration: 1,
         stealthScaleFactor: 1.4,
         distractCharismaScale: 0.42,
+        analyzeBaseCrit: 30,
+        analyzeIntelScale: 0.6,
     },
     grid: {
         baseDisengageCost: 2,

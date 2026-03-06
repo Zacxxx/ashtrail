@@ -139,19 +139,31 @@ export function TacticalArena({
                         {grid.map((row, r) =>
                             row.map((cell, c) => {
                                 const { x, y } = gridToScreen(r, c);
+                                const occupant = cell.occupantId ? entities.get(cell.occupantId) : undefined;
+                                let error = "";
+                                if (selectedSkill?.id === 'analyze' && occupant) {
+                                    if (occupant.level > (activeEntity?.level || 10) + 5) {
+                                        error = "Target too powerful to analyze";
+                                    }
+                                }
+
                                 return (
                                     <IsometricTile
                                         key={`${r}-${c}`}
                                         cell={cell}
                                         x={x}
                                         y={y}
-                                        entity={cell.occupantId ? entities.get(cell.occupantId) : undefined}
+                                        entity={occupant}
                                         isActive={cell.occupantId === activeEntityId}
                                         isAoe={aoeSet.has(`${r},${c}`)}
                                         hasBattlemap={!!battlemapUrl}
-                                        onClick={() => onCellClick(r, c)}
+                                        onClick={() => {
+                                            if (error) return; // Block clicking
+                                            onCellClick(r, c);
+                                        }}
                                         onHover={() => setHoveredCell({ row: r, col: c })}
                                         onLeave={() => setHoveredCell(null)}
+                                        errorMessage={error}
                                     />
                                 );
                             })
@@ -299,8 +311,26 @@ export function TacticalArena({
 
                                                             const total = (skill.damage || 0) + strBonus;
                                                             const isDistract = skill.id === 'distract';
+                                                            const isAnalyze = skill.id === 'analyze';
                                                             const isStealth = skill.effects?.some(e => e.type === 'STEALTH');
                                                             const isProtection = skill.effects?.some(e => e.type === 'PROTECTION_STANCE');
+
+                                                            if (isAnalyze) {
+                                                                const scale = rules.combat.analyzeIntelScale || 0.6;
+                                                                const base = rules.combat.analyzeBaseCrit || 30;
+                                                                const bonus = base + Math.floor(scale * Math.log((activeEntity?.intelligence || 0) + 1) * 10);
+                                                                return (
+                                                                    <div className="flex flex-col gap-1 w-full text-indigo-300">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="font-black uppercase">Crit Bonus</span>
+                                                                            <span className="font-mono">+{bonus}%</span>
+                                                                        </div>
+                                                                        <div className="text-[8px] text-indigo-300/60 italic leading-snug">
+                                                                            {base}% + floor({scale} × ln(Int {activeEntity?.intelligence}))
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
 
                                                             if (isDistract) {
                                                                 const scale = rules.combat.distractCharismaScale || 0.42;
@@ -453,10 +483,22 @@ interface IsometricTileProps {
     onClick: () => void;
     onHover?: () => void;
     onLeave?: () => void;
+    errorMessage?: string;
 }
 
-function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onClick, onHover, onLeave }: IsometricTileProps) {
+function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onClick, onHover, onLeave, errorMessage }: IsometricTileProps) {
     const isDead = entity && entity.hp <= 0;
+    const [isHovered, setIsHovered] = useState(false);
+
+    const handleHover = () => {
+        setIsHovered(true);
+        if (onHover) onHover();
+    };
+
+    const handleLeave = () => {
+        setIsHovered(false);
+        if (onLeave) onLeave();
+    };
 
     const halfW = TILE_WIDTH / 2;
     const halfH = TILE_HEIGHT / 2;
@@ -517,8 +559,8 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
             <svg width={TILE_WIDTH} height={TILE_HEIGHT} className="absolute inset-0 cursor-pointer"
                 style={{ zIndex: 1 }}
                 onClick={onClick}
-                onMouseEnter={onHover}
-                onMouseLeave={onLeave}
+                onMouseEnter={handleHover}
+                onMouseLeave={handleLeave}
             >
                 <defs>
                     <clipPath id={clipId}>
@@ -554,6 +596,15 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
                     />
                 )}
             </svg>
+
+            {/* Error Message on Hover */}
+            {isHovered && errorMessage && (
+                <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-red-950/90 border border-red-500/50 px-2 py-1 rounded shadow-xl z-[100] whitespace-nowrap">
+                    <span className="text-[10px] font-black text-red-100 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="text-xs">⚠️</span> {errorMessage}
+                    </span>
+                </div>
+            )}
 
             {/* Standalone Sprites for Obstacles */}
             {cell.textureUrl && !cell.walkable && (
@@ -596,6 +647,9 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
                         )}
                         {entity.activeEffects?.some((e: any) => e.type === 'STEALTH') && (
                             <span className="text-[10px] drop-shadow-[0_0_5px_rgba(99,102,241,0.8)] animate-bounce">👤</span>
+                        )}
+                        {entity.activeEffects?.some((e: any) => e.type === 'ANALYZED') && (
+                            <span className="text-[10px] drop-shadow-[0_0_5px_rgba(234,179,8,0.8)] animate-[pulse_1s_infinite]">🔍</span>
                         )}
                     </div>
 
