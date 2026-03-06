@@ -300,6 +300,7 @@ export function useTacticalCombat(
         const affectedCells = getAoECells(grid, targetRow, targetCol, skill.areaType, skill.areaSize || 0, dirR, dirC);
 
         const nextEntities = new Map(entities);
+        let nextGrid = grid;
         const logsToAdd: { msg: string, type: CombatLogMessage['type'] }[] = [];
 
         // Deduct AP caster
@@ -326,7 +327,7 @@ export function useTacticalCombat(
 
                 if (casterCha > targetWis) {
                     const scale = rules.combat.distractCharismaScale || 0.42;
-                    const mpReduction = 1 + Math.floor(scale * Math.log(casterCha + 1));
+                    const mpReduction = 1 + Math.floor(scale * Math.log(Math.max(0, casterCha) + 1));
 
                     // Apply immediate MP reduction for current turn if its target turn (optional, usually next)
                     // But user said "next turn", so we apply a 1 turn buff that reduces maxMp and thus resets to lower next turn
@@ -360,9 +361,9 @@ export function useTacticalCombat(
                         type: 'info'
                     });
                 } else {
-                    const scale = (rules.combat?.analyzeIntelScale !== undefined) ? rules.combat.analyzeIntelScale : 0.6;
-                    const baseBonus = (rules.combat?.analyzeBaseCrit !== undefined) ? rules.combat.analyzeBaseCrit : 30;
-                    const logVal = Math.log((c.intelligence || 0) + 1);
+                    const scale = (rules.combat?.analyzeIntelScale !== undefined) ? Number(rules.combat.analyzeIntelScale || 0.6) : 0.6;
+                    const baseBonus = (rules.combat?.analyzeBaseCrit !== undefined) ? Number(rules.combat.analyzeBaseCrit || 30) : 30;
+                    const logVal = Math.log(Math.max(0, Number(c.intelligence || 0)) + 1);
                     const critBonus = Math.max(0, baseBonus + Math.floor(scale * logVal * 10));
 
                     tCopy.activeEffects = [
@@ -566,6 +567,7 @@ export function useTacticalCombat(
                     }
 
                     if (currentRow !== tCopy.gridPos.row || currentCol !== tCopy.gridPos.col) {
+                        nextGrid = moveEntityOnGrid(nextGrid, t.id, t.gridPos.row, t.gridPos.col, currentRow, currentCol);
                         tCopy.gridPos = { row: currentRow, col: currentCol };
                     }
 
@@ -598,7 +600,7 @@ export function useTacticalCombat(
                     if (eff.type === 'STEALTH') {
                         const baseDur = rules.combat.stealthBaseDuration || 1;
                         const factor = rules.combat.stealthScaleFactor || 1.4;
-                        const bonus = Math.floor(factor * Math.log((c.wisdom || 0) + 1));
+                        const bonus = Math.floor(factor * Math.log(Math.max(0, c.wisdom || 0) + 1));
                         newEff.duration = baseDur + bonus;
                         (newEff as any).lastKnownPosition = { ...c.gridPos };
                     }
@@ -647,9 +649,9 @@ export function useTacticalCombat(
             }
         }
 
-        // nextEntities already contains the caster with updated AP/Cooldowns (set at line 296)
         // and any effect updates from the loop if the caster was a target.
         setEntities(new Map(nextEntities));
+        setGrid(nextGrid);
         logsToAdd.forEach(l => addLog(l.msg, l.type));
 
         setTimeout(() => {
@@ -902,16 +904,16 @@ export function useTacticalCombat(
                     addLog(`👤 ${nextE.name} is still invisible (${stealthRemaining.duration} turns left)`, 'info');
                 }
 
-                // 3. Recalculate stats if effects changed
+                // 3. Always recalculate stats at turn start to ensure consistency
+                const recalculated = calculateEffectiveStats(nextE, nextE.traits);
+                // We preserve current HP/AP/MP but update Max values and other stats
+                Object.assign(nextE, {
+                    ...recalculated,
+                    hp: Math.min(nextE.hp, recalculated.maxHp),
+                    ap: Math.min(nextE.ap, recalculated.maxAp),
+                    mp: Math.min(nextE.mp, recalculated.maxMp)
+                });
                 if (effectsChanged) {
-                    const recalculated = calculateEffectiveStats(nextE, nextE.traits);
-                    // We preserve current HP/AP/MP but update Max values and other stats
-                    Object.assign(nextE, {
-                        ...recalculated,
-                        hp: Math.min(nextE.hp, recalculated.maxHp),
-                        ap: Math.min(nextE.ap, recalculated.maxAp),
-                        mp: Math.min(nextE.mp, recalculated.maxMp)
-                    });
                     addLog(`✨ Some effects on ${nextE.name} have expired.`, 'info');
                 }
 
@@ -1108,7 +1110,7 @@ export function useTacticalCombat(
             critMin: calc(minStrBonus, vMin, true),
             critMax: calc(maxStrBonus, vMax, true),
             isMagical,
-            critChance: finalCritChance
+            critChance: isNaN(finalCritChance) ? (attacker.critChance || 0) : finalCritChance
         };
     }, []);
 
