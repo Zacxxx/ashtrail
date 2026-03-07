@@ -1203,7 +1203,7 @@ export function CharacterBuilderPage() {
 
                         {/* ═══ SKILLS TAB (SKILL BOOK) ═══ */}
                         {activeTab === "SKILLS" && (
-                            <div className="flex h-full relative font-mono overflow-hidden py-1 px-1 gap-6 animate-ash-settling">
+                            <div className="flex h-full relative font-mono py-1 px-1 gap-6 animate-ash-settling">
                                 <style>{`
                                     .game-scrollbar::-webkit-scrollbar {
                                         width: 4px;
@@ -1278,7 +1278,7 @@ export function CharacterBuilderPage() {
                                 </aside>
 
                                 {/* Center: Skill Book */}
-                                <div className="flex-1 flex justify-center overflow-hidden relative pr-12">
+                                <div className="flex-1 flex justify-center relative pr-12">
                                     <div className="w-full max-w-[850px] bg-black/60 border-y border-l border-white/10 rounded-l-3xl shadow-2xl relative flex flex-col group">
                                         {/* Book Binding/Spine */}
                                         <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-black/80 to-transparent border-r border-white/5 z-20" />
@@ -1365,14 +1365,14 @@ export function CharacterBuilderPage() {
                                                         <button
                                                             key={cat}
                                                             onClick={() => setBookCategory(cat)}
-                                                            className={`group relative flex items-center justify-center w-12 h-16 rounded-r-xl border-y border-r transition-all duration-300 ${isActive
+                                                            className={`group/tab relative flex items-center justify-center w-12 h-16 rounded-r-xl border-y border-r transition-all duration-300 ${isActive
                                                                 ? "bg-[#1a1410] border-[#c2410c] w-14 shadow-[-10px_0_20px_rgba(194,65,12,0.2)] z-10"
                                                                 : "bg-black/60 border-white/10 hover:bg-[#c2410c]/10 hover:border-[#c2410c]/30 hover:w-13 z-0"}`}
                                                         >
-                                                            <span className={`text-xl transition-transform group-hover:scale-110 ${isActive ? "opacity-100" : "opacity-40"}`}>
+                                                            <span className={`text-xl transition-transform group-hover/tab:scale-110 ${isActive ? "opacity-100" : "opacity-40"}`}>
                                                                 {icons[cat]}
                                                             </span>
-                                                            <div className="absolute left-full ml-4 px-3 py-2 bg-black border border-[#c2410c]/40 text-[9px] font-black text-white uppercase tracking-widest whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-2xl z-50">
+                                                            <div className="absolute left-full ml-4 px-3 py-2 bg-black border border-[#c2410c]/40 text-[9px] font-black text-white uppercase tracking-widest whitespace-nowrap opacity-0 group-hover/tab:opacity-100 transition-opacity pointer-events-none shadow-2xl z-50">
                                                                 <div className="flex items-center gap-2">
                                                                     <div className="w-1 h-3 bg-[#c2410c]" />
                                                                     {cat.toUpperCase()}
