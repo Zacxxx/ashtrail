@@ -82,6 +82,20 @@ pub struct TacticalEntity {
     pub equipped: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_effects: Option<Vec<GameplayEffect>>,
+    pub base_stats: BaseStats,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseStats {
+    pub strength: i32,
+    pub agility: i32,
+    pub intelligence: i32,
+    pub wisdom: i32,
+    pub endurance: i32,
+    pub charisma: i32,
+    pub evasion: i32,
+    pub defense: i32,
 }
 
 // ── Gameplay Effect Types ───────────────────────────────────

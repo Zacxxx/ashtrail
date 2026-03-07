@@ -211,72 +211,134 @@ impl CombatState {
     // ── Calculate Effective Stats ───────────────────────────
 
     pub fn calculate_effective_stats(base: &mut TacticalEntity, rules: &GameRulesConfig) {
-        // Base stats are already populated from the entity data
-
         let mut hp_bonus = 0i32;
+        let mut ap_bonus = 0i32;
+        let mut mp_bonus = 0i32;
         let mut str_bonus = 0i32;
         let mut agi_bonus = 0i32;
         let mut int_bonus = 0i32;
         let mut wis_bonus = 0i32;
+        let mut endu_bonus = 0i32;
         let mut cha_bonus = 0i32;
         let mut eva_bonus = 0i32;
         let mut def_bonus = 0i32;
 
-        // Apply passive trait effects
         for tr in &base.traits {
             if let Some(effects) = &tr.effects {
                 for eff in effects {
                     if eff.trigger != Some(EffectTrigger::Passive) {
                         continue;
                     }
-                    match &eff.effect_type {
-                        EffectType::StatModifier | EffectType::CombatBonus => {
-                            if let Some(target) = &eff.target {
-                                match target.as_str() {
-                                    "maxHp" => hp_bonus += eff.value as i32,
-                                    "strength" => str_bonus += eff.value as i32,
-                                    "agility" => agi_bonus += eff.value as i32,
-                                    "intelligence" => int_bonus += eff.value as i32,
-                                    "wisdom" => wis_bonus += eff.value as i32,
-                                    "charisma" => cha_bonus += eff.value as i32,
-                                    "evasion" => eva_bonus += eff.value as i32,
-                                    "defense" => def_bonus += eff.value as i32,
-                                    _ => {}
-                                }
+                    if eff.effect_type == EffectType::StatModifier
+                        || eff.effect_type == EffectType::CombatBonus
+                    {
+                        if let Some(target) = &eff.target {
+                            let val = eff.value as i32;
+                            match target.as_str() {
+                                "hp" | "maxHp" => hp_bonus += val,
+                                "ap" | "maxAp" => ap_bonus += val,
+                                "mp" | "maxMp" => mp_bonus += val,
+                                "strength" => str_bonus += val,
+                                "agility" => agi_bonus += val,
+                                "intelligence" => int_bonus += val,
+                                "wisdom" => wis_bonus += val,
+                                "endurance" => endu_bonus += val,
+                                "charisma" => cha_bonus += val,
+                                "evasion" => eva_bonus += val,
+                                "defense" | "armor" => def_bonus += val,
+                                _ => {}
                             }
                         }
-                        _ => {}
                     }
                 }
             }
         }
 
-        base.strength = (base.strength + str_bonus).max(0);
-        base.agility = (base.agility + agi_bonus).max(0);
-        base.intelligence = (base.intelligence + int_bonus).max(0);
-        base.wisdom = (base.wisdom + wis_bonus).max(0);
-        base.charisma = (base.charisma + cha_bonus).max(0);
-        base.evasion = (base.evasion + eva_bonus).max(0);
-        base.defense = (base.defense + def_bonus).max(0);
+        if let Some(eq) = &base.equipped {
+            if let Some(obj) = eq.as_object() {
+                for item in obj.values() {
+                    if item.is_null() {
+                        continue;
+                    }
+                    if let Some(effs) = item.get("effects").and_then(|v| v.as_array()) {
+                        for eff in effs {
+                            let e_type = eff.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                            let target = eff.get("target").and_then(|v| v.as_str()).unwrap_or("");
+                            let val = eff.get("value").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                            if e_type == "STAT_MODIFIER" || e_type == "COMBAT_BONUS" {
+                                match target {
+                                    "hp" | "maxHp" => hp_bonus += val,
+                                    "ap" | "maxAp" => ap_bonus += val,
+                                    "mp" | "maxMp" => mp_bonus += val,
+                                    "strength" => str_bonus += val,
+                                    "agility" => agi_bonus += val,
+                                    "intelligence" => int_bonus += val,
+                                    "wisdom" => wis_bonus += val,
+                                    "endurance" => endu_bonus += val,
+                                    "charisma" => cha_bonus += val,
+                                    "evasion" => eva_bonus += val,
+                                    "defense" | "armor" => def_bonus += val,
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        let max_hp = base.max_hp + hp_bonus;
-        let max_ap = rules.core.ap_base + base.agility / rules.core.ap_agility_divisor;
-        let max_mp = rules.core.mp_base;
+        if let Some(effs) = &base.active_effects {
+            for eff in effs {
+                if eff.effect_type == EffectType::StatModifier {
+                    if let Some(target) = &eff.target {
+                        let val = eff.value as i32;
+                        match target.as_str() {
+                            "hp" | "maxHp" => hp_bonus += val,
+                            "ap" | "maxAp" => ap_bonus += val,
+                            "mp" | "maxMp" => mp_bonus += val,
+                            "strength" => str_bonus += val,
+                            "agility" => agi_bonus += val,
+                            "intelligence" => int_bonus += val,
+                            "wisdom" => wis_bonus += val,
+                            "endurance" => endu_bonus += val,
+                            "charisma" => cha_bonus += val,
+                            "evasion" => eva_bonus += val,
+                            "defense" | "armor" => def_bonus += val,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
 
-        base.max_hp = max_hp;
-        base.max_ap = max_ap;
-        base.max_mp = max_mp;
+        base.strength = (base.base_stats.strength + str_bonus).max(0);
+        base.agility = (base.base_stats.agility + agi_bonus).max(0);
+        base.intelligence = (base.base_stats.intelligence + int_bonus).max(0);
+        base.wisdom = (base.base_stats.wisdom + wis_bonus).max(0);
+        base.endurance = (base.base_stats.endurance + endu_bonus).max(0);
+        base.charisma = (base.base_stats.charisma + cha_bonus).max(0);
+        base.evasion = (base.base_stats.evasion + eva_bonus).max(0);
+
+        let agi_scale = 2.5; // rules.core.armorAgiScale
+        let endu_scale = 3.5; // rules.core.armorEnduScale
+        let base_armor_log = (agi_scale * ((base.agility.max(0) as f64) + 1.0).ln()
+            + endu_scale * ((base.endurance.max(0) as f64) + 1.0).ln())
+            as i32;
+        base.defense = base_armor_log + base.base_stats.defense + def_bonus;
+
+        base.max_hp =
+            1.max(base.endurance * rules.core.hp_per_endurance + rules.core.hp_base + hp_bonus);
+        base.max_ap =
+            1.max(rules.core.ap_base + base.agility / rules.core.ap_agility_divisor + ap_bonus);
+        base.max_mp = 1.max(rules.core.mp_base + mp_bonus);
 
         if base.hp > base.max_hp {
             base.hp = base.max_hp;
         }
-        if base.hp == 0 {
-            base.hp = base.max_hp;
-        }
-        if base.ap == 0 {
+        if base.ap > base.max_ap {
             base.ap = base.max_ap;
         }
-        if base.mp == 0 {
+        if base.mp > base.max_mp {
             base.mp = base.max_mp;
         }
 

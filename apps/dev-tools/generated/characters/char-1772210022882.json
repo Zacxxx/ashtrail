@@ -1,9 +1,60 @@
 {
   "age": 23,
   "appearancePrompt": "Un homme immense a l'allure ronde ",
+  "equipped": {
+    "head": {
+      "bagIndex": 0,
+      "category": "armor",
+      "cost": 0,
+      "description": "There's no way that you can equip sterling's set ? WTF ? ",
+      "effects": [
+        {
+          "target": "intelligence",
+          "type": "STAT_MODIFIER",
+          "value": 4
+        },
+        {
+          "target": "strength",
+          "type": "STAT_MODIFIER",
+          "value": -4
+        }
+      ],
+      "icon": "📦",
+      "id": "item-1772208031388-1772210026373",
+      "name": "Sterling's helmet",
+      "rarity": "ashmarked"
+    },
+    "mainHand": {
+      "bagIndex": 0,
+      "category": "weapon",
+      "cost": 0,
+      "description": "Un gros gourdin appartenant a Alexandre François avant la chute.\nMefiez-vous du gros gourdin ainsi que de son propriétaire. ",
+      "effects": [
+        {
+          "target": "strength",
+          "type": "STAT_MODIFIER",
+          "value": 200
+        },
+        {
+          "target": "intelligence",
+          "type": "STAT_MODIFIER",
+          "value": -20
+        },
+        {
+          "target": "damage",
+          "type": "COMBAT_BONUS",
+          "value": 25
+        }
+      ],
+      "icon": "📦",
+      "id": "item-1772210100258-1772210190577",
+      "name": "Le gourdin d'AF",
+      "rarity": "ashmarked"
+    }
+  },
   "gender": "Non-Binary",
   "history": "Un jeune étudiant en faculté d'informatique avant la chute du monde. ",
-  "hp": 45,
+  "hp": 43,
   "id": "char-1772210022882",
   "inventory": [
     {
@@ -56,57 +107,6 @@
       "rarity": "ashmarked"
     }
   ],
-  "equipped": {
-    "head": {
-      "bagIndex": 0,
-      "category": "armor",
-      "cost": 0,
-      "description": "There's no way that you can equip sterling's set ? WTF ? ",
-      "effects": [
-        {
-          "target": "intelligence",
-          "type": "STAT_MODIFIER",
-          "value": 4
-        },
-        {
-          "target": "strength",
-          "type": "STAT_MODIFIER",
-          "value": -4
-        }
-      ],
-      "icon": "📦",
-      "id": "item-1772208031388-1772210026373",
-      "name": "Sterling's helmet",
-      "rarity": "ashmarked"
-    },
-    "mainHand": {
-      "bagIndex": 0,
-      "category": "weapon",
-      "cost": 0,
-      "description": "Un gros gourdin appartenant a Alexandre François avant la chute.\nMefiez-vous du gros gourdin ainsi que de son propriétaire. ",
-      "effects": [
-        {
-          "target": "strength",
-          "type": "STAT_MODIFIER",
-          "value": 200
-        },
-        {
-          "target": "intelligence",
-          "type": "STAT_MODIFIER",
-          "value": -20
-        },
-        {
-          "target": "damage",
-          "type": "COMBAT_BONUS",
-          "value": 25
-        }
-      ],
-      "icon": "📦",
-      "id": "item-1772210100258-1772210190577",
-      "name": "Le gourdin d'AF",
-      "rarity": "ashmarked"
-    }
-  },
   "isNPC": false,
   "level": 1,
   "maxHp": 45,

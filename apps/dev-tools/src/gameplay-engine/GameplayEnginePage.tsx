@@ -9,6 +9,7 @@ import { ItemsView } from "./ItemsView";
 import { CombatSimulator } from "./combat/CombatSimulator";
 import { SkillBuilder } from "./SkillBuilder";
 import { GameRulesView } from "./GameRulesView";
+import { EventsView } from "./EventsView";
 import { GameRegistry, Trait, Occupation, Character, Item } from "@ashtrail/core";
 
 export type GameplayStep = "RULES" | "EXPLORATION" | "EVENTS" | "COMBAT" | "CHARACTER" | "SKILLS";
@@ -149,6 +150,20 @@ export function GameplayEnginePage() {
                     {activeStep === "SKILLS" && (
                         <div className="w-full h-full">
                             <SkillBuilder />
+                        </div>
+                    )}
+
+                    {activeStep === "EVENTS" && (
+                        <div className="w-full h-full p-8 flex justify-center items-start overflow-y-auto">
+                            <div className="w-full h-full max-w-[1200px]">
+                                <EventsView
+                                    characters={customCharacters}
+                                    onCharacterUpdated={async () => {
+                                        await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                                        setCustomCharacters(GameRegistry.getAllCharacters());
+                                    }}
+                                />
+                            </div>
                         </div>
                     )}
 

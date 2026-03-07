@@ -5,6 +5,7 @@ mod gemini;
 mod worldgen_pipeline;
 mod cms;
 mod combat_engine;
+mod ai_events;
 
 use axum::{
     extract::{Path, Query, State},
@@ -436,6 +437,8 @@ async fn main() {
         .route("/api/planet/saved/{cache_key}", get(load_saved_planet))
         .route("/api/planet/lore/query", post(query_lore_handler))
         .route("/api/text/generate", post(generate_text_handler))
+        .route("/api/events/generate", post(ai_events::generate_event_handler))
+        .route("/api/events/resolve", post(ai_events::resolve_event_handler))
         .route("/api/planet/ecology", post(start_ecology_job))
         .route("/api/planet/ecology/{job_id}", get(get_job_status))
         .route("/api/planet/humanity", post(start_humanity_job))

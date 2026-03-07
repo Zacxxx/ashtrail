@@ -5,7 +5,7 @@
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Skill } from '@ashtrail/core';
 import type { TacticalEntity, CombatPhase, CombatLogMessage } from '@ashtrail/core';
-import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells } from './tacticalGrid';
+import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells, getReachableCells, getAttackableCells } from './tacticalGrid';
 import type { PlayerAction } from './useCombatWebSocket';
 import type { DamagePreview } from '@ashtrail/core';
 import { GameRulesManager } from '../rules/useGameRules';
@@ -82,6 +82,27 @@ export function TacticalArena({
         return set;
     }, [selectedSkill, hoveredCell, activeEntity, grid, phase, playerAction]);
 
+    const displayGrid = useMemo(() => {
+        // Create a shallow copy of the grid rows/cells to inject highlights
+        const newGrid = grid.map(row => row.map(cell => ({ ...cell, highlight: null as 'move' | 'attack' | 'path' | null })));
+
+        if (!activeEntity || phase !== 'combat' || !isPlayerTurn) return newGrid;
+
+        if (playerAction === 'idle') {
+            const reachable = getReachableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, activeEntity.mp);
+            reachable.forEach(c => {
+                newGrid[c.row][c.col].highlight = 'move';
+            });
+        } else if (playerAction === 'targeting_skill' && selectedSkill) {
+            const attackable = getAttackableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, selectedSkill.minRange, selectedSkill.maxRange);
+            attackable.forEach(c => {
+                newGrid[c.row][c.col].highlight = 'attack';
+            });
+        }
+
+        return newGrid;
+    }, [grid, activeEntity, phase, isPlayerTurn, playerAction, selectedSkill]);
+
     return (
         <div className="w-full h-full flex flex-col gap-0 overflow-hidden">
             {/* Top Bar: Turn info + Phase */}
@@ -141,7 +162,7 @@ export function TacticalArena({
                             />
                         )}
 
-                        {grid.map((row, r) =>
+                        {displayGrid.map((row, r) =>
                             row.map((cell, c) => {
                                 const { x, y } = gridToScreen(r, c);
                                 const occupant = cell.occupantId ? entities.get(cell.occupantId) : undefined;
