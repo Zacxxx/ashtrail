@@ -143,6 +143,8 @@ export function CharacterBuilderPage() {
     const [selectedSkills, setSelectedSkills] = useState<Skill[]>([]);
     const [skillSearch, setSkillSearch] = useState("");
     const [skillCategoryFilter, setSkillCategoryFilter] = useState<SkillCategory | "ALL">("ALL");
+    const [bookCategory, setBookCategory] = useState<SkillCategory>("base");
+
 
     // Inventory State
     const [inventory, setInventory] = useState<Item[]>([]);
@@ -1207,7 +1209,7 @@ export function CharacterBuilderPage() {
                                     <div className="flex flex-col gap-1.5 border-b border-white/5 pb-3">
                                         <div className="flex items-center gap-2">
                                             <div className="w-1.5 h-3 bg-[#c2410c]" />
-                                            <label className="text-[10px] text-white font-black uppercase tracking-[0.2em]">Neural Database</label>
+                                            <label className="text-[10px] text-white font-black uppercase tracking-[0.2em]">Database</label>
                                         </div>
                                         <input
                                             value={skillSearch}
@@ -1258,83 +1260,116 @@ export function CharacterBuilderPage() {
                                     </div>
                                 </aside>
 
-                                <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-2">
-                                    <div className="bg-black/40 border border-white/5 p-6 rounded-2xl shadow-xl relative overflow-hidden min-h-[500px]">
-                                        {/* Background Grid */}
-                                        <div className="absolute inset-0 bg-[linear-gradient(rgba(194,65,12,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(194,65,12,0.02)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none opacity-40" />
+                                {/* Center: Skill Book */}
+                                <div className="flex-1 flex gap-2 overflow-hidden relative pr-12">
+                                    <div className="flex-1 bg-black/60 border-y border-l border-white/10 rounded-l-3xl shadow-2xl relative overflow-hidden flex flex-col group">
+                                        {/* Book Binding/Spine */}
+                                        <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-black/80 to-transparent border-r border-white/5 z-20" />
 
-                                        <div className="relative z-10 flex flex-col gap-8">
-                                            <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                                                <div className="flex flex-col gap-1">
-                                                    <h3 className="text-sm font-black text-white uppercase tracking-[0.3em] flex items-center gap-3">
-                                                        <div className="w-2 h-2 bg-[#c2410c] shadow-[0_0_10px_#c2410c]" />
-                                                        Active Neural Protocols
-                                                    </h3>
-                                                    <span className="text-[9px] text-gray-600 font-bold uppercase tracking-widest">{selectedSkills.length} SKILLS INITIALIZED</span>
+                                        {/* Parchment Page Overlay */}
+                                        <div className="absolute inset-0 bg-[#1a1410] mix-blend-multiply opacity-40 z-0 pointer-events-none" />
+                                        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(194,65,12,0.05)_0%,transparent_70%)] z-0 pointer-events-none" />
+
+                                        <div className="relative z-10 flex flex-col h-full pl-12 pr-6 py-8">
+                                            <div className="flex items-center justify-between border-b border-[#c2410c]/20 pb-4 mb-8">
+                                                <h3 className="text-sm font-black text-white uppercase tracking-[0.4em] flex items-center gap-3">
+                                                    <div className="w-2 h-2 bg-[#c2410c] shadow-[0_0_10px_#c2410c]" />
+                                                    Skill book
+                                                </h3>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="text-[7px] text-gray-600 font-black uppercase">Buffer Page</span>
+                                                        <span className="text-[10px] text-white font-mono">{selectedSkills.filter(s => s.category === bookCategory).length > 0 ? "01" : "00"}</span>
+                                                    </div>
                                                 </div>
                                             </div>
 
-                                            {selectedSkills.length === 0 ? (
-                                                <div className="flex-1 flex flex-col items-center justify-center py-20 opacity-30">
-                                                    <div className="text-4xl mb-4">🧠</div>
-                                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em] italic">No active skills in this unit's neural buffer</p>
-                                                    <p className="text-[8px] text-gray-600 mt-2 uppercase tracking-widest">Select skills from the database to synchronize</p>
-                                                </div>
-                                            ) : (
-                                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                                                    {selectedSkills.map(skill => (
-                                                        <div key={skill.id} className="bg-black/60 border border-white/10 p-5 rounded-xl group relative overflow-hidden hover:border-[#c2410c]/30 transition-all">
-                                                            <div className="flex items-start gap-4">
-                                                                <div className="w-14 h-14 bg-black/40 border border-[#c2410c]/40 rounded-xl flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
-                                                                    {skill.icon || "🧠"}
-                                                                </div>
-                                                                <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-                                                                    <div className="flex items-center justify-between">
-                                                                        <h4 className="text-[12px] font-black text-white uppercase tracking-wider truncate">{skill.name}</h4>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-[9px] text-[#c2410c] font-black">{skill.apCost} AP</span>
-                                                                            <button onClick={() => toggleSkill(skill)} className="text-[9px] text-gray-600 hover:text-red-500 font-black px-1 transition-colors uppercase">✕</button>
+                                            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-8">
+                                                {selectedSkills.filter(s => s.category === bookCategory).length === 0 ? (
+                                                    <div className="flex-1 flex flex-col items-center justify-center py-20 opacity-20 group-hover:opacity-30 transition-opacity">
+                                                        <div className="text-4xl mb-6 grayscale brightness-50">📂</div>
+                                                        <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.34em] italic text-center">no active skill</p>
+                                                        <p className="text-[8px] text-[#c2410c] mt-4 uppercase tracking-[0.2em] font-bold">Inject from Database sidebar</p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-10">
+                                                        {selectedSkills.filter(s => s.category === bookCategory).map(skill => (
+                                                            <div key={skill.id} className="relative group/skill">
+                                                                <div className="flex gap-4">
+                                                                    <div className="relative shrink-0">
+                                                                        <div className="w-16 h-16 bg-black/40 border border-[#c2410c]/30 rounded flex items-center justify-center text-3xl group-hover/skill:scale-105 group-hover/skill:border-[#c2410c] transition-all relative z-10 shadow-lg">
+                                                                            {skill.icon || "🧠"}
+                                                                        </div>
+                                                                        {/* Holographic ornament under icon */}
+                                                                        <div className="absolute -inset-1 border border-[#c2410c]/10 rounded opacity-0 group-hover/skill:opacity-100 transition-opacity pointer-events-none" />
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="flex items-center justify-between mb-1.5">
+                                                                            <h4 className="text-[14px] font-black text-white uppercase tracking-wider truncate leading-tight">{skill.name}</h4>
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); toggleSkill(skill); }}
+                                                                                className="text-[9px] text-[#c2410c]/40 hover:text-red-500 font-black px-1 transition-colors uppercase italic"
+                                                                            >Eject ✕</button>
+                                                                        </div>
+                                                                        <p className="text-[10.5px] text-gray-500 leading-relaxed italic line-clamp-2 mb-3 h-[32px]">{skill.description}</p>
+
+                                                                        <div className="grid grid-cols-3 gap-2 border-t border-white/5 pt-2.5">
+                                                                            <div className="flex flex-col">
+                                                                                <span className="text-[6.5px] text-gray-600 font-black uppercase tracking-widest">AP Cost</span>
+                                                                                <span className="text-[9px] text-orange-400 font-bold">{skill.apCost} Units</span>
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="text-[6.5px] text-gray-600 font-black uppercase tracking-widest">Range</span>
+                                                                                <span className="text-[9px] text-gray-400 font-bold">{skill.minRange}-{skill.maxRange}m</span>
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="text-[6.5px] text-gray-600 font-black uppercase tracking-widest">CD</span>
+                                                                                <span className="text-[9px] text-gray-400 font-bold">{skill.cooldown} T</span>
+                                                                            </div>
                                                                         </div>
                                                                     </div>
-                                                                    <p className="text-[10px] text-gray-500 leading-relaxed italic">{skill.description}</p>
-                                                                    <div className="flex items-center gap-3 mt-1 pt-2 border-t border-white/5">
-                                                                        <div className="flex flex-col">
-                                                                            <span className="text-[7px] text-gray-700 font-black uppercase tracking-widest">RANGE</span>
-                                                                            <span className="text-[9px] text-gray-400 font-bold">{skill.minRange}-{skill.maxRange} m</span>
-                                                                        </div>
-                                                                        <div className="flex flex-col">
-                                                                            <span className="text-[7px] text-gray-700 font-black uppercase tracking-widest">COOLDOWN</span>
-                                                                            <span className="text-[9px] text-gray-400 font-bold">{skill.cooldown} TURNS</span>
-                                                                        </div>
-                                                                        <div className="flex flex-col">
-                                                                            <span className="text-[7px] text-gray-700 font-black uppercase tracking-widest">TYPE</span>
-                                                                            <span className="text-[9px] text-gray-400 font-bold uppercase">{skill.effectType || "base"}</span>
-                                                                        </div>
-                                                                    </div>
                                                                 </div>
+                                                                <div className="absolute -bottom-4 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#c2410c]/10 to-transparent" />
                                                             </div>
-                                                            {/* Bottom Glow */}
-                                                            <div className="absolute inset-x-0 bottom-0 h-0.5 bg-[#c2410c]/0 group-hover:bg-[#c2410c]/20 transition-all" />
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Digital Page Number */}
+                                            <div className="mt-auto pt-6 flex justify-between items-center border-t border-white/5 opacity-40">
+                                                <span className="text-[8px] font-black uppercase tracking-[0.2em] text-gray-600"></span>
+                                                <span className="text-[10px] font-bold text-white tracking-widest">P. 1 // {bookCategory.toUpperCase()}</span>
+                                            </div>
                                         </div>
                                     </div>
 
-                                    {/* Skill Details Bar (Flavor) */}
-                                    <div className="bg-[#c2410c]/5 border border-[#c2410c]/20 p-4 rounded-xl flex items-start gap-4">
-                                        <div className="w-10 h-10 shrink-0 bg-[#c2410c]/20 border border-[#c2410c]/40 rounded-full flex items-center justify-center text-orange-500">
-                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                            <span className="text-[10px] text-white font-black uppercase tracking-widest">Skill Management Protocol</span>
-                                            <p className="text-[9px] text-gray-500 leading-relaxed uppercase tracking-widest opacity-80">
-                                                Active skills are burned into the neural processor. Ensure compatibility with occupation archetypes for maximum effectiveness in the ash.
-                                            </p>
-                                        </div>
+                                    {/* Book Side Tabs - WoW Style */}
+                                    <div className="absolute -right-2 top-10 flex flex-col gap-2 z-30">
+                                        {(["base", "occupation", "equipment", "unique"] as const).map((cat) => {
+                                            const isActive = bookCategory === cat;
+                                            const icons = { base: "📜", occupation: "⚔️", equipment: "🛠️", unique: "💎" };
+                                            return (
+                                                <button
+                                                    key={cat}
+                                                    onClick={() => setBookCategory(cat)}
+                                                    className={`group relative flex items-center justify-center w-12 h-16 rounded-r-xl border-y border-r transition-all duration-300 ${isActive
+                                                        ? "bg-[#1a1410] border-[#c2410c] w-14 -translate-x-1 shadow-[-10px_0_20px_rgba(194,65,12,0.2)] z-10"
+                                                        : "bg-black/60 border-white/10 hover:bg-[#c2410c]/10 hover:border-[#c2410c]/30 hover:w-13 z-0"}`}
+                                                >
+                                                    <span className={`text-xl transition-transform group-hover:scale-110 ${isActive ? "opacity-100" : "opacity-40"}`}>
+                                                        {icons[cat]}
+                                                    </span>
+                                                    <div className="absolute right-full mr-4 px-3 py-2 bg-black border border-[#c2410c]/40 text-[9px] font-black text-white uppercase tracking-widest whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-2xl z-50">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-1 h-3 bg-[#c2410c]" />
+                                                            {cat.toUpperCase()}
+                                                        </div>
+                                                    </div>
+                                                    {isActive && <div className="absolute left-0 top-1 bottom-1 w-1 bg-[#c2410c] rounded-full shadow-[0_0_10px_#c2410c]" />}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             </div>
@@ -2527,74 +2562,76 @@ export function CharacterBuilderPage() {
             </div> {/* end of Main Layout */}
 
             {/* Selection Modal (Titles / Badges) */}
-            {showSelectionModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-                    <div className="w-full max-w-md border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl animate-ash-settling">
-                        <div className="mb-6 flex items-center justify-between border-b border-white/5 pb-4">
-                            <div className="flex items-center gap-3">
-                                <div className="h-4 w-1 bg-[#c2410c]" />
-                                <h3 className="text-sm font-black uppercase tracking-[0.3em] text-white">
-                                    Select {showSelectionModal === "title" ? "Unit Title" : "Unit Badge"}
-                                </h3>
+            {
+                showSelectionModal && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+                        <div className="w-full max-w-md border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl animate-ash-settling">
+                            <div className="mb-6 flex items-center justify-between border-b border-white/5 pb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="h-4 w-1 bg-[#c2410c]" />
+                                    <h3 className="text-sm font-black uppercase tracking-[0.3em] text-white">
+                                        Select {showSelectionModal === "title" ? "Unit Title" : "Unit Badge"}
+                                    </h3>
+                                </div>
+                                <button
+                                    onClick={() => setShowSelectionModal(null)}
+                                    className="text-gray-500 hover:text-white transition-colors"
+                                >
+                                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setShowSelectionModal(null)}
-                                className="text-gray-500 hover:text-white transition-colors"
-                            >
-                                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
-                            {showSelectionModal === "title" ? (
-                                <>
-                                    <button
-                                        onClick={() => { setCharacterTitle(""); setShowSelectionModal(null); }}
-                                        className="h-12 border border-dashed border-white/10 bg-black/40 text-[9px] font-bold uppercase tracking-widest text-gray-500 hover:border-white/20 hover:text-white transition-all"
-                                    >
-                                        Remove Title
-                                    </button>
-                                    {ALL_TITLES.map(t => (
+                            <div className="grid grid-cols-2 gap-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                                {showSelectionModal === "title" ? (
+                                    <>
                                         <button
-                                            key={t}
-                                            onClick={() => { setCharacterTitle(t); setShowSelectionModal(null); }}
-                                            className={`h-12 border px-3 text-[9px] font-bold uppercase tracking-widest transition-all ${characterTitle === t ? "border-[#c2410c] bg-[#c2410c]/10 text-white shadow-[0_0_15px_rgba(194,65,12,0.2)]" : "border-white/5 bg-black/20 text-gray-400 hover:border-white/20 hover:text-white"}`}
+                                            onClick={() => { setCharacterTitle(""); setShowSelectionModal(null); }}
+                                            className="h-12 border border-dashed border-white/10 bg-black/40 text-[9px] font-bold uppercase tracking-widest text-gray-500 hover:border-white/20 hover:text-white transition-all"
                                         >
-                                            {t}
+                                            Remove Title
                                         </button>
-                                    ))}
-                                </>
-                            ) : (
-                                <>
-                                    <button
-                                        onClick={() => { setCharacterBadge(""); setShowSelectionModal(null); }}
-                                        className="h-12 border border-dashed border-white/10 bg-black/40 text-[9px] font-bold uppercase tracking-widest text-gray-500 hover:border-white/20 hover:text-white transition-all flex items-center justify-center"
-                                    >
-                                        Remove Badge
-                                    </button>
-                                    {ALL_BADGES.map(b => (
+                                        {ALL_TITLES.map(t => (
+                                            <button
+                                                key={t}
+                                                onClick={() => { setCharacterTitle(t); setShowSelectionModal(null); }}
+                                                className={`h-12 border px-3 text-[9px] font-bold uppercase tracking-widest transition-all ${characterTitle === t ? "border-[#c2410c] bg-[#c2410c]/10 text-white shadow-[0_0_15px_rgba(194,65,12,0.2)]" : "border-white/5 bg-black/20 text-gray-400 hover:border-white/20 hover:text-white"}`}
+                                            >
+                                                {t}
+                                            </button>
+                                        ))}
+                                    </>
+                                ) : (
+                                    <>
                                         <button
-                                            key={b}
-                                            onClick={() => { setCharacterBadge(b); setShowSelectionModal(null); }}
-                                            className={`h-12 border text-xl flex items-center justify-center transition-all ${characterBadge === b ? "border-[#c2410c] bg-[#c2410c]/10 shadow-[0_0_15px_rgba(194,65,12,0.2)]" : "border-white/5 bg-black/20 hover:border-white/20"}`}
+                                            onClick={() => { setCharacterBadge(""); setShowSelectionModal(null); }}
+                                            className="h-12 border border-dashed border-white/10 bg-black/40 text-[9px] font-bold uppercase tracking-widest text-gray-500 hover:border-white/20 hover:text-white transition-all flex items-center justify-center"
                                         >
-                                            {b}
+                                            Remove Badge
                                         </button>
-                                    ))}
-                                </>
-                            )}
-                        </div>
+                                        {ALL_BADGES.map(b => (
+                                            <button
+                                                key={b}
+                                                onClick={() => { setCharacterBadge(b); setShowSelectionModal(null); }}
+                                                className={`h-12 border text-xl flex items-center justify-center transition-all ${characterBadge === b ? "border-[#c2410c] bg-[#c2410c]/10 shadow-[0_0_15px_rgba(194,65,12,0.2)]" : "border-white/5 bg-black/20 hover:border-white/20"}`}
+                                            >
+                                                {b}
+                                            </button>
+                                        ))}
+                                    </>
+                                )}
+                            </div>
 
-                        <div className="mt-8 border-t border-white/5 pt-4 text-center">
-                            <p className="text-[8px] font-bold uppercase tracking-[0.2em] text-gray-600">
-                                Changes will be reflected immediately in the data blueprint.
-                            </p>
+                            <div className="mt-8 border-t border-white/5 pt-4 text-center">
+                                <p className="text-[8px] font-bold uppercase tracking-[0.2em] text-gray-600">
+                                    Changes will be reflected immediately in the data blueprint.
+                                </p>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
         </div>
     );
 }
