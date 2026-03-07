@@ -37,6 +37,22 @@ export interface GameRulesConfig {
         threatScaling: number;
         agilityMitigationDivisor: number;
     };
+    regions: {
+        /** Population multiplier per region type: Continent, Kingdom, Duchy, Province */
+        popMultiplierContinent: number;
+        popMultiplierKingdom: number;
+        popMultiplierDuchy: number;
+        popMultiplierProvince: number;
+        /** Base population range */
+        popBaseMin: number;
+        popBaseMax: number;
+        /** Wealth range (-100 to 100). Affects trade, resource availability. */
+        wealthMin: number;
+        wealthMax: number;
+        /** Development range (-100 to 100). Affects infrastructure, tech level. */
+        devMin: number;
+        devMax: number;
+    };
 }
 
 const DEFAULT_RULES: GameRulesConfig = {
@@ -75,7 +91,19 @@ const DEFAULT_RULES: GameRulesConfig = {
         baseDisengageCost: 2,
         threatScaling: 1,
         agilityMitigationDivisor: 10,
-    }
+    },
+    regions: {
+        popMultiplierContinent: 50,
+        popMultiplierKingdom: 10,
+        popMultiplierDuchy: 3,
+        popMultiplierProvince: 1,
+        popBaseMin: 500,
+        popBaseMax: 5000,
+        wealthMin: -100,
+        wealthMax: 100,
+        devMin: -100,
+        devMax: 100,
+    },
 };
 
 let globalRules = { ...DEFAULT_RULES };
