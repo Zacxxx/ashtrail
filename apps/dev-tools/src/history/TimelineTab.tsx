@@ -1,220 +1,237 @@
-import { useEffect, useState } from "react";
-import { Button, Card, CollapsibleSection } from "@ashtrail/ui";
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { Button } from "@ashtrail/ui";
 import { type GenerationHistoryItem, type TemporalityConfig } from "../hooks/useGenerationHistory";
-import { DateSelector } from "../components/DateSelector";
-import { AshtrailDate, formatAshtrailDate } from "../lib/calendar";
+import { formatAshtrailDate, type AshtrailDate } from "../lib/calendar";
+import {
+    ReactFlow,
+    Background,
+    Controls,
+    MiniMap,
+    ReactFlowProvider,
+    useNodesState,
+    useEdgesState,
+    Node,
+    Edge,
+    Position,
+    Handle
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import { type Area } from "./LocationsTab";
+import { type Faction } from "./FactionsTab";
+import { type Character } from "./CharactersTab";
 
-export interface HistoryEvent {
+interface LoreSnippet {
+    id: string;
     date: AshtrailDate;
-    description: string;
+    location: string;
+    content: string;
+    involvedFactions?: string[];
+    involvedCharacters?: string[];
 }
 
 interface TimelineTabProps {
     selectedWorld: GenerationHistoryItem | null;
 }
 
-export function TimelineTab({ selectedWorld }: TimelineTabProps) {
-    const [factions, setFactions] = useState("The Crimson Guard, Nomads of the Ash, The Synthetic Collective");
-    const [worldLore, setWorldLore] = useState("The world is a harsh desert wasteland, recovering from a catastrophic AI war centuries ago. Resources are scarce, and water is power.");
-    const [areas, setAreas] = useState("The Obsidian Spire (capital), The Rusting Wastes (scavenger territory), Oasis Prime (neutral zone).");
-    const [action, setAction] = useState("");
-    const [events, setEvents] = useState<HistoryEvent[]>([]);
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [isContextCollapsed, setIsContextCollapsed] = useState(false);
-
-    const [temporality, setTemporality] = useState<TemporalityConfig | null>(null);
-    const [targetDate, setTargetDate] = useState<AshtrailDate>({ year: 31, era: 'AC', month: 1, day: 1 });
-
-    useEffect(() => {
-        if (!selectedWorld) {
-            setTemporality(null);
-            return;
-        }
-
-        fetch(`http://localhost:8787/api/planet/temporality/${selectedWorld.id}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data && data.eras) {
-                    setTemporality(data);
-                    setTargetDate(data.currentDate);
-                } else {
-                    setTemporality(null);
-                }
-            })
-            .catch(() => setTemporality(null));
-    }, [selectedWorld]);
-
-    const handleGenerate = async () => {
-        if (!action.trim()) return;
-
-        setIsGenerating(true);
-        try {
-            const res = await fetch('http://localhost:8788/api/gm/generate-history-event', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    context: {
-                        factions,
-                        worldLore,
-                        areas,
-                        previousEvents: events.map(e => ({ date: formatAshtrailDate(e.date, temporality || undefined), description: e.description })),
-                        temporalityRules: temporality
-                            ? `This world uses a custom calendar. Eras are ${temporality.eras.before} and ${temporality.eras.after}. The current date is ${formatAshtrailDate(targetDate, temporality)}.`
-                            : "Standard time reckoning."
-                    },
-                    action
-                })
-            });
-
-            if (!res.ok) throw new Error("Generation failed");
-            const data = await res.json();
-
-            setEvents(prev => [...prev, { date: targetDate, description: data.text }]);
-            setAction("");
-        } catch (e) {
-            console.error("Failed to generate history", e);
-        } finally {
-            setIsGenerating(false);
-        }
-    };
-
+// Custom Node to display an event beautifully
+function CustomEventNode({ data }: { data: any }) {
+    const { dateStr, location, content, factions, characters } = data;
     return (
-        <div className="flex-1 flex gap-8 overflow-hidden min-h-0">
-            {/* Left Panel: Context & Inputs */}
-            <div className="w-[400px] flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
-                <CollapsibleSection
-                    title="WORLD CONTEXT"
-                    collapsed={isContextCollapsed}
-                    onToggle={() => setIsContextCollapsed(!isContextCollapsed)}
-                >
-                    <div className="flex flex-col gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1 tracking-widest">WORLD LORE</label>
-                            <textarea
-                                className="w-full bg-[#121820] border border-white/10 rounded-lg p-3 text-sm focus:border-red-500/50 focus:outline-none min-h-[100px] text-gray-300 custom-scrollbar"
-                                value={worldLore}
-                                onChange={e => setWorldLore(e.target.value)}
-                                placeholder="Describe the overarching state of the world..."
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1 tracking-widest">FACTIONS IN PLAY</label>
-                            <textarea
-                                className="w-full bg-[#121820] border border-white/10 rounded-lg p-3 text-sm focus:border-red-500/50 focus:outline-none min-h-[80px] text-gray-300 custom-scrollbar"
-                                value={factions}
-                                onChange={e => setFactions(e.target.value)}
-                                placeholder="List the active factions..."
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1 tracking-widest">AREAS OF INTEREST</label>
-                            <textarea
-                                className="w-full bg-[#121820] border border-white/10 rounded-lg p-3 text-sm focus:border-red-500/50 focus:outline-none min-h-[80px] text-gray-300 custom-scrollbar"
-                                value={areas}
-                                onChange={e => setAreas(e.target.value)}
-                                placeholder="Key locations or regions..."
-                            />
-                        </div>
-                    </div>
-                </CollapsibleSection>
+        <div className="bg-[#0a0f14] border border-white/10 rounded-xl p-5 shadow-2xl min-w-[300px] max-w-[400px] hover:border-cyan-500/50 transition-colors">
+            <Handle type="target" position={Position.Left} className="w-3 h-3 bg-cyan-500 border-2 border-[#121820]" />
 
-                <Card className="flex flex-col gap-4 bg-[#121820] border-red-500/20 shadow-lg shadow-red-500/5 mt-auto shrink-0">
-                    <div className="flex flex-col gap-2 border-b border-white/5 pb-3">
-                        <h2 className="text-[10px] font-bold tracking-widest text-red-500 uppercase">
-                            NEXT EVENT TARGET DATE
-                        </h2>
-                        <DateSelector
-                            config={temporality || undefined}
-                            date={targetDate}
-                            onChange={setTargetDate}
-                        />
-                    </div>
-                    <div className="flex flex-col gap-3">
-                        <label className="text-xs font-bold text-gray-500 tracking-widest">PROPOSED ACTION</label>
-                        <textarea
-                            className="w-full bg-[#0a0f14] border border-white/10 rounded-lg p-3 text-sm focus:border-red-500/50 focus:outline-none min-h-[100px] text-gray-300 custom-scrollbar"
-                            value={action}
-                            onChange={e => setAction(e.target.value)}
-                            placeholder="Describe what happens or what faction makes a move this month..."
-                            disabled={isGenerating}
-                        />
-                        <Button
-                            onClick={handleGenerate}
-                            disabled={isGenerating || !action.trim()}
-                            className="w-full bg-red-500 hover:bg-red-400 text-black font-bold tracking-widest py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isGenerating ? "GENERATING..." : "SIMULATE MONTH"}
-                        </Button>
-                    </div>
-                </Card>
+            <div className="text-xs font-bold text-cyan-500 tracking-widest mb-3 flex items-center justify-between">
+                <span>{dateStr}</span>
+                <span className="text-gray-500 px-2 py-0.5 bg-white/5 rounded text-[10px]">{location}</span>
             </div>
 
-            {/* Right Panel: Interactive Timeline */}
-            <div className="flex-1 bg-[#121820] border border-[#1f2937] rounded-xl flex flex-col overflow-hidden relative shadow-2xl">
-                <div className="absolute inset-0 z-0 pointer-events-none opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-red-900/40 via-transparent to-transparent" />
+            <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap mb-4">
+                {content}
+            </p>
 
-                <div className="p-6 border-b border-white/5 bg-[#0a0f14]/50 backdrop-blur-sm z-10 shrink-0">
-                    <h2 className="text-lg font-bold tracking-[0.2em] text-gray-200">HISTORICAL TIMELINE</h2>
-                    <p className="text-xs text-gray-500 mt-1">THE CHRONICLES OF ASHTRAIL</p>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar z-10 relative">
-                    {events.length > 0 && <div className="absolute left-10 top-8 bottom-8 w-px bg-white/10" />}
-
-                    {events.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-center opacity-50">
-                            <div className="text-4xl mb-4">⌛</div>
-                            <h3 className="text-lg font-bold tracking-widest text-gray-400 mb-2 uppercase">The Timeline is Empty</h3>
-                            <p className="text-sm text-gray-500 max-w-sm">
-                                Set up the World Context on the left and input a proposed action to begin generating the history of this world.
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col gap-8 relative">
-                            {events.map((event, i) => (
-                                <div key={i} className="flex gap-6 relative group animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    <div className="shrink-0 w-4 h-4 rounded-full bg-red-500 border-[3px] border-[#121820] shadow-[0_0_10px_rgba(239,68,68,0.5)] z-10 -ml-[7px] mt-1.5 transition-transform group-hover:scale-125" />
-                                    <div className="flex-1">
-                                        <div className="text-xs font-bold text-red-500 tracking-widest mb-2 flex items-center gap-2">
-                                            <span>{formatAshtrailDate(event.date, temporality || undefined)}</span>
-                                            <div className="flex-1 h-px bg-white/5" />
-                                        </div>
-                                        <div className="bg-[#0a0f14] border border-white/5 rounded-xl p-5 shadow-lg group-hover:border-red-500/30 transition-colors">
-                                            <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">
-                                                {event.description}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
+            {(factions?.length > 0 || characters?.length > 0) && (
+                <div className="pt-3 border-t border-white/10 flex flex-col gap-2">
+                    {factions?.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                            {factions.map((f: string) => (
+                                <span key={f} className="text-[9px] font-bold text-purple-400 bg-purple-500/10 border border-purple-500/30 px-1.5 py-0.5 rounded tracking-widest uppercase">
+                                    {f}
+                                </span>
                             ))}
-                            {isGenerating && (
-                                <div className="flex gap-6 relative opacity-70">
-                                    <div className="shrink-0 w-4 h-4 rounded-full bg-gray-500 border-[3px] border-[#121820] z-10 -ml-[7px] mt-1.5 animate-pulse" />
-                                    <div className="flex-1">
-                                        <div className="text-xs font-bold text-gray-500 tracking-widest mb-2 flex items-center gap-2">
-                                            <span>{formatAshtrailDate(targetDate, temporality || undefined)}</span>
-                                            <div className="flex-1 h-px bg-white/5" />
-                                        </div>
-                                        <div className="bg-[#0a0f14] border border-white/5 rounded-xl p-5 flex items-center gap-3">
-                                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce"></div>
-                                            <span className="text-xs text-gray-500 tracking-widest ml-2">SIMULATING...</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                        </div>
+                    )}
+                    {characters?.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                            {characters.map((c: string) => (
+                                <span key={c} className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded tracking-widest uppercase">
+                                    {c}
+                                </span>
+                            ))}
                         </div>
                     )}
                 </div>
+            )}
+            <Handle type="source" position={Position.Right} className="w-3 h-3 bg-cyan-500 border-2 border-[#121820]" />
+        </div>
+    );
+}
+
+const nodeTypes = {
+    eventNode: CustomEventNode,
+};
+
+export function TimelineTab({ selectedWorld }: TimelineTabProps) {
+    const [isLoading, setIsLoading] = useState(true);
+    const [events, setEvents] = useState<LoreSnippet[]>([]);
+    const [temporality, setTemporality] = useState<TemporalityConfig | null>(null);
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+    useEffect(() => {
+        if (!selectedWorld) {
+            setEvents([]);
+            setTemporality(null);
+            setIsLoading(false);
+            return;
+        }
+
+        setIsLoading(true);
+        // Fetch Lore snippets as they have specific dates!
+        Promise.all([
+            fetch(`http://localhost:8787/api/planet/lore-snippets/${selectedWorld.id}`).then(res => res.json()),
+            fetch(`http://localhost:8787/api/planet/temporality/${selectedWorld.id}`).then(res => res.json())
+        ])
+            .then(([loreData, temp]) => {
+                const snippets: LoreSnippet[] = Array.isArray(loreData) ? loreData : [];
+                setTemporality(temp);
+                setEvents(snippets);
+            })
+            .catch(err => console.error("Failed to load timeline data", err))
+            .finally(() => setIsLoading(false));
+    }, [selectedWorld]);
+
+    // Build graph whenever we have events
+    useEffect(() => {
+        if (!events || events.length === 0) {
+            setNodes([]);
+            setEdges([]);
+            return;
+        }
+
+        // Sort events chronologically. Need a helper to compare AshtrailDate. Assuming simple year/month/day struct.
+        const sortedEvents = [...events].sort((a, b) => {
+            if (a.date.year !== b.date.year) return a.date.year - b.date.year;
+            if (a.date.month !== b.date.month) return a.date.month - b.date.month;
+            return a.date.day - b.date.day;
+        });
+
+        const newNodes: Node[] = [];
+        const newEdges: Edge[] = [];
+
+        sortedEvents.forEach((ev, index) => {
+            const dateStr = formatAshtrailDate(ev.date, temporality || undefined);
+
+            newNodes.push({
+                id: ev.id,
+                type: 'eventNode',
+                // Position sequentially horizontally with a slight vertical stagger if we want, or just a straight line.
+                // Let's do a straight line roughly centered vertically.
+                position: { x: index * 450, y: Math.sin(index) * 50 + 200 },
+                data: {
+                    dateStr,
+                    location: ev.location,
+                    content: ev.content,
+                    factions: ev.involvedFactions || [],
+                    characters: ev.involvedCharacters || []
+                }
+            });
+
+            if (index > 0) {
+                newEdges.push({
+                    id: `e-${sortedEvents[index - 1].id}-${ev.id}`,
+                    source: sortedEvents[index - 1].id,
+                    target: ev.id,
+                    type: 'smoothstep', // Gives it a nice angled or straight flow
+                    animated: true,
+                    style: { stroke: '#06b6d4', strokeWidth: 2, opacity: 0.5 }
+                });
+            }
+        });
+
+        setNodes(newNodes);
+        setEdges(newEdges);
+    }, [events, temporality, setNodes, setEdges]);
+
+    if (!selectedWorld) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center bg-[#121820] border border-[#1f2937] rounded-xl opacity-80 h-full">
+                <div className="text-5xl mb-4">⌛</div>
+                <h3 className="text-xl font-bold tracking-widest text-gray-400 mb-2 uppercase">No World Selected</h3>
+                <p className="text-gray-500 max-w-sm text-center">
+                    Please select a world from the World tab to visualize its timeline.
+                </p>
+            </div>
+        );
+    }
+
+    if (isLoading) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center bg-[#121820] border border-[#1f2937] rounded-xl opacity-80 h-full">
+                <div className="text-center text-cyan-500 text-sm animate-pulse tracking-widest font-bold">LOADING CHRONICLES...</div>
+            </div>
+        );
+    }
+
+    if (events.length === 0) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center bg-[#121820] border border-[#1f2937] rounded-xl opacity-80 h-full">
+                <div className="text-4xl mb-4">📜</div>
+                <h3 className="text-lg font-bold tracking-widest text-gray-400 mb-2 uppercase">The Timeline is Empty</h3>
+                <p className="text-sm text-gray-500 max-w-sm text-center">
+                    Navigate to the Lore tab and generate some localized history to populate this timeline.
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex-1 bg-[#0a0f14] border border-[#1f2937] rounded-xl flex flex-col overflow-hidden relative shadow-2xl h-full">
+            <div className="absolute inset-0 z-0 pointer-events-none opacity-20 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-cyan-900/20 via-transparent to-transparent" />
+
+            <div className="p-4 border-b border-white/5 bg-[#0a0f14]/80 backdrop-blur-md z-10 shrink-0 flex items-center justify-between">
+                <div>
+                    <h2 className="text-sm font-bold tracking-[0.2em] text-cyan-400">HISTORICAL TIMELINE</h2>
+                    <p className="text-[10px] text-gray-500 mt-0.5 tracking-widest uppercase">{events.length} Causal Nodes Detected</p>
+                </div>
+                <div className="px-3 py-1 bg-cyan-500/10 border border-cyan-500/30 rounded text-[9px] font-bold text-cyan-400 tracking-widest uppercase shadow-[0_0_10px_rgba(6,182,212,0.1)]">
+                    Scroll to parse • Drag to navigate
+                </div>
             </div>
 
-            <style>{`
-                .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-                .custom-scrollbar::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.1); border-radius: 20px; }
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.2); }
-            `}</style>
+            <div className="flex-1 w-full h-full relative">
+                <ReactFlowProvider>
+                    <ReactFlow
+                        nodes={nodes}
+                        edges={edges}
+                        onNodesChange={onNodesChange}
+                        onEdgesChange={onEdgesChange}
+                        nodeTypes={nodeTypes}
+                        fitView
+                        fitViewOptions={{ padding: 0.2 }}
+                        minZoom={0.1}
+                        maxZoom={2}
+                        className="bg-transparent"
+                    >
+                        <Background color="#1f2937" gap={50} size={1} />
+                        <Controls className="fill-white [&>button]:bg-[#121820] [&>button]:border-white/10 [&>button]:border-b [&>button:hover]:bg-white/10" />
+                        <MiniMap
+                            nodeColor="#06b6d4"
+                            maskColor="rgba(10, 15, 20, 0.7)"
+                            className="bg-[#121820] border border-white/10 rounded-lg overflow-hidden"
+                        />
+                    </ReactFlow>
+                </ReactFlowProvider>
+            </div>
         </div>
     );
 }

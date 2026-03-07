@@ -4,9 +4,9 @@
 
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Skill } from '@ashtrail/core';
+import type { TacticalEntity, CombatPhase, CombatLogMessage } from '@ashtrail/core';
 import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells } from './tacticalGrid';
-import { TacticalEntity, CombatPhase, PlayerAction } from './useTacticalCombat';
-import { CombatLogMessage } from './useCombatEngine';
+import type { PlayerAction } from './useCombatWebSocket';
 
 interface TacticalArenaProps {
     grid: Grid;

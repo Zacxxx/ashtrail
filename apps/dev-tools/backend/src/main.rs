@@ -4,6 +4,7 @@ mod hierarchy;
 mod gemini;
 mod worldgen_pipeline;
 mod cms;
+mod combat_engine;
 
 use axum::{
     extract::{Path, Query, State},
@@ -489,6 +490,8 @@ async fn main() {
         .route("/api/data/characters", get(cms::get_characters).post(cms::save_character))
         .route("/api/data/skills", get(cms::get_skills).post(cms::save_skill))
         .route("/api/data/game-rules", get(cms::get_game_rules).post(cms::save_game_rules))
+        // ── Combat Engine WebSocket ──
+        .route("/api/combat/ws", get(combat_engine::session::ws_handler))
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .nest_service("/api/textures", ServeDir::new(textures_dir.clone()))

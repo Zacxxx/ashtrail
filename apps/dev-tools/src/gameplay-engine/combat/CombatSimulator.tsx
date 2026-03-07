@@ -1,61 +1,51 @@
 import React, { useState } from 'react';
-import { GameRegistry, Character, Skill, ALL_SKILLS } from '@ashtrail/core';
+import { GameRegistry, Character, Skill } from '@ashtrail/core';
+import type { TacticalEntity, CombatConfig } from '@ashtrail/core';
 import { TacticalArena } from './TacticalArena';
-import { useTacticalCombat, createTacticalEntity, TacticalEntity, CombatConfig } from './useTacticalCombat';
+import { useCombatWebSocket } from './useCombatWebSocket';
 import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacticalGrid';
 import { GameRulesManager } from '../rules/useGameRules';
 
-// ── Default skills given to characters without their own ──
-const DEFAULT_PLAYER_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot'].includes(s.id));
-const DEFAULT_ENEMY_SKILLS: Skill[] = ALL_SKILLS.filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
 
-function mapCharToTactical(char: Character, isPlayer: boolean, index: number): TacticalEntity {
+
+function mapCharToTactical(char: Character, isPlayer: boolean, index: number, defaultPlayerSkills: Skill[], defaultEnemySkills: Skill[]): TacticalEntity {
     const skills = char.skills && char.skills.length > 0
         ? char.skills
-        : isPlayer ? DEFAULT_PLAYER_SKILLS : DEFAULT_ENEMY_SKILLS;
+        : isPlayer ? defaultPlayerSkills : defaultEnemySkills;
 
-    return createTacticalEntity(
-        `${char.id}_${isPlayer ? 'p' : 'e'}${index}`,
+    const rules = GameRulesManager.get();
+    const maxHp = rules.core.hpBase + char.stats.endurance * rules.core.hpPerEndurance;
+    const maxAp = rules.core.apBase + Math.floor(char.stats.agility / rules.core.apAgilityDivisor);
+    const maxMp = rules.core.mpBase;
+
+    return {
+        id: `${char.id}_${isPlayer ? 'p' : 'e'}${index}`,
         isPlayer,
-        char.name,
-        char.stats.strength,
-        char.stats.agility,
-        char.stats.endurance,
-        char.stats.intelligence,
-        char.stats.wisdom,
-        char.stats.charisma,
-        Math.floor(char.stats.agility / 4), // Evasion from AGI
-        Math.floor(char.stats.endurance / 2), // Defense from END
-        0, // hp (engine will calculate)
-        0, // maxHp (engine will calculate)
-        char.traits,
+        name: char.name,
+        strength: char.stats.strength,
+        agility: char.stats.agility,
+        intelligence: char.stats.intelligence,
+        wisdom: char.stats.wisdom,
+        charisma: char.stats.charisma,
+        evasion: Math.floor(char.stats.agility / 4),
+        defense: Math.floor(char.stats.endurance / 2),
+        hp: maxHp,
+        maxHp,
+        ap: maxAp,
+        maxAp,
+        mp: maxMp,
+        maxMp,
+        critChance: char.stats.intelligence * rules.core.critPerIntelligence,
+        resistance: char.stats.wisdom * rules.core.resistPerWisdom,
+        socialBonus: char.stats.charisma * rules.core.charismaBonusPerCharisma,
+        traits: char.traits,
         skills,
-        { row: 0, col: 0 }
-    );
+        skillCooldowns: {},
+        gridPos: { row: 0, col: 0 },
+    };
 }
 
-function getMockTactical(isPlayer: boolean, index: number): TacticalEntity {
-    const names = isPlayer
-        ? ['The Vagabond', 'Iron Jess', 'Shade']
-        : ['Ash Raider', 'Scorch', 'Fang'];
-    return createTacticalEntity(
-        `mock_${isPlayer ? 'p' : 'e'}${index}`,
-        isPlayer,
-        names[index % names.length],
-        isPlayer ? 12 : 10,  // strength
-        isPlayer ? 15 : 12,  // agility
-        isPlayer ? 14 : 10,  // endurance
-        isPlayer ? 10 : 8,   // intelligence
-        isPlayer ? 8 : 10,   // wisdom
-        isPlayer ? 12 : 8,   // charisma
-        isPlayer ? 5 : 2,    // evasion
-        isPlayer ? 2 : 1,    // defense
-        0, 0, // hp, maxHp (engine will calc)
-        [],
-        isPlayer ? DEFAULT_PLAYER_SKILLS : DEFAULT_ENEMY_SKILLS,
-        { row: 0, col: 0 }
-    );
-}
+
 
 export function CombatSimulator() {
     const chars = GameRegistry.getAllCharacters();
@@ -69,8 +59,14 @@ export function CombatSimulator() {
     const [gridCols, setGridCols] = useState(12);
     const [playerCount, setPlayerCount] = useState(1);
     const [enemyCount, setEnemyCount] = useState(1);
-    const [playerIds, setPlayerIds] = useState<string[]>(['mock_1']);
-    const [enemyIds, setEnemyIds] = useState<string[]>(['mock_2']);
+    const [playerIds, setPlayerIds] = useState<string[]>(() => {
+        const allC = GameRegistry.getAllCharacters();
+        return [allC.length > 0 ? allC[0].id : ''];
+    });
+    const [enemyIds, setEnemyIds] = useState<string[]>(() => {
+        const allC = GameRegistry.getAllCharacters();
+        return [allC.length > 1 ? allC[1].id : allC.length > 0 ? allC[0].id : ''];
+    });
 
     // AI Map
     const [mapPrompt, setMapPrompt] = useState('');
@@ -93,7 +89,8 @@ export function CombatSimulator() {
         setPlayerCount(count);
         setPlayerIds(prev => {
             const next = [...prev];
-            while (next.length < count) next.push('mock_1');
+            const defaultId = chars.length > 0 ? chars[0].id : '';
+            while (next.length < count) next.push(defaultId);
             return next.slice(0, count);
         });
     };
@@ -101,7 +98,8 @@ export function CombatSimulator() {
         setEnemyCount(count);
         setEnemyIds(prev => {
             const next = [...prev];
-            while (next.length < count) next.push('mock_2');
+            const defaultId = chars.length > 1 ? chars[1].id : chars.length > 0 ? chars[0].id : '';
+            while (next.length < count) next.push(defaultId);
             return next.slice(0, count);
         });
     };
@@ -544,20 +542,31 @@ function TacticalCombatArena({
     config: CombatConfig;
     battlemapUrl: string | null;
 }) {
-    const playerEntities = playerIds.map((id, i) => {
-        const char = GameRegistry.getCharacter(id);
-        return char ? mapCharToTactical(char, true, i) : getMockTactical(true, i);
-    });
-    const enemyEntities = enemyIds.map((id, i) => {
-        const char = GameRegistry.getCharacter(id);
-        return char ? mapCharToTactical(char, false, i) : getMockTactical(false, i);
-    });
+    // Dynamically grab default skills from the game registry instead of hardcoding imports from mockData
+    const allSkills = GameRegistry.getAllSkills();
+    const defaultPlayerSkills = allSkills.filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot'].includes(s.id));
+    const defaultEnemySkills = allSkills.filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+
+    const playerEntities = playerIds
+        .map(id => GameRegistry.getCharacter(id))
+        .filter((char): char is Character => char !== undefined)
+        .map((char, i) => mapCharToTactical(char, true, i, defaultPlayerSkills, defaultEnemySkills));
+
+    const enemyEntities = enemyIds
+        .map(id => GameRegistry.getCharacter(id))
+        .filter((char): char is Character => char !== undefined)
+        .map((char, i) => mapCharToTactical(char, false, i, defaultPlayerSkills, defaultEnemySkills));
 
     const {
         grid, entities, turnOrder, activeEntityId, activeEntity,
         isPlayerTurn, phase, playerAction, logs, turnNumber,
         handleCellClick, endTurn, selectSkill, selectedSkill, MELEE_ATTACK_COST,
-    } = useTacticalCombat(playerEntities, enemyEntities, aiGrid || undefined, config);
+    } = useCombatWebSocket({
+        players: playerEntities,
+        enemies: enemyEntities,
+        grid: aiGrid || undefined,
+        config,
+    });
 
     return (
         <TacticalArena

@@ -38,9 +38,9 @@ export type EffectType =
   | 'LORE_EFFECT';
 
 export interface GameplayEffect {
-  id: string;
-  name: string;
-  description: string;
+  id?: string;
+  name?: string;
+  description?: string;
   type: EffectType;
   target?: string; // e.g. 'maxHp', 'strength', 'evasion', 'food', 'fire_damage'
   value: number;
