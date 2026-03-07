@@ -322,7 +322,7 @@ export function TacticalArena({
                                                     <div className="flex justify-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono bg-black/50 py-1.5 px-2 rounded-lg border border-white/5">
                                                         {(() => {
                                                             const rules = GameRulesManager.get();
-                                                            const hasWeaponScaling = skill.effects?.some(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT');
+                                                            const hasWeaponScaling = skill.effects?.some(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT' as any);
                                                             const weapon = activeEntity?.equipped?.mainHand;
 
                                                             let strBonus = 0;

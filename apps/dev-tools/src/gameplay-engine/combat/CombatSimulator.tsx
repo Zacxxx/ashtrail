@@ -51,7 +51,17 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
         skills,
         skillCooldowns: {},
         gridPos: { row: 0, col: 0 },
-        equipped: char.equipped
+        equipped: char.equipped,
+        baseStats: {
+            strength: char.stats.strength,
+            agility: char.stats.agility,
+            intelligence: char.stats.intelligence,
+            wisdom: char.stats.wisdom,
+            endurance: char.stats.endurance,
+            charisma: char.stats.charisma,
+            evasion: Math.floor(char.stats.agility / 4),
+            defense: Math.floor(char.stats.endurance / 2),
+        }
     };
 }
 
