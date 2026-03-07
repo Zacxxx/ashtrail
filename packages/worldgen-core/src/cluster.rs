@@ -13,6 +13,12 @@ pub struct ProvinceRecord {
     pub kingdom_id: u32,
     pub biome_primary: u8,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wealth: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub development: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub population: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -268,6 +274,9 @@ pub fn cluster_hierarchy(
                 kingdom_id: kingdom,
                 biome_primary: biome_p,
                 name: format!("Province {}", pid + 1),
+                wealth: None,
+                development: None,
+                population: None,
             })
         })
         .collect();

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.8", features = ["json"] }
+axum = { version = "0.8", features = ["json", "ws"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.44", features = ["macros", "rt-multi-thread", "net"] }
@@ -21,3 +21,4 @@ image = "0.25.9"
 base64 = "0.22.1"
 rayon = "1.10"
 worldgen-core = { path = "../../../packages/worldgen-core" }
+rand = "0.9"

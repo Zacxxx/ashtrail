@@ -1,0 +1,16 @@
+{
+    "id": "first-aid",
+    "name": "First Aid",
+    "description": "Patch up wounds, restoring HP.",
+    "icon": "🩹",
+    "category": "base",
+    "apCost": 3,
+    "minRange": 0,
+    "maxRange": 0,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "self",
+    "healing": 15,
+    "cooldown": 2,
+    "effectType": "support"
+}

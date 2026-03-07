@@ -1,0 +1,17 @@
+{
+    "id": "shove",
+    "name": "Shove",
+    "description": "Push an adjacent enemy back 2 cells.",
+    "icon": "🫸",
+    "category": "base",
+    "apCost": 2,
+    "minRange": 1,
+    "maxRange": 1,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 3,
+    "cooldown": 1,
+    "effectType": "physical",
+    "pushDistance": 2
+}
