@@ -1203,7 +1203,24 @@ export function CharacterBuilderPage() {
 
                         {/* ═══ SKILLS TAB (SKILL BOOK) ═══ */}
                         {activeTab === "SKILLS" && (
-                            <div className="flex h-full relative font-mono overflow-hidden py-1 px-1 gap-6 animate-ash-settling">
+                            <div className="flex h-full relative font-mono py-1 px-1 gap-6 animate-ash-settling">
+                                <style>{`
+                                    .game-scrollbar::-webkit-scrollbar {
+                                        width: 4px;
+                                    }
+                                    .game-scrollbar::-webkit-scrollbar-track {
+                                        background: rgba(255, 255, 255, 0.05);
+                                        border-radius: 10px;
+                                    }
+                                    .game-scrollbar::-webkit-scrollbar-thumb {
+                                        background: rgba(194, 65, 12, 0.4);
+                                        border-radius: 10px;
+                                        border: 1px solid rgba(194, 65, 12, 0.1);
+                                    }
+                                    .game-scrollbar::-webkit-scrollbar-thumb:hover {
+                                        background: rgba(194, 65, 12, 0.6);
+                                    }
+                                `}</style>
                                 {/* Left Sidebar: Skill Database */}
                                 <aside className="w-[320px] flex flex-col gap-4 shrink-0 bg-black/40 border border-white/5 p-4 rounded-xl shadow-2xl backdrop-blur-md">
                                     <div className="flex flex-col gap-1.5 border-b border-white/5 pb-3">
@@ -1261,8 +1278,8 @@ export function CharacterBuilderPage() {
                                 </aside>
 
                                 {/* Center: Skill Book */}
-                                <div className="flex-1 flex gap-2 overflow-hidden relative pr-12">
-                                    <div className="flex-1 bg-black/60 border-y border-l border-white/10 rounded-l-3xl shadow-2xl relative overflow-hidden flex flex-col group">
+                                <div className="flex-1 flex justify-center relative pr-12">
+                                    <div className="w-full max-w-[850px] bg-black/60 border-y border-l border-white/10 rounded-l-3xl shadow-2xl relative flex flex-col group">
                                         {/* Book Binding/Spine */}
                                         <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-black/80 to-transparent border-r border-white/5 z-20" />
 
@@ -1284,7 +1301,7 @@ export function CharacterBuilderPage() {
                                                 </div>
                                             </div>
 
-                                            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-8">
+                                            <div className="flex-1 overflow-y-auto pr-2 pb-8 game-scrollbar">
                                                 {selectedSkills.filter(s => s.category === bookCategory).length === 0 ? (
                                                     <div className="flex-1 flex flex-col items-center justify-center py-20 opacity-20 group-hover:opacity-30 transition-opacity">
                                                         <div className="text-4xl mb-6 grayscale brightness-50">📂</div>
@@ -1292,44 +1309,42 @@ export function CharacterBuilderPage() {
                                                         <p className="text-[8px] text-[#c2410c] mt-4 uppercase tracking-[0.2em] font-bold">Inject from Database sidebar</p>
                                                     </div>
                                                 ) : (
-                                                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-10">
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-4 gap-y-3">
                                                         {selectedSkills.filter(s => s.category === bookCategory).map(skill => (
-                                                            <div key={skill.id} className="relative group/skill">
-                                                                <div className="flex gap-4">
+                                                            <div key={skill.id} className="relative group/skill bg-black/20 hover:bg-white/[0.03] border border-white/5 rounded-lg p-2 transition-all hover:border-[#c2410c]/30">
+                                                                <div className="flex gap-2">
                                                                     <div className="relative shrink-0">
-                                                                        <div className="w-16 h-16 bg-black/40 border border-[#c2410c]/30 rounded flex items-center justify-center text-3xl group-hover/skill:scale-105 group-hover/skill:border-[#c2410c] transition-all relative z-10 shadow-lg">
+                                                                        <div className="w-10 h-10 bg-black/40 border border-[#c2410c]/30 rounded flex items-center justify-center text-xl group-hover/skill:scale-105 group-hover/skill:border-[#c2410c] transition-all relative z-10">
                                                                             {skill.icon || "🧠"}
                                                                         </div>
-                                                                        {/* Holographic ornament under icon */}
-                                                                        <div className="absolute -inset-1 border border-[#c2410c]/10 rounded opacity-0 group-hover/skill:opacity-100 transition-opacity pointer-events-none" />
+                                                                        <div className="absolute -inset-0.5 border border-[#c2410c]/10 rounded opacity-0 group-hover/skill:opacity-100 transition-opacity pointer-events-none" />
                                                                     </div>
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <div className="flex items-center justify-between mb-1.5">
-                                                                            <h4 className="text-[14px] font-black text-white uppercase tracking-wider truncate leading-tight">{skill.name}</h4>
+                                                                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <h4 className="text-[11px] font-black text-white uppercase tracking-wider truncate leading-tight group-hover/skill:text-orange-400 transition-colors">{skill.name}</h4>
                                                                             <button
                                                                                 onClick={(e) => { e.stopPropagation(); toggleSkill(skill); }}
-                                                                                className="text-[9px] text-[#c2410c]/40 hover:text-red-500 font-black px-1 transition-colors uppercase italic"
-                                                                            >Eject ✕</button>
+                                                                                className="text-[7px] text-gray-700 hover:text-red-500 font-black px-1 transition-colors uppercase italic"
+                                                                            >✕</button>
                                                                         </div>
-                                                                        <p className="text-[10.5px] text-gray-500 leading-relaxed italic line-clamp-2 mb-3 h-[32px]">{skill.description}</p>
+                                                                        <p className="text-[9px] text-gray-500 leading-tight italic line-clamp-1 mb-1">{skill.description}</p>
 
-                                                                        <div className="grid grid-cols-3 gap-2 border-t border-white/5 pt-2.5">
-                                                                            <div className="flex flex-col">
-                                                                                <span className="text-[6.5px] text-gray-600 font-black uppercase tracking-widest">AP Cost</span>
-                                                                                <span className="text-[9px] text-orange-400 font-bold">{skill.apCost} Units</span>
+                                                                        <div className="flex items-center gap-3 border-t border-white/5 pt-1 mt-0.5">
+                                                                            <div className="flex items-baseline gap-1">
+                                                                                <span className="text-[5.5px] text-gray-600 font-black uppercase tracking-widest">AP</span>
+                                                                                <span className="text-[8px] text-orange-400 font-bold">{skill.apCost}</span>
                                                                             </div>
-                                                                            <div className="flex flex-col">
-                                                                                <span className="text-[6.5px] text-gray-600 font-black uppercase tracking-widest">Range</span>
-                                                                                <span className="text-[9px] text-gray-400 font-bold">{skill.minRange}-{skill.maxRange}m</span>
+                                                                            <div className="flex items-baseline gap-1">
+                                                                                <span className="text-[5.5px] text-gray-600 font-black uppercase tracking-widest">RNG</span>
+                                                                                <span className="text-[8px] text-gray-400 font-bold">{skill.minRange}-{skill.maxRange}</span>
                                                                             </div>
-                                                                            <div className="flex flex-col">
-                                                                                <span className="text-[6.5px] text-gray-600 font-black uppercase tracking-widest">CD</span>
-                                                                                <span className="text-[9px] text-gray-400 font-bold">{skill.cooldown} T</span>
+                                                                            <div className="flex items-baseline gap-1">
+                                                                                <span className="text-[5.5px] text-gray-600 font-black uppercase tracking-widest">CD</span>
+                                                                                <span className="text-[8px] text-gray-400 font-bold">{skill.cooldown}</span>
                                                                             </div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
-                                                                <div className="absolute -bottom-4 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#c2410c]/10 to-transparent" />
                                                             </div>
                                                         ))}
                                                     </div>
@@ -1341,35 +1356,34 @@ export function CharacterBuilderPage() {
                                                 <span className="text-[8px] font-black uppercase tracking-[0.2em] text-gray-600"></span>
                                                 <span className="text-[10px] font-bold text-white tracking-widest">P. 1 // {bookCategory.toUpperCase()}</span>
                                             </div>
+                                            {/* Book Side Tabs - Stuck to the right edge */}
+                                            <div className="absolute left-full top-10 flex flex-col gap-2 z-30 ml-[-2px]">
+                                                {(["base", "occupation", "equipment", "unique"] as const).map((cat) => {
+                                                    const isActive = bookCategory === cat;
+                                                    const icons = { base: "📜", occupation: "⚔️", equipment: "🛠️", unique: "💎" };
+                                                    return (
+                                                        <button
+                                                            key={cat}
+                                                            onClick={() => setBookCategory(cat)}
+                                                            className={`group/tab relative flex items-center justify-center w-12 h-16 rounded-r-xl border-y border-r transition-all duration-300 ${isActive
+                                                                ? "bg-[#1a1410] border-[#c2410c] w-14 shadow-[-10px_0_20px_rgba(194,65,12,0.2)] z-10"
+                                                                : "bg-black/60 border-white/10 hover:bg-[#c2410c]/10 hover:border-[#c2410c]/30 hover:w-13 z-0"}`}
+                                                        >
+                                                            <span className={`text-xl transition-transform group-hover/tab:scale-110 ${isActive ? "opacity-100" : "opacity-40"}`}>
+                                                                {icons[cat]}
+                                                            </span>
+                                                            <div className="absolute left-full ml-4 px-3 py-2 bg-black border border-[#c2410c]/40 text-[9px] font-black text-white uppercase tracking-widest whitespace-nowrap opacity-0 group-hover/tab:opacity-100 transition-opacity pointer-events-none shadow-2xl z-50">
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="w-1 h-3 bg-[#c2410c]" />
+                                                                    {cat.toUpperCase()}
+                                                                </div>
+                                                            </div>
+                                                            {isActive && <div className="absolute left-0 top-1 bottom-1 w-1 bg-[#c2410c] rounded-full shadow-[0_0_10px_#c2410c]" />}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
-                                    </div>
-
-                                    {/* Book Side Tabs - WoW Style */}
-                                    <div className="absolute -right-2 top-10 flex flex-col gap-2 z-30">
-                                        {(["base", "occupation", "equipment", "unique"] as const).map((cat) => {
-                                            const isActive = bookCategory === cat;
-                                            const icons = { base: "📜", occupation: "⚔️", equipment: "🛠️", unique: "💎" };
-                                            return (
-                                                <button
-                                                    key={cat}
-                                                    onClick={() => setBookCategory(cat)}
-                                                    className={`group relative flex items-center justify-center w-12 h-16 rounded-r-xl border-y border-r transition-all duration-300 ${isActive
-                                                        ? "bg-[#1a1410] border-[#c2410c] w-14 -translate-x-1 shadow-[-10px_0_20px_rgba(194,65,12,0.2)] z-10"
-                                                        : "bg-black/60 border-white/10 hover:bg-[#c2410c]/10 hover:border-[#c2410c]/30 hover:w-13 z-0"}`}
-                                                >
-                                                    <span className={`text-xl transition-transform group-hover:scale-110 ${isActive ? "opacity-100" : "opacity-40"}`}>
-                                                        {icons[cat]}
-                                                    </span>
-                                                    <div className="absolute right-full mr-4 px-3 py-2 bg-black border border-[#c2410c]/40 text-[9px] font-black text-white uppercase tracking-widest whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-2xl z-50">
-                                                        <div className="flex items-center gap-2">
-                                                            <div className="w-1 h-3 bg-[#c2410c]" />
-                                                            {cat.toUpperCase()}
-                                                        </div>
-                                                    </div>
-                                                    {isActive && <div className="absolute left-0 top-1 bottom-1 w-1 bg-[#c2410c] rounded-full shadow-[0_0_10px_#c2410c]" />}
-                                                </button>
-                                            );
-                                        })}
                                     </div>
                                 </div>
                             </div>
