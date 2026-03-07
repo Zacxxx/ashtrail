@@ -177,7 +177,7 @@ void main() {
 
 // ── Types ──
 
-export type ProvinceLayer = "provinces" | "duchies" | "kingdoms" | "continents" | "biome" | "height" | "base";
+export type ProvinceLayer = "provinces" | "duchies" | "kingdoms" | "continents" | "biome" | "height" | "base" | "areas";
 
 interface ProvinceMapViewProps {
     planetId: string | null;
@@ -203,6 +203,7 @@ const LAYER_INDEX: Record<ProvinceLayer, number> = {
     biome: 4,
     height: 5,
     base: 6,
+    areas: 0, // areas uses provinces texture underneath
 };
 
 const API_BASE = "http://127.0.0.1:8787";
@@ -662,12 +663,12 @@ export function ProvinceMapView({
             {/* Layer Picker Toolbar */}
             {loaded && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-[#0a0a0a]/90 backdrop-blur-xl border border-white/10 rounded-full px-2 py-1 shadow-2xl">
-                    {(["provinces", "duchies", "kingdoms", "continents", "biome", "height", "base"] as ProvinceLayer[]).map((l) => (
+                    {(["provinces", "duchies", "kingdoms", "continents", "areas", "biome", "height", "base"] as ProvinceLayer[]).map((l) => (
                         <button
                             key={l}
                             onClick={() => {
                                 setLayer(l);
-                                if (["provinces", "duchies", "kingdoms", "continents"].includes(l)) {
+                                if (["provinces", "duchies", "kingdoms", "continents", "areas"].includes(l)) {
                                     onLayerChange?.(l);
                                 }
                             }}

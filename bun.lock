@@ -38,7 +38,7 @@
       "name": "@ashtrail/server",
       "version": "0.0.0",
       "dependencies": {
-        "@ashtrail/core": "workspace:*",
+        "@google/genai": "^1.41.0",
       },
     },
     "apps/website": {

@@ -4,9 +4,10 @@
 
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Skill } from '@ashtrail/core';
+import type { TacticalEntity, CombatPhase, CombatLogMessage } from '@ashtrail/core';
 import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells } from './tacticalGrid';
-import { TacticalEntity, CombatPhase, PlayerAction, DamagePreview } from './useTacticalCombat';
-import { CombatLogMessage } from './useCombatEngine';
+import type { PlayerAction } from './useCombatWebSocket';
+import type { DamagePreview } from '@ashtrail/core';
 import { GameRulesManager } from '../rules/useGameRules';
 
 interface TacticalArenaProps {
@@ -313,7 +314,7 @@ export function TacticalArena({
                                                             let baseVal = skill.damage || 0;
                                                             if (hasWeaponScaling && weapon) {
                                                                 const weaponDmgEffect = weapon.effects?.find((e: any) =>
-                                                                    e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS'
+                                                                    e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS' as any
                                                                 );
                                                                 if (weaponDmgEffect) baseVal = weaponDmgEffect.value;
                                                             }
@@ -321,8 +322,8 @@ export function TacticalArena({
                                                             const total = (skill.damage || 0) + strBonus;
                                                             const isDistract = skill.id === 'distract';
                                                             const isAnalyze = skill.id === 'analyze';
-                                                            const isStealth = skill.effects?.some(e => e.type === 'STEALTH');
-                                                            const isProtection = skill.effects?.some(e => e.type === 'PROTECTION_STANCE');
+                                                            const isStealth = skill.effects?.some(e => e.type === 'STEALTH' as any);
+                                                            const isProtection = skill.effects?.some(e => e.type === 'PROTECTION_STANCE' as any);
 
                                                             if (isAnalyze) {
                                                                 const scale = rules.combat.analyzeIntelScale || 0.6;
@@ -534,7 +535,7 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
         fillColor = 'rgba(251, 146, 60, 0.35)';
     }
 
-    const showAnalyzed = entity?.activeEffects?.some(e => e.type === 'ANALYZED');
+    const showAnalyzed = entity?.activeEffects?.some(e => e.type === 'ANALYZED' as any);
 
     return (
         <div
@@ -618,18 +619,17 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
                 <div className={`
                     absolute inset-0 flex items-center justify-center pointer-events-none 
                     transition-all duration-500
-                    ${entity.activeEffects?.some((e: any) => e.type === 'STEALTH') ? 'opacity-30 grayscale-[50%] blur-[0.5px]' : 'opacity-100'}
+                    ${entity.activeEffects?.some((e: any) => e.type === 'STEALTH' as any) ? 'opacity-30 grayscale-[50%] blur-[0.5px]' : 'opacity-100'}
                 `} style={{ top: -12, zIndex: 2 }}>
 
-                    {/* Status Icons Above Head */}
                     <div className="absolute -top-5 flex gap-1 z-10">
-                        {entity.activeEffects?.some((e: any) => e.type === 'PROTECTION_STANCE') && (
+                        {entity.activeEffects?.some((e: any) => e.type === 'PROTECTION_STANCE' as any) && (
                             <span className="text-[10px] drop-shadow-[0_0_5px_rgba(255,255,255,0.8)] animate-pulse">🛡️</span>
                         )}
-                        {entity.activeEffects?.some((e: any) => e.type === 'STEALTH') && (
+                        {entity.activeEffects?.some((e: any) => e.type === 'STEALTH' as any) && (
                             <span className="text-[10px] drop-shadow-[0_0_5px_rgba(99,102,241,0.8)] animate-bounce">👤</span>
                         )}
-                        {entity.activeEffects?.some((e: any) => e.type === 'ANALYZED') && (
+                        {entity.activeEffects?.some((e: any) => e.type === 'ANALYZED' as any) && (
                             <span className="text-[10px] drop-shadow-[0_0_5px_rgba(234,179,8,0.8)] animate-[pulse_1s_infinite]">🔍</span>
                         )}
                     </div>

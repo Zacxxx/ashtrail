@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { ProvinceGridEditor, emptyProvinceGrid, type ProvinceGridData } from "../history/ProvinceGridEditor";
 
 const API_BASE = "http://127.0.0.1:8787";
 
-export type InspectorLayer = "provinces" | "duchies" | "kingdoms" | "continents";
+export type InspectorLayer = "provinces" | "duchies" | "kingdoms" | "continents" | "areas";
 
 interface GeographyInspectorPanelProps {
     planetId: string | null;
@@ -29,6 +30,9 @@ interface RegionRecord {
     provinceIds?: number[];
     duchyIds?: number[];
     kingdomIds?: number[];
+    wealth?: number;
+    development?: number;
+    population?: number;
 }
 
 type EntityType = "province" | "duchy" | "kingdom" | "continent";
@@ -85,6 +89,8 @@ export function GeographyInspectorPanel({
     const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
     const [historyState, setHistoryState] = useState<"idle" | "applying" | "error" | "done">("idle");
     const [historyError, setHistoryError] = useState<string | null>(null);
+    const [initStatsState, setInitStatsState] = useState<"idle" | "loading" | "done" | "error">("idle");
+    const [provinceGridData, setProvinceGridData] = useState<Record<number, ProvinceGridData>>({});
 
     const loadHierarchy = () => {
         if (!planetId) {
@@ -137,7 +143,7 @@ export function GeographyInspectorPanel({
 
     let activeData = null;
     if (targetId !== null) {
-        if (activeLayer === "provinces") activeData = provinces[targetId];
+        if (activeLayer === "provinces" || activeLayer === "areas") activeData = provinces[targetId];
         else if (activeLayer === "duchies") activeData = duchies[targetId];
         else if (activeLayer === "kingdoms") activeData = kingdoms[targetId];
         else if (activeLayer === "continents") activeData = continents[targetId];
@@ -190,7 +196,7 @@ export function GeographyInspectorPanel({
             ? Object.values(duchies).sort((a, b) => a.name.localeCompare(b.name))
             : activeLayer === "kingdoms"
                 ? Object.values(kingdoms).sort((a, b) => a.name.localeCompare(b.name))
-            : [];
+                : [];
     const validBulkIds = isReassignable
         ? bulkSelectedIds.filter((id) => {
             if (activeLayer === "provinces") return Boolean(provinces[id]);
@@ -500,6 +506,28 @@ export function GeographyInspectorPanel({
                 {historyState === "error" && (
                     <p className="mt-2 text-[10px] text-red-400 font-mono">{historyError || "History operation failed."}</p>
                 )}
+                <div className="mt-3 border-t border-white/10 pt-3">
+                    <button
+                        onClick={async () => {
+                            if (!planetId) return;
+                            setInitStatsState("loading");
+                            try {
+                                const res = await fetch(`${API_BASE}/api/worldgen/${planetId}/hierarchy/init-stats`, { method: "POST" });
+                                if (!res.ok) throw new Error(await res.text());
+                                await loadHierarchy();
+                                setInitStatsState("done");
+                            } catch {
+                                setInitStatsState("error");
+                            }
+                        }}
+                        disabled={initStatsState === "loading"}
+                        className="w-full px-3 py-2 rounded-lg text-[10px] font-black tracking-[0.12em] border border-yellow-500/30 text-yellow-300 bg-yellow-500/10 hover:bg-yellow-500/20 disabled:opacity-40 transition-all"
+                    >
+                        {initStatsState === "loading" ? "GENERATING STATS..." : "⚡ INITIALIZE PROVINCE STATS"}
+                    </button>
+                    {initStatsState === "done" && <p className="mt-1 text-[10px] text-green-400 font-mono">Stats generated for all provinces.</p>}
+                    {initStatsState === "error" && <p className="mt-1 text-[10px] text-red-400 font-mono">Failed to generate stats.</p>}
+                </div>
             </div>
 
             {isReassignable && (
@@ -689,6 +717,88 @@ export function GeographyInspectorPanel({
                                 ))}
                             </div>
                         )}
+                        {activeData.wealth !== undefined && (
+                            <div className="flex justify-between text-[11px] font-mono">
+                                <span className="text-gray-500">WEALTH</span>
+                                <span className={activeData.wealth >= 0 ? "text-yellow-400" : "text-orange-400"}>{activeData.wealth}</span>
+                            </div>
+                        )}
+                        {activeData.development !== undefined && (
+                            <div className="flex justify-between text-[11px] font-mono">
+                                <span className="text-gray-500">DEVELOPMENT</span>
+                                <span className={activeData.development >= 0 ? "text-blue-400" : "text-orange-400"}>{activeData.development}</span>
+                            </div>
+                        )}
+                        {activeData.population !== undefined && (
+                            <div className="flex justify-between text-[11px] font-mono">
+                                <span className="text-gray-500">POPULATION</span>
+                                <span className="text-green-400">{activeData.population.toLocaleString()}</span>
+                            </div>
+                        )}
+                        {/* Province Grid Editor – shown when areas layer is active and a province is selected */}
+                        {(activeLayer === "areas" || activeLayer === "provinces") && activeData && !activeData.provinceIds && !activeData.duchyIds && !activeData.kingdomIds && (
+                            <div className="border-t border-white/10 pt-3 mt-2">
+                                <h4 className="text-[9px] font-bold text-gray-500 tracking-widest uppercase mb-2">SUB-AREA GRID</h4>
+                                <ProvinceGridEditor
+                                    data={provinceGridData[activeData.id] ?? emptyProvinceGrid()}
+                                    onChange={(gridData) => {
+                                        setProvinceGridData(prev => ({ ...prev, [activeData.id]: gridData }));
+                                    }}
+                                />
+                            </div>
+                        )}
+                        {/* Aggregated stats for duchies/kingdoms/continents */}
+                        {activeLayer === "duchies" && activeData.provinceIds && (() => {
+                            const childProvs = activeData.provinceIds.map(pid => provinces[pid]).filter(Boolean);
+                            const totalWealth = childProvs.reduce((s, p) => s + (p.wealth ?? 0), 0);
+                            const totalDev = childProvs.reduce((s, p) => s + (p.development ?? 0), 0);
+                            const totalPop = childProvs.reduce((s, p) => s + (p.population ?? 0), 0);
+                            return (
+                                <>
+                                    <div className="border-t border-white/5 pt-2 mt-1">
+                                        <p className="text-[9px] text-gray-600 tracking-widest font-mono mb-1">AGGREGATED</p>
+                                    </div>
+                                    <div className="flex justify-between text-[11px] font-mono">
+                                        <span className="text-gray-500">Σ WEALTH</span>
+                                        <span className="text-yellow-400">{totalWealth}</span>
+                                    </div>
+                                    <div className="flex justify-between text-[11px] font-mono">
+                                        <span className="text-gray-500">Σ DEVELOPMENT</span>
+                                        <span className="text-blue-400">{totalDev}</span>
+                                    </div>
+                                    <div className="flex justify-between text-[11px] font-mono">
+                                        <span className="text-gray-500">Σ POPULATION</span>
+                                        <span className="text-green-400">{totalPop.toLocaleString()}</span>
+                                    </div>
+                                </>
+                            );
+                        })()}
+                        {activeLayer === "kingdoms" && activeData.duchyIds && (() => {
+                            const childProvIds = activeData.duchyIds.flatMap(did => duchies[did]?.provinceIds ?? []);
+                            const childProvs = childProvIds.map(pid => provinces[pid]).filter(Boolean);
+                            const totalWealth = childProvs.reduce((s, p) => s + (p.wealth ?? 0), 0);
+                            const totalDev = childProvs.reduce((s, p) => s + (p.development ?? 0), 0);
+                            const totalPop = childProvs.reduce((s, p) => s + (p.population ?? 0), 0);
+                            return (
+                                <>
+                                    <div className="border-t border-white/5 pt-2 mt-1">
+                                        <p className="text-[9px] text-gray-600 tracking-widest font-mono mb-1">AGGREGATED</p>
+                                    </div>
+                                    <div className="flex justify-between text-[11px] font-mono">
+                                        <span className="text-gray-500">Σ WEALTH</span>
+                                        <span className="text-yellow-400">{totalWealth}</span>
+                                    </div>
+                                    <div className="flex justify-between text-[11px] font-mono">
+                                        <span className="text-gray-500">Σ DEVELOPMENT</span>
+                                        <span className="text-blue-400">{totalDev}</span>
+                                    </div>
+                                    <div className="flex justify-between text-[11px] font-mono">
+                                        <span className="text-gray-500">Σ POPULATION</span>
+                                        <span className="text-green-400">{totalPop.toLocaleString()}</span>
+                                    </div>
+                                </>
+                            );
+                        })()}
                     </div>
 
                     <div className="pt-3 border-t border-white/10 space-y-2">

@@ -3,13 +3,14 @@ import { useGameRules, GameRulesConfig, GameRulesManager } from "./rules/useGame
 
 // ─── Category type ───────────────────────────────────────────────────────────
 
-type Category = "all" | "core" | "combat" | "grid" | "aoe" | "status" | "modifiers";
+type Category = "all" | "core" | "combat" | "grid" | "regions" | "aoe" | "status" | "modifiers";
 
 const CATEGORIES: { id: Category; label: string; icon: string; color: string }[] = [
     { id: "all", label: "All Rules", icon: "📋", color: "text-gray-400" },
     { id: "core", label: "Core Stats", icon: "📊", color: "text-orange-400" },
     { id: "combat", label: "Combat Math", icon: "⚔️", color: "text-red-400" },
     { id: "grid", label: "Grid & Move", icon: "🗺️", color: "text-teal-400" },
+    { id: "regions", label: "Regions", icon: "🌍", color: "text-blue-400" },
     { id: "aoe", label: "Area of Effect", icon: "💥", color: "text-indigo-400" },
     { id: "status", label: "Status Effects", icon: "🩹", color: "text-yellow-400" },
     { id: "modifiers", label: "Modifiers", icon: "⚙️", color: "text-purple-400" },
@@ -394,6 +395,13 @@ export function GameRulesView() {
                 analyzeIntelScale: 0.6,
             },
             grid: { baseDisengageCost: 2, threatScaling: 1, agilityMitigationDivisor: 10 },
+            regions: {
+                popMultiplierContinent: 50, popMultiplierKingdom: 10,
+                popMultiplierDuchy: 3, popMultiplierProvince: 1,
+                popBaseMin: 500, popBaseMax: 5000,
+                wealthMin: -100, wealthMax: 100,
+                devMin: -100, devMax: 100,
+            },
         });
         setHasUnsaved(false);
     };
@@ -410,6 +418,7 @@ export function GameRulesView() {
     const showCore = activeCategory === "all" || activeCategory === "core";
     const showCombat = activeCategory === "all" || activeCategory === "combat";
     const showGrid = activeCategory === "all" || activeCategory === "grid";
+    const showRegions = activeCategory === "all" || activeCategory === "regions";
     const showAoe = activeCategory === "all" || activeCategory === "aoe";
     const showStatus = activeCategory === "all" || activeCategory === "status";
     const showModifiers = activeCategory === "all" || activeCategory === "modifiers";
@@ -838,7 +847,63 @@ Initiative: descending Agility → Endurance tiebreak`}
                     </section>
                 )}
 
-                {/* ─── AoE Rules ─── */}
+                {/* ─── Regions ─── */}
+                {showRegions && (
+                    <section className="space-y-6">
+                        <SectionHeader icon="🌍" label="Region Scoring" color="text-blue-400" badge="Pop · Wealth · Dev" />
+
+                        <div className="bg-black/30 border border-white/5 rounded-xl p-5 space-y-5">
+                            <p className="text-[12px] text-gray-400 leading-relaxed">
+                                These rules define how <span className="text-white font-bold">Population</span>,
+                                <span className="text-white font-bold"> Wealth</span>, and
+                                <span className="text-white font-bold"> Development</span> scores are rolled for each region type.
+                                Higher-level regions (Continents, Kingdoms) have larger multipliers.
+                            </p>
+
+                            <div className="space-y-4">
+                                <p className="text-[10px] text-blue-400/70 font-bold uppercase tracking-widest">Population Multipliers</p>
+                                <div className="grid grid-cols-4 gap-4">
+                                    <RuleNumber label="Continent ×" desc="Pop multiplier" value={rules.regions.popMultiplierContinent} min={1} max={200} onChange={v => patch("regions", "popMultiplierContinent", v)} />
+                                    <RuleNumber label="Kingdom ×" desc="Pop multiplier" value={rules.regions.popMultiplierKingdom} min={1} max={100} onChange={v => patch("regions", "popMultiplierKingdom", v)} />
+                                    <RuleNumber label="Duchy ×" desc="Pop multiplier" value={rules.regions.popMultiplierDuchy} min={1} max={50} onChange={v => patch("regions", "popMultiplierDuchy", v)} />
+                                    <RuleNumber label="Province ×" desc="Pop multiplier" value={rules.regions.popMultiplierProvince} min={1} max={20} onChange={v => patch("regions", "popMultiplierProvince", v)} />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-6">
+                                <div className="space-y-4">
+                                    <p className="text-[10px] text-emerald-400/70 font-bold uppercase tracking-widest">Base Population Range</p>
+                                    <RuleNumber label="Base Min" desc="Minimum base pop" value={rules.regions.popBaseMin} min={0} max={10000} onChange={v => patch("regions", "popBaseMin", v)} />
+                                    <RuleNumber label="Base Max" desc="Maximum base pop" value={rules.regions.popBaseMax} min={0} max={50000} onChange={v => patch("regions", "popBaseMax", v)} />
+                                </div>
+                                <div className="space-y-4">
+                                    <p className="text-[10px] text-amber-400/70 font-bold uppercase tracking-widest">Wealth & Development Range</p>
+                                    <RuleNumber label="Wealth Min" desc="Minimum wealth score" value={rules.regions.wealthMin} min={-100} max={0} onChange={v => patch("regions", "wealthMin", v)} />
+                                    <RuleNumber label="Wealth Max" desc="Maximum wealth score" value={rules.regions.wealthMax} min={0} max={100} onChange={v => patch("regions", "wealthMax", v)} />
+                                    <RuleNumber label="Dev Min" desc="Minimum development" value={rules.regions.devMin} min={-100} max={0} onChange={v => patch("regions", "devMin", v)} />
+                                    <RuleNumber label="Dev Max" desc="Maximum development" value={rules.regions.devMax} min={0} max={100} onChange={v => patch("regions", "devMax", v)} />
+                                </div>
+                            </div>
+
+                            <FormulaBox>
+                                {`Population = random(${rules.regions.popBaseMin}, ${rules.regions.popBaseMax}) × TypeMultiplier
+  Continent: ×${rules.regions.popMultiplierContinent}
+  Kingdom:   ×${rules.regions.popMultiplierKingdom}
+  Duchy:     ×${rules.regions.popMultiplierDuchy}
+  Province:  ×${rules.regions.popMultiplierProvince}
+
+Wealth      = random(${rules.regions.wealthMin}, ${rules.regions.wealthMax})
+  Positive → rich trade, abundant resources
+  Negative → impoverished, scarce resources
+
+Development = random(${rules.regions.devMin}, ${rules.regions.devMax})
+  Positive → advanced infrastructure, roads, walls
+  Negative → undeveloped frontier, wilderness`}
+                            </FormulaBox>
+                        </div>
+                    </section>
+                )}
+
                 {showAoe && (
                     <section className="space-y-6">
                         <SectionHeader icon="💥" label="Area of Effect (AoE)" color="text-indigo-400" />
