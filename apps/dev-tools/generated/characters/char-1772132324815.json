@@ -1,14 +1,29 @@
 {
   "age": 1843,
+  "alignment": "",
   "appearancePrompt": "An old dude with a big dick",
+  "backstory": "An old dude with a big dick",
+  "badge": "",
+  "currentStory": "",
+  "equipped": {
+    "boots": null,
+    "chest": null,
+    "gloves": null,
+    "head": null,
+    "legs": null,
+    "mainHand": null,
+    "offHand": null,
+    "waist": null
+  },
+  "faction": "",
   "gender": "Male",
-  "history": "has a really long shlong",
-  "hp": 60,
+  "history": "",
+  "hp": 20,
   "id": "char-1772132324815",
   "inventory": [],
   "isNPC": true,
   "level": 1,
-  "maxHp": 60,
+  "maxHp": 20,
   "name": "John Mc Cockblock",
   "occupation": {
     "category": "SECURITY",
@@ -24,12 +39,13 @@
   },
   "stats": {
     "agility": 3,
-    "charisma": 3,
-    "endurance": 10,
+    "charisma": 11,
+    "endurance": 2,
     "intelligence": 3,
     "strength": 14,
     "wisdom": 3
   },
+  "title": "",
   "traits": [
     {
       "cost": 10,

@@ -1,11 +1,18 @@
 import React, { useState } from 'react';
 import { GameRegistry, Character, Skill } from '@ashtrail/core';
-import type { TacticalEntity, CombatConfig } from '@ashtrail/core';
+import type { TacticalEntity, CombatConfig, DamagePreview } from '@ashtrail/core';
 import { TacticalArena } from './TacticalArena';
 import { useCombatWebSocket } from './useCombatWebSocket';
 import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacticalGrid';
 import { GameRulesManager } from '../rules/useGameRules';
 
+// ── Default skills given to characters without their own ──
+function getDefaultPlayerSkills(): Skill[] {
+    return GameRegistry.getAllSkills().filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id));
+}
+function getDefaultEnemySkills(): Skill[] {
+    return GameRegistry.getAllSkills().filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+}
 
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number, defaultPlayerSkills: Skill[], defaultEnemySkills: Skill[]): TacticalEntity {
@@ -26,6 +33,7 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
         agility: char.stats.agility,
         intelligence: char.stats.intelligence,
         wisdom: char.stats.wisdom,
+        endurance: char.stats.endurance,
         charisma: char.stats.charisma,
         evasion: Math.floor(char.stats.agility / 4),
         defense: Math.floor(char.stats.endurance / 2),
@@ -35,6 +43,7 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
         maxAp,
         mp: maxMp,
         maxMp,
+        level: char.level,
         critChance: char.stats.intelligence * rules.core.critPerIntelligence,
         resistance: char.stats.wisdom * rules.core.resistPerWisdom,
         socialBonus: char.stats.charisma * rules.core.charismaBonusPerCharisma,
@@ -42,10 +51,9 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
         skills,
         skillCooldowns: {},
         gridPos: { row: 0, col: 0 },
+        equipped: char.equipped
     };
 }
-
-
 
 export function CombatSimulator() {
     const chars = GameRegistry.getAllCharacters();
@@ -112,6 +120,10 @@ export function CombatSimulator() {
     };
 
     React.useEffect(() => {
+        // Sync registry with backend
+        GameRegistry.fetchFromBackend("http://127.0.0.1:8787").catch(err => console.warn(err));
+
+        // Fetch texture batches
         fetch("/api/textures/batches")
             .then(res => res.json())
             .then(data => {
@@ -542,10 +554,9 @@ function TacticalCombatArena({
     config: CombatConfig;
     battlemapUrl: string | null;
 }) {
-    // Dynamically grab default skills from the game registry instead of hardcoding imports from mockData
-    const allSkills = GameRegistry.getAllSkills();
-    const defaultPlayerSkills = allSkills.filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot'].includes(s.id));
-    const defaultEnemySkills = allSkills.filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+    // Dynamically grab default skills from the game registry
+    const defaultPlayerSkills = getDefaultPlayerSkills();
+    const defaultEnemySkills = getDefaultEnemySkills();
 
     const playerEntities = playerIds
         .map(id => GameRegistry.getCharacter(id))
@@ -568,6 +579,56 @@ function TacticalCombatArena({
         config,
     });
 
+    const getDamagePreview = React.useCallback((attacker: TacticalEntity, target: TacticalEntity, skill: Skill): DamagePreview | null => {
+        if (!skill.damage && !skill.pushDistance) return null;
+
+        const rules = GameRulesManager.get();
+        const isMagical = skill.effectType === 'magical';
+
+        let baseDmg = skill.damage || 0;
+        const weaponReplacement = skill.effects?.find(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT' as any);
+        if (weaponReplacement && attacker.equipped?.mainHand) {
+            const weapon = attacker.equipped.mainHand;
+            const weaponDmgEffect = weapon.effects?.find(e =>
+                e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS' as any
+            );
+            if (weaponDmgEffect) {
+                if (weaponDmgEffect.isPercentage) baseDmg = Math.floor(baseDmg * (1 + (weaponDmgEffect.value / 100)));
+                else baseDmg = weaponDmgEffect.value;
+            }
+        }
+
+        const minStrBonus = skill.pushDistance ? attacker.strength * (rules.combat.shovePushDamageRatio || 0.1) : attacker.strength * (rules.combat.strengthScalingMin || 0.2);
+        const maxStrBonus = skill.pushDistance ? attacker.strength * (rules.combat.shovePushDamageRatio || 0.1) : attacker.strength * (rules.combat.strengthScalingMax || 0.4);
+
+        const vMin = rules.combat.damageVarianceMin || 0.85;
+        const vMax = rules.combat.damageVarianceMax || 1.15;
+
+        // Critical Hit check
+        const analyzedBonus = target.activeEffects?.filter(e => e.type === 'ANALYZED' as any).reduce((sum: number, e: any) => sum + (e.value || 0), 0) || 0;
+        const finalCritChance = attacker.critChance + (analyzedBonus / 100);
+
+        const calc = (str: number, v: number, crit: boolean) => {
+            let d = Math.floor((baseDmg + str) * v);
+            if (crit) d = Math.floor(d * 1.5);
+            if (isMagical) {
+                const resist = Math.floor(d * (target.resistance || 0));
+                return Math.max(1, d - resist);
+            } else {
+                return Math.max(1, d - (target.defense || 0));
+            }
+        };
+
+        return {
+            min: calc(minStrBonus, vMin, false),
+            max: calc(maxStrBonus, vMax, false),
+            critMin: calc(minStrBonus, vMin, true),
+            critMax: calc(maxStrBonus, vMax, true),
+            isMagical,
+            critChance: isNaN(finalCritChance) ? (attacker.critChance || 0) : finalCritChance
+        };
+    }, []);
+
     return (
         <TacticalArena
             grid={grid}
@@ -586,6 +647,7 @@ function TacticalCombatArena({
             meleeAttackCost={MELEE_ATTACK_COST}
             selectedSkill={selectedSkill}
             battlemapUrl={battlemapUrl}
+            getDamagePreview={getDamagePreview}
         />
     );
 }

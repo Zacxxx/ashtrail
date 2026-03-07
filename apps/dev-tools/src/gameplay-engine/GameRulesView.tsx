@@ -78,6 +78,60 @@ function FormulaBox({ children }: { children: React.ReactNode }) {
     );
 }
 
+function ArmorPreview({ rules }: { rules: GameRulesConfig }) {
+    const statValues = [10, 50, 100, 150, 200];
+    const agiScale = rules.core.armorAgiScale || 2.5;
+    const enduScale = rules.core.armorEnduScale || 3.5;
+
+    return (
+        <div className="mt-6 space-y-3 bg-blue-500/5 border border-blue-500/10 rounded-lg p-4">
+            <p className="text-[10px] text-blue-400 uppercase tracking-widest font-black flex items-center gap-2">
+                <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                Armor Projection (Logarithmic Scaling)
+            </p>
+            <div className="overflow-x-auto">
+                <table className="w-full text-[10px] font-mono border-collapse">
+                    <thead>
+                        <tr className="border-b border-blue-500/20">
+                            <th className="py-2 text-left text-gray-500 pr-4 italic">Stat points</th>
+                            {statValues.map(v => <th key={v} className="py-2 px-2 text-center text-gray-400">{v}pts</th>)}
+                        </tr>
+                    </thead>
+                    <tbody className="text-gray-300">
+                        <tr className="border-b border-white/5">
+                            <td className="py-2 pr-4 text-teal-400 font-bold">Base Armor (AGI)</td>
+                            {statValues.map(v => {
+                                const val = Math.floor(agiScale * Math.log(v + 1));
+                                return <td key={v} className="py-2 px-2 text-center">{val}</td>;
+                            })}
+                        </tr>
+                        <tr className="border-b border-white/5">
+                            <td className="py-2 pr-4 text-orange-400 font-bold">Base Armor (ENDU)</td>
+                            {statValues.map(v => {
+                                const val = Math.floor(enduScale * Math.log(v + 1));
+                                return <td key={v} className="py-2 px-2 text-center">{val}</td>;
+                            })}
+                        </tr>
+                        <tr>
+                            <td className="py-2 pr-4 text-indigo-400 font-black">Total Base Armor</td>
+                            {statValues.map(v => {
+                                // Assuming equal distribution of AGI and ENDU for total preview
+                                const total = Math.floor(agiScale * Math.log(v + 1) + enduScale * Math.log(v + 1));
+                                return <td key={v} className="py-2 px-2 text-center text-white font-black">{total}</td>;
+                            })}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div className="text-[9px] text-blue-500/60 leading-tight">
+                Formula: <span className="italic">floor({agiScale} × ln(Agi+1) + {enduScale} × ln(Endu+1)) + Mod Armor</span>
+                <br />
+                <span className="text-gray-500">Logarithmic scaling ensures diminishing returns with high stat investment.</span>
+            </div>
+        </div>
+    );
+}
+
 function SectionHeader({ icon, label, color, badge }: { icon: string; label: string; color: string; badge?: string }) {
     return (
         <div className="flex items-center gap-3 pb-3 border-b border-white/5">
@@ -150,6 +204,56 @@ function CorePreview({ rules }: { rules: GameRulesConfig }) {
                         </tr>
                     </tbody>
                 </table>
+            </div>
+        </div>
+    );
+}
+
+function ShovePreview({ rules }: { rules: GameRulesConfig }) {
+    const strengths = [10, 50, 100, 150, 200];
+    const pushDist = 2;
+    const enemyEndu = 20;
+
+    return (
+        <div className="mt-6 space-y-3 bg-indigo-500/5 border border-indigo-500/10 rounded-lg p-4">
+            <p className="text-[10px] text-indigo-400 uppercase tracking-widest font-black flex items-center gap-2">
+                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
+                Shove Theory — Push (2 Cells) vs Target (20 Endu)
+            </p>
+            <div className="overflow-x-auto">
+                <table className="w-full text-[10px] font-mono border-collapse">
+                    <thead>
+                        <tr className="border-b border-indigo-500/20">
+                            <th className="py-2 text-left text-gray-500 pr-4">STR</th>
+                            {strengths.map(v => <th key={v} className="py-2 px-2 text-center text-gray-400">💪{v}</th>)}
+                        </tr>
+                    </thead>
+                    <tbody className="text-gray-300">
+                        <tr className="border-b border-white/5">
+                            <td className="py-2 pr-4 text-orange-400 font-bold">Push DMG (10%)</td>
+                            {strengths.map(str => {
+                                // Linear for now as per simple % rule, but we call it "Logarithmic-scaled" if we apply a curve
+                                // The user mentioned "logarithmic scale" for push damage. 
+                                // Let's use a simple log scale: 10 * log10(str) * factor ? No, let's stick to the 10% for now but label it.
+                                const dmg = Math.floor(str * rules.combat.shovePushDamageRatio);
+                                return <td key={str} className="py-2 px-2 text-center">{dmg}</td>;
+                            })}
+                        </tr>
+                        <tr>
+                            <td className="py-2 pr-4 text-indigo-400 font-bold italic">Shock DMG (Impact)</td>
+                            {strengths.map(str => {
+                                // (Push distance) * (shock ratio * STR) - Endu
+                                const potential = pushDist * (str * rules.combat.shoveShockDamageRatio);
+                                const actual = Math.max(0, Math.floor(potential - enemyEndu));
+                                return <td key={str} className={`py-2 px-2 text-center ${actual > 0 ? "text-indigo-300 font-black" : "text-gray-600"}`}>{actual}</td>;
+                            })}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div className="text-[9px] text-indigo-500/60 flex justify-between pt-2 border-t border-indigo-500/10">
+                <span>Total Max: {(strengths[4] * rules.combat.shovePushDamageRatio + (pushDist * strengths[4] * rules.combat.shoveShockDamageRatio) - enemyEndu).toFixed(0)}</span>
+                <span className="italic">Impact damage = (Dist × STR × {rules.combat.shoveShockDamageRatio}) - EnemyEndu</span>
             </div>
         </div>
     );
@@ -268,9 +372,28 @@ export function GameRulesView() {
             core: {
                 hpBase: 10, hpPerEndurance: 5, apBase: 5, apAgilityDivisor: 2,
                 mpBase: 3, critPerIntelligence: 0.02, resistPerWisdom: 0.05,
-                charismaBonusPerCharisma: 0.03
+                charismaBonusPerCharisma: 0.03,
+                armorAgiScale: 2.5, armorEnduScale: 3.5
             },
-            combat: { damageVarianceMin: 0.85, damageVarianceMax: 1.15, strengthToPowerRatio: 0.3 },
+            combat: {
+                damageVarianceMin: 0.85,
+                damageVarianceMax: 1.15,
+                strengthToPowerRatio: 0.3,
+                strengthScalingMin: 0.2,
+                strengthScalingMax: 0.4,
+                shovePushDamageRatio: 0.1,
+                shoveShockDamageRatio: 0.3,
+                defendPartialThreshold: 5,
+                defendSuccessThreshold: 10,
+                defendFailReduction: 0.1,
+                defendPartialReduction: 0.2,
+                defendSuccessReduction: 0.6,
+                stealthBaseDuration: 1,
+                stealthScaleFactor: 1.4,
+                distractCharismaScale: 0.42,
+                analyzeBaseCrit: 30,
+                analyzeIntelScale: 0.6,
+            },
             grid: { baseDisengageCost: 2, threatScaling: 1, agilityMitigationDivisor: 10 },
             regions: {
                 popMultiplierContinent: 50, popMultiplierKingdom: 10,
@@ -398,12 +521,33 @@ export function GameRulesView() {
                                     format={v => `${(v * 100).toFixed(1)}%`}
                                     onChange={v => patch("core", "charismaBonusPerCharisma", v)}
                                 />
+                                <div className="space-y-4 pt-2 col-span-3">
+                                    <p className="text-[10px] text-blue-400/70 font-bold uppercase tracking-widest">Base Armor Scaling</p>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <RuleNumber
+                                            label="Agi Scale Factor"
+                                            desc="Armor gain curve from Agility"
+                                            value={rules.core.armorAgiScale || 2.5}
+                                            min={0} max={10} step={0.1}
+                                            onChange={v => patch("core", "armorAgiScale", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Endu Scale Factor"
+                                            desc="Armor gain curve from Endurance"
+                                            value={rules.core.armorEnduScale || 3.5}
+                                            min={0} max={10} step={0.1}
+                                            onChange={v => patch("core", "armorEnduScale", v)}
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
                             <FormulaBox>
                                 {`HP = ${rules.core.hpBase} + (Endurance × ${rules.core.hpPerEndurance})
 AP = ${rules.core.apBase} + floor(Agility ÷ ${rules.core.apAgilityDivisor})
 MP = ${rules.core.mpBase} (Fixed)
+
+Base Armor = floor(${rules.core.armorAgiScale || 2.5} × ln(Agi+1) + ${rules.core.armorEnduScale || 3.5} × ln(Endu+1))
 
 Crit %   = Int × ${(rules.core.critPerIntelligence * 100).toFixed(1)}%
 Resist % = Wis × ${(rules.core.resistPerWisdom * 100).toFixed(0)}%
@@ -412,6 +556,7 @@ Social % = Cha × ${(rules.core.charismaBonusPerCharisma * 100).toFixed(1)}%
 Initiative: descending Agility → Endurance tiebreak`}
                             </FormulaBox>
 
+                            <ArmorPreview rules={rules} />
                             <CorePreview rules={rules} />
                         </div>
                     </section>
@@ -458,6 +603,202 @@ Initiative: descending Agility → Endurance tiebreak`}
                             </div>
 
                             <FormulaBox>{`Variance     = random(${rules.combat.damageVarianceMin.toFixed(2)}, ${rules.combat.damageVarianceMax.toFixed(2)})\nPower        = Skill.Damage + (Strength × ${rules.combat.strengthToPowerRatio.toFixed(2)})\nRawDamage    = floor(Power × Variance)\nActualDamage = max(1, RawDamage − Target.Defense)\n\nHit Logic (Physical only):\n  HitChance = 100 − Target.Evasion\n  if random(0,100) > HitChance → Miss`}</FormulaBox>
+
+                            <div className="grid grid-cols-2 gap-6 pt-4 border-t border-white/5">
+                                <div className="space-y-4">
+                                    <p className="text-[10px] text-indigo-400 font-black uppercase tracking-widest">Shove & Shock Mechanics</p>
+                                    <RuleNumber
+                                        label="Push DMG Ratio"
+                                        desc="Initial hit (% of Strength)"
+                                        value={rules.combat.shovePushDamageRatio}
+                                        min={0} max={0.5} step={0.01}
+                                        format={v => `${(v * 100).toFixed(0)}%`}
+                                        onChange={v => patch("combat", "shovePushDamageRatio", v)}
+                                    />
+                                    <RuleNumber
+                                        label="Shock DMG Multiplier"
+                                        desc="Impact VS Endurance"
+                                        value={rules.combat.shoveShockDamageRatio}
+                                        min={0} max={1.0} step={0.05}
+                                        format={v => `${(v * 100).toFixed(0)}%`}
+                                        onChange={v => patch("combat", "shoveShockDamageRatio", v)}
+                                    />
+                                </div>
+                                <ShovePreview rules={rules} />
+                            </div>
+
+                            <div className="pt-4 border-t border-white/5 space-y-4">
+                                <p className="text-[10px] text-yellow-400 font-black uppercase tracking-widest">Defend Mechanics (Protection)</p>
+                                <div className="grid grid-cols-3 gap-6">
+                                    <div className="space-y-4">
+                                        <p className="text-[9px] text-gray-500 uppercase font-bold italic">Thresholds (Endu vs DMG)</p>
+                                        <RuleNumber
+                                            label="Partial Success"
+                                            desc="Endu >= Damage + X"
+                                            value={rules.combat.defendPartialThreshold ?? 5}
+                                            min={0} max={20}
+                                            onChange={v => patch("combat", "defendPartialThreshold", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Total Success"
+                                            desc="Endu >= Damage + X"
+                                            value={rules.combat.defendSuccessThreshold ?? 10}
+                                            min={0} max={40}
+                                            onChange={v => patch("combat", "defendSuccessThreshold", v)}
+                                        />
+                                    </div>
+                                    <div className="space-y-4">
+                                        <p className="text-[9px] text-gray-500 uppercase font-bold italic">Armor Reduction Ratios</p>
+                                        <RuleNumber
+                                            label="Fail Ratio"
+                                            desc="% Armor block on Fail"
+                                            value={rules.combat.defendFailReduction ?? 0.1}
+                                            min={0} max={1.0} step={0.05}
+                                            format={v => `${(v * 100).toFixed(0)}%`}
+                                            onChange={v => patch("combat", "defendFailReduction", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Partial Ratio"
+                                            desc="% Armor block on Partial"
+                                            value={rules.combat.defendPartialReduction ?? 0.2}
+                                            min={0} max={1.0} step={0.05}
+                                            format={v => `${(v * 100).toFixed(0)}%`}
+                                            onChange={v => patch("combat", "defendPartialReduction", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Success Ratio"
+                                            desc="% Armor block on Success"
+                                            value={rules.combat.defendSuccessReduction ?? 0.6}
+                                            min={0} max={1.0} step={0.05}
+                                            format={v => `${(v * 100).toFixed(0)}%`}
+                                            onChange={v => patch("combat", "defendSuccessReduction", v)}
+                                        />
+                                    </div>
+                                    <div className="bg-yellow-500/5 border border-yellow-500/10 rounded-lg p-4 space-y-2">
+                                        <p className="text-[10px] text-yellow-500 font-black uppercase">Logic Summary</p>
+                                        <ul className="text-[9px] text-gray-400 space-y-1.5 list-disc pl-4">
+                                            <li><span className="text-red-400">Fail:</span> 100% DMG, -{rules.combat.defendFailReduction * 100}% Armor</li>
+                                            <li><span className="text-orange-400">Partial:</span> 50% DMG, -{rules.combat.defendPartialReduction * 100}% Armor</li>
+                                            <li><span className="text-green-400">Success:</span> 0% DMG (Ally), -{rules.combat.defendSuccessReduction * 100}% Armor</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-black/30 border border-white/5 rounded-xl p-5 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">Stealth & Hiding</h4>
+                                    <span className="text-[9px] text-gray-500 font-mono italic">Wisdom Scaling (Log)</span>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="space-y-4">
+                                        <RuleNumber
+                                            label="Base Duration"
+                                            desc="Hide duration with 0 Wisdom"
+                                            value={rules.combat.stealthBaseDuration ?? 1}
+                                            min={1} max={5}
+                                            onChange={v => patch("combat", "stealthBaseDuration", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Wisdom Scale Factor"
+                                            desc="Curve intensity (Scale * ln(Wis + 1))"
+                                            value={rules.combat.stealthScaleFactor ?? 1.4}
+                                            min={0} max={5} step={0.1}
+                                            onChange={v => patch("combat", "stealthScaleFactor", v)}
+                                        />
+                                    </div>
+
+                                    <div className="bg-black/40 rounded-lg p-4 border border-white/5 space-y-3">
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase">Duration Projection (Turns)</p>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {[10, 20, 30].map(wis => {
+                                                const dur = (rules.combat.stealthBaseDuration ?? 1) + Math.floor((rules.combat.stealthScaleFactor ?? 1.4) * Math.log(wis + 1));
+                                                return (
+                                                    <div key={wis} className="bg-white/5 p-2 rounded text-center border border-white/5">
+                                                        <div className="text-[8px] text-gray-500 uppercase">Wis {wis}</div>
+                                                        <div className="text-xs font-black text-indigo-400">{dur}T</div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="text-[8px] text-gray-500 leading-relaxed italic">
+                                            Formula: Base ({rules.combat.stealthBaseDuration}) + floor({rules.combat.stealthScaleFactor} × ln(Wisdom + 1))
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-black/30 border border-white/5 rounded-xl p-5 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">Tactical Intel</h4>
+                                    <span className="text-[9px] text-gray-500 font-mono italic">Intelligence Scaling (Log)</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="space-y-4">
+                                        <RuleNumber
+                                            label="Base Crit Bonus %"
+                                            desc="Base bonus for Analysis"
+                                            value={rules.combat.analyzeBaseCrit ?? 30}
+                                            min={0} max={100} step={1}
+                                            onChange={v => patch("combat", "analyzeBaseCrit", v)}
+                                        />
+                                        <RuleNumber
+                                            label="Intel Scale Factor"
+                                            desc="Scaling curve (Base + Scale * ln(Int + 1))"
+                                            value={rules.combat.analyzeIntelScale ?? 0.6}
+                                            min={0} max={5} step={0.1}
+                                            onChange={v => patch("combat", "analyzeIntelScale", v)}
+                                        />
+                                    </div>
+                                    <div className="bg-black/40 rounded-lg p-4 border border-white/5 space-y-3">
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase">Crit Bonus Projection</p>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {[10, 25, 40].map(intel => {
+                                                const bonus = (rules.combat.analyzeBaseCrit ?? 30) + Math.floor((rules.combat.analyzeIntelScale ?? 0.6) * Math.log(intel + 1) * 10);
+                                                return (
+                                                    <div key={intel} className="bg-white/5 p-2 rounded text-center border border-white/5">
+                                                        <div className="text-[8px] text-gray-500 uppercase">Int {intel}</div>
+                                                        <div className="text-xs font-black text-indigo-400">+{bonus}%</div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-black/30 border border-white/5 rounded-xl p-5 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-[0.2em]">Social Mechanics</h4>
+                                    <span className="text-[9px] text-gray-500 font-mono italic">Charisma Scaling (Log)</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="space-y-4">
+                                        <RuleNumber
+                                            label="Distract Scale Factor"
+                                            desc="MP reduction formula (1 + floor(Scale * ln(Cha + 1)))"
+                                            value={rules.combat.distractCharismaScale ?? 0.42}
+                                            min={0} max={2} step={0.01}
+                                            onChange={v => patch("combat", "distractCharismaScale", v)}
+                                        />
+                                    </div>
+                                    <div className="bg-black/40 rounded-lg p-4 border border-white/5 space-y-3">
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase">MP Reduction Projection</p>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {[10, 25, 40].map(cha => {
+                                                const red = 1 + Math.floor((rules.combat.distractCharismaScale ?? 0.42) * Math.log(cha + 1));
+                                                return (
+                                                    <div key={cha} className="bg-white/5 p-2 rounded text-center border border-white/5">
+                                                        <div className="text-[8px] text-gray-500 uppercase">Cha {cha}</div>
+                                                        <div className="text-xs font-black text-rose-400">-{red} MP</div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
 
                             <CombatPreview rules={rules} />
                         </div>

@@ -16,6 +16,9 @@ const EFFECT_TYPES: EffectType[] = [
     'HEAL_OVER_TIME',
     'STATUS_IMMUNITY',
     'ACTION_MODIFIER',
+    'WEAPON_DAMAGE_REPLACEMENT',
+    'PROTECTION_STANCE',
+    'STEALTH',
     'LORE_EFFECT'
 ];
 
@@ -23,7 +26,8 @@ const COMMON_TARGETS = [
     'strength', 'agility', 'intelligence', 'wisdom', 'endurance', 'charisma',
     'maxHp', 'hp', 'maxAp', 'ap', 'maxMp', 'mp',
     'evasion', 'defense', 'critChance', 'resistance',
-    'fire_damage', 'poison_damage', 'physical_damage',
+    'fire_damage', 'poison_damage', 'physical_damage', 'damage',
+    'mainHand', 'offHand', 'protection', 'stealth',
     'food', 'water', 'fuel', 'parts'
 ];
 

@@ -1,0 +1,139 @@
+[
+  {
+    "apCost": 3,
+    "areaSize": 0,
+    "areaType": "single",
+    "category": "base",
+    "cooldown": 0,
+    "damage": 12,
+    "description": "A quick melee strike with a blade.",
+    "effectType": "physical",
+    "icon": "⚔️",
+    "id": "slash",
+    "maxRange": 1,
+    "minRange": 1,
+    "name": "Slash",
+    "targetType": "enemy"
+  },
+  {
+    "apCost": 4,
+    "areaSize": 0,
+    "areaType": "single",
+    "category": "base",
+    "cooldown": 1,
+    "description": "Basic medical patch-up.",
+    "effectType": "support",
+    "healing": 15,
+    "icon": "🩹",
+    "id": "first-aid",
+    "maxRange": 1,
+    "minRange": 1,
+    "name": "First Aid",
+    "targetType": "ally"
+  },
+  {
+    "apCost": 3,
+    "areaSize": 0,
+    "areaType": "single",
+    "category": "base",
+    "cooldown": 1,
+    "description": "Push an enemy back and potentially cause shock damage.",
+    "effectType": "physical",
+    "icon": "✋",
+    "id": "shove",
+    "maxRange": 1,
+    "minRange": 1,
+    "name": "Shove",
+    "pushDistance": 2,
+    "targetType": "enemy"
+  },
+  {
+    "apCost": 4,
+    "areaSize": 0,
+    "areaType": "single",
+    "category": "base",
+    "cooldown": 3,
+    "description": "Protect an ally for 1 turn. You tank damage redirected to them with reductions based on your Endurance vs Incoming Damage.",
+    "effectType": "support",
+    "effects": [
+      {
+        "duration": 1,
+        "type": "PROTECTION_STANCE",
+        "value": 0
+      }
+    ],
+    "icon": "🛡️",
+    "id": "defend",
+    "maxRange": 2,
+    "minRange": 1,
+    "name": "Defend",
+    "targetType": "ally"
+  },
+  {
+    "apCost": 3,
+    "areaSize": 0,
+    "areaType": "single",
+    "category": "base",
+    "cooldown": 4,
+    "description": "Become invisible to enemies. Any damage taken will reveal you. Duration increases with Wisdom.",
+    "effectType": "support",
+    "effects": [
+      {
+        "duration": 1,
+        "type": "STEALTH",
+        "value": 0
+      }
+    ],
+    "icon": "👤",
+    "id": "hide",
+    "maxRange": 0,
+    "minRange": 0,
+    "name": "Hide",
+    "targetType": "self"
+  },
+  {
+    "apCost": 3,
+    "areaSize": 0,
+    "areaType": "single",
+    "category": "base",
+    "cooldown": 3,
+    "description": "Bother the enemy with your charisma, reducing their MP based on your Charisma vs target Wisdom.",
+    "effectType": "magical",
+    "effects": [
+      {
+        "duration": 1,
+        "target": "mp",
+        "type": "STAT_MODIFIER",
+        "value": 0
+      }
+    ],
+    "icon": "🎭",
+    "id": "distract",
+    "maxRange": 4,
+    "minRange": 1,
+    "name": "Distract",
+    "targetType": "enemy"
+  },
+  {
+    "apCost": 3,
+    "areaSize": 0,
+    "areaType": "single",
+    "category": "base",
+    "cooldown": 4,
+    "description": "Find weaknesses in the target, increasing critical chance for all attackers based on your Intelligence. (Max difference: 5 levels)",
+    "effectType": "magical",
+    "effects": [
+      {
+        "duration": 2,
+        "type": "ANALYZED",
+        "value": 0
+      }
+    ],
+    "icon": "🔍",
+    "id": "analyze",
+    "maxRange": 5,
+    "minRange": 1,
+    "name": "Analyze",
+    "targetType": "enemy"
+  }
+]

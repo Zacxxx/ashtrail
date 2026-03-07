@@ -3,7 +3,7 @@
 // Mirrors Rust backend combat_engine/types.rs exactly.
 // ═══════════════════════════════════════════════════════════
 
-import type { Skill, Trait } from './types';
+import type { Skill, Trait, Item, GameplayEffect } from './types';
 
 // ── Grid Types (mirrored from tacticalGrid.ts) ─────────────
 // Defined here so packages/core is self-contained.
@@ -32,6 +32,7 @@ export interface TacticalEntity {
     agility: number;
     intelligence: number;
     wisdom: number;
+    endurance: number;
     charisma: number;
     critChance: number;
     resistance: number;
@@ -45,7 +46,19 @@ export interface TacticalEntity {
     maxAp: number;
     mp: number;
     maxMp: number;
+    level: number;
     gridPos: GridPos;
+    equipped?: Record<string, Item | null>;
+    activeEffects?: (GameplayEffect & { justApplied?: boolean; protectorId?: string; lastKnownPosition?: GridPos })[];
+}
+
+export interface DamagePreview {
+    min: number;
+    max: number;
+    critMin: number;
+    critMax: number;
+    isMagical: boolean;
+    critChance: number;
 }
 
 export interface GridPos {

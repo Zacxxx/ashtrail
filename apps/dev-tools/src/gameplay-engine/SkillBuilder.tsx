@@ -34,7 +34,9 @@ export function SkillBuilder() {
     const [filterCategory, setFilterCategory] = useState<SkillCategory | "all">("all");
 
     useEffect(() => {
-        setSavedSkills(GameRegistry.getAllSkills());
+        GameRegistry.fetchFromBackend("http://127.0.0.1:8787").then(() => {
+            setSavedSkills(GameRegistry.getAllSkills());
+        });
     }, []);
 
     const filteredSkills = useMemo(() => {
@@ -116,9 +118,37 @@ export function SkillBuilder() {
                 body: JSON.stringify(payload)
             });
             if (res.ok) {
+                // Save locally first for instant persistence
+                GameRegistry.addSkill(payload);
+
+                // Then sync with backend to ensure disk JSON is updated
                 await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+
                 setSavedSkills(GameRegistry.getAllSkills());
                 setEditingId(id);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!editingId) return;
+        if (!confirm(`Are you sure you want to delete the skill "${name}"? This will remove the file from disk.`)) return;
+
+        try {
+            const res = await fetch(`http://127.0.0.1:8787/api/data/skills/${editingId}`, {
+                method: "DELETE"
+            });
+            if (res.ok) {
+                // Remove from in-memory registry immediately
+                GameRegistry.removeSkill(editingId);
+
+                // Re-sync with backend (this will reload base skills if deleted)
+                await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+
+                setSavedSkills(GameRegistry.getAllSkills());
+                resetForm();
             }
         } catch (e) {
             console.error(e);
@@ -158,7 +188,7 @@ export function SkillBuilder() {
                             className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-[11px] text-white outline-none focus:border-indigo-500/40 transition-all"
                         />
                         <div className="flex gap-1">
-                            {["all", "base", "occupation", "unique"].map(cat => (
+                            {["all", "base", "occupation", "unique", "equipment"].map(cat => (
                                 <button
                                     key={cat}
                                     onClick={() => setFilterCategory(cat as any)}
@@ -193,7 +223,8 @@ export function SkillBuilder() {
                                 <div className="flex items-center gap-2">
                                     <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${s.category === 'unique' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
                                         s.category === 'occupation' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
-                                            'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+                                            s.category === 'equipment' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                                'bg-gray-500/20 text-gray-400 border border-gray-500/30'
                                         }`}>
                                         {s.category}
                                     </span>
@@ -261,6 +292,7 @@ export function SkillBuilder() {
                                 <option value="base">Base</option>
                                 <option value="occupation">Occupation</option>
                                 <option value="unique">Unique</option>
+                                <option value="equipment">Equipment</option>
                             </select>
                         </div>
                         <div className="col-span-2 space-y-1">
@@ -352,6 +384,14 @@ export function SkillBuilder() {
                         >
                             💾 {editingId ? "Update Skill" : "Save Skill to Disk"}
                         </button>
+                        {editingId && (
+                            <button
+                                onClick={handleDelete}
+                                className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 font-black uppercase tracking-[0.2em] rounded-xl transition-all text-[10px]"
+                            >
+                                🗑️ Delete Skill PERMANENTLY
+                            </button>
+                        )}
                     </div>
 
                 </div>

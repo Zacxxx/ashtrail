@@ -7,6 +7,8 @@ import { Skill } from '@ashtrail/core';
 import type { TacticalEntity, CombatPhase, CombatLogMessage } from '@ashtrail/core';
 import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells } from './tacticalGrid';
 import type { PlayerAction } from './useCombatWebSocket';
+import type { DamagePreview } from '@ashtrail/core';
+import { GameRulesManager } from '../rules/useGameRules';
 
 interface TacticalArenaProps {
     grid: Grid;
@@ -25,12 +27,16 @@ interface TacticalArenaProps {
     meleeAttackCost: number;
     selectedSkill: Skill | null;
     battlemapUrl?: string | null;
+    getDamagePreview: (attacker: TacticalEntity, target: TacticalEntity, skill: Skill) => DamagePreview | null;
 }
 
 export function TacticalArena({
     grid, entities, turnOrder, activeEntityId, isPlayerTurn,
     phase, playerAction, logs, turnNumber,
-    onCellClick, onEndTurn, onSelectSkill, activeEntity, meleeAttackCost, selectedSkill, battlemapUrl,
+    onCellClick, onEndTurn, onSelectSkill, activeEntity, meleeAttackCost,
+    selectedSkill,
+    battlemapUrl,
+    getDamagePreview
 }: TacticalArenaProps) {
     const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -138,19 +144,36 @@ export function TacticalArena({
                         {grid.map((row, r) =>
                             row.map((cell, c) => {
                                 const { x, y } = gridToScreen(r, c);
+                                const occupant = cell.occupantId ? entities.get(cell.occupantId) : undefined;
+                                let error = "";
+                                if (selectedSkill?.id === 'analyze' && occupant) {
+                                    if (occupant.level > (activeEntity?.level || 10) + 5) {
+                                        error = "Target too powerful to analyze";
+                                    }
+                                }
+
+                                const damagePreview = (occupant && activeEntity && selectedSkill)
+                                    ? getDamagePreview(activeEntity, occupant, selectedSkill)
+                                    : null;
+
                                 return (
                                     <IsometricTile
                                         key={`${r}-${c}`}
                                         cell={cell}
                                         x={x}
                                         y={y}
-                                        entity={cell.occupantId ? entities.get(cell.occupantId) : undefined}
+                                        entity={occupant}
                                         isActive={cell.occupantId === activeEntityId}
                                         isAoe={aoeSet.has(`${r},${c}`)}
                                         hasBattlemap={!!battlemapUrl}
-                                        onClick={() => onCellClick(r, c)}
+                                        onClick={() => {
+                                            if (error) return; // Block clicking
+                                            onCellClick(r, c);
+                                        }}
                                         onHover={() => setHoveredCell({ row: r, col: c })}
                                         onLeave={() => setHoveredCell(null)}
+                                        errorMessage={error}
+                                        damagePreview={damagePreview}
                                     />
                                 );
                             })
@@ -275,10 +298,131 @@ export function TacticalArena({
                                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 border-b border-r border-slate-600 rotate-45"></div>
                                                     <div className="font-bold text-white text-xs text-center border-b border-slate-700 pb-1.5">{skill.name}</div>
                                                     <div className="text-[10px] text-gray-400 text-center leading-snug mb-1">{skill.description}</div>
-                                                    <div className="flex justify-center gap-3 text-[10px] font-mono bg-black/50 py-1 rounded">
-                                                        {skill.damage && <span className="text-red-400">{skill.damage} dmg</span>}
-                                                        {skill.healing && <span className="text-green-400">{skill.healing} heal</span>}
-                                                        <span className="text-gray-400">R: {skill.minRange}-{skill.maxRange}</span>
+                                                    <div className="flex justify-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono bg-black/50 py-1.5 px-2 rounded-lg border border-white/5">
+                                                        {(() => {
+                                                            const rules = GameRulesManager.get();
+                                                            const hasWeaponScaling = skill.effects?.some(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT');
+                                                            const weapon = activeEntity?.equipped?.mainHand;
+
+                                                            let strBonus = 0;
+                                                            if (skill.pushDistance && skill.pushDistance > 0) {
+                                                                strBonus = activeEntity ? Math.floor(activeEntity.strength * (rules.combat.shovePushDamageRatio || 0.1)) : 0;
+                                                            } else {
+                                                                strBonus = activeEntity ? Math.floor(activeEntity.strength * 0.3) : 0;
+                                                            }
+
+                                                            let baseVal = skill.damage || 0;
+                                                            if (hasWeaponScaling && weapon) {
+                                                                const weaponDmgEffect = weapon.effects?.find((e: any) =>
+                                                                    e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS' as any
+                                                                );
+                                                                if (weaponDmgEffect) baseVal = weaponDmgEffect.value;
+                                                            }
+
+                                                            const total = (skill.damage || 0) + strBonus;
+                                                            const isDistract = skill.id === 'distract';
+                                                            const isAnalyze = skill.id === 'analyze';
+                                                            const isStealth = skill.effects?.some(e => e.type === 'STEALTH' as any);
+                                                            const isProtection = skill.effects?.some(e => e.type === 'PROTECTION_STANCE' as any);
+
+                                                            if (isAnalyze) {
+                                                                const scale = rules.combat.analyzeIntelScale || 0.6;
+                                                                const base = rules.combat.analyzeBaseCrit || 30;
+                                                                const bonus = base + Math.floor(scale * Math.log((activeEntity?.intelligence || 0) + 1) * 10);
+                                                                return (
+                                                                    <div className="flex flex-col gap-1 w-full text-indigo-300">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="font-black uppercase">Crit Bonus</span>
+                                                                            <span className="font-mono">+{bonus}%</span>
+                                                                        </div>
+                                                                        <div className="text-[8px] text-indigo-300/60 italic leading-snug">
+                                                                            {base}% + floor({scale} × ln(Int {activeEntity?.intelligence}))
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            if (isDistract) {
+                                                                const scale = rules.combat.distractCharismaScale || 0.42;
+                                                                const mpReduction = 1 + Math.floor(scale * Math.log((activeEntity?.charisma || 0) + 1));
+                                                                return (
+                                                                    <div className="flex flex-col gap-1 w-full text-rose-300">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="font-black uppercase">Stat Check</span>
+                                                                            <span className="font-mono">Cha vs Wis</span>
+                                                                        </div>
+                                                                        <div className="flex items-center justify-between border-t border-rose-300/10 pt-1 mt-0.5">
+                                                                            <span className="font-black uppercase">MP Loss</span>
+                                                                            <span className="font-mono">-{mpReduction} MP</span>
+                                                                        </div>
+                                                                        <div className="text-[8px] text-rose-300/60 italic leading-snug">
+                                                                            1 + floor({scale} × ln(Cha {activeEntity?.charisma}))
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            if (isStealth) {
+                                                                const baseDur = rules.combat.stealthBaseDuration || 1;
+                                                                const factor = rules.combat.stealthScaleFactor || 1.4;
+                                                                const bonus = activeEntity ? Math.floor(factor * Math.log(activeEntity.wisdom + 1)) : 0;
+                                                                const totalDur = baseDur + bonus;
+                                                                return (
+                                                                    <div className="flex flex-col gap-1 w-full">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="text-indigo-400 font-black uppercase">Duration</span>
+                                                                            <span className="text-white font-mono">{totalDur} turns</span>
+                                                                        </div>
+                                                                        <div className="text-[8px] text-gray-500 italic">
+                                                                            Base {baseDur} + floor({factor} × ln(Wisdom {activeEntity?.wisdom}))
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            if (isProtection) {
+                                                                return (
+                                                                    <div className="flex flex-col gap-1 w-full">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="text-blue-400 font-black uppercase">Protection</span>
+                                                                            <span className="text-white font-mono">1 turn</span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            if (skill.damage || strBonus > 0 || skill.pushDistance) {
+                                                                // Only show damage block if the skill ACTUALLY has a damage property or is a push skill
+                                                                if (!skill.damage && !skill.pushDistance) return null;
+                                                                return (
+                                                                    <div className="flex flex-col gap-1 w-full">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span className="text-red-400 font-black">{total} dmg</span>
+                                                                            <span className="text-[8px] text-gray-500">
+                                                                                ({hasWeaponScaling ? (weapon ? '⚔️' : '👊') : ''}{baseVal} + 💪{strBonus})
+                                                                            </span>
+                                                                        </div>
+                                                                        {skill.pushDistance && (
+                                                                            <div className="flex flex-col gap-0.5 border-t border-white/5 pt-1 mt-0.5">
+                                                                                <div className="flex items-center justify-between text-[9px]">
+                                                                                    <span className="text-indigo-400 font-bold uppercase">Pushback</span>
+                                                                                    <span className="text-white font-mono">{skill.pushDistance} cells</span>
+                                                                                </div>
+                                                                                <div className="flex items-center justify-between text-[9px]">
+                                                                                    <span className="text-indigo-400/70 italic">Shock Potential</span>
+                                                                                    <span className="text-indigo-300 font-mono">
+                                                                                        ~{activeEntity ? Math.floor(1 * activeEntity.strength * (rules.combat.shoveShockDamageRatio || 0.3)) : 0}/cell
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            return null;
+                                                        })()}
+                                                        {skill.healing && <span className="text-green-400 font-black">{skill.healing} heal</span>}
+                                                        <span className="text-gray-400 font-bold border-l border-white/10 pl-2 ml-1">R: {skill.minRange}-{skill.maxRange}</span>
                                                     </div>
                                                 </div>
                                             </button>
@@ -349,58 +493,53 @@ interface IsometricTileProps {
     onClick: () => void;
     onHover?: () => void;
     onLeave?: () => void;
+    errorMessage?: string;
+    damagePreview?: DamagePreview | null;
 }
 
-function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onClick, onHover, onLeave }: IsometricTileProps) {
+function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onClick, onHover, onLeave, errorMessage, damagePreview }: IsometricTileProps) {
     const isDead = entity && entity.hp <= 0;
+    const [isHovered, setIsHovered] = useState(false);
+
+    const handleHover = () => {
+        setIsHovered(true);
+        if (onHover) onHover();
+    };
+
+    const handleLeave = () => {
+        setIsHovered(false);
+        if (onLeave) onLeave();
+    };
 
     const halfW = TILE_WIDTH / 2;
     const halfH = TILE_HEIGHT / 2;
-    const clipId = `clip-${cell.row}-${cell.col}`;
     const diamondPath = `M ${halfW} 0 L ${TILE_WIDTH} ${halfH} L ${halfW} ${TILE_HEIGHT} L 0 ${halfH} Z`;
 
     let fillColor = hasBattlemap ? 'transparent' : 'rgba(30, 40, 55, 0.6)';
-    let strokeColor = 'rgba(255,255,255,0.15)';
+    let strokeColor = 'rgba(255,255,255,0.05)';
     let strokeWidth = 1;
 
-    if (!cell.walkable) {
-        fillColor = 'transparent'; // Let the 3D block handle all rendering
-        strokeColor = 'rgba(255,255,255,0.08)';
-    } else if (cell.isSpawnZone === 'player') {
-        fillColor = 'rgba(59, 130, 246, 0.15)';
-    } else if (cell.isSpawnZone === 'enemy') {
-        fillColor = 'rgba(239, 68, 68, 0.15)';
-    }
-
     if (cell.highlight === 'move') {
-        fillColor = 'rgba(59, 130, 246, 0.25)';
-        strokeColor = 'rgba(59, 130, 246, 0.5)';
-        strokeWidth = 1;
-    } else if (cell.highlight === 'attack') {
-        fillColor = 'rgba(239, 68, 68, 0.25)';
-        strokeColor = 'rgba(239, 68, 68, 0.5)';
-        strokeWidth = 1;
-    } else if (cell.highlight === 'path') {
-        fillColor = 'rgba(234, 179, 8, 0.3)';
-        strokeColor = 'rgba(234, 179, 8, 0.6)';
-        strokeWidth = 1;
-    }
-
-    if (isActive && entity) {
-        strokeColor = 'rgba(249, 115, 22, 0.8)';
+        fillColor = 'rgba(45, 212, 191, 0.4)';
+        strokeColor = 'rgba(255,255,255,0.7)';
         strokeWidth = 2;
     }
-
-    // AoE overrides previous highlights to pop out
+    if (cell.highlight === 'attack') {
+        fillColor = 'rgba(244, 63, 94, 0.25)';
+        strokeColor = 'rgba(255,255,255,0.4)';
+    }
+    if (cell.highlight === 'path') {
+        fillColor = 'rgba(45, 212, 191, 0.6)';
+    }
     if (isAoe) {
-        fillColor = 'rgba(239, 68, 68, 0.6)';
-        strokeColor = 'rgba(255, 100, 100, 1)';
-        strokeWidth = 2;
+        fillColor = 'rgba(251, 146, 60, 0.35)';
     }
+
+    const showAnalyzed = entity?.activeEffects?.some(e => e.type === 'ANALYZED' as any);
 
     return (
         <div
-            className="absolute"
+            className="absolute transition-all duration-200"
             style={{
                 left: x,
                 top: y,
@@ -408,48 +547,46 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
                 height: TILE_HEIGHT,
                 zIndex: cell.row + cell.col,
             }}
+            onClick={onClick}
+            onMouseEnter={handleHover}
+            onMouseLeave={handleLeave}
         >
-            {/* Clickable diamond — only the SVG path receives pointer events */}
-            <svg width={TILE_WIDTH} height={TILE_HEIGHT} className="absolute inset-0 cursor-pointer"
-                style={{ zIndex: 1 }}
-                onClick={onClick}
-                onMouseEnter={onHover}
-                onMouseLeave={onLeave}
-            >
-                <defs>
-                    <clipPath id={clipId}>
-                        <path d={diamondPath} />
-                    </clipPath>
-                </defs>
+            <svg width={TILE_WIDTH} height={TILE_HEIGHT} className="overflow-visible pointer-events-none">
                 <path
                     d={diamondPath}
                     fill={fillColor}
-                    stroke={cell.walkable ? strokeColor : 'none'}
+                    stroke={strokeColor}
                     strokeWidth={strokeWidth}
-                    className="transition-all duration-150 hover:brightness-150"
                 />
-
-                {/* Overlay highlights on top of tile space if needed */}
-                {(cell.highlight || isAoe) && (
-                    <path
-                        d={diamondPath}
-                        fill={fillColor}
-                        stroke={strokeColor}
-                        strokeWidth={strokeWidth}
-                        style={{ pointerEvents: 'none', opacity: 0.6 }}
-                    />
-                )}
-                {/* Grid lines only on walkable tiles — obstacles hide them */}
-                {cell.walkable && (
-                    <path
-                        d={diamondPath}
-                        fill="none"
-                        stroke={strokeColor}
-                        strokeWidth={strokeWidth}
-                        style={{ pointerEvents: 'none' }}
-                    />
-                )}
             </svg>
+
+            {/* Error Message on Hover */}
+            {isHovered && errorMessage && (
+                <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-red-600/90 text-white text-[9px] px-2 py-1 rounded shadow-xl whitespace-nowrap z-50 animate-bounce">
+                    ⚠️ {errorMessage}
+                </div>
+            )}
+
+            {/* Damage Preview Badge */}
+            {isHovered && damagePreview && !isDead && (
+                <div className="absolute -top-20 left-1/2 -translate-x-1/2 bg-black/90 border border-red-500/50 p-1.5 rounded shadow-xl z-50 min-w-[90px] pointer-events-none">
+                    <div className="text-[8px] uppercase font-black text-red-500/70 mb-0.5 tracking-tighter">Est. Impact</div>
+                    <div className="flex flex-col gap-0.5">
+                        <div className="flex justify-between items-center text-[10px]">
+                            <span className="text-gray-400">Hits</span>
+                            <span className="font-mono font-bold text-white">{damagePreview.min}-{damagePreview.max}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px]">
+                            <span className="text-amber-400">CRIT</span>
+                            <span className="font-mono font-bold text-amber-400">{damagePreview.critMin}-{damagePreview.critMax}</span>
+                        </div>
+                        <div className="mt-1 border-t border-white/10 pt-0.5 flex justify-between items-center text-[7px] text-gray-500 uppercase">
+                            <span>Chance</span>
+                            <span>{Math.round(damagePreview.critChance * 100)}%</span>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Standalone Sprites for Obstacles */}
             {cell.textureUrl && !cell.walkable && (
@@ -479,7 +616,24 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
             )}
 
             {entity && !isDead && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ top: -12, zIndex: 2 }}>
+                <div className={`
+                    absolute inset-0 flex items-center justify-center pointer-events-none 
+                    transition-all duration-500
+                    ${entity.activeEffects?.some((e: any) => e.type === 'STEALTH' as any) ? 'opacity-30 grayscale-[50%] blur-[0.5px]' : 'opacity-100'}
+                `} style={{ top: -12, zIndex: 2 }}>
+
+                    <div className="absolute -top-5 flex gap-1 z-10">
+                        {entity.activeEffects?.some((e: any) => e.type === 'PROTECTION_STANCE' as any) && (
+                            <span className="text-[10px] drop-shadow-[0_0_5px_rgba(255,255,255,0.8)] animate-pulse">🛡️</span>
+                        )}
+                        {entity.activeEffects?.some((e: any) => e.type === 'STEALTH' as any) && (
+                            <span className="text-[10px] drop-shadow-[0_0_5px_rgba(99,102,241,0.8)] animate-bounce">👤</span>
+                        )}
+                        {entity.activeEffects?.some((e: any) => e.type === 'ANALYZED' as any) && (
+                            <span className="text-[10px] drop-shadow-[0_0_5px_rgba(234,179,8,0.8)] animate-[pulse_1s_infinite]">🔍</span>
+                        )}
+                    </div>
+
                     <div className={`
                         w-7 h-7 rounded-full border-2 flex items-center justify-center text-[10px] font-black
                         shadow-lg transition-all duration-300

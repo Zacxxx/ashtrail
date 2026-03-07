@@ -436,10 +436,18 @@ impl CombatState {
             None => return events,
         };
 
-        let (def_name, def_evasion, def_defense, def_hp) = match self.entities.get(defender_id) {
-            Some(d) => (d.name.clone(), d.evasion, d.defense, d.hp),
-            None => return events,
-        };
+        let (def_name, def_evasion, def_defense, def_endurance, def_agility, def_hp) =
+            match self.entities.get(defender_id) {
+                Some(d) => (
+                    d.name.clone(),
+                    d.evasion,
+                    d.defense,
+                    d.endurance,
+                    d.agility,
+                    d.hp,
+                ),
+                None => return events,
+            };
 
         if atk_ap < MELEE_ATTACK_COST {
             self.add_log(
@@ -485,30 +493,100 @@ impl CombatState {
         if is_crit {
             raw_damage = (raw_damage as f64 * 1.5) as i32;
         }
-        let actual_damage = (raw_damage - def_defense).max(1);
+        // Armor calculation
+        let armor_endu_scale = 0.4; // default hardcoded for simplicity if rules don't have it
+        let armor_agi_scale = 0.2;
+        let endu_bonus = (def_endurance as f64 * armor_endu_scale) as i32;
+        let agi_bonus = (def_agility as f64 * armor_agi_scale) as i32;
+        let mut base_armor = 0;
+        if let Some(eq) = self
+            .entities
+            .get(defender_id)
+            .and_then(|e| e.equipped.as_ref())
+        {
+            if let Some(chest) = eq.get("chest") {
+                if let Some(effs) = chest.get("effects").and_then(|e| e.as_array()) {
+                    for e in effs {
+                        if e.get("target").and_then(|v| v.as_str()) == Some("armor") {
+                            base_armor +=
+                                e.get("value").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                        }
+                    }
+                }
+            }
+        }
+        let total_armor = base_armor + endu_bonus + agi_bonus;
+        let actual_damage = (raw_damage - (def_defense + total_armor)).max(1);
+
+        // Stealth break check
+        if let Some(defender) = self.entities.get_mut(defender_id) {
+            let mut broke_stealth = false;
+            if let Some(effs) = &mut defender.active_effects {
+                let initial_len = effs.len();
+                effs.retain(|e| e.effect_type != EffectType::Stealth);
+                if effs.len() < initial_len && actual_damage > 0 {
+                    broke_stealth = true;
+                }
+                if effs.is_empty() {
+                    defender.active_effects = None;
+                }
+            }
+            if broke_stealth {
+                self.add_log(
+                    &format!("👁️ {} was REVEALED by taking damage!", def_name),
+                    LogType::Info,
+                );
+            }
+        }
+
+        // Protection check
+        let mut final_defender_id = defender_id.to_string();
+        if let Some(defender) = self.entities.get(defender_id) {
+            if let Some(effs) = &defender.active_effects {
+                if let Some(prot) = effs
+                    .iter()
+                    .find(|e| e.effect_type == EffectType::ProtectionStance)
+                {
+                    if let Some(ref prot_id) = prot.protector_id {
+                        if self.entities.contains_key(prot_id) {
+                            final_defender_id = prot_id.clone();
+                            self.add_log(
+                                &format!("🛡️ Attack redirected from {} to protector!", def_name),
+                                LogType::Info,
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         self.add_log(
             &format!(
-                "🗡️ {atk_name} strikes {def_name} for {}{actual_damage} damage! (-{MELEE_ATTACK_COST} AP)",
+                "🗡️ {atk_name} strikes {} for {}{actual_damage} damage! (-{MELEE_ATTACK_COST} AP)",
+                self.entities
+                    .get(&final_defender_id)
+                    .map(|e| e.name.as_str())
+                    .unwrap_or("Unknown"),
                 if is_crit { "CRITICAL " } else { "" }
             ),
             LogType::Damage,
         );
 
-        let new_hp = (def_hp - actual_damage).max(0);
-        if let Some(defender) = self.entities.get_mut(defender_id) {
+        let new_hp = (self.entities.get(&final_defender_id).unwrap().hp - actual_damage).max(0);
+        if let Some(defender) = self.entities.get_mut(&final_defender_id) {
             defender.hp = new_hp;
         }
 
         events.push(CombatEvent::AttackResult {
             attacker_id: attacker_id.to_string(),
-            defender_id: defender_id.to_string(),
+            defender_id: final_defender_id.clone(),
             damage: actual_damage,
             is_crit,
             is_miss: false,
         });
 
         if new_hp <= 0 {
+            let def_name = self.entities.get(&final_defender_id).unwrap().name.clone();
             self.add_log(
                 &format!("💀 {def_name} has been defeated!"),
                 LogType::System,
@@ -558,6 +636,9 @@ impl CombatState {
             caster_ap,
             caster_pos,
             caster_strength,
+            caster_wisdom,
+            caster_charisma,
+            caster_level,
             caster_crit_chance,
             caster_social_bonus,
         ) = {
@@ -567,6 +648,9 @@ impl CombatState {
                 c.ap,
                 c.grid_pos.clone(),
                 c.strength,
+                c.wisdom,
+                c.charisma,
+                c.level,
                 c.crit_chance,
                 c.social_bonus,
             )
@@ -625,10 +709,119 @@ impl CombatState {
                 Some(id) => id.clone(),
                 None => continue,
             };
-            let target = match self.entities.get(&occupant_id) {
+            let mut target = match self.entities.get(&occupant_id) {
                 Some(t) if t.hp > 0 => t.clone(),
                 _ => continue,
             };
+
+            // ── Distract (Charisma vs Wisdom) ──
+            if skill.id == "distract" {
+                if caster_charisma > target.wisdom {
+                    let scale = 0.42;
+                    let mp_reduction =
+                        1 + (scale * ((caster_charisma.max(0) as f64) + 1.0).ln()) as i32;
+                    let new_eff = GameplayEffect {
+                        id: None,
+                        name: Some("Distracted".to_string()),
+                        description: None,
+                        effect_type: EffectType::StatModifier,
+                        target: Some("mp".to_string()),
+                        value: -mp_reduction as f64,
+                        is_percentage: Some(false),
+                        duration: Some(1),
+                        trigger: None,
+                        icon: None,
+                        protector_id: None,
+                        last_known_position: None,
+                        just_applied: Some(true),
+                    };
+                    if let Some(t_ref) = self.entities.get_mut(&occupant_id) {
+                        let mut active_effs = t_ref.active_effects.take().unwrap_or_default();
+                        active_effs.push(new_eff);
+                        t_ref.active_effects = Some(active_effs);
+                        t_ref.max_mp -= mp_reduction;
+                        t_ref.mp = t_ref.mp.min(t_ref.max_mp);
+                    }
+                    self.add_log(
+                        &format!(
+                            "🎭 {} bothers {}, they lose {} MP!",
+                            caster_name, target.name, mp_reduction
+                        ),
+                        LogType::Info,
+                    );
+                } else {
+                    self.add_log(
+                        &format!(
+                            "🛡️ {} is too wise to be distracted by {}.",
+                            target.name, caster_name
+                        ),
+                        LogType::Info,
+                    );
+                }
+                skill_targets.push(SkillTarget {
+                    entity_id: occupant_id,
+                    damage: None,
+                    healing: None,
+                    is_crit: false,
+                    is_miss: false,
+                    new_hp: target.hp,
+                });
+                continue;
+            }
+
+            // ── Analyze (Intelligence Scaling) ──
+            if skill.id == "analyze" {
+                if target.level > caster_level + 5 {
+                    self.add_log(
+                        &format!(
+                            "⚠️ {} is too powerful to be analyzed by {}!",
+                            target.name, caster_name
+                        ),
+                        LogType::Info,
+                    );
+                } else {
+                    let scale = 0.6;
+                    let base_bonus = 30.0;
+                    let c_int = self.entities.get(caster_id).unwrap().intelligence.max(0) as f64;
+                    let crit_bonus = (base_bonus + (scale * (c_int + 1.0).ln() * 10.0)) as f64;
+                    let new_eff = GameplayEffect {
+                        id: None,
+                        name: Some("Weakness Revealed".to_string()),
+                        description: None,
+                        effect_type: EffectType::Analyzed,
+                        target: None,
+                        value: crit_bonus,
+                        is_percentage: Some(false),
+                        duration: Some(2),
+                        trigger: None,
+                        icon: None,
+                        protector_id: None,
+                        last_known_position: None,
+                        just_applied: Some(true),
+                    };
+                    if let Some(t_ref) = self.entities.get_mut(&occupant_id) {
+                        let mut active_effs = t_ref.active_effects.take().unwrap_or_default();
+                        active_effs.push(new_eff);
+                        t_ref.active_effects = Some(active_effs);
+                    }
+                    self.add_log(
+                        &format!(
+                            "🔍 {} identifies flaws in {}! +{}% Crit chance.",
+                            caster_name, target.name, crit_bonus
+                        ),
+                        LogType::Info,
+                    );
+                }
+                skill_targets.push(SkillTarget {
+                    entity_id: occupant_id,
+                    damage: None,
+                    healing: None,
+                    is_crit: false,
+                    is_miss: false,
+                    new_hp: target.hp,
+                });
+                continue;
+            }
 
             let mut target_damage: Option<i32> = None;
             let mut target_healing: Option<i32> = None;
@@ -702,14 +895,77 @@ impl CombatState {
                 }
 
                 // Resistance/Defense
+                // Armor calculation
+                let armor_endu_scale = 0.4;
+                let armor_agi_scale = 0.2;
+                let endu_bonus = (target.endurance as f64 * armor_endu_scale) as i32;
+                let agi_bonus = (target.agility as f64 * armor_agi_scale) as i32;
+                let mut base_armor = 0;
+                if let Some(eq) = target.equipped.as_ref() {
+                    if let Some(chest) = eq.get("chest") {
+                        if let Some(effs) = chest.get("effects").and_then(|e| e.as_array()) {
+                            for e in effs {
+                                if e.get("target").and_then(|v| v.as_str()) == Some("armor") {
+                                    base_armor +=
+                                        e.get("value").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                                }
+                            }
+                        }
+                    }
+                }
+                let total_armor = base_armor + endu_bonus + agi_bonus;
+
                 let actual_damage = if is_magical {
                     let resist_amount = (scaled_damage as f64 * target.resistance) as i32;
                     (scaled_damage - resist_amount).max(1)
                 } else {
-                    (scaled_damage - target.defense).max(1)
+                    (scaled_damage - (target.defense + total_armor)).max(1)
                 };
 
-                new_hp = (new_hp - actual_damage).max(0);
+                // Stealth break check
+                let mut broke_stealth = false;
+                if let Some(t_ref) = self.entities.get_mut(&occupant_id) {
+                    if let Some(effs) = &mut t_ref.active_effects {
+                        let initial_len = effs.len();
+                        effs.retain(|e| e.effect_type != EffectType::Stealth);
+                        if effs.len() < initial_len && actual_damage > 0 {
+                            broke_stealth = true;
+                        }
+                        if effs.is_empty() {
+                            t_ref.active_effects = None;
+                        }
+                    }
+                }
+                if broke_stealth {
+                    self.add_log(
+                        &format!("👁️ {} was REVEALED by taking damage!", target.name),
+                        LogType::Info,
+                    );
+                }
+
+                // Protection check
+                let mut final_defender_id = occupant_id.clone();
+                if let Some(effs) = &target.active_effects {
+                    if let Some(prot) = effs
+                        .iter()
+                        .find(|e| e.effect_type == EffectType::ProtectionStance)
+                    {
+                        if let Some(ref prot_id) = prot.protector_id {
+                            if self.entities.contains_key(prot_id) {
+                                final_defender_id = prot_id.clone();
+                                self.add_log(
+                                    &format!(
+                                        "🛡️ Attack redirected from {} to protector!",
+                                        target.name
+                                    ),
+                                    LogType::Info,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                new_hp = (self.entities.get(&final_defender_id).unwrap().hp - actual_damage).max(0);
                 target_damage = Some(actual_damage);
 
                 let icon = skill.icon.as_deref().unwrap_or("✨");
@@ -717,16 +973,189 @@ impl CombatState {
                     &format!(
                         "{icon} {caster_name} uses {} on {} → {}{actual_damage} damage!",
                         skill.name,
-                        target.name,
+                        self.entities
+                            .get(&final_defender_id)
+                            .map(|e| e.name.as_str())
+                            .unwrap_or("Unknown"),
                         if is_crit { "CRITICAL " } else { "" }
                     ),
                     LogType::Damage,
                 );
+
+                // Apply HP change
+                if let Some(t) = self.entities.get_mut(&final_defender_id) {
+                    t.hp = new_hp;
+                }
+
+                // Shove
+                if let Some(push_dist) = skill.push_distance {
+                    if new_hp > 0 {
+                        let row_diff = target.grid_pos.row as i32 - caster_pos.row as i32;
+                        let col_diff = target.grid_pos.col as i32 - caster_pos.col as i32;
+                        let dr = if row_diff > 0 {
+                            1
+                        } else if row_diff < 0 {
+                            -1
+                        } else {
+                            0
+                        };
+                        let dc = if col_diff > 0 {
+                            1
+                        } else if col_diff < 0 {
+                            -1
+                        } else {
+                            0
+                        };
+
+                        let mut dist_remaining = push_dist;
+                        let mut current_row = target.grid_pos.row;
+                        let mut current_col = target.grid_pos.col;
+                        let mut hit_obstacle = false;
+
+                        while dist_remaining > 0 && !hit_obstacle {
+                            let next_row = current_row as i32 + dr;
+                            let next_col = current_col as i32 + dc;
+
+                            if next_row < 0
+                                || next_row >= self.grid.len() as i32
+                                || next_col < 0
+                                || next_col >= self.grid[0].len() as i32
+                            {
+                                hit_obstacle = true;
+                                break;
+                            }
+
+                            let nr = next_row as usize;
+                            let nc = next_col as usize;
+
+                            if !self.grid[nr][nc].walkable
+                                || self.grid[nr][nc]
+                                    .occupant_id
+                                    .as_ref()
+                                    .is_some_and(|id| id != &occupant_id)
+                            {
+                                hit_obstacle = true;
+                                break;
+                            }
+
+                            current_row = nr;
+                            current_col = nc;
+                            dist_remaining -= 1;
+                        }
+
+                        if current_row != target.grid_pos.row || current_col != target.grid_pos.col
+                        {
+                            move_entity_on_grid(
+                                &mut self.grid,
+                                &occupant_id,
+                                target.grid_pos.row,
+                                target.grid_pos.col,
+                                current_row,
+                                current_col,
+                            );
+                            if let Some(t) = self.entities.get_mut(&occupant_id) {
+                                t.grid_pos = GridPos {
+                                    row: current_row,
+                                    col: current_col,
+                                };
+                            }
+                        }
+
+                        if hit_obstacle {
+                            let shock_pot = dist_remaining as f64 * (caster_strength as f64 * 0.3);
+                            let shock_dmg = (shock_pot - target.endurance as f64).max(0.0) as i32;
+                            if shock_dmg > 0 {
+                                if let Some(t) = self.entities.get_mut(&occupant_id) {
+                                    t.hp = (t.hp - shock_dmg).max(0);
+                                    new_hp = t.hp;
+                                }
+                                self.add_log(
+                                    &format!(
+                                        "💥 {} hits an obstacle! +{} shock damage!",
+                                        target.name, shock_dmg
+                                    ),
+                                    LogType::Damage,
+                                );
+                            }
+                        } else {
+                            self.add_log(
+                                &format!("🌬️ {} is pushed back {} cells.", target.name, push_dist),
+                                LogType::Info,
+                            );
+                        }
+                    }
+                }
+            } else {
+                // Apply HP change if no damage (e.g. heal)
+                if let Some(t) = self.entities.get_mut(&occupant_id) {
+                    t.hp = new_hp;
+                }
             }
 
-            // Apply HP change
-            if let Some(t) = self.entities.get_mut(&occupant_id) {
-                t.hp = new_hp;
+            // Apply active effects (Buffs/Debuffs)
+            if let Some(effs) = skill.effects.as_ref() {
+                for eff in effs {
+                    let mut new_eff = eff.clone();
+                    if new_eff.effect_type == EffectType::ProtectionStance {
+                        new_eff.protector_id = Some(caster_id.to_string());
+                    } else if new_eff.effect_type == EffectType::Stealth {
+                        let base_dur = 1;
+                        let factor = 1.4;
+                        let bonus = (factor * ((caster_wisdom.max(0) as f64) + 1.0).ln()) as u32;
+                        new_eff.duration = Some(base_dur + bonus);
+                        new_eff.last_known_position = Some(caster_pos.clone());
+                        self.add_log(
+                            &format!(
+                                "👤 {} hides for {} turns!",
+                                target.name,
+                                new_eff.duration.unwrap_or(1)
+                            ),
+                            LogType::Info,
+                        );
+                    } else if new_eff.effect_type == EffectType::Analyzed {
+                        self.add_log(
+                            &format!("👁️ {} is now ANALYZED!", target.name),
+                            LogType::Info,
+                        );
+                    }
+                    new_eff.just_applied = Some(true);
+
+                    if let Some(t_ref) = self.entities.get_mut(&occupant_id) {
+                        let mut active_effs = t_ref.active_effects.take().unwrap_or_default();
+                        active_effs.push(new_eff);
+                        t_ref.active_effects = Some(active_effs);
+
+                        // Recalculate stats immediately
+                        let mut cloned_e = t_ref.clone();
+                        Self::calculate_effective_stats(&mut cloned_e, &self.rules);
+                        let diff_max_hp = cloned_e.max_hp - t_ref.max_hp;
+                        let diff_max_ap = cloned_e.max_ap - t_ref.max_ap;
+                        let diff_max_mp = cloned_e.max_mp - t_ref.max_mp;
+
+                        t_ref.max_hp = cloned_e.max_hp;
+                        t_ref.max_ap = cloned_e.max_ap;
+                        t_ref.max_mp = cloned_e.max_mp;
+                        t_ref.crit_chance = cloned_e.crit_chance;
+                        t_ref.resistance = cloned_e.resistance;
+                        t_ref.social_bonus = cloned_e.social_bonus;
+
+                        // If stats increased, give immediate use
+                        if diff_max_hp > 0 {
+                            t_ref.hp = (t_ref.hp + diff_max_hp).min(t_ref.max_hp);
+                        }
+                        if diff_max_ap > 0 {
+                            t_ref.ap = (t_ref.ap + diff_max_ap).min(t_ref.max_ap);
+                        }
+                        if diff_max_mp > 0 {
+                            t_ref.mp = (t_ref.mp + diff_max_mp).min(t_ref.max_mp);
+                        }
+
+                        t_ref.hp = t_ref.hp.min(t_ref.max_hp);
+                        t_ref.ap = t_ref.ap.min(t_ref.max_ap);
+                        t_ref.mp = t_ref.mp.min(t_ref.max_mp);
+                        new_hp = t_ref.hp;
+                    }
+                }
             }
 
             if new_hp <= 0 {
@@ -825,11 +1254,52 @@ impl CombatState {
                 })
                 .collect();
             entity.skill_cooldowns = new_cooldowns;
+
+            // Tick active effects
+            if let Some(effects) = &mut entity.active_effects {
+                let mut remaining_effects = Vec::new();
+                for mut eff in effects.drain(..) {
+                    if eff.just_applied.unwrap_or(false) {
+                        eff.just_applied = Some(false);
+                        remaining_effects.push(eff);
+                    } else if let Some(dur) = eff.duration {
+                        if dur > 1 {
+                            eff.duration = Some(dur - 1);
+                            remaining_effects.push(eff);
+                        }
+                    } else {
+                        // Permanent effect
+                        remaining_effects.push(eff);
+                    }
+                }
+
+                if remaining_effects.is_empty() {
+                    entity.active_effects = None;
+                } else {
+                    entity.active_effects = Some(remaining_effects);
+                }
+            }
         }
 
         self.active_entity_index = next_index;
 
-        if let Some(entity) = self.entities.get(&next_entity_id) {
+        // Recalculate stats for the next entity
+        if let Some(mut entity) = self.entities.get(&next_entity_id).cloned() {
+            Self::calculate_effective_stats(&mut entity, &self.rules);
+            if let Some(e) = self.entities.get_mut(&next_entity_id) {
+                e.max_hp = entity.max_hp;
+                e.max_ap = entity.max_ap;
+                e.max_mp = entity.max_mp;
+                e.crit_chance = entity.crit_chance;
+                e.resistance = entity.resistance;
+                e.social_bonus = entity.social_bonus;
+
+                // Cap hp/ap/mp
+                e.hp = e.hp.min(e.max_hp);
+                e.ap = e.ap.min(e.max_ap);
+                e.mp = e.mp.min(e.max_mp);
+            }
+
             self.add_log(&format!("── {}'s turn ──", entity.name), LogType::System);
         }
 

@@ -2,7 +2,18 @@ import { useState, useCallback, useEffect } from 'react';
 import { Trait } from '@ashtrail/core';
 import { GameRulesManager } from "../rules/useGameRules";
 
-export interface CombatEntity {
+export interface BaseStats {
+    strength: number;
+    agility: number;
+    intelligence: number;
+    wisdom: number;
+    charisma: number;
+    endurance: number;
+    evasion: number;
+    defense: number;
+}
+
+export interface CombatEntity extends BaseStats {
     id: string;
     isPlayer: boolean;
     name: string;
@@ -12,17 +23,13 @@ export interface CombatEntity {
     maxAp: number;
     mp: number;
     maxMp: number;
-    strength: number;
-    agility: number;
-    intelligence: number;
-    wisdom: number;
-    charisma: number;
     critChance: number;
     resistance: number;
     socialBonus: number;
-    evasion: number;
-    defense: number;
+    equipped?: Record<string, any>;
     traits: Trait[];
+    activeEffects?: any[]; // GameplayEffect[] but avoid circular/type issues if any
+    baseStats: BaseStats; // Immortal source of truth
 }
 
 export interface CombatLogMessage {
@@ -31,71 +38,145 @@ export interface CombatLogMessage {
     type: 'system' | 'damage' | 'heal' | 'info';
 }
 
-export function calculateEffectiveStats(baseEntity: Partial<CombatEntity>, traits: Trait[] = []): CombatEntity {
-    const rules = GameRulesManager.get();
+const toNum = (val: any, fallback: number) => {
+    const n = parseFloat(val);
+    return isNaN(n) ? fallback : n;
+};
 
-    // Start with base stats
+export function calculateEffectiveStats(baseEntity: CombatEntity, traits: Trait[] = []): CombatEntity {
+    const rules = GameRulesManager.get();
+    const source = baseEntity.baseStats || baseEntity;
+
+    // Project everything from baseStats to avoid feedback loops
     const stats = {
-        strength: baseEntity.strength || 10,
-        agility: baseEntity.agility || 10,
-        endurance: (baseEntity as any).endurance || 10,
-        intelligence: baseEntity.intelligence || 10,
-        wisdom: baseEntity.wisdom || 10,
-        charisma: baseEntity.charisma || 10,
+        strength: toNum(source.strength, 10),
+        agility: toNum(source.agility, 10),
+        endurance: toNum(source.endurance, 10),
+        intelligence: toNum(source.intelligence, 10),
+        wisdom: toNum(source.wisdom, 10),
+        charisma: toNum(source.charisma, 10),
+        defense: toNum(source.defense, 0),
+        evasion: toNum(source.evasion, 5),
     };
 
-    // Derived from rules
-    let maxHp = rules.core.hpBase + (stats.endurance * rules.core.hpPerEndurance);
-    const maxAp = rules.core.apBase + Math.floor(stats.agility / rules.core.apAgilityDivisor);
-    const maxMp = rules.core.mpBase;
+    let maxHpBonus = 0;
+    let maxApBonus = 0;
+    let maxMpBonus = 0;
 
-    // Apply trait effects
+    // Apply trait effects (Passive)
     traits.forEach(trait => {
         if (!trait.effects) return;
         trait.effects.forEach(effect => {
             if (effect.trigger !== 'passive') return;
 
             if (effect.type === 'STAT_MODIFIER' || effect.type === 'COMBAT_BONUS') {
-                if (effect.target === 'maxHp') {
-                    maxHp += effect.value;
-                } else if (effect.target && effect.target in stats) {
-                    (stats as any)[effect.target] += effect.value;
+                const target = effect.target as string;
+                const val = toNum(effect.value, 0);
+                if (target === 'maxHp' || target === 'hp') {
+                    maxHpBonus += val;
+                } else if (target === 'maxAp' || target === 'ap') {
+                    maxApBonus += val;
+                } else if (target === 'maxMp' || target === 'mp') {
+                    maxMpBonus += val;
+                } else if (target && (target in stats || target === 'armor')) {
+                    const finalTarget = target === 'armor' ? 'defense' : target;
+                    (stats as any)[finalTarget] += val;
                 }
             }
         });
     });
 
-    const critChance = stats.intelligence * rules.core.critPerIntelligence;
-    const resistance = stats.wisdom * rules.core.resistPerWisdom;
-    const socialBonus = stats.charisma * rules.core.charismaBonusPerCharisma;
+    // Apply Equipment effects
+    if (baseEntity.equipped) {
+        Object.values(baseEntity.equipped).forEach(item => {
+            if (!item || !item.effects) return;
+            item.effects.forEach((effect: any) => {
+                const target = effect.target as string;
+                const val = toNum(effect.value, 0);
+                if (effect.type === 'STAT_MODIFIER' || effect.type === 'COMBAT_BONUS') {
+                    if (target === 'maxHp' || target === 'hp') {
+                        maxHpBonus += val;
+                    } else if (target === 'maxAp' || target === 'ap') {
+                        maxApBonus += val;
+                    } else if (target === 'maxMp' || target === 'mp') {
+                        maxMpBonus += val;
+                    } else if (target && (target in stats || target === 'armor')) {
+                        const finalTarget = target === 'armor' ? 'defense' : target;
+                        (stats as any)[finalTarget] += val;
+                    }
+                }
+            });
+        });
+    }
+
+    // Apply Active Effects (Buffs/Debuffs)
+    const baseEntityEffects = (baseEntity.activeEffects || []);
+    baseEntityEffects.forEach((eff: any) => {
+        if (eff.type === 'STAT_MODIFIER') {
+            const val = toNum(eff.value, 0);
+            if (eff.target === 'strength') stats.strength += val;
+            if (eff.target === 'agility') stats.agility += val;
+            if (eff.target === 'endurance') stats.endurance += val;
+            if (eff.target === 'intelligence') stats.intelligence += val;
+            if (eff.target === 'wisdom') stats.wisdom += val;
+            if (eff.target === 'charisma') stats.charisma += val;
+            if (eff.target === 'defense') stats.defense += val;
+            if (eff.target === 'evasion') stats.evasion += val;
+            if (eff.target === 'maxHp') maxHpBonus += val;
+            if (eff.target === 'maxAp') maxApBonus += val;
+            if (eff.target === 'maxMp') maxMpBonus += val;
+        }
+    });
+
+    // Derived from rules
+    const maxHp = Math.max(1, (stats.endurance * (toNum(rules.core.hpPerEndurance, 5))) + (toNum(rules.core.hpBase, 10)) + maxHpBonus);
+    const maxAp = Math.max(1, (toNum(rules.core.apBase, 5)) + Math.floor(stats.agility / (toNum(rules.core.apAgilityDivisor, 2))) + maxApBonus);
+    const maxMp = Math.max(1, (toNum(rules.core.mpBase, 3)) + maxMpBonus);
+
+    // --- NEW ARMOR CALCULATION ---
+    const agiScale = toNum(rules.core.armorAgiScale, 2.5);
+    const enduScale = toNum(rules.core.armorEnduScale, 3.5);
+    const baseArmorLog = Math.floor(
+        agiScale * Math.log(Math.max(0, stats.agility) + 1) +
+        enduScale * Math.log(Math.max(0, stats.endurance) + 1)
+    );
+    const finalDefense = baseArmorLog + stats.defense;
+
+    const critChance = stats.intelligence * (toNum(rules.core.critPerIntelligence, 0.02));
+    const resistance = stats.wisdom * (toNum(rules.core.resistPerWisdom, 0.05));
+    const socialBonus = stats.charisma * (toNum(rules.core.charismaBonusPerCharisma, 0.03));
 
     const effective: CombatEntity = {
         id: baseEntity.id || Math.random().toString(36).substring(7),
         isPlayer: baseEntity.isPlayer || false,
         name: baseEntity.name || 'Unknown Entity',
-        hp: baseEntity.hp || maxHp,
+        hp: baseEntity.maxHp > 0 ? (baseEntity.hp ?? maxHp) : maxHp,
         maxHp: maxHp,
-        ap: baseEntity.ap || maxAp,
+        ap: baseEntity.maxAp > 0 ? (baseEntity.ap ?? maxAp) : maxAp,
         maxAp: maxAp,
-        mp: baseEntity.mp || maxMp,
+        mp: baseEntity.maxMp > 0 ? (baseEntity.mp ?? maxMp) : maxMp,
         maxMp: maxMp,
         strength: stats.strength,
         agility: stats.agility,
         intelligence: stats.intelligence,
         wisdom: stats.wisdom,
         charisma: stats.charisma,
+        endurance: stats.endurance,
         critChance,
         resistance,
         socialBonus,
-        evasion: baseEntity.evasion || 5, // Evasion still from baseEntity or could be agility based?
-        defense: baseEntity.defense || 0,
-        traits: traits
+        defense: finalDefense,
+        evasion: stats.evasion,
+        equipped: baseEntity.equipped,
+        traits,
+        activeEffects: baseEntity.activeEffects,
+        baseStats: source // Keep the unmutated base
     };
 
-    // Clamp HP if MaxHP was modified
-    if (effective.hp > effective.maxHp) {
-        effective.hp = effective.maxHp;
-    }
+    // Clamp HP/AP/MP if Max values were modified
+    if (effective.hp > effective.maxHp) effective.hp = effective.maxHp;
+    if (effective.ap > effective.maxAp) effective.ap = effective.maxAp;
+    if (effective.mp > effective.maxMp) effective.mp = effective.maxMp;
 
     return effective;
 }
@@ -145,9 +226,10 @@ export function useCombatEngine(initialPlayer: CombatEntity, initialEnemy: Comba
         const isCrit = critRoll < attacker.critChance;
 
         // Damage Calculation
-        // Base damage = strength with +/- 20% variance. Minus flat defense.
         const rules = GameRulesManager.get();
-        const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
+        const vMin = rules.combat.damageVarianceMin || 0.85;
+        const vMax = rules.combat.damageVarianceMax || 1.15;
+        const variance = vMin + (Math.random() * (vMax - vMin));
         let rawDamage = Math.floor(attacker.strength * variance);
 
         if (isCrit) {

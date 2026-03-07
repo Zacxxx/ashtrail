@@ -25,20 +25,53 @@ pub fn run_ai_turn(state: &mut CombatState) -> Vec<CombatEvent> {
         }
     };
 
-    // Find closest player target
-    let player_targets: Vec<TacticalEntity> = state
+    let all_player_targets: Vec<TacticalEntity> = state
         .entities
         .values()
         .filter(|e| e.is_player && e.hp > 0)
         .cloned()
         .collect();
 
-    if player_targets.is_empty() {
+    if all_player_targets.is_empty() {
         events.extend(state.end_turn());
         return events;
     }
 
-    let (closest_target, closest_dist) = find_closest_target(&ai, &player_targets);
+    let visible_targets: Vec<TacticalEntity> = all_player_targets
+        .iter()
+        .filter(|e| {
+            !e.active_effects.as_ref().map_or(false, |effs| {
+                effs.iter()
+                    .any(|eff| eff.effect_type == EffectType::Stealth)
+            })
+        })
+        .cloned()
+        .collect();
+
+    let hidden_targets: Vec<TacticalEntity> = all_player_targets
+        .iter()
+        .filter(|e| {
+            e.active_effects.as_ref().map_or(false, |effs| {
+                effs.iter()
+                    .any(|eff| eff.effect_type == EffectType::Stealth)
+            })
+        })
+        .cloned()
+        .collect();
+
+    let is_searching = visible_targets.is_empty() && !hidden_targets.is_empty();
+
+    let (target_pos, closest_dist, target_id) = if !is_searching {
+        let (closest_target, dist) = find_closest_target(&ai, &visible_targets);
+        (
+            closest_target.grid_pos.clone(),
+            dist,
+            Some(closest_target.id.clone()),
+        )
+    } else {
+        let (closest_lkp, dist) = find_closest_lkp(&ai, &hidden_targets);
+        (closest_lkp.clone(), dist, None)
+    };
 
     // ── 1. If low HP and has self-heal, use it ──
     if ai.hp < (ai.max_hp as f64 * 0.4) as i32 {
@@ -54,8 +87,8 @@ pub fn run_ai_turn(state: &mut CombatState) -> Vec<CombatEvent> {
         }
     }
 
-    // ── 2. Try a ranged skill if target is far ──
-    if closest_dist > MELEE_RANGE {
+    // ── 2. Try a ranged skill if target is far and visible ──
+    if closest_dist > MELEE_RANGE && !is_searching {
         let updated_ai = state
             .entities
             .get(&active_id)
@@ -64,8 +97,8 @@ pub fn run_ai_turn(state: &mut CombatState) -> Vec<CombatEvent> {
         if let Some(ranged_skill) = find_ranged_skill(&updated_ai, closest_dist) {
             events.extend(state.execute_skill(
                 &active_id,
-                closest_target.grid_pos.row,
-                closest_target.grid_pos.col,
+                target_pos.row,
+                target_pos.col,
                 &ranged_skill.id,
             ));
             events.extend(state.end_turn());
@@ -96,8 +129,8 @@ pub fn run_ai_turn(state: &mut CombatState) -> Vec<CombatEvent> {
                 let mut best_dist = closest_dist;
 
                 for cell in &reachable {
-                    let d = (cell.row as i32 - closest_target.grid_pos.row as i32).abs()
-                        + (cell.col as i32 - closest_target.grid_pos.col as i32).abs();
+                    let d = (cell.row as i32 - target_pos.row as i32).abs()
+                        + (cell.col as i32 - target_pos.col as i32).abs();
                     if d < best_dist {
                         best_dist = d;
                         best_cell = Some(cell.clone());
@@ -122,6 +155,11 @@ pub fn run_ai_turn(state: &mut CombatState) -> Vec<CombatEvent> {
     }
 
     // ── 4. Melee skill or basic attack after moving ──
+    if is_searching {
+        events.extend(state.end_turn());
+        return events;
+    }
+
     let updated_ai = match state.entities.get(&active_id) {
         Some(e) if e.hp > 0 => e.clone(),
         _ => {
@@ -131,29 +169,28 @@ pub fn run_ai_turn(state: &mut CombatState) -> Vec<CombatEvent> {
     };
 
     // Recalculate distance after move
-    let new_dist = (updated_ai.grid_pos.row as i32 - closest_target.grid_pos.row as i32).abs()
-        + (updated_ai.grid_pos.col as i32 - closest_target.grid_pos.col as i32).abs();
+    let new_dist = (updated_ai.grid_pos.row as i32 - target_pos.row as i32).abs()
+        + (updated_ai.grid_pos.col as i32 - target_pos.col as i32).abs();
 
-    // Refresh target in case it moved or was affected
-    let updated_target = state
-        .entities
-        .get(&closest_target.id)
-        .cloned()
-        .unwrap_or(closest_target.clone());
+    if let Some(t_id) = target_id {
+        // Refresh target in case it moved or was affected
+        let updated_target = state.entities.get(&t_id).cloned();
 
-    if updated_target.hp > 0 && new_dist <= MELEE_RANGE {
-        // Try melee skill first (best damage)
-        if let Some(melee_skill) = find_melee_skill(&updated_ai, new_dist) {
-            events.extend(state.execute_skill(
-                &active_id,
-                updated_target.grid_pos.row,
-                updated_target.grid_pos.col,
-                &melee_skill.id,
-            ));
-        } else if updated_ai.ap >= super::combat::MELEE_ATTACK_COST {
-            // Fallback to basic attack
-            let target_id = updated_target.id.clone();
-            events.extend(state.perform_attack(&active_id, &target_id));
+        if let Some(unwrapped_target) = updated_target {
+            if unwrapped_target.hp > 0 && new_dist <= MELEE_RANGE {
+                // Try melee skill first (best damage)
+                if let Some(melee_skill) = find_melee_skill(&updated_ai, new_dist) {
+                    events.extend(state.execute_skill(
+                        &active_id,
+                        unwrapped_target.grid_pos.row,
+                        unwrapped_target.grid_pos.col,
+                        &melee_skill.id,
+                    ));
+                } else if updated_ai.ap >= super::combat::MELEE_ATTACK_COST {
+                    // Fallback to basic attack
+                    events.extend(state.perform_attack(&active_id, &t_id));
+                }
+            }
         }
     }
 
@@ -177,6 +214,35 @@ fn find_closest_target(ai: &TacticalEntity, targets: &[TacticalEntity]) -> (Tact
     }
 
     (closest, closest_dist)
+}
+
+fn find_closest_lkp(ai: &TacticalEntity, hidden_targets: &[TacticalEntity]) -> (GridPos, i32) {
+    let mut closest_lkp = hidden_targets[0].grid_pos.clone();
+    let mut closest_dist = i32::MAX;
+
+    for target in hidden_targets {
+        let lkp = if let Some(effs) = &target.active_effects {
+            if let Some(stealth_eff) = effs.iter().find(|e| e.effect_type == EffectType::Stealth) {
+                stealth_eff
+                    .last_known_position
+                    .clone()
+                    .unwrap_or(target.grid_pos.clone())
+            } else {
+                target.grid_pos.clone()
+            }
+        } else {
+            target.grid_pos.clone()
+        };
+
+        let d = (lkp.row as i32 - ai.grid_pos.row as i32).abs()
+            + (lkp.col as i32 - ai.grid_pos.col as i32).abs();
+        if d < closest_dist {
+            closest_dist = d;
+            closest_lkp = lkp;
+        }
+    }
+
+    (closest_lkp, closest_dist)
 }
 
 fn find_self_heal(entity: &TacticalEntity) -> Option<&Skill> {

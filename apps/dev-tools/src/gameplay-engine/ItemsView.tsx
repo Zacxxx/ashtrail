@@ -337,7 +337,7 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                                                         value={eff.type}
                                                         onChange={e => {
                                                             const next = [...effects];
-                                                            next[i] = { ...eff, type: e.target.value };
+                                                            next[i] = { ...eff, type: e.target.value as any };
                                                             setEffects(next);
                                                         }}
                                                         className="w-full bg-black/60 border border-white/5 text-orange-400 text-[10px] font-bold uppercase rounded-xl px-3 py-2.5 outline-none appearance-none cursor-pointer focus:border-orange-500/30 transition-all"
@@ -376,6 +376,8 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                                                             <option value="maxHp">Max Health</option>
                                                             <option value="ap">Action Points</option>
                                                             <option value="evasion">Evasion</option>
+                                                            <option value="armor">Armor (Combat)</option>
+                                                            <option value="defense">Defense (Flat)</option>
                                                             <option value="crit_rate">Crit Rate</option>
                                                         </optgroup>
                                                         <optgroup label="RESOURCES" className="bg-black text-[10px]">

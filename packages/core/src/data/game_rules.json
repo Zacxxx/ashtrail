@@ -1,22 +1,38 @@
 {
-    "core": {
-        "hpBase": 10,
-        "hpPerEndurance": 5,
-        "apBase": 5,
-        "apAgilityDivisor": 2,
-        "mpBase": 3,
-        "critPerIntelligence": 0.02,
-        "resistPerWisdom": 0.05,
-        "charismaBonusPerCharisma": 0.03
-    },
-    "combat": {
-        "damageVarianceMin": 0.85,
-        "damageVarianceMax": 1.15,
-        "strengthToPowerRatio": 0.3
-    },
-    "grid": {
-        "baseDisengageCost": 2,
-        "threatScaling": 1,
-        "agilityMitigationDivisor": 10
-    }
+  "combat": {
+    "analyzeBaseCrit": 30,
+    "analyzeIntelScale": 0.6,
+    "damageVarianceMax": 1.15,
+    "damageVarianceMin": 0.85,
+    "defendFailReduction": 0.1,
+    "defendPartialReduction": 0.2,
+    "defendPartialThreshold": 5,
+    "defendSuccessReduction": 0.6,
+    "defendSuccessThreshold": 10,
+    "distractCharismaScale": 0.7,
+    "shovePushDamageRatio": 0.1,
+    "shoveShockDamageRatio": 0.3,
+    "stealthBaseDuration": 1,
+    "stealthScaleFactor": 1.4,
+    "strengthScalingMax": 0.4,
+    "strengthScalingMin": 0.2,
+    "strengthToPowerRatio": 0.3
+  },
+  "core": {
+    "apAgilityDivisor": 2,
+    "apBase": 5,
+    "armorAgiScale": 2.5,
+    "armorEnduScale": 3.5,
+    "charismaBonusPerCharisma": 0.03,
+    "critPerIntelligence": 0.02,
+    "hpBase": 10,
+    "hpPerEndurance": 5,
+    "mpBase": 3,
+    "resistPerWisdom": 0.05
+  },
+  "grid": {
+    "agilityMitigationDivisor": 10,
+    "baseDisengageCost": 2,
+    "threatScaling": 1
+  }
 }

@@ -1,0 +1,23 @@
+{
+  "apCost": 3,
+  "areaSize": 0,
+  "areaType": "single",
+  "category": "base",
+  "cooldown": 4,
+  "description": "Become invisible to enemies. Any damage taken will reveal you. Duration increases with Wisdom.",
+  "effectType": "support",
+  "effects": [
+    {
+      "duration": 1,
+      "target": "stealth",
+      "type": "STEALTH",
+      "value": 0
+    }
+  ],
+  "icon": "👤",
+  "id": "hide",
+  "maxRange": 0,
+  "minRange": 0,
+  "name": "Hide",
+  "targetType": "self"
+}

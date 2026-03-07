@@ -61,6 +61,7 @@ pub struct TacticalEntity {
     pub agility: i32,
     pub intelligence: i32,
     pub wisdom: i32,
+    pub endurance: i32,
     pub charisma: i32,
     pub crit_chance: f64,
     pub resistance: f64,
@@ -75,12 +76,17 @@ pub struct TacticalEntity {
     pub max_ap: i32,
     pub mp: i32,
     pub max_mp: i32,
+    pub level: i32,
     pub grid_pos: GridPos,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub equipped: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_effects: Option<Vec<GameplayEffect>>,
 }
 
 // ── Gameplay Effect Types ───────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EffectType {
     StatModifier,
@@ -91,6 +97,10 @@ pub enum EffectType {
     HealOverTime,
     StatusImmunity,
     ActionModifier,
+    WeaponDamageReplacement,
+    ProtectionStance,
+    Stealth,
+    Analyzed,
     LoreEffect,
 }
 
@@ -116,6 +126,12 @@ pub struct GameplayEffect {
     pub trigger: Option<EffectTrigger>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protector_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_known_position: Option<GridPos>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub just_applied: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory } from "@ashtrail/core";
 import { TabBar } from "@ashtrail/ui";
+import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 
 // Map item category + name to an equipment slot
 const SLOT_MAP: Record<string, EquipSlot> = {
@@ -97,6 +98,7 @@ export function CharacterBuilderPage() {
     const [savedCharacters, setSavedCharacters] = useState<Character[]>([]);
     const [libraryItems, setLibraryItems] = useState<Item[]>([]);
     const [activeTab, setActiveTab] = useState<BuilderTab>("IDENTITY");
+    const [librarySkills, setLibrarySkills] = useState<Skill[]>([]);
 
     // ── Character Form State ──
     const [charId, setCharId] = useState(`char-${Date.now()}`);
@@ -136,6 +138,13 @@ export function CharacterBuilderPage() {
 
     // Load character for editing
     const [editingId, setEditingId] = useState<string | null>(null);
+
+    // Skills State
+    const [selectedSkills, setSelectedSkills] = useState<Skill[]>([]);
+    const [skillSearch, setSkillSearch] = useState("");
+    const [skillCategoryFilter, setSkillCategoryFilter] = useState<SkillCategory | "ALL">("ALL");
+    const [bookCategory, setBookCategory] = useState<SkillCategory>("base");
+
 
     // Inventory State
     const [inventory, setInventory] = useState<Item[]>([]);
@@ -212,16 +221,27 @@ export function CharacterBuilderPage() {
     // Derived values from effective stats
     const derivedStats = useMemo(() => {
         const s = effectiveStats;
-        const hp = 10 + s.endurance * 5;
-        const ap = s.agility <= 5 ? 7 : s.agility <= 10 ? 10 : s.agility <= 15 ? 12 : 15;
+        const rules = GameRulesManager.get();
+        const hp = (rules.core.hpBase || 10) + s.endurance * (rules.core.hpPerEndurance || 5);
+        const ap = (rules.core.apBase || 5) + Math.floor(s.agility / (rules.core.apAgilityDivisor || 2));
 
-        // Add direct HP modifiers from items if any
+        // Calculate Armor
+        const baseArmor = Math.floor(
+            (rules.core.armorAgiScale || 2.5) * Math.log(s.agility + 1) +
+            (rules.core.armorEnduScale || 3.5) * Math.log(s.endurance + 1)
+        );
+
+        // Add direct HP and Armor modifiers from items if any
         let directHp = 0;
+        let modArmor = 0;
         Object.values(equippedItems).forEach(item => {
             if (item && item.effects) {
                 item.effects.forEach(eff => {
                     if (eff.target === 'hp' || eff.target === 'maxHp') {
-                        directHp += eff.value;
+                        directHp += (eff.value || 0);
+                    }
+                    if (eff.target === 'armor' || eff.target === 'defense') {
+                        modArmor += (eff.value || 0);
                     }
                 });
             }
@@ -230,11 +250,28 @@ export function CharacterBuilderPage() {
         return {
             hp: hp + directHp,
             ap: ap,
-            crit: `${s.intelligence * 2}%`,
-            resist: `${s.wisdom * 5}%`,
-            social: `${s.charisma * 3}%`,
-            minDmg: (4 + s.strength * 0.2).toFixed(1),
-            maxDmg: (5 + s.strength * 0.4).toFixed(1)
+            armor: baseArmor + modArmor,
+            crit: `${(s.intelligence * (rules.core.critPerIntelligence || 0.02) * 100).toFixed(1)}%`,
+            resist: `${(s.wisdom * (rules.core.resistPerWisdom || 0.05) * 100).toFixed(0)}%`,
+            social: `${(s.charisma * (rules.core.charismaBonusPerCharisma || 0.03) * 100).toFixed(1)}%`,
+            minDmg: (() => {
+                const weapon = equippedItems.mainHand;
+                let base = 4;
+                if (weapon) {
+                    const dmgEff = weapon.effects?.find(e => e.target === 'damage' || e.type === 'COMBAT_BONUS');
+                    if (dmgEff) base = dmgEff.value;
+                }
+                return (base + s.strength * 0.2).toFixed(1);
+            })(),
+            maxDmg: (() => {
+                const weapon = equippedItems.mainHand;
+                let base = 5;
+                if (weapon) {
+                    const dmgEff = weapon.effects?.find(e => e.target === 'damage' || e.type === 'COMBAT_BONUS');
+                    if (dmgEff) base = dmgEff.value;
+                }
+                return (base + s.strength * 0.4).toFixed(1);
+            })()
         };
     }, [effectiveStats, equippedItems]);
 
@@ -326,6 +363,7 @@ export function CharacterBuilderPage() {
             await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
             setSavedCharacters(GameRegistry.getAllCharacters());
             setLibraryItems(GameRegistry.getAllItems());
+            setLibrarySkills(GameRegistry.getAllSkills());
             setIsLoading(false);
         }
         load();
@@ -384,6 +422,15 @@ export function CharacterBuilderPage() {
         if (delta < 0 && stats[stat] <= 1) return;
         setStats(p => ({ ...p, [stat]: p[stat] + delta }));
         setStatsPoints(p => p - delta);
+    };
+
+    const toggleSkill = (skill: Skill) => {
+        const isSelected = selectedSkills.find(s => s.id === skill.id);
+        if (isSelected) {
+            setSelectedSkills(p => p.filter(s => s.id !== skill.id));
+        } else {
+            setSelectedSkills(p => [...p, skill]);
+        }
     };
 
     const updateLevel = (nextLevel: number, grantAttributePoint = false) => {
@@ -477,6 +524,7 @@ export function CharacterBuilderPage() {
         setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
         setInventory(char.inventory || []);
+        setSelectedSkills(char.skills || []);
         if (char.equipped) {
             setEquippedItems(char.equipped);
         } else {
@@ -525,6 +573,7 @@ export function CharacterBuilderPage() {
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
         });
+        setSelectedSkills([]);
         setActiveTab("IDENTITY");
         // Also reset inventory to fresh mock data
         const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
@@ -565,6 +614,7 @@ export function CharacterBuilderPage() {
             xp: 0,
             level: level,
             inventory: inventory,
+            skills: selectedSkills,
             equipped: equippedItems,
             title: characterTitle,
             badge: characterBadge,
@@ -714,7 +764,7 @@ export function CharacterBuilderPage() {
                 `}</style>
 
                 {/* Left: Saved Characters Sidebar */}
-                {activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT" && activeTab !== "CHARACTER_SHEET" && (
+                {activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT" && activeTab !== "CHARACTER_SHEET" && activeTab !== "SKILLS" && (
                     <aside className="w-[260px] flex flex-col gap-4 shrink-0">
                         <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
                             <h3 className="text-[10px] font-black text-indigo-500/70 uppercase tracking-widest border-b border-indigo-900/30 pb-2">
@@ -1151,28 +1201,176 @@ export function CharacterBuilderPage() {
                             </div>
                         )}
 
-                        {/* ═══ SKILLS TAB ═══ */}
+                        {/* ═══ SKILLS TAB (SKILL BOOK) ═══ */}
                         {activeTab === "SKILLS" && (
-                            <div className="space-y-6">
-                                <div className="flex items-center gap-3">
-                                    <h2 className="text-xl font-black tracking-[0.2em] text-indigo-400 uppercase">Neural Skills & Combat Masteries</h2>
-                                    <div className="h-px flex-1 bg-gradient-to-r from-indigo-500/20 to-transparent" />
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    {[1, 2, 3].map(i => (
-                                        <div key={i} className="group bg-black/40 border border-white/5 p-6 rounded-2xl hover:border-indigo-500/30 transition-all flex flex-col gap-4 opacity-50 cursor-not-allowed">
-                                            <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-xl grayscale text-white">
-                                                🧠
+                            <div className="flex h-full relative font-mono overflow-hidden py-1 px-1 gap-6 animate-ash-settling">
+                                {/* Left Sidebar: Skill Database */}
+                                <aside className="w-[320px] flex flex-col gap-4 shrink-0 bg-black/40 border border-white/5 p-4 rounded-xl shadow-2xl backdrop-blur-md">
+                                    <div className="flex flex-col gap-1.5 border-b border-white/5 pb-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1.5 h-3 bg-[#c2410c]" />
+                                            <label className="text-[10px] text-white font-black uppercase tracking-[0.2em]">Database</label>
+                                        </div>
+                                        <input
+                                            value={skillSearch}
+                                            onChange={e => setSkillSearch(e.target.value)}
+                                            placeholder="SEARCH PROTOCOLS..."
+                                            className="w-full bg-black/40 border border-white/10 text-[10px] text-gray-400 px-3 py-2 rounded outline-none focus:border-[#c2410c]/40 transition-all font-mono italic"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-1 mb-2">
+                                        {(["ALL", "BASE", "OCCUPATION", "EQUIPMENT", "UNIQUE"] as const).map(f => (
+                                            <button
+                                                key={f}
+                                                onClick={() => setSkillCategoryFilter(f as any)}
+                                                className={`px-2 py-1 text-[8px] font-black uppercase tracking-widest transition-all border ${skillCategoryFilter === f ? "bg-[#c2410c]/20 border-[#c2410c] text-white" : "border-white/5 text-gray-600 hover:text-gray-300 hover:bg-white/5"}`}
+                                            >
+                                                {f}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                                        {librarySkills
+                                            .filter(s => (skillCategoryFilter === "ALL" || s.category === skillCategoryFilter.toLowerCase()) &&
+                                                (s.name.toLowerCase().includes(skillSearch.toLowerCase()) || s.description.toLowerCase().includes(skillSearch.toLowerCase())))
+                                            .map(skill => {
+                                                const isOwned = selectedSkills.some(s => s.id === skill.id);
+                                                return (
+                                                    <button
+                                                        key={skill.id}
+                                                        onClick={() => toggleSkill(skill)}
+                                                        className={`w-full text-left p-3 border rounded-lg flex items-center gap-3 group transition-all relative overflow-hidden active:scale-95 ${isOwned ? "bg-[#c2410c]/10 border-[#c2410c]/40" : "bg-black/20 border-white/5 hover:border-[#c2410c]/40 hover:bg-white/[0.02]"}`}
+                                                    >
+                                                        <div className={`w-10 h-10 border rounded flex items-center justify-center text-lg relative z-10 ${isOwned ? "border-[#c2410c]/40 bg-[#c2410c]/20" : "bg-black/40 border-white/10"}`}>
+                                                            <span>{skill.icon || "🧠"}</span>
+                                                        </div>
+                                                        <div className="flex flex-col gap-0.5 relative z-10 truncate">
+                                                            <span className={`text-[10px] font-black uppercase tracking-wider truncate ${isOwned ? "text-orange-400" : "text-white"}`}>{skill.name}</span>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-[8px] text-gray-500 font-bold uppercase">{skill.category}</span>
+                                                                <span className="text-[8px] text-[#c2410c]/80 font-black ml-auto">{skill.apCost} AP</span>
+                                                            </div>
+                                                        </div>
+                                                        {isOwned && <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-[#c2410c] rounded-full shadow-[0_0_5px_#c2410c]" />}
+                                                    </button>
+                                                );
+                                            })}
+                                    </div>
+                                </aside>
+
+                                {/* Center: Skill Book */}
+                                <div className="flex-1 flex gap-2 overflow-hidden relative pr-12">
+                                    <div className="flex-1 bg-black/60 border-y border-l border-white/10 rounded-l-3xl shadow-2xl relative overflow-hidden flex flex-col group">
+                                        {/* Book Binding/Spine */}
+                                        <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-black/80 to-transparent border-r border-white/5 z-20" />
+
+                                        {/* Parchment Page Overlay */}
+                                        <div className="absolute inset-0 bg-[#1a1410] mix-blend-multiply opacity-40 z-0 pointer-events-none" />
+                                        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(194,65,12,0.05)_0%,transparent_70%)] z-0 pointer-events-none" />
+
+                                        <div className="relative z-10 flex flex-col h-full pl-12 pr-6 py-8">
+                                            <div className="flex items-center justify-between border-b border-[#c2410c]/20 pb-4 mb-8">
+                                                <h3 className="text-sm font-black text-white uppercase tracking-[0.4em] flex items-center gap-3">
+                                                    <div className="w-2 h-2 bg-[#c2410c] shadow-[0_0_10px_#c2410c]" />
+                                                    Skill book
+                                                </h3>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="text-[7px] text-gray-600 font-black uppercase">Buffer Page</span>
+                                                        <span className="text-[10px] text-white font-mono">{selectedSkills.filter(s => s.category === bookCategory).length > 0 ? "01" : "00"}</span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <h3 className="text-xs font-black text-white uppercase tracking-wider">Skill Node {i}</h3>
-                                                <p className="text-[10px] text-gray-500 mt-1 uppercase font-bold tracking-widest">Locked / Under Construction</p>
+
+                                            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-8">
+                                                {selectedSkills.filter(s => s.category === bookCategory).length === 0 ? (
+                                                    <div className="flex-1 flex flex-col items-center justify-center py-20 opacity-20 group-hover:opacity-30 transition-opacity">
+                                                        <div className="text-4xl mb-6 grayscale brightness-50">📂</div>
+                                                        <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.34em] italic text-center">no active skill</p>
+                                                        <p className="text-[8px] text-[#c2410c] mt-4 uppercase tracking-[0.2em] font-bold">Inject from Database sidebar</p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-10">
+                                                        {selectedSkills.filter(s => s.category === bookCategory).map(skill => (
+                                                            <div key={skill.id} className="relative group/skill">
+                                                                <div className="flex gap-4">
+                                                                    <div className="relative shrink-0">
+                                                                        <div className="w-16 h-16 bg-black/40 border border-[#c2410c]/30 rounded flex items-center justify-center text-3xl group-hover/skill:scale-105 group-hover/skill:border-[#c2410c] transition-all relative z-10 shadow-lg">
+                                                                            {skill.icon || "🧠"}
+                                                                        </div>
+                                                                        {/* Holographic ornament under icon */}
+                                                                        <div className="absolute -inset-1 border border-[#c2410c]/10 rounded opacity-0 group-hover/skill:opacity-100 transition-opacity pointer-events-none" />
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="flex items-center justify-between mb-1.5">
+                                                                            <h4 className="text-[14px] font-black text-white uppercase tracking-wider truncate leading-tight">{skill.name}</h4>
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); toggleSkill(skill); }}
+                                                                                className="text-[9px] text-[#c2410c]/40 hover:text-red-500 font-black px-1 transition-colors uppercase italic"
+                                                                            >Eject ✕</button>
+                                                                        </div>
+                                                                        <p className="text-[10.5px] text-gray-500 leading-relaxed italic line-clamp-2 mb-3 h-[32px]">{skill.description}</p>
+
+                                                                        <div className="grid grid-cols-3 gap-2 border-t border-white/5 pt-2.5">
+                                                                            <div className="flex flex-col">
+                                                                                <span className="text-[6.5px] text-gray-600 font-black uppercase tracking-widest">AP Cost</span>
+                                                                                <span className="text-[9px] text-orange-400 font-bold">{skill.apCost} Units</span>
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="text-[6.5px] text-gray-600 font-black uppercase tracking-widest">Range</span>
+                                                                                <span className="text-[9px] text-gray-400 font-bold">{skill.minRange}-{skill.maxRange}m</span>
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="text-[6.5px] text-gray-600 font-black uppercase tracking-widest">CD</span>
+                                                                                <span className="text-[9px] text-gray-400 font-bold">{skill.cooldown} T</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="absolute -bottom-4 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#c2410c]/10 to-transparent" />
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                                                <div className="h-full bg-indigo-500/30 w-0" />
+
+                                            {/* Digital Page Number */}
+                                            <div className="mt-auto pt-6 flex justify-between items-center border-t border-white/5 opacity-40">
+                                                <span className="text-[8px] font-black uppercase tracking-[0.2em] text-gray-600"></span>
+                                                <span className="text-[10px] font-bold text-white tracking-widest">P. 1 // {bookCategory.toUpperCase()}</span>
                                             </div>
                                         </div>
-                                    ))}
+                                    </div>
+
+                                    {/* Book Side Tabs - WoW Style */}
+                                    <div className="absolute -right-2 top-10 flex flex-col gap-2 z-30">
+                                        {(["base", "occupation", "equipment", "unique"] as const).map((cat) => {
+                                            const isActive = bookCategory === cat;
+                                            const icons = { base: "📜", occupation: "⚔️", equipment: "🛠️", unique: "💎" };
+                                            return (
+                                                <button
+                                                    key={cat}
+                                                    onClick={() => setBookCategory(cat)}
+                                                    className={`group relative flex items-center justify-center w-12 h-16 rounded-r-xl border-y border-r transition-all duration-300 ${isActive
+                                                        ? "bg-[#1a1410] border-[#c2410c] w-14 -translate-x-1 shadow-[-10px_0_20px_rgba(194,65,12,0.2)] z-10"
+                                                        : "bg-black/60 border-white/10 hover:bg-[#c2410c]/10 hover:border-[#c2410c]/30 hover:w-13 z-0"}`}
+                                                >
+                                                    <span className={`text-xl transition-transform group-hover:scale-110 ${isActive ? "opacity-100" : "opacity-40"}`}>
+                                                        {icons[cat]}
+                                                    </span>
+                                                    <div className="absolute right-full mr-4 px-3 py-2 bg-black border border-[#c2410c]/40 text-[9px] font-black text-white uppercase tracking-widest whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-2xl z-50">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-1 h-3 bg-[#c2410c]" />
+                                                            {cat.toUpperCase()}
+                                                        </div>
+                                                    </div>
+                                                    {isActive && <div className="absolute left-0 top-1 bottom-1 w-1 bg-[#c2410c] rounded-full shadow-[0_0_10px_#c2410c]" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -1409,6 +1607,7 @@ export function CharacterBuilderPage() {
                                                         {[
                                                             { label: "HP", value: derivedStats.hp },
                                                             { label: "AP", value: derivedStats.ap },
+                                                            { label: "Armor", value: derivedStats.armor },
                                                             { label: "Crit", value: derivedStats.crit },
                                                             { label: "Resist", value: derivedStats.resist },
                                                             { label: "Social", value: derivedStats.social },
@@ -2270,16 +2469,21 @@ export function CharacterBuilderPage() {
                                                 {hoverInfo.item.effects && hoverInfo.item.effects.length > 0 && (
                                                     <div className="mt-2 pt-2 border-t border-white/5 space-y-1">
                                                         <div className="text-[6px] font-black text-orange-500/70 uppercase tracking-widest mb-1">Effects:</div>
-                                                        {hoverInfo.item.effects.map((eff: any, idx: number) => (
-                                                            <div key={idx} className="flex justify-between items-center bg-white/[0.02] px-1.5 py-1 rounded border border-white/5">
-                                                                <span className="text-[7px] font-black text-gray-500 uppercase tracking-widest truncate max-w-[80px]">
-                                                                    {eff.target}
-                                                                </span>
-                                                                <span className={`text-[8px] font-black ${eff.value >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                                                    {eff.value >= 0 ? '+' : ''}{eff.value}
-                                                                </span>
-                                                            </div>
-                                                        ))}
+                                                        {hoverInfo.item.effects.map((eff: any, idx: number) => {
+                                                            let label = eff.target === 'damage' ? 'Weapon Damage' : eff.target;
+                                                            if (eff.target === 'armor' || eff.target === 'defense') label = 'Armor';
+
+                                                            return (
+                                                                <div key={idx} className="flex justify-between items-center bg-white/[0.02] px-1.5 py-1 rounded border border-white/5">
+                                                                    <span className="text-[7px] font-black text-gray-500 uppercase tracking-widest truncate max-w-[80px]">
+                                                                        {label}
+                                                                    </span>
+                                                                    <span className={`text-[8px] font-black ${eff.value >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                                        {eff.value >= 0 ? '+' : ''}{eff.value}
+                                                                    </span>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 )}
                                             </div>
@@ -2305,7 +2509,14 @@ export function CharacterBuilderPage() {
                                             </span>
                                         </div>
                                     </div>
-                                    <p className="text-xs text-gray-500">Age {age} | {gender} | HP: {10 + stats.endurance * 5}</p>
+                                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                                        Age {age} | {gender} | Level {level}
+                                    </p>
+                                    <div className="flex gap-4 pt-1">
+                                        <div className="text-[9px] font-black text-emerald-500 uppercase">HP: {derivedStats.hp}</div>
+                                        <div className="text-[9px] font-black text-blue-500 uppercase">AP: {derivedStats.ap}</div>
+                                        <div className="text-[9px] font-black text-orange-500 uppercase">Armor: {derivedStats.armor}</div>
+                                    </div>
 
                                     {/* Simple Status visualization */}
                                     <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
@@ -2351,74 +2562,76 @@ export function CharacterBuilderPage() {
             </div> {/* end of Main Layout */}
 
             {/* Selection Modal (Titles / Badges) */}
-            {showSelectionModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-                    <div className="w-full max-w-md border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl animate-ash-settling">
-                        <div className="mb-6 flex items-center justify-between border-b border-white/5 pb-4">
-                            <div className="flex items-center gap-3">
-                                <div className="h-4 w-1 bg-[#c2410c]" />
-                                <h3 className="text-sm font-black uppercase tracking-[0.3em] text-white">
-                                    Select {showSelectionModal === "title" ? "Unit Title" : "Unit Badge"}
-                                </h3>
+            {
+                showSelectionModal && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+                        <div className="w-full max-w-md border border-white/10 bg-[#0a0a0a] p-6 shadow-2xl animate-ash-settling">
+                            <div className="mb-6 flex items-center justify-between border-b border-white/5 pb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="h-4 w-1 bg-[#c2410c]" />
+                                    <h3 className="text-sm font-black uppercase tracking-[0.3em] text-white">
+                                        Select {showSelectionModal === "title" ? "Unit Title" : "Unit Badge"}
+                                    </h3>
+                                </div>
+                                <button
+                                    onClick={() => setShowSelectionModal(null)}
+                                    className="text-gray-500 hover:text-white transition-colors"
+                                >
+                                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setShowSelectionModal(null)}
-                                className="text-gray-500 hover:text-white transition-colors"
-                            >
-                                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
-                            {showSelectionModal === "title" ? (
-                                <>
-                                    <button
-                                        onClick={() => { setCharacterTitle(""); setShowSelectionModal(null); }}
-                                        className="h-12 border border-dashed border-white/10 bg-black/40 text-[9px] font-bold uppercase tracking-widest text-gray-500 hover:border-white/20 hover:text-white transition-all"
-                                    >
-                                        Remove Title
-                                    </button>
-                                    {ALL_TITLES.map(t => (
+                            <div className="grid grid-cols-2 gap-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                                {showSelectionModal === "title" ? (
+                                    <>
                                         <button
-                                            key={t}
-                                            onClick={() => { setCharacterTitle(t); setShowSelectionModal(null); }}
-                                            className={`h-12 border px-3 text-[9px] font-bold uppercase tracking-widest transition-all ${characterTitle === t ? "border-[#c2410c] bg-[#c2410c]/10 text-white shadow-[0_0_15px_rgba(194,65,12,0.2)]" : "border-white/5 bg-black/20 text-gray-400 hover:border-white/20 hover:text-white"}`}
+                                            onClick={() => { setCharacterTitle(""); setShowSelectionModal(null); }}
+                                            className="h-12 border border-dashed border-white/10 bg-black/40 text-[9px] font-bold uppercase tracking-widest text-gray-500 hover:border-white/20 hover:text-white transition-all"
                                         >
-                                            {t}
+                                            Remove Title
                                         </button>
-                                    ))}
-                                </>
-                            ) : (
-                                <>
-                                    <button
-                                        onClick={() => { setCharacterBadge(""); setShowSelectionModal(null); }}
-                                        className="h-12 border border-dashed border-white/10 bg-black/40 text-[9px] font-bold uppercase tracking-widest text-gray-500 hover:border-white/20 hover:text-white transition-all flex items-center justify-center"
-                                    >
-                                        Remove Badge
-                                    </button>
-                                    {ALL_BADGES.map(b => (
+                                        {ALL_TITLES.map(t => (
+                                            <button
+                                                key={t}
+                                                onClick={() => { setCharacterTitle(t); setShowSelectionModal(null); }}
+                                                className={`h-12 border px-3 text-[9px] font-bold uppercase tracking-widest transition-all ${characterTitle === t ? "border-[#c2410c] bg-[#c2410c]/10 text-white shadow-[0_0_15px_rgba(194,65,12,0.2)]" : "border-white/5 bg-black/20 text-gray-400 hover:border-white/20 hover:text-white"}`}
+                                            >
+                                                {t}
+                                            </button>
+                                        ))}
+                                    </>
+                                ) : (
+                                    <>
                                         <button
-                                            key={b}
-                                            onClick={() => { setCharacterBadge(b); setShowSelectionModal(null); }}
-                                            className={`h-12 border text-xl flex items-center justify-center transition-all ${characterBadge === b ? "border-[#c2410c] bg-[#c2410c]/10 shadow-[0_0_15px_rgba(194,65,12,0.2)]" : "border-white/5 bg-black/20 hover:border-white/20"}`}
+                                            onClick={() => { setCharacterBadge(""); setShowSelectionModal(null); }}
+                                            className="h-12 border border-dashed border-white/10 bg-black/40 text-[9px] font-bold uppercase tracking-widest text-gray-500 hover:border-white/20 hover:text-white transition-all flex items-center justify-center"
                                         >
-                                            {b}
+                                            Remove Badge
                                         </button>
-                                    ))}
-                                </>
-                            )}
-                        </div>
+                                        {ALL_BADGES.map(b => (
+                                            <button
+                                                key={b}
+                                                onClick={() => { setCharacterBadge(b); setShowSelectionModal(null); }}
+                                                className={`h-12 border text-xl flex items-center justify-center transition-all ${characterBadge === b ? "border-[#c2410c] bg-[#c2410c]/10 shadow-[0_0_15px_rgba(194,65,12,0.2)]" : "border-white/5 bg-black/20 hover:border-white/20"}`}
+                                            >
+                                                {b}
+                                            </button>
+                                        ))}
+                                    </>
+                                )}
+                            </div>
 
-                        <div className="mt-8 border-t border-white/5 pt-4 text-center">
-                            <p className="text-[8px] font-bold uppercase tracking-[0.2em] text-gray-600">
-                                Changes will be reflected immediately in the data blueprint.
-                            </p>
+                            <div className="mt-8 border-t border-white/5 pt-4 text-center">
+                                <p className="text-[8px] font-bold uppercase tracking-[0.2em] text-gray-600">
+                                    Changes will be reflected immediately in the data blueprint.
+                                </p>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
         </div>
     );
 }

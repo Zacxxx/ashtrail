@@ -35,6 +35,10 @@ export type EffectType =
   | 'HEAL_OVER_TIME'
   | 'STATUS_IMMUNITY'
   | 'ACTION_MODIFIER'
+  | 'WEAPON_DAMAGE_REPLACEMENT'
+  | 'PROTECTION_STANCE'
+  | 'STEALTH'
+  | 'ANALYZED'
   | 'LORE_EFFECT';
 
 export interface GameplayEffect {
@@ -69,7 +73,8 @@ export interface Occupation {
   category: OccupationCategory;
   description: string;
   shortDescription: string;
-  effects: GameplayEffect[];
+  effects?: GameplayEffect[];
+  perks?: string[];
   icon?: string;           // Emoji or gallery path
 }
 
@@ -96,7 +101,7 @@ export interface Item {
 export type SkillTargetType = 'enemy' | 'ally' | 'self' | 'cell';
 export type SkillAreaType = 'single' | 'cross' | 'circle' | 'line';
 
-export type SkillCategory = 'occupation' | 'base' | 'unique';
+export type SkillCategory = 'occupation' | 'base' | 'unique' | 'equipment';
 
 export interface Skill {
   id: string;

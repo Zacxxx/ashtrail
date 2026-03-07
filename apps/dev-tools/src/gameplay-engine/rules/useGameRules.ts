@@ -10,11 +10,27 @@ export interface GameRulesConfig {
         critPerIntelligence: number;
         resistPerWisdom: number;
         charismaBonusPerCharisma: number;
+        armorAgiScale: number;
+        armorEnduScale: number;
     };
     combat: {
         damageVarianceMin: number;
         damageVarianceMax: number;
         strengthToPowerRatio: number;
+        strengthScalingMin: number;
+        strengthScalingMax: number;
+        shovePushDamageRatio: number;
+        shoveShockDamageRatio: number;
+        defendPartialThreshold: number;
+        defendSuccessThreshold: number;
+        defendFailReduction: number;
+        defendPartialReduction: number;
+        defendSuccessReduction: number;
+        stealthBaseDuration: number;
+        stealthScaleFactor: number;
+        distractCharismaScale: number;
+        analyzeBaseCrit: number;
+        analyzeIntelScale: number;
     };
     grid: {
         baseDisengageCost: number;
@@ -49,11 +65,27 @@ const DEFAULT_RULES: GameRulesConfig = {
         critPerIntelligence: 0.02, // 2% crit per INT
         resistPerWisdom: 0.05,     // 5% resist per WIS
         charismaBonusPerCharisma: 0.03, // 3% bonus per CHA
+        armorAgiScale: 2.5,            // Scaling factor for Agility
+        armorEnduScale: 3.5,           // Scaling factor for Endurance
     },
     combat: {
         damageVarianceMin: 0.85,
         damageVarianceMax: 1.15,
         strengthToPowerRatio: 0.3,
+        strengthScalingMin: 0.2,
+        strengthScalingMax: 0.4,
+        shovePushDamageRatio: 0.1,
+        shoveShockDamageRatio: 0.3,
+        defendPartialThreshold: 5,
+        defendSuccessThreshold: 10,
+        defendFailReduction: 0.1,
+        defendPartialReduction: 0.2,
+        defendSuccessReduction: 0.6,
+        stealthBaseDuration: 1,
+        stealthScaleFactor: 1.4,
+        distractCharismaScale: 0.42,
+        analyzeBaseCrit: 30,
+        analyzeIntelScale: 0.6,
     },
     grid: {
         baseDisengageCost: 2,
@@ -79,8 +111,25 @@ const listeners = new Set<() => void>();
 
 export const GameRulesManager = {
     get: () => globalRules,
-    update: (newRules: GameRulesConfig) => {
-        globalRules = { ...newRules };
+    update: (newRules: Partial<GameRulesConfig>) => {
+        // Helper to merge and sanitize
+        const clean = (base: any, incoming: any) => {
+            const result = { ...base };
+            if (!incoming) return result;
+            Object.keys(incoming).forEach(key => {
+                const val = incoming[key];
+                if (val !== undefined && val !== null && !Number.isNaN(val)) {
+                    result[key] = val;
+                }
+            });
+            return result;
+        };
+
+        globalRules = {
+            core: clean(DEFAULT_RULES.core, newRules.core),
+            combat: clean(DEFAULT_RULES.combat, newRules.combat),
+            grid: clean(DEFAULT_RULES.grid, newRules.grid),
+        };
         listeners.forEach(l => l());
     },
     subscribe: (listener: () => void) => {
