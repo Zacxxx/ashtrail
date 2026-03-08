@@ -246,6 +246,94 @@ pub async fn generate_text(prompt: &str) -> Result<String, (StatusCode, String)>
     ))
 }
 
+pub async fn generate_text_with_inline_image(
+    prompt: &str,
+    image_base64: &str,
+    mime_type: &str,
+) -> Result<String, (StatusCode, String)> {
+    let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
+        let msg = "GEMINI_API_KEY environment variable not set";
+        error!(msg);
+        (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string())
+    })?;
+
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}",
+        api_key
+    );
+
+    let req_body = GeminiRequest {
+        contents: vec![GeminiContent {
+            parts: vec![
+                GeminiPart {
+                    text: Some(prompt.to_string()),
+                    inline_data: None,
+                },
+                GeminiPart {
+                    text: None,
+                    inline_data: Some(GeminiInlineDataRequest {
+                        mime_type: mime_type.to_string(),
+                        data: image_base64.to_string(),
+                    }),
+                },
+            ],
+        }],
+        generation_config: GenerationConfig {
+            response_modalities: vec!["TEXT".to_string()],
+            temperature: Some(0.5),
+            image_config: None,
+        },
+    };
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(&url)
+        .json(&req_body)
+        .send()
+        .await
+        .map_err(|e| {
+            error!("Reqwest error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+
+    let status = res.status();
+    let gemini_resp: GeminiResponse = res.json().await.map_err(|e| {
+        error!("Failed to parse Gemini text+image response: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+
+    if !status.is_success() {
+        let err_msg = gemini_resp
+            .error
+            .map(|e| e.message)
+            .unwrap_or_else(|| "Unknown API error".to_string());
+        return Err((StatusCode::BAD_REQUEST, err_msg));
+    }
+
+    if let Some(candidates) = gemini_resp.candidates {
+        if let Some(candidate) = candidates.first() {
+            if let Some(content) = &candidate.content {
+                if let Some(parts) = &content.parts {
+                    let mut output = String::new();
+                    for part in parts {
+                        if let Some(text) = &part.text {
+                            output.push_str(text);
+                        }
+                    }
+                    if !output.trim().is_empty() {
+                        return Ok(output);
+                    }
+                }
+            }
+        }
+    }
+
+    Err((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "No text generated".to_string(),
+    ))
+}
+
 pub async fn generate_image_edit_bytes(prompt: &str, image_base64: &str, mime_type: &str, temperature: Option<f32>, aspect_ratio: Option<&str>) -> Result<Vec<u8>, (StatusCode, String)> {
     let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
         let msg = "GEMINI_API_KEY environment variable not set";

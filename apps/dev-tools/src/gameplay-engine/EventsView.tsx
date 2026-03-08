@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { Character, Trait, Stats } from "@ashtrail/core";
 import { Card, Button, Input } from "@ashtrail/ui";
-import { User, Sparkles, Wand2, Shield, HeartPulse } from "lucide-react";
+import { User, Sparkles, Wand2, Shield, HeartPulse, Plus } from "lucide-react";
+import { useActiveWorld } from "../hooks/useActiveWorld";
+import { CharacterGeneratorModal } from "../character-builder/CharacterGeneratorModal";
 
 interface EventChoice {
     id: string;
@@ -21,14 +23,29 @@ interface EventOutcome {
     stat_changes: { target: string; value: number }[];
     new_traits: string[];
     removed_traits: string[];
+    loot?: { name: string; category: string; rarity: string; description: string }[];
+    new_skills?: { name: string; description: string; category: string }[];
+    relationship_changes?: { character_name: string; change: number }[];
     starts_combat: boolean;
     starts_quest: boolean;
 }
 
-export function EventsView({ characters, onCharacterUpdated }: { characters: Character[], onCharacterUpdated?: () => void }) {
+export function EventsView({
+    characters,
+    onCharacterUpdated,
+    onCombatRedirect
+}: {
+    characters: Character[],
+    onCharacterUpdated?: () => void,
+    onCombatRedirect?: (playerIds: string[], enemyIds: string[]) => void
+}) {
     const [selectedCharacterId, setSelectedCharacterId] = useState<string>(characters[0]?.id || "");
     const [eventType, setEventType] = useState<string>("Random Encounter");
     const [context, setContext] = useState<string>("Traveling through a dense, foggy forest.");
+    const [involvedCharacterIds, setInvolvedCharacterIds] = useState<string[]>([]);
+
+    const { activeWorldId } = useActiveWorld();
+    const [showGeneratorModal, setShowGeneratorModal] = useState(false);
 
     const [isGenerating, setIsGenerating] = useState(false);
     const [eventData, setEventData] = useState<EventData | null>(null);
@@ -43,29 +60,53 @@ export function EventsView({ characters, onCharacterUpdated }: { characters: Cha
         if (!character) return;
         setIsGenerating(true);
         setOutcomeData(null);
+        if (!isThink) setEventData(null);
 
         try {
-            const body = {
-                characterStats: character.stats,
-                characterTraits: character.traits,
-                characterAlignment: character.alignment || "Neutral",
-                context: context + (isThink ? " (Player is 'Thinking' for a better option)" : ""),
-                eventType,
-            };
-
-            const res = await fetch("http://127.0.0.1:8787/api/events/generate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body)
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                try {
-                    const parsed = JSON.parse(data.rawJson);
-                    setEventData(parsed);
-                } catch (e) {
-                    console.error("Failed to parse event JSON", e);
+            if (isThink && eventData) {
+                const body = {
+                    characterStats: character.stats,
+                    characterTraits: character.traits,
+                    characterAlignment: character.alignment || "Neutral",
+                    eventDescription: eventData.description,
+                };
+                const res = await fetch("http://127.0.0.1:8787/api/events/rethink", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    try {
+                        const parsed = JSON.parse(data.rawJson);
+                        setEventData(prev => prev ? { ...prev, choices: parsed.choices } : prev);
+                    } catch (e) {
+                        console.error("Failed to parse rethink JSON", e);
+                    }
+                }
+            } else {
+                const involvedNames = involvedCharacterIds.map(id => characters.find(c => c.id === id)?.name).filter(Boolean);
+                const involvedContext = involvedNames.length > 0 ? ` (Involved Characters: ${involvedNames.join(', ')})` : "";
+                const body = {
+                    characterStats: character.stats,
+                    characterTraits: character.traits,
+                    characterAlignment: character.alignment || "Neutral",
+                    context: context + involvedContext,
+                    eventType,
+                };
+                const res = await fetch("http://127.0.0.1:8787/api/events/generate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    try {
+                        const parsed = JSON.parse(data.rawJson);
+                        setEventData(parsed);
+                    } catch (e) {
+                        console.error("Failed to parse event JSON", e);
+                    }
                 }
             }
         } catch (error) {
@@ -122,8 +163,65 @@ export function EventsView({ characters, onCharacterUpdated }: { characters: Cha
                             updated.traits = updated.traits.filter(t => !parsed.removed_traits.includes(t.name));
                         }
 
-                        // We can't easily add full traits without the trait DB, so we'll just mock it or skip full trait object creation for now 
-                        // In a real implementation we would fetch the trait from GameRegistry and append it.
+                        // Parse Relationships
+                        if (parsed.relationship_changes) {
+                            if (!updated.relationships) updated.relationships = [];
+                            parsed.relationship_changes.forEach((rc: any) => {
+                                const target = characters.find(c => c.name.toLowerCase() === rc.character_name.toLowerCase());
+                                if (target) {
+                                    const existing = updated.relationships.find((r: any) => r.targetId === target.id);
+                                    if (!existing) {
+                                        updated.relationships.push({
+                                            targetId: target.id,
+                                            type: rc.change > 0 ? "ally" as any : "rival" as any,
+                                            note: rc.change > 0 ? "Relationship improved" : "Relationship worsened"
+                                        });
+                                    }
+                                }
+                            });
+                        }
+
+                        // Parse Loot
+                        if (parsed.loot) {
+                            if (!updated.inventory) updated.inventory = [];
+                            for (const l of parsed.loot) {
+                                const newItem = {
+                                    id: `item_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                                    name: l.name,
+                                    description: l.description,
+                                    category: (l.category || "junk").toLowerCase() as any,
+                                    rarity: (l.rarity || "salvaged").toLowerCase() as any,
+                                    value: 10,
+                                    weight: 1,
+                                    effects: []
+                                };
+                                await fetch("http://127.0.0.1:8787/api/data/items", {
+                                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newItem)
+                                });
+                                updated.inventory.push(newItem as any);
+                            }
+                        }
+
+                        // Parse Skills
+                        if (parsed.new_skills) {
+                            if (!updated.skills) updated.skills = [];
+                            for (const s of parsed.new_skills) {
+                                const newSkill = {
+                                    id: `skill_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                                    name: s.name,
+                                    description: s.description,
+                                    category: (s.category || "utility").toLowerCase() as any,
+                                    apCost: 1,
+                                    range: 1,
+                                    isHostile: false,
+                                    effects: []
+                                };
+                                await fetch("http://127.0.0.1:8787/api/data/skills", {
+                                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newSkill)
+                                });
+                                updated.skills.push(newSkill as any);
+                            }
+                        }
 
                         await fetch("http://127.0.0.1:8787/api/data/characters", {
                             method: "POST",
@@ -133,6 +231,11 @@ export function EventsView({ characters, onCharacterUpdated }: { characters: Cha
 
                         if (onCharacterUpdated) {
                             onCharacterUpdated();
+                        }
+
+                        // Handle Combat Redirect
+                        if (parsed.starts_combat && onCombatRedirect) {
+                            onCombatRedirect([character.id], []);
                         }
                     }
 
@@ -197,6 +300,36 @@ export function EventsView({ characters, onCharacterUpdated }: { characters: Cha
                         onChange={e => setContext(e.target.value)}
                         placeholder="e.g. Navigating treacherous ruins..."
                     />
+                </div>
+
+                <div className="flex flex-col gap-1 mt-2 mb-2">
+                    <div className="flex justify-between items-center">
+                        <label className="text-xs text-gray-400">Involved Characters:</label>
+                        <Button variant="secondary" className="text-[10px] h-6 px-2 py-0 text-orange-400 border border-transparent hover:border-orange-500/30 font-bold uppercase tracking-wider" onClick={() => setShowGeneratorModal(true)}>
+                            <Sparkles size={10} className="mr-1" /> GEN NPC
+                        </Button>
+                    </div>
+
+                    <div className="flex flex-col gap-1 mt-1 p-2 bg-black/30 border border-white/5 rounded-lg max-h-32 overflow-y-auto">
+                        {characters.length <= 1 ? (
+                            <span className="text-xs text-gray-600 italic">No other characters available.</span>
+                        ) : (
+                            characters.filter(c => c.id !== selectedCharacterId).map(c => (
+                                <label key={`inv-${c.id}`} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-white">
+                                    <input
+                                        type="checkbox"
+                                        checked={involvedCharacterIds.includes(c.id)}
+                                        onChange={(e) => {
+                                            if (e.target.checked) setInvolvedCharacterIds(prev => [...prev, c.id]);
+                                            else setInvolvedCharacterIds(prev => prev.filter(id => id !== c.id));
+                                        }}
+                                        className="accent-orange-500 bg-white/5 border-white/10 rounded w-3 h-3 cursor-pointer"
+                                    />
+                                    {c.name}
+                                </label>
+                            ))
+                        )}
+                    </div>
                 </div>
 
                 <Button
@@ -320,9 +453,25 @@ export function EventsView({ characters, onCharacterUpdated }: { characters: Cha
                                                     <span className="font-bold">Lost:</span> {t}
                                                 </div>
                                             ))}
+                                            {outcomeData.loot?.map((l, i) => (
+                                                <div key={`loot-${i}`} className="flex items-center gap-1.5 px-2 py-1 rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
+                                                    <span className="font-bold">Loot:</span> {l.name}
+                                                </div>
+                                            ))}
+                                            {outcomeData.new_skills?.map((s, i) => (
+                                                <div key={`skill-${i}`} className="flex items-center gap-1.5 px-2 py-1 rounded bg-blue-500/10 border border-blue-500/30 text-blue-400">
+                                                    <span className="font-bold">Skill:</span> {s.name}
+                                                </div>
+                                            ))}
+                                            {outcomeData.relationship_changes?.map((rc, i) => (
+                                                <div key={`rel-${i}`} className={`flex items-center gap-1.5 px-2 py-1 rounded bg-purple-500/10 border border-purple-500/30 ${rc.change > 0 ? 'text-purple-300' : 'text-red-400'}`}>
+                                                    <span className="font-bold">{rc.character_name}:</span> {rc.change > 0 ? `+${rc.change}` : rc.change}
+                                                </div>
+                                            ))}
                                             {outcomeData.starts_combat && (
-                                                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-red-900/50 border border-red-500 text-red-200">
-                                                    <Shield size={12} /> <span className="font-bold">COMBAT INITIATED</span>
+                                                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-red-900/50 border border-red-500 text-red-200 cursor-pointer animate-pulse hover:bg-red-800/50 transition-colors"
+                                                    onClick={() => onCombatRedirect?.([character!.id], [])}>
+                                                    <Shield size={12} /> <span className="font-bold">ENTER COMBAT &rarr;</span>
                                                 </div>
                                             )}
                                         </div>
@@ -333,6 +482,20 @@ export function EventsView({ characters, onCharacterUpdated }: { characters: Cha
                     </Card>
                 )}
             </div>
+
+            {showGeneratorModal && (
+                <CharacterGeneratorModal
+                    open={showGeneratorModal}
+                    worldId={activeWorldId || ""}
+                    baseTypes={[]}
+                    worldLore=""
+                    onClose={() => setShowGeneratorModal(false)}
+                    onConfirm={async () => {
+                        setShowGeneratorModal(false);
+                        if (onCharacterUpdated) await onCharacterUpdated();
+                    }}
+                />
+            )}
         </div>
     );
 }

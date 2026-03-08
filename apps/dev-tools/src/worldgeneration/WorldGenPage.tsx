@@ -271,11 +271,7 @@ export function WorldGenPage() {
                     )}
                     {activeStep === "ECO" && (
                         <EcologyPanel
-                            ecoPrompt={ecoPrompt} setEcoPrompt={setEcoPrompt}
-                            ecoVegetation={ecoVegetation} setEcoVegetation={setEcoVegetation}
-                            ecoFauna={ecoFauna} setEcoFauna={setEcoFauna}
-                            generateEcology={generateEcology} genProgress={genProgress} globeWorld={globeWorld}
-                            regions={[]}
+                            planetId={activeHistoryId}
                         />
                     )}
                     {activeStep === "HUMANITY" && (

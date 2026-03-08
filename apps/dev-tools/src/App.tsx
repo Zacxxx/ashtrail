@@ -56,6 +56,14 @@ const TOOLS = [
         icon: "📜",
         status: "WIP",
         color: "bg-red-500",
+    },
+    {
+        id: "ecology",
+        name: "Ecology Archive",
+        description: "World-scoped flora, fauna, climate, and province ecology canon management.",
+        icon: "🌿",
+        status: "WIP",
+        color: "bg-emerald-500",
     }
 ];
 

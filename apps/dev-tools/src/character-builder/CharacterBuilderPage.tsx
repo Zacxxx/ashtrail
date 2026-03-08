@@ -6,6 +6,7 @@ import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import { useActiveWorld } from "../hooks/useActiveWorld";
+import { CharacterGeneratorModal } from "./CharacterGeneratorModal";
 
 // Map item category + name to an equipment slot
 const SLOT_MAP: Record<string, EquipSlot> = {
@@ -143,6 +144,30 @@ export function CharacterBuilderPage() {
     // World Picker
     const { history: generationHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const [showGalleryModal, setShowGalleryModal] = useState(false);
+    const [showGeneratorModal, setShowGeneratorModal] = useState(false);
+
+    const handleGenerateConfirm = async (characters: Character[]) => {
+        try {
+            for (const char of characters) {
+                await fetch("http://127.0.0.1:8787/api/data/characters", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(char)
+                });
+            }
+
+            await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+            setSavedCharacters(GameRegistry.getAllCharacters());
+
+            if (characters.length > 0) {
+                const newChar = GameRegistry.getAllCharacters().find(c => c.id === characters[0].id) || characters[0];
+                loadCharacter(newChar);
+            }
+        } catch (error) {
+            console.error("Failed to save generated characters:", error);
+        }
+        setShowGeneratorModal(false);
+    };
 
     // Sidebar Filter
     const [sidebarTypeFilter, setSidebarTypeFilter] = useState<CharacterType | "ALL">("ALL");
@@ -798,6 +823,9 @@ export function CharacterBuilderPage() {
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                                 </svg>
+                            </button>
+                            <button onClick={() => setShowGeneratorModal(true)} className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-orange-400 border border-orange-500/30 bg-orange-500/10 rounded-lg hover:bg-orange-500/20 transition-all flex items-center gap-1.5">
+                                <span>✨</span> AI Gen
                             </button>
                             <button onClick={resetForm} className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 border border-white/10 rounded-lg hover:bg-white/5 transition-all">
                                 + New
@@ -3260,6 +3288,17 @@ export function CharacterBuilderPage() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {showGeneratorModal && (
+                <CharacterGeneratorModal
+                    open={showGeneratorModal}
+                    worldId={worldId}
+                    baseTypes={activeBaseTypes}
+                    worldLore={selectedWorld?.prompt || ""}
+                    onClose={() => setShowGeneratorModal(false)}
+                    onConfirm={handleGenerateConfirm}
+                />
             )}
         </>
     );

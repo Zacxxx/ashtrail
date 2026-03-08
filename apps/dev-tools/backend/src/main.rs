@@ -6,6 +6,8 @@ mod worldgen_pipeline;
 mod cms;
 mod combat_engine;
 mod ai_events;
+mod ai_characters;
+mod ecology;
 
 use axum::{
     extract::{Path, Query, State},
@@ -439,8 +441,16 @@ async fn main() {
         .route("/api/text/generate", post(generate_text_handler))
         .route("/api/events/generate", post(ai_events::generate_event_handler))
         .route("/api/events/resolve", post(ai_events::resolve_event_handler))
+        .route("/api/events/rethink", post(ai_events::rethink_event_handler))
+        .route("/api/characters/generate", post(ai_characters::generate_character_handler))
         .route("/api/planet/ecology", post(start_ecology_job))
         .route("/api/planet/ecology/{job_id}", get(get_job_status))
+        .route("/api/planet/ecology-data/{world_id}", get(ecology::get_ecology_data).post(ecology::save_ecology_data))
+        .route("/api/planet/ecology-data/{world_id}/generate/world", post(ecology::generate_world_baseline))
+        .route("/api/planet/ecology-data/{world_id}/generate/kingdom/{kingdom_id}", post(ecology::generate_kingdom_baseline))
+        .route("/api/planet/ecology-data/{world_id}/generate/duchy/{duchy_id}", post(ecology::generate_duchy_baseline))
+        .route("/api/planet/ecology-data/{world_id}/generate/province/{province_id}", post(ecology::generate_province_record))
+        .route("/api/planet/ecology-jobs/{job_id}", get(get_job_status))
         .route("/api/planet/humanity", post(start_humanity_job))
         .route("/api/planet/humanity/{job_id}", get(get_job_status))
         .route("/api/history", get(get_history).post(save_history).delete(clear_history))
@@ -480,6 +490,7 @@ async fn main() {
         .route("/api/worldgen/{planet_id}/hierarchy/reassign", post(reassign_worldgen_hierarchy))
         .route("/api/worldgen/{planet_id}/hierarchy/rename", post(rename_worldgen_hierarchy))
         .route("/api/worldgen/{planet_id}/hierarchy/init-stats", post(init_province_stats))
+        .route("/api/worldgen/{planet_id}/isolate/provinces", post(worldgen_pipeline::isolate_all_provinces))
         .route("/api/worldgen/{planet_id}/isolate", post(worldgen_pipeline::isolate_region))
         .route("/api/worldgen/{planet_id}/isolated", get(worldgen_pipeline::list_isolated_regions))
         .route("/api/worldgen/isolated/all", get(worldgen_pipeline::list_all_isolated_regions))

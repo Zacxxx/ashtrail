@@ -147,6 +147,27 @@ Output strictly in JSON format matching this schema:
   ],
   \"new_traits\": [\"string (names of traits gained)\"],
   \"removed_traits\": [\"string (names of traits lost)\"],
+  \"loot\": [
+    {{
+      \"name\": \"string (name of item)\",
+      \"category\": \"string (weapon, armor, consumable, resource, junk)\",
+      \"rarity\": \"string (salvaged, reinforced, pre-ash, specialized, relic, ashmarked)\",
+      \"description\": \"string (brief flavor text)\"
+    }}
+  ],
+  \"new_skills\": [
+    {{
+      \"name\": \"string\",
+      \"description\": \"string\",
+      \"category\": \"string (base, physical, magical, utility)\"
+    }}
+  ],
+  \"relationship_changes\": [
+    {{
+      \"character_name\": \"string (name of the character involved)\",
+      \"change\": \"number (positive or negative, e.g. 10 or -5)\"
+    }}
+  ],
   \"starts_combat\": \"boolean\",
   \"starts_quest\": \"boolean\"
 }}",
@@ -177,3 +198,74 @@ Output strictly in JSON format matching this schema:
         raw_json: cleaned,
     }))
 }
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RethinkEventRequest {
+    pub character_stats: Stats, 
+    pub character_traits: Vec<Trait>,
+    pub character_alignment: Option<String>,
+    pub event_description: String,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RethinkEventResponse {
+    pub raw_json: String,
+}
+
+pub async fn rethink_event_handler(
+    Json(payload): Json<RethinkEventRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let traits_list: Vec<String> = payload.character_traits.iter().map(|t| t.name.clone()).collect();
+    
+    let prompt = format!(
+        "You are an AI Game Master for an RPG. The player has encountered the following event:
+{}
+
+The player has used their 'THINK' action. Based strictly on their mental stats (INT, WIS, CHA) and traits, generate 4 NEW alternative choices for this event.
+Do NOT re-write the event description. ONLY provide the 4 choices.
+
+Character Attributes:
+Alignment: {}
+Traits: {}
+Stats: STR: {}, AGI: {}, INT: {}, WIS: {}, END: {}, CHA: {}
+
+Output strictly in JSON format matching this schema:
+{{
+  \"choices\": [
+    {{
+      \"id\": \"choice_1\",
+      \"text\": \"string, description of the alternative choice\",
+      \"trait_affinity\": \"string, e.g. 'Paranoid' or null\",
+      \"stat_affinity\": \"string, e.g. 'intelligence' or null\"
+    }}
+  ]
+}}",
+        payload.event_description,
+        payload.character_alignment.unwrap_or_else(|| "Neutral".to_string()),
+        traits_list.join(", "),
+        payload.character_stats.strength,
+        payload.character_stats.agility,
+        payload.character_stats.intelligence,
+        payload.character_stats.wisdom,
+        payload.character_stats.endurance,
+        payload.character_stats.charisma,
+    );
+
+    let generated_text = generate_text(&prompt).await?;
+    
+    let cleaned = generated_text
+        .trim()
+        .strip_prefix("```json")
+        .unwrap_or(&generated_text)
+        .strip_suffix("```")
+        .unwrap_or(&generated_text)
+        .trim()
+        .to_string();
+
+    Ok(Json(RethinkEventResponse {
+        raw_json: cleaned,
+    }))
+}
+

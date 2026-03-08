@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@ashtrail/ui";
 
 const API_BASE = "http://127.0.0.1:8787";
@@ -23,12 +23,25 @@ interface RegionRecord {
     name: string;
 }
 
+interface WorldgenJobStatus {
+    status: string;
+    progress: number;
+    currentStage: string;
+    error?: string | null;
+}
+
 export function GeographyIsolatorPanel({ planetId, selectedId, activeLayer }: GeographyIsolatorPanelProps) {
     const [isolatedImages, setIsolatedImages] = useState<IsolatedImage[]>([]);
     const [loading, setLoading] = useState(false);
     const [isolating, setIsolating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [regions, setRegions] = useState<Record<number, RegionRecord>>({});
+    const [bulkJobId, setBulkJobId] = useState<string | null>(null);
+    const [bulkProgress, setBulkProgress] = useState(0);
+    const [bulkStage, setBulkStage] = useState<string | null>(null);
+    const [bulkRunning, setBulkRunning] = useState(false);
+    const [bulkError, setBulkError] = useState<string | null>(null);
+    const bulkPollRef = useRef<number | null>(null);
 
     const entityTypeStr = activeLayer.endsWith("s") ? activeLayer.slice(0, -1) : activeLayer;
 
@@ -37,6 +50,28 @@ export function GeographyIsolatorPanel({ planetId, selectedId, activeLayer }: Ge
         loadImages();
         loadRegions();
     }, [planetId, activeLayer]);
+
+    useEffect(() => {
+        return () => {
+            if (bulkPollRef.current !== null) {
+                window.clearInterval(bulkPollRef.current);
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!planetId) {
+            if (bulkPollRef.current !== null) {
+                window.clearInterval(bulkPollRef.current);
+                bulkPollRef.current = null;
+            }
+            setBulkJobId(null);
+            setBulkProgress(0);
+            setBulkStage(null);
+            setBulkRunning(false);
+            setBulkError(null);
+        }
+    }, [planetId]);
 
     const loadRegions = async () => {
         if (!planetId) return;
@@ -97,6 +132,78 @@ export function GeographyIsolatorPanel({ planetId, selectedId, activeLayer }: Ge
         }
     };
 
+    const stopBulkPolling = () => {
+        if (bulkPollRef.current !== null) {
+            window.clearInterval(bulkPollRef.current);
+            bulkPollRef.current = null;
+        }
+    };
+
+    const startBulkPolling = (jobId: string) => {
+        stopBulkPolling();
+        bulkPollRef.current = window.setInterval(async () => {
+            if (!planetId) {
+                stopBulkPolling();
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/api/worldgen/${planetId}/job/${jobId}`);
+                if (!res.ok) return;
+
+                const data: WorldgenJobStatus = await res.json();
+                setBulkProgress(data.progress || 0);
+                setBulkStage(data.currentStage || null);
+
+                if (data.status === "completed") {
+                    stopBulkPolling();
+                    setBulkRunning(false);
+                    setBulkJobId(null);
+                    setBulkProgress(100);
+                    setBulkStage(data.currentStage || "Completed");
+                    await loadImages();
+                } else if (data.status === "failed" || data.status === "cancelled") {
+                    stopBulkPolling();
+                    setBulkRunning(false);
+                    setBulkJobId(null);
+                    setBulkError(data.error || "Bulk province isolation failed.");
+                }
+            } catch (err: any) {
+                setBulkError(err.message || "Failed to poll bulk isolation job.");
+                stopBulkPolling();
+                setBulkRunning(false);
+                setBulkJobId(null);
+            }
+        }, 800);
+    };
+
+    const handleIsolateAllProvinces = async () => {
+        if (!planetId || bulkRunning) return;
+        setBulkError(null);
+        setBulkJobId(null);
+        setBulkProgress(0);
+        setBulkStage("Queuing province isolation...");
+        setBulkRunning(true);
+
+        try {
+            const res = await fetch(`${API_BASE}/api/worldgen/${planetId}/isolate/provinces`, {
+                method: "POST",
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || "Failed to start bulk province isolation.");
+            }
+
+            const data = await res.json();
+            setBulkJobId(data.jobId);
+            startBulkPolling(data.jobId);
+        } catch (err: any) {
+            setBulkRunning(false);
+            setBulkStage(null);
+            setBulkError(err.message || "Failed to start bulk province isolation.");
+        }
+    };
+
     if (!planetId) {
         return <div className="p-4 text-xs text-center text-gray-500 font-mono">NO PLANET ACTIVE</div>;
     }
@@ -117,6 +224,37 @@ export function GeographyIsolatorPanel({ planetId, selectedId, activeLayer }: Ge
                     Isolate a specific region (province, duchy, kingdom, continent) into its own transparent image.
                 </p>
 
+                <div className="bg-black/40 border border-white/10 rounded-xl p-4 text-center mb-4">
+                    <p className="text-[10px] text-gray-500 font-mono mb-2">PROVINCE WORKFLOW</p>
+                    <p className="text-[11px] text-gray-400 leading-relaxed font-mono mb-4">
+                        Isolate every province into its own full-canvas transparent image.
+                    </p>
+                    <Button
+                        variant="primary"
+                        onClick={handleIsolateAllProvinces}
+                        disabled={!planetId || bulkRunning}
+                        className="w-full text-[10px] font-black tracking-widest bg-cyan-600/40 hover:bg-cyan-600/60 border border-cyan-500/40 disabled:opacity-50"
+                    >
+                        {bulkRunning ? "ISOLATING PROVINCES..." : "ISOLATE ALL PROVINCES"}
+                    </Button>
+                    {(bulkRunning || bulkJobId || bulkStage) && (
+                        <div className="mt-3 text-left bg-black/30 border border-white/10 rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] text-cyan-400 font-black tracking-widest">BULK STATUS</span>
+                                <span className="text-[10px] text-gray-400 font-mono">{bulkProgress.toFixed(0)}%</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden mb-2">
+                                <div
+                                    className="h-full bg-gradient-to-r from-cyan-500 to-green-500 rounded-full transition-all duration-300"
+                                    style={{ width: `${bulkProgress}%` }}
+                                />
+                            </div>
+                            {bulkStage && <p className="text-[10px] text-gray-400 font-mono">{bulkStage}</p>}
+                        </div>
+                    )}
+                    {bulkError && <p className="text-[10px] text-red-400 font-mono mt-2">{bulkError}</p>}
+                </div>
+
                 {selectedId !== null ? (
                     <div className="bg-black/40 border border-white/10 rounded-xl p-4 text-center">
                         <p className="text-[10px] text-gray-500 font-mono mb-2">SELECTED {entityTypeStr.toUpperCase()}</p>
@@ -124,7 +262,7 @@ export function GeographyIsolatorPanel({ planetId, selectedId, activeLayer }: Ge
                         <Button
                             variant="primary"
                             onClick={handleIsolate}
-                            disabled={isolating}
+                            disabled={isolating || bulkRunning}
                             className="w-full text-[10px] font-black tracking-widest bg-cyan-600/40 hover:bg-cyan-600/60 border border-cyan-500/40 disabled:opacity-50"
                         >
                             {isolating ? "ISOLATING..." : "ISOLATE SELECTION"}

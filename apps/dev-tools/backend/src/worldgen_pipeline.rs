@@ -7,6 +7,7 @@ use axum::{
 use image::io::Reader as ImageReader;
 use image::GenericImageView;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::collections::{HashMap, HashSet};
@@ -14,6 +15,7 @@ use uuid::Uuid;
 use tracing::{info, error};
 
 use worldgen_core::*;
+use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
 use worldgen_core::export::PipelineStatus;
 
 use crate::{AppState, JobRecord, JobStatus};
@@ -81,6 +83,7 @@ pub struct StageInfo {
 pub struct WorldgenJobStatus {
     pub status: String,
     pub progress: f32,
+    pub current_stage: String,
     pub error: Option<String>,
 }
 
@@ -94,6 +97,13 @@ struct ContinentRecord {
     name: String,
 }
 
+struct HierarchyRecords {
+    provinces: Vec<ProvinceRecord>,
+    duchies: Vec<DuchyRecord>,
+    kingdoms: Vec<KingdomRecord>,
+    continents: Option<Vec<ContinentRecord>>,
+}
+
 // ── Helper: resolve planet worldgen directory ──
 
 fn worldgen_dir(planets_dir: &std::path::Path, planet_id: &str) -> PathBuf {
@@ -102,6 +112,36 @@ fn worldgen_dir(planets_dir: &std::path::Path, planet_id: &str) -> PathBuf {
 
 fn base_image_path(planets_dir: &std::path::Path, planet_id: &str) -> PathBuf {
     planets_dir.join(planet_id).join("textures").join("base.jpg")
+}
+
+pub(crate) fn ensure_isolated_province_asset(
+    planets_dir: &std::path::Path,
+    isolated_root_dir: &std::path::Path,
+    planet_id: &str,
+    province_id: u32,
+) -> Result<String, String> {
+    let out_dir = worldgen_dir(planets_dir, planet_id);
+    let isolated_dir = isolated_root_dir.join(planet_id);
+    if !isolated_dir.exists() {
+        fs::create_dir_all(&isolated_dir)
+            .map_err(|e| format!("Failed to create isolated dir: {}", e))?;
+    }
+
+    let filename = format!("province_{}.png", province_id);
+    let out_path = isolated_dir.join(&filename);
+    if out_path.exists() {
+        return Ok(filename);
+    }
+
+    let base_path = base_image_path(planets_dir, planet_id);
+    let (province_id_map, width, height) = load_province_id_map(&out_dir)?;
+    let base_img = load_base_texture(&base_path)?;
+    let layer = render_single_province_layer(province_id, &province_id_map, width, height, &base_img)?;
+    layer
+        .save(&out_path)
+        .map_err(|e| format!("Failed to save {}: {}", out_path.display(), e))?;
+
+    Ok(filename)
 }
 
 // ── GET /api/worldgen/{planet_id}/status ──
@@ -164,48 +204,25 @@ pub async fn isolate_region(
         std::fs::create_dir_all(&isolated_dir).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
 
-    let map_filename = match request.entity_type.as_str() {
-        "province" => "province_id.png",
-        "duchy" => "duchy_id.png",
-        "kingdom" => "kingdom_id.png",
-        "continent" => "continent_id.png",
-        _ => return Err((StatusCode::BAD_REQUEST, "Invalid entity type".into())),
-    };
-
-    let map_path = out_dir.join(map_filename);
-    if !map_path.exists() {
-         return Err((StatusCode::NOT_FOUND, "Hierarchy map not found. Did you run the pipeline?".into()));
-    }
-
     let base_path = base_image_path(&state.planets_dir, &planet_id);
-    if !base_path.exists() {
-        return Err((StatusCode::NOT_FOUND, "Base texture not found.".into()));
-    }
 
     let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
-        let (w, h) = get_dimensions(&map_path)?;
-        let id_map = load_id_texture(&map_path, w, h)?;
-        let base_img = load_rgb_png(&base_path, "Failed to load base image")?;
+        let (province_id_map, width, height) = load_province_id_map(&out_dir)?;
+        let base_img = load_base_texture(&base_path)?;
+        let hierarchy = load_hierarchy_records(&out_dir)?;
+        let province_ids = resolve_province_ids_for_entity(&request.entity_type, request.entity_id, &hierarchy)?;
 
-        let mut out_img = image::RgbaImage::new(w, h);
-        
-        for y in 0..h {
-            for x in 0..w {
-                let idx = (y * w + x) as usize;
-                if id_map[idx] == request.entity_id {
-                    let p = base_img.get_pixel(x, y);
-                    out_img.put_pixel(x, y, image::Rgba([p[0], p[1], p[2], 255]));
-                } else {
-                    out_img.put_pixel(x, y, image::Rgba([0, 0, 0, 0]));
-                }
-            }
-        }
+        let layers: Vec<image::RgbaImage> = province_ids
+            .into_iter()
+            .map(|province_id| render_single_province_layer(province_id, &province_id_map, width, height, &base_img))
+            .collect::<Result<Vec<_>, _>>()?;
 
+        let out_img = merge_layers_into_canvas(layers, width, height);
         let filename = format!("{}_{}.png", request.entity_type, request.entity_id);
         let out_path = isolated_dir.join(&filename);
-        
+
         out_img.save(&out_path).map_err(|e| format!("Failed to save isolated image: {}", e))?;
-        
+
         Ok(filename)
     })
     .await
@@ -213,6 +230,63 @@ pub async fn isolate_region(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(IsolateResponse { success: true, filename: result }))
+}
+
+// ── POST /api/worldgen/{planet_id}/isolate/provinces ──
+
+pub async fn isolate_all_provinces(
+    State(state): State<AppState>,
+    Path(planet_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let out_dir = worldgen_dir(&state.planets_dir, &planet_id);
+    let isolated_dir = state.isolated_dir.join(&planet_id);
+    if !isolated_dir.exists() {
+        fs::create_dir_all(&isolated_dir).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+
+    let province_map_path = out_dir.join("province_id.png");
+    if !province_map_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Hierarchy map not found. Did you run the pipeline?".into()));
+    }
+
+    let provinces_path = out_dir.join("provinces.json");
+    if !provinces_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Province hierarchy not found. Did you run clustering?".into()));
+    }
+
+    let base_path = base_image_path(&state.planets_dir, &planet_id);
+    if !base_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Base texture not found.".into()));
+    }
+
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        jobs.insert(
+            job_id.clone(),
+            JobRecord {
+                status: JobStatus::Queued,
+                progress: 0.0,
+                current_stage: "Queued for Province Isolation".to_string(),
+                result: None,
+                error: None,
+                cancel_requested: false,
+            },
+        );
+    }
+
+    let jobs = state.jobs.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::task::spawn_blocking(move || {
+        run_isolate_all_provinces_job(spawned_job_id, jobs, out_dir, base_path, isolated_dir);
+    });
+
+    Ok(Json(RunStageResponse { job_id }))
 }
 
 // ── GET /api/worldgen/{planet_id}/isolated ──
@@ -380,6 +454,7 @@ pub async fn get_worldgen_job_status(
     Ok(Json(WorldgenJobStatus {
         status: status_str.to_string(),
         progress: job.progress,
+        current_stage: job.current_stage.clone(),
         error: job.error.clone(),
     }))
 }
@@ -597,7 +672,225 @@ fn run_single_stage(
     }
 }
 
+fn run_isolate_all_provinces_job(
+    job_id: String,
+    jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
+    out_dir: PathBuf,
+    base_path: PathBuf,
+    isolated_dir: PathBuf,
+) {
+    {
+        let mut jobs = jobs.lock().unwrap();
+        if let Some(job) = jobs.get_mut(&job_id) {
+            job.status = JobStatus::Running;
+            job.current_stage = "Loading province masks".to_string();
+        }
+    }
+
+    let result = (|| -> Result<(), String> {
+        let (province_id_map, width, height) = load_province_id_map(&out_dir)?;
+        let base_img = load_base_texture(&base_path)?;
+        let hierarchy = load_hierarchy_records(&out_dir)?;
+        let total = hierarchy.provinces.len();
+
+        if total == 0 {
+            return Err("No provinces found in provinces.json".to_string());
+        }
+
+        for (index, province) in hierarchy.provinces.iter().enumerate() {
+            {
+                let mut jobs = jobs.lock().unwrap();
+                if let Some(job) = jobs.get_mut(&job_id) {
+                    job.progress = ((index as f32) / (total as f32)) * 100.0;
+                    job.current_stage = format!(
+                        "Isolating province {}/{}",
+                        index + 1,
+                        total
+                    );
+                }
+            }
+
+            let layer = render_single_province_layer(province.id, &province_id_map, width, height, &base_img)?;
+            let out_path = isolated_dir.join(format!("province_{}.png", province.id));
+            layer
+                .save(&out_path)
+                .map_err(|e| format!("Failed to save {}: {}", out_path.display(), e))?;
+        }
+
+        Ok(())
+    })();
+
+    let mut jobs = jobs.lock().unwrap();
+    if let Some(job) = jobs.get_mut(&job_id) {
+        match result {
+            Ok(()) => {
+                job.status = JobStatus::Completed;
+                job.progress = 100.0;
+                job.current_stage = "Completed".to_string();
+                job.error = None;
+            }
+            Err(error_msg) => {
+                job.status = JobStatus::Failed;
+                job.current_stage = "Failed".to_string();
+                job.error = Some(error_msg);
+            }
+        }
+    }
+}
+
 // ── File Loading Helpers ──
+
+fn load_province_id_map(out_dir: &std::path::Path) -> Result<(Vec<u32>, u32, u32), String> {
+    let province_map_path = out_dir.join("province_id.png");
+    if !province_map_path.exists() {
+        return Err("Hierarchy map not found. Did you run the pipeline?".to_string());
+    }
+    let (width, height) = get_dimensions(&province_map_path)?;
+    let province_id_map = load_id_texture(&province_map_path, width, height)?;
+    Ok((province_id_map, width, height))
+}
+
+fn load_base_texture(path: &std::path::Path) -> Result<image::RgbImage, String> {
+    if !path.exists() {
+        return Err("Base texture not found.".to_string());
+    }
+    load_rgb_png(path, "Failed to load base image")
+}
+
+fn load_hierarchy_records(out_dir: &std::path::Path) -> Result<HierarchyRecords, String> {
+    let provinces_path = out_dir.join("provinces.json");
+    let duchies_path = out_dir.join("duchies.json");
+    let kingdoms_path = out_dir.join("kingdoms.json");
+    let continents_path = out_dir.join("continents.json");
+
+    let provinces = load_json_file::<Vec<ProvinceRecord>>(&provinces_path, "provinces.json")?;
+    let duchies = load_json_file::<Vec<DuchyRecord>>(&duchies_path, "duchies.json")?;
+    let kingdoms = load_json_file::<Vec<KingdomRecord>>(&kingdoms_path, "kingdoms.json")?;
+    let continents = if continents_path.exists() {
+        Some(load_json_file::<Vec<ContinentRecord>>(&continents_path, "continents.json")?)
+    } else {
+        None
+    };
+
+    Ok(HierarchyRecords {
+        provinces,
+        duchies,
+        kingdoms,
+        continents,
+    })
+}
+
+fn resolve_province_ids_for_entity(
+    entity_type: &str,
+    entity_id: u32,
+    hierarchy: &HierarchyRecords,
+) -> Result<Vec<u32>, String> {
+    match entity_type {
+        "province" => {
+            if hierarchy.provinces.iter().any(|province| province.id == entity_id) {
+                Ok(vec![entity_id])
+            } else {
+                Err(format!("Province {} not found", entity_id))
+            }
+        }
+        "duchy" => {
+            let duchy = hierarchy
+                .duchies
+                .iter()
+                .find(|duchy| duchy.id == entity_id)
+                .ok_or_else(|| format!("Duchy {} not found", entity_id))?;
+            Ok(duchy.province_ids.clone())
+        }
+        "kingdom" => {
+            let kingdom = hierarchy
+                .kingdoms
+                .iter()
+                .find(|kingdom| kingdom.id == entity_id)
+                .ok_or_else(|| format!("Kingdom {} not found", entity_id))?;
+            let duchy_index: HashMap<u32, &DuchyRecord> =
+                hierarchy.duchies.iter().map(|duchy| (duchy.id, duchy)).collect();
+            let mut province_ids = Vec::new();
+            let mut seen = HashSet::new();
+            for duchy_id in &kingdom.duchy_ids {
+                let duchy = duchy_index
+                    .get(duchy_id)
+                    .ok_or_else(|| format!("Duchy {} referenced by kingdom {} not found", duchy_id, entity_id))?;
+                for province_id in &duchy.province_ids {
+                    if seen.insert(*province_id) {
+                        province_ids.push(*province_id);
+                    }
+                }
+            }
+            Ok(province_ids)
+        }
+        "continent" => {
+            let continents = hierarchy
+                .continents
+                .as_ref()
+                .ok_or_else(|| "continents.json not found".to_string())?;
+            let continent = continents
+                .iter()
+                .find(|continent| continent.id == entity_id)
+                .ok_or_else(|| format!("Continent {} not found", entity_id))?;
+            Ok(continent.province_ids.clone())
+        }
+        _ => Err("Invalid entity type".to_string()),
+    }
+}
+
+fn render_single_province_layer(
+    province_id: u32,
+    province_id_map: &[u32],
+    width: u32,
+    height: u32,
+    base_img: &image::RgbImage,
+) -> Result<image::RgbaImage, String> {
+    let mut out_img = image::RgbaImage::new(width, height);
+    let mut found = false;
+    for y in 0..height {
+        for x in 0..width {
+            let idx = (y * width + x) as usize;
+            if province_id_map[idx] == province_id {
+                found = true;
+                let pixel = base_img.get_pixel(x, y);
+                out_img.put_pixel(x, y, image::Rgba([pixel[0], pixel[1], pixel[2], 255]));
+            } else {
+                out_img.put_pixel(x, y, image::Rgba([0, 0, 0, 0]));
+            }
+        }
+    }
+
+    if !found {
+        return Err(format!("Province {} not found in province_id.png", province_id));
+    }
+
+    Ok(out_img)
+}
+
+fn merge_layers_into_canvas(
+    layers: Vec<image::RgbaImage>,
+    width: u32,
+    height: u32,
+) -> image::RgbaImage {
+    let mut out_img = image::RgbaImage::new(width, height);
+    for layer in layers {
+        for (x, y, pixel) in layer.enumerate_pixels() {
+            if pixel[3] > 0 {
+                out_img.put_pixel(x, y, *pixel);
+            }
+        }
+    }
+    out_img
+}
+
+fn load_json_file<T: serde::de::DeserializeOwned>(
+    path: &std::path::Path,
+    label: &str,
+) -> Result<T, String> {
+    let raw = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read {}: {}", label, e))?;
+    serde_json::from_str(&raw).map_err(|e| format!("Failed to parse {}: {}", label, e))
+}
 
 fn load_base_image(path: &std::path::Path) -> Result<image::RgbImage, String> {
     let img = ImageReader::open(path)

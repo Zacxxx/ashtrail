@@ -16,6 +16,7 @@ export type GameplayStep = "RULES" | "EXPLORATION" | "EVENTS" | "COMBAT" | "CHAR
 
 export function GameplayEnginePage() {
     const [activeStep, setActiveStep] = useState<GameplayStep>("CHARACTER");
+    const [combatInitData, setCombatInitData] = useState<{ players: string[], enemies: string[] } | null>(null);
 
     // Character Data State for live editing
     const [customTraits, setCustomTraits] = useState<Trait[]>([]);
@@ -162,6 +163,10 @@ export function GameplayEnginePage() {
                                         await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
                                         setCustomCharacters(GameRegistry.getAllCharacters());
                                     }}
+                                    onCombatRedirect={(players, enemies) => {
+                                        setCombatInitData({ players, enemies });
+                                        setActiveStep("COMBAT");
+                                    }}
                                 />
                             </div>
                         </div>
@@ -177,7 +182,12 @@ export function GameplayEnginePage() {
 
                     {activeStep === "COMBAT" && (
                         <div className="w-full h-full">
-                            <CombatSimulator />
+                            <CombatSimulator
+                                initialPlayerIds={combatInitData?.players}
+                                initialEnemyIds={combatInitData?.enemies}
+                                initialCombatStarted={!!combatInitData}
+                                key={combatInitData ? Object.values(combatInitData).flat().join() : "default"}
+                            />
                         </div>
                     )}
                 </div>
