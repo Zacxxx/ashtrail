@@ -1,9 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "@ashtrail/ui";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
+import { useActiveWorld } from "../hooks/useActiveWorld";
 
 interface CloudObject {
     path: string;
@@ -15,7 +16,22 @@ interface CloudObject {
 
 export function GalleryPage() {
     const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
-    const [activePlanetId, setActivePlanetId] = useState<string | null>(null);
+    const { activeWorldId, setActiveWorldId } = useActiveWorld();
+    const [activePlanetId, setActivePlanetId] = useState<string | null>(activeWorldId);
+
+    // Sync local activePlanetId with persistent activeWorldId
+    useEffect(() => {
+        if (activeWorldId && activeWorldId !== activePlanetId) {
+            setActivePlanetId(activeWorldId);
+        }
+    }, [activeWorldId, activePlanetId]);
+
+    // Update persistent state when local activePlanetId changes
+    const handleSelectPlanet = (item: GenerationHistoryItem) => {
+        const newId = activePlanetId === item.id ? null : item.id;
+        setActivePlanetId(newId);
+        setActiveWorldId(newId);
+    };
     const [previewTexture, setPreviewTexture] = useState<{ url: string, planetId: string } | null>(null);
     const [isSyncingCloud, setIsSyncingCloud] = useState(false);
     const [syncResult, setSyncResult] = useState<string | null>(null);
@@ -85,6 +101,13 @@ export function GalleryPage() {
                         <h1 className="text-xs font-black tracking-[0.3em] text-white">
                             ASHTRAIL <span className="text-gray-500">| GENERATION GALLERY</span>
                         </h1>
+                        {/* Selected Planet Indicator */}
+                        {activePlanet && (
+                            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-full shrink-0">
+                                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                                <span className="text-[10px] font-bold text-cyan-300 tracking-widest uppercase truncate max-w-[200px]">{(activePlanet.name || activePlanet.prompt || 'Unknown World').substring(0, 40)}...</span>
+                            </div>
+                        )}
                     </div>
                     {/* Right: Actions */}
                     <div className="flex items-center gap-4">
@@ -129,7 +152,7 @@ export function GalleryPage() {
                             if (activePlanetId === id) setActivePlanetId(null);
                         }}
                         onSelectPlanet={(item: GenerationHistoryItem) => {
-                            setActivePlanetId(prevId => prevId === item.id ? null : item.id);
+                            handleSelectPlanet(item);
                         }}
                         onSelectTexture={(planetId, textureUrl) => {
                             setPreviewTexture({ url: textureUrl, planetId });

@@ -5,6 +5,7 @@ import { TabBar, Modal } from "@ashtrail/ui";
 import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
+import { useActiveWorld } from "../hooks/useActiveWorld";
 
 // Map item category + name to an equipment slot
 const SLOT_MAP: Record<string, EquipSlot> = {
@@ -113,7 +114,21 @@ export function CharacterBuilderPage() {
     const [characterType, setCharacterType] = useState<CharacterType>("Human");
     const [isFamily, setIsFamily] = useState(false);
     const [familyId, setFamilyId] = useState("");
-    const [worldId, setWorldId] = useState("665774da-472d-4570-adfb-1242ceefdfd9");
+    const { activeWorldId, setActiveWorldId } = useActiveWorld();
+    const [worldId, setWorldId] = useState(activeWorldId || "665774da-472d-4570-adfb-1242ceefdfd9");
+
+    // Sync local worldId with persistent activeWorldId
+    useEffect(() => {
+        if (activeWorldId && activeWorldId !== worldId) {
+            setWorldId(activeWorldId);
+        }
+    }, [activeWorldId, worldId]);
+
+    // Update persistent state when local worldId changes
+    const handleUpdateWorldId = (id: string) => {
+        setWorldId(id);
+        setActiveWorldId(id);
+    };
     const [level, setLevel] = useState(1);
     const [characterTitle, setCharacterTitle] = useState("");
     const [characterBadge, setCharacterBadge] = useState("");
@@ -762,7 +777,7 @@ export function CharacterBuilderPage() {
                             {selectedWorld && (
                                 <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-full shrink-0">
                                     <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                                    <span className="text-[10px] font-bold text-cyan-300 tracking-widest uppercase truncate max-w-[200px]">{(selectedWorld.prompt || 'Unknown World').substring(0, 40)}...</span>
+                                    <span className="text-[10px] font-bold text-cyan-300 tracking-widest uppercase truncate max-w-[200px]">{(selectedWorld.name || selectedWorld.prompt || 'Unknown World').substring(0, 40)}...</span>
                                 </div>
                             )}
                             <button
@@ -3068,7 +3083,7 @@ export function CharacterBuilderPage() {
                                 deleteFromHistory={deleteFromHistory}
                                 onRenameWorld={renameInHistory}
                                 onSelectPlanet={(item) => {
-                                    setWorldId(item.id);
+                                    handleUpdateWorldId(item.id);
                                     setShowGalleryModal(false);
                                 }}
                                 onSelectTexture={() => { }}
@@ -3089,7 +3104,7 @@ export function CharacterBuilderPage() {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                 </svg>
-                                Configuration: {(selectedWorld?.prompt || worldId).substring(0, 30)}
+                                Configuration: {(selectedWorld?.name || selectedWorld?.prompt || worldId).substring(0, 30)}
                             </h2>
                             <button
                                 onClick={() => setShowSettingsModal(false)}

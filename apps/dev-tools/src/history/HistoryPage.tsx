@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { TabBar, Modal } from "@ashtrail/ui";
 
@@ -11,6 +11,7 @@ import { CharactersTab } from "./CharactersTab";
 import { TemporalityTab } from "./TemporalityTab";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
+import { useActiveWorld } from "../hooks/useActiveWorld";
 
 export type HistoryTab = "lore" | "regions" | "locations" | "factions" | "characters" | "timeline" | "temporality";
 
@@ -19,6 +20,21 @@ export function HistoryPage() {
     const [selectedWorld, setSelectedWorld] = useState<GenerationHistoryItem | null>(null);
     const [showGalleryModal, setShowGalleryModal] = useState(false);
     const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
+    const { activeWorldId, setActiveWorldId } = useActiveWorld();
+
+    // Sync selectedWorld with activeWorldId
+    useEffect(() => {
+        if (activeWorldId && !selectedWorld) {
+            const world = history.find(h => h.id === activeWorldId);
+            if (world) setSelectedWorld(world);
+        }
+    }, [activeWorldId, history, selectedWorld]);
+
+    // Update activeWorldId when selectedWorld changes
+    const handleSelectWorld = (world: GenerationHistoryItem) => {
+        setSelectedWorld(world);
+        setActiveWorldId(world.id);
+    };
 
     return (
         <div className="h-screen overflow-hidden bg-[#070b12] text-gray-300 font-sans p-8 flex flex-col">
@@ -49,7 +65,7 @@ export function HistoryPage() {
                     {selectedWorld && (
                         <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-full shrink-0">
                             <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                            <span className="text-[10px] font-bold text-cyan-300 tracking-widest uppercase truncate max-w-[200px]">{(selectedWorld.prompt || 'Unknown World').substring(0, 40)}...</span>
+                            <span className="text-[10px] font-bold text-cyan-300 tracking-widest uppercase truncate max-w-[200px]">{(selectedWorld.name || selectedWorld.prompt || 'Unknown World').substring(0, 40)}...</span>
                         </div>
                     )}
                     {/* Gallery Toggle Button */}
@@ -88,7 +104,7 @@ export function HistoryPage() {
                         deleteFromHistory={deleteFromHistory}
                         onRenameWorld={renameInHistory}
                         onSelectPlanet={(item) => {
-                            setSelectedWorld(item);
+                            handleSelectWorld(item);
                             setShowGalleryModal(false);
                             if (activeTab === "timeline") {
                                 setActiveTab("lore");

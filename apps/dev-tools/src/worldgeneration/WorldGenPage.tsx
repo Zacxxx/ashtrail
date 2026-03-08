@@ -1,9 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { TabBar, Modal } from "@ashtrail/ui";
 import { Link } from "react-router-dom";
 import type { SimulationConfig, TerrainCell } from "../modules/geo/types";
 import { DEFAULT_CONFIG } from "../modules/geo/engine";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
+import { useActiveWorld } from "../hooks/useActiveWorld";
 
 import type { WorkflowStep, ViewMode, InspectorTab, ContinentConfig, PlanetWorld } from "./types";
 import { useWorldGeneration } from "./useWorldGeneration";
@@ -39,7 +40,31 @@ export function WorldGenPage() {
 
     // ── History ──
     const { history, saveToHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
-    const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+    const { activeWorldId, setActiveWorldId } = useActiveWorld();
+    const [activeHistoryId, setActiveHistoryId] = useState<string | null>(activeWorldId);
+
+    // Sync local activeHistoryId with persistent activeWorldId
+    useEffect(() => {
+        if (activeWorldId && activeWorldId !== activeHistoryId) {
+            setActiveHistoryId(activeWorldId);
+            // Also load the world data if it's in history
+            const item = history.find(h => h.id === activeWorldId);
+            if (item) {
+                setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
+                setConfig(item.config);
+                setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
+            }
+        }
+    }, [activeWorldId, activeHistoryId, history]);
+
+    // Update persistent state when local activeHistoryId changes
+    const handleUpdateActiveHistoryId = (item: any) => {
+        setActiveHistoryId(item.id);
+        setActiveWorldId(item.id);
+        setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
+        setConfig(item.config);
+        setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
+    };
 
     // ── Planet State ──
     const [prompt, setPrompt] = useState<string>("A desolate, dusty orange planet with deep canyon scars, dry ocean basins, and rocky gray mountain ranges.");
@@ -118,6 +143,8 @@ export function WorldGenPage() {
         setGeoBulkSelectedIds([]);
     }, []);
 
+    const selectedWorld = history.find(h => h.id === activeHistoryId);
+
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
             <div className="absolute inset-0 z-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-900/20 via-[#030508] to-[#030508]" />
@@ -148,6 +175,13 @@ export function WorldGenPage() {
                                 >
                                     <svg className={`w-4 h-4 transition-transform ${showConfigPanel ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                                 </button>
+                            </div>
+                        )}
+                        {/* Selected Planet Indicator */}
+                        {selectedWorld && (
+                            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-full shrink-0">
+                                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                                <span className="text-[10px] font-bold text-cyan-300 tracking-widest uppercase truncate max-w-[200px]">{(selectedWorld.name || selectedWorld.prompt || 'Unknown World').substring(0, 40)}...</span>
                             </div>
                         )}
                     </div>
@@ -294,10 +328,7 @@ export function WorldGenPage() {
                         deleteFromHistory={deleteFromHistory}
                         onRenameWorld={renameInHistory}
                         onSelectPlanet={(item) => {
-                            setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
-                            setConfig(item.config);
-                            setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
-                            setActiveHistoryId(item.id);
+                            handleUpdateActiveHistoryId(item);
                             setShowHistory(false);
                         }}
                         onSelectTexture={(_, textureUrl) => {
