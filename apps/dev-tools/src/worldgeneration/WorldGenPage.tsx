@@ -38,7 +38,7 @@ export function WorldGenPage() {
     const [isMaxView, setIsMaxView] = useState(false);
 
     // ── History ──
-    const { history, saveToHistory, deleteFromHistory } = useGenerationHistory();
+    const { history, saveToHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
 
     // ── Planet State ──
@@ -292,6 +292,7 @@ export function WorldGenPage() {
                         history={history}
                         activePlanetId={activeHistoryId}
                         deleteFromHistory={deleteFromHistory}
+                        onRenameWorld={renameInHistory}
                         onSelectPlanet={(item) => {
                             setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
                             setConfig(item.config);

@@ -14,7 +14,7 @@ interface CloudObject {
 }
 
 export function GalleryPage() {
-    const { history, deleteFromHistory } = useGenerationHistory();
+    const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const [activePlanetId, setActivePlanetId] = useState<string | null>(null);
     const [previewTexture, setPreviewTexture] = useState<{ url: string, planetId: string } | null>(null);
     const [isSyncingCloud, setIsSyncingCloud] = useState(false);
@@ -123,6 +123,7 @@ export function GalleryPage() {
                         history={history}
                         activePlanetId={activePlanetId}
                         showExtendedTabs={true}
+                        onRenameWorld={renameInHistory}
                         deleteFromHistory={(id) => {
                             deleteFromHistory(id);
                             if (activePlanetId === id) setActivePlanetId(null);

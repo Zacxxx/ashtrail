@@ -8,6 +8,7 @@ interface HistoryGalleryProps {
     onSelectPlanet: (item: GenerationHistoryItem) => void;
     onSelectTexture: (planetId: string, textureUrl: string) => void;
     showExtendedTabs?: boolean;
+    onRenameWorld?: (id: string, newName: string) => void;
 }
 
 type TabType = "planets" | "textures" | "icons" | "characters" | "isolated";
@@ -49,6 +50,7 @@ export function HistoryGallery({
     onSelectPlanet,
     onSelectTexture,
     showExtendedTabs = false,
+    onRenameWorld,
 }: HistoryGalleryProps) {
     const [activeTab, setActiveTab] = useState<TabType>("planets");
     const [iconImages, setIconImages] = useState<IconImageItem[]>([]);
@@ -57,6 +59,8 @@ export function HistoryGallery({
     const [isolatedImages, setIsolatedImages] = useState<IsolatedImageItem[]>([]);
     const [isLoadingExtended, setIsLoadingExtended] = useState(false);
     const [extendedError, setExtendedError] = useState<string | null>(null);
+    const [renamingId, setRenamingId] = useState<string | null>(null);
+    const [renameValue, setRenameValue] = useState("");
 
     // Group history items by parentId to find variants (e.g. upscales)
     const { mainPlanets, textureVariants } = useMemo(() => {
@@ -233,12 +237,56 @@ export function HistoryGallery({
                 {activeTab === "planets" && mainPlanets.map(item => (
                     <div key={item.id} className={`relative aspect-[2/1] group border ${activePlanetId === item.id ? 'border-[#E6E6FA] shadow-[0_0_15px_rgba(230,230,250,0.3)]' : 'border-white/10'} bg-black/40 rounded-xl overflow-hidden cursor-pointer hover:border-[#E6E6FA]/40 transition-all`}
                         onClick={() => {
-                            onSelectPlanet(item);
+                            if (renamingId !== item.id) onSelectPlanet(item);
                         }}
                     >
                         <img src={item.textureUrl} alt="Planet thumbnail" className="absolute inset-0 w-full h-full object-cover object-center opacity-60 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500" />
                         <div className="absolute top-0 inset-x-0 p-3 bg-gradient-to-b from-black/90 via-black/40 to-transparent pointer-events-none">
-                            <p className="text-[10px] text-gray-200 line-clamp-2 font-medium leading-relaxed drop-shadow-md">{item.prompt}</p>
+                            {renamingId === item.id ? (
+                                <div className="pointer-events-auto flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                    <input
+                                        autoFocus
+                                        value={renameValue}
+                                        onChange={e => setRenameValue(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter' && renameValue.trim()) {
+                                                onRenameWorld?.(item.id, renameValue.trim());
+                                                setRenamingId(null);
+                                            }
+                                            if (e.key === 'Escape') setRenamingId(null);
+                                        }}
+                                        className="flex-1 bg-black/70 border border-[#E6E6FA]/40 text-white text-[11px] px-2 py-1 rounded outline-none focus:border-[#E6E6FA]"
+                                        placeholder="World name..."
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            if (renameValue.trim()) {
+                                                onRenameWorld?.(item.id, renameValue.trim());
+                                                setRenamingId(null);
+                                            }
+                                        }}
+                                        className="text-emerald-400 hover:text-emerald-300 text-sm"
+                                    >✓</button>
+                                    <button onClick={() => setRenamingId(null)} className="text-gray-500 hover:text-gray-300 text-sm">✗</button>
+                                </div>
+                            ) : (
+                                <div className="flex items-start gap-2">
+                                    <p className="text-[10px] text-gray-200 line-clamp-2 font-medium leading-relaxed drop-shadow-md flex-1">{item.name || item.prompt}</p>
+                                    {onRenameWorld && (
+                                        <button
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                setRenamingId(item.id);
+                                                setRenameValue(item.name || item.prompt);
+                                            }}
+                                            className="pointer-events-auto shrink-0 w-5 h-5 flex items-center justify-center rounded bg-black/50 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-all border border-white/10"
+                                            title="Rename world"
+                                        >
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                             <div className="flex justify-between items-center mt-2">
                                 <p className="text-[8px] font-bold tracking-widest text-gray-400">{new Date(item.timestamp).toLocaleDateString()}</p>
                                 <div className="flex items-center gap-2">

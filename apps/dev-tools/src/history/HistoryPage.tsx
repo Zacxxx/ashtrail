@@ -18,7 +18,7 @@ export function HistoryPage() {
     const [activeTab, setActiveTab] = useState<HistoryTab>("lore");
     const [selectedWorld, setSelectedWorld] = useState<GenerationHistoryItem | null>(null);
     const [showGalleryModal, setShowGalleryModal] = useState(false);
-    const { history, deleteFromHistory } = useGenerationHistory();
+    const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
 
     return (
         <div className="h-screen overflow-hidden bg-[#070b12] text-gray-300 font-sans p-8 flex flex-col">
@@ -86,6 +86,7 @@ export function HistoryPage() {
                         history={history}
                         activePlanetId={selectedWorld?.id || null}
                         deleteFromHistory={deleteFromHistory}
+                        onRenameWorld={renameInHistory}
                         onSelectPlanet={(item) => {
                             setSelectedWorld(item);
                             setShowGalleryModal(false);

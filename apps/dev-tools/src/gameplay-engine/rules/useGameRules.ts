@@ -129,6 +129,7 @@ export const GameRulesManager = {
             core: clean(DEFAULT_RULES.core, newRules.core),
             combat: clean(DEFAULT_RULES.combat, newRules.combat),
             grid: clean(DEFAULT_RULES.grid, newRules.grid),
+            regions: clean(DEFAULT_RULES.regions, newRules.regions),
         };
         listeners.forEach(l => l());
     },

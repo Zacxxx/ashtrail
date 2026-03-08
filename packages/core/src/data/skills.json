@@ -135,5 +135,35 @@
     "minRange": 1,
     "name": "Analyze",
     "targetType": "enemy"
+  },
+  {
+    "apCost": 4,
+    "areaSize": 3,
+    "areaType": "circle",
+    "category": "unique",
+    "cooldown": 3,
+    "damage": 20,
+    "description": "Tape le sol et fait un tremblement de terre",
+    "effectType": "physical",
+    "effects": [
+      {
+        "description": "",
+        "duration": 1,
+        "id": "effect-1772982473656",
+        "isPercentage": false,
+        "name": "New Effect",
+        "target": "ap",
+        "trigger": "on_hit",
+        "type": "STAT_MODIFIER",
+        "value": 1
+      }
+    ],
+    "icon": "✨",
+    "id": "skill-1772982418590",
+    "maxRange": 1,
+    "minRange": 1,
+    "name": "Gros Gourdin Fait Bonk",
+    "pushDistance": 1,
+    "targetType": "cell"
   }
 ]

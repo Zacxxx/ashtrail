@@ -494,6 +494,7 @@ async fn main() {
         .route("/api/data/skills", get(cms::get_skills).post(cms::save_skill))
         .route("/api/data/skills/{id}", delete(cms::delete_skill))
         .route("/api/data/game-rules", get(cms::get_game_rules).post(cms::save_game_rules))
+        .route("/api/settings/world/{id}", get(cms::get_world_settings).post(cms::save_world_settings))
         // ── Combat Engine WebSocket ──
         .route("/api/combat/ws", get(combat_engine::session::ws_handler))
         .nest_service("/api/planets", ServeDir::new("generated/planets"))

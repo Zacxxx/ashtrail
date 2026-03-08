@@ -84,5 +84,7 @@
       "type": "positive"
     }
   ],
-  "xp": 0
+  "xp": 0,
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9"
 }
