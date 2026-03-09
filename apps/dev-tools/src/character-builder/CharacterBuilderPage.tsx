@@ -141,6 +141,46 @@ export function CharacterBuilderPage() {
     // Relationships
     const [relationships, setRelationships] = useState<CharacterRelationship[]>([]);
     const [isAlignmentOpen, setIsAlignmentOpen] = useState(false);
+    const [worldSnippets, setWorldSnippets] = useState<{ id: string; content: string; date: any }[]>([]);
+    const [targetHistory, setTargetHistory] = useState("");
+    const [isTyping, setIsTyping] = useState(false);
+
+    // Typing effect for lore
+    useEffect(() => {
+        if (!targetHistory) return;
+        setIsTyping(true);
+        setHistory("");
+        let i = 0;
+        const speed = 12; // adjustment for speed
+        const charsPerTick = 12;
+
+        const timer = setInterval(() => {
+            i += charsPerTick;
+            const nextText = targetHistory.slice(0, i);
+            setHistory(nextText);
+
+            if (i >= targetHistory.length) {
+                clearInterval(timer);
+                setIsTyping(false);
+                setTargetHistory(""); // reset
+            }
+        }, 20);
+
+        return () => clearInterval(timer);
+    }, [targetHistory]);
+
+    // Fetch world's lore snippets
+    useEffect(() => {
+        if (!worldId) return;
+        fetch(`http://localhost:8787/api/planet/lore-snippets/${worldId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setWorldSnippets(data);
+                }
+            })
+            .catch(err => console.error("Failed to load world snippets", err));
+    }, [worldId]);
 
     // World Picker
     const { history: generationHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
@@ -1312,11 +1352,15 @@ export function CharacterBuilderPage() {
                                                     <div className="text-xs font-black text-orange-500/50 uppercase tracking-[0.3em] px-2 mb-4">WRITE YOUR BACKSTORY</div>
 
                                                     {/* ROW 2: CONTENT */}
-                                                    <div className="flex flex-col">
-                                                        <div className="flex-1 p-8 bg-orange-500/[0.03] border border-orange-500/10 rounded-3xl flex flex-col">
-                                                            <p className="text-base text-gray-400 leading-relaxed italic font-medium flex-1">
-                                                                {ASH_TRAIL_CHRONICLES.find(c => c.id === "ASH-4")?.event}
-                                                            </p>
+                                                    <div className="flex flex-col h-full">
+                                                        <div className="flex-1 p-8 bg-orange-500/[0.03] border border-orange-500/10 rounded-3xl flex flex-col group/world max-h-[420px]">
+                                                            <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
+                                                                <p className="text-base text-gray-400 leading-relaxed italic font-medium">
+                                                                    {worldSnippets.length > 0
+                                                                        ? worldSnippets[worldSnippets.length - 1].content
+                                                                        : ASH_TRAIL_CHRONICLES.find(c => c.id === "ASH-4")?.event || "No records found for this coordinate."}
+                                                                </p>
+                                                            </div>
                                                         </div>
                                                     </div>
 
@@ -1373,7 +1417,7 @@ export function CharacterBuilderPage() {
                                                                     const p5 = `Today, as a specialized ${occupation}, ${currentName} has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Each step is a testament to a spirit for whom the Ash has finally become home.`;
 
                                                                     const fullHistory = `${p1}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5}`;
-                                                                    setHistory(fullHistory);
+                                                                    setTargetHistory(fullHistory);
 
                                                                     // Refined Moral Sentiment Analysis
                                                                     const h = fullHistory.toLowerCase();
@@ -1453,7 +1497,11 @@ export function CharacterBuilderPage() {
                                                             <div className="w-2 h-2 bg-orange-500 shadow-[0_0_10px_#f97316]" />
                                                             STORY
                                                         </h3>
-                                                        <button onClick={() => setHistory("")} className="text-[10px] text-orange-500 hover:text-red-500 font-black uppercase tracking-widest transition-colors flex items-center gap-2 opacity-0 group-hover:opacity-100 italic">
+                                                        <button
+                                                            onClick={() => setHistory("")}
+                                                            disabled={isTyping}
+                                                            className={`text-[10px] text-orange-500 hover:text-red-500 font-black uppercase tracking-widest transition-colors flex items-center gap-2 ${isTyping ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'} italic disabled:cursor-not-allowed`}
+                                                        >
                                                             <div className="w-1.5 h-1.5 bg-current rounded-full" />
                                                             RE-GENERATE FROM DRAFT ✕
                                                         </button>
