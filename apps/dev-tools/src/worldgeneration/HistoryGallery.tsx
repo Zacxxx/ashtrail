@@ -8,6 +8,7 @@ interface HistoryGalleryProps {
     onSelectPlanet: (item: GenerationHistoryItem) => void;
     onSelectTexture: (planetId: string, textureUrl: string) => void;
     showExtendedTabs?: boolean;
+    onRenameWorld?: (id: string, newName: string) => void;
 }
 
 type TabType = "planets" | "textures" | "icons" | "characters" | "isolated";
@@ -34,6 +35,15 @@ interface IsolatedImageItem {
     filename: string;
 }
 
+interface UpscaledIsolatedItem {
+    id: string;
+    url: string;
+    artifactId: string;
+    provinceId: number;
+    modelId: string;
+    createdAt: number;
+}
+
 interface TextureImageItem {
     id: string;
     url: string;
@@ -49,14 +59,19 @@ export function HistoryGallery({
     onSelectPlanet,
     onSelectTexture,
     showExtendedTabs = false,
+    onRenameWorld,
 }: HistoryGalleryProps) {
     const [activeTab, setActiveTab] = useState<TabType>("planets");
     const [iconImages, setIconImages] = useState<IconImageItem[]>([]);
     const [textureImages, setTextureImages] = useState<TextureImageItem[]>([]);
     const [characterPortraits, setCharacterPortraits] = useState<CharacterPortraitItem[]>([]);
     const [isolatedImages, setIsolatedImages] = useState<IsolatedImageItem[]>([]);
+    const [upscaledImages, setUpscaledImages] = useState<UpscaledIsolatedItem[]>([]);
+    const [isolatedSection, setIsolatedSection] = useState<"isolated" | "upscaled">("isolated");
     const [isLoadingExtended, setIsLoadingExtended] = useState(false);
     const [extendedError, setExtendedError] = useState<string | null>(null);
+    const [renamingId, setRenamingId] = useState<string | null>(null);
+    const [renameValue, setRenameValue] = useState("");
 
     // Group history items by parentId to find variants (e.g. upscales)
     const { mainPlanets, textureVariants } = useMemo(() => {
@@ -159,11 +174,23 @@ export function HistoryGallery({
                     filename: img.filename,
                 } as IsolatedImageItem));
 
+                const upscaledRes = await fetch("/api/worldgen/upscaled/all");
+                const upscaledRaw = upscaledRes.ok ? await upscaledRes.json() : { images: [] };
+                const upscaledItems = (upscaledRaw.images || []).map((img: any, index: number) => ({
+                    id: `upscaled-${img.artifactId || index}-${index}`,
+                    url: img.imageUrl,
+                    artifactId: img.artifactId,
+                    provinceId: img.provinceId,
+                    modelId: img.modelId,
+                    createdAt: img.createdAt || 0,
+                } as UpscaledIsolatedItem));
+
                 if (!isCancelled) {
                     setIconImages(iconGroups.flat());
                     setTextureImages(textureGroups);
                     setCharacterPortraits(portraits);
                     setIsolatedImages(isolatedItems);
+                    setUpscaledImages(upscaledItems);
                 }
             } catch (e) {
                 if (!isCancelled) {
@@ -233,12 +260,56 @@ export function HistoryGallery({
                 {activeTab === "planets" && mainPlanets.map(item => (
                     <div key={item.id} className={`relative aspect-[2/1] group border ${activePlanetId === item.id ? 'border-[#E6E6FA] shadow-[0_0_15px_rgba(230,230,250,0.3)]' : 'border-white/10'} bg-black/40 rounded-xl overflow-hidden cursor-pointer hover:border-[#E6E6FA]/40 transition-all`}
                         onClick={() => {
-                            onSelectPlanet(item);
+                            if (renamingId !== item.id) onSelectPlanet(item);
                         }}
                     >
                         <img src={item.textureUrl} alt="Planet thumbnail" className="absolute inset-0 w-full h-full object-cover object-center opacity-60 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500" />
                         <div className="absolute top-0 inset-x-0 p-3 bg-gradient-to-b from-black/90 via-black/40 to-transparent pointer-events-none">
-                            <p className="text-[10px] text-gray-200 line-clamp-2 font-medium leading-relaxed drop-shadow-md">{item.prompt}</p>
+                            {renamingId === item.id ? (
+                                <div className="pointer-events-auto flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                    <input
+                                        autoFocus
+                                        value={renameValue}
+                                        onChange={e => setRenameValue(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter' && renameValue.trim()) {
+                                                onRenameWorld?.(item.id, renameValue.trim());
+                                                setRenamingId(null);
+                                            }
+                                            if (e.key === 'Escape') setRenamingId(null);
+                                        }}
+                                        className="flex-1 bg-black/70 border border-[#E6E6FA]/40 text-white text-[11px] px-2 py-1 rounded outline-none focus:border-[#E6E6FA]"
+                                        placeholder="World name..."
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            if (renameValue.trim()) {
+                                                onRenameWorld?.(item.id, renameValue.trim());
+                                                setRenamingId(null);
+                                            }
+                                        }}
+                                        className="text-emerald-400 hover:text-emerald-300 text-sm"
+                                    >✓</button>
+                                    <button onClick={() => setRenamingId(null)} className="text-gray-500 hover:text-gray-300 text-sm">✗</button>
+                                </div>
+                            ) : (
+                                <div className="flex items-start gap-2">
+                                    <p className="text-[10px] text-gray-200 line-clamp-2 font-medium leading-relaxed drop-shadow-md flex-1">{item.name || item.prompt}</p>
+                                    {onRenameWorld && (
+                                        <button
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                setRenamingId(item.id);
+                                                setRenameValue(item.name || item.prompt);
+                                            }}
+                                            className="pointer-events-auto shrink-0 w-5 h-5 flex items-center justify-center rounded bg-black/50 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-all border border-white/10"
+                                            title="Rename world"
+                                        >
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                             <div className="flex justify-between items-center mt-2">
                                 <p className="text-[8px] font-bold tracking-widest text-gray-400">{new Date(item.timestamp).toLocaleDateString()}</p>
                                 <div className="flex items-center gap-2">
@@ -345,10 +416,31 @@ export function HistoryGallery({
                 {activeTab === "isolated" && showExtendedTabs && isLoadingExtended && (
                     <div className="col-span-full text-xs text-gray-500">Loading isolated regions...</div>
                 )}
-                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedImages.length === 0 && (
+                {activeTab === "isolated" && showExtendedTabs && (
+                    <div className="col-span-full flex items-center justify-center mb-2">
+                        <div className="inline-flex items-center rounded-full border border-white/10 bg-black/40 p-1">
+                            <button
+                                onClick={() => setIsolatedSection("isolated")}
+                                className={`px-3 py-1 rounded-full text-[9px] font-black tracking-widest transition-all ${isolatedSection === "isolated" ? "bg-white/10 text-purple-300" : "text-gray-500 hover:text-gray-300"}`}
+                            >
+                                ISOLATED
+                            </button>
+                            <button
+                                onClick={() => setIsolatedSection("upscaled")}
+                                className={`px-3 py-1 rounded-full text-[9px] font-black tracking-widest transition-all ${isolatedSection === "upscaled" ? "bg-white/10 text-indigo-300" : "text-gray-500 hover:text-gray-300"}`}
+                            >
+                                UPSCALED
+                            </button>
+                        </div>
+                    </div>
+                )}
+                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedSection === "isolated" && isolatedImages.length === 0 && (
                     <div className="col-span-full text-xs text-gray-500">No isolated regions found yet.</div>
                 )}
-                {activeTab === "isolated" && showExtendedTabs && isolatedImages.map((img) => (
+                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedSection === "upscaled" && upscaledImages.length === 0 && (
+                    <div className="col-span-full text-xs text-gray-500">No upscaled province artifacts found yet.</div>
+                )}
+                {activeTab === "isolated" && showExtendedTabs && isolatedSection === "isolated" && isolatedImages.map((img) => (
                     <div
                         key={img.id}
                         className="bg-black/40 border border-white/10 rounded-xl overflow-hidden group cursor-pointer hover:border-purple-400/40 transition-all shadow-lg"
@@ -364,6 +456,25 @@ export function HistoryGallery({
                         <div className="p-2 border-t border-white/5 bg-black/60">
                             <p className="text-[9px] text-cyan-400 font-black tracking-widest uppercase">{img.entityType}</p>
                             <p className="text-[10px] text-gray-400 font-mono">ID: {img.entityId}</p>
+                        </div>
+                    </div>
+                ))}
+                {activeTab === "isolated" && showExtendedTabs && isolatedSection === "upscaled" && upscaledImages.map((img) => (
+                    <div
+                        key={img.id}
+                        className="bg-black/40 border border-white/10 rounded-xl overflow-hidden group cursor-pointer hover:border-indigo-400/40 transition-all shadow-lg"
+                        onClick={() => onSelectTexture("upscaled", img.url)}
+                    >
+                        <div className="aspect-square bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiMzMzMiLz48cGF0aCBkPSJNMCAwdjRoNHYtNEh6IiBmaWxsPSIjNDQ0Ii8+PHBvbHlnb24gcG9pbnRzPSI0IDggOCA4IDggNCA0IDQiIGZpbGw9IiM0NDQiLz48L3N2Zz+')] relative">
+                            <img
+                                src={img.url}
+                                className="absolute inset-0 w-full h-full object-contain p-2 group-hover:scale-105 transition-transform"
+                                alt={img.artifactId}
+                            />
+                        </div>
+                        <div className="p-2 border-t border-white/5 bg-black/60">
+                            <p className="text-[9px] text-indigo-300 font-black tracking-widest uppercase">Province {img.provinceId}</p>
+                            <p className="text-[9px] text-gray-500 font-mono truncate">{img.modelId}</p>
                         </div>
                     </div>
                 ))}

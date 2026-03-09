@@ -330,3 +330,31 @@ pub async fn save_game_rules(State(_state): State<AppState>, Json(payload): Json
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
+
+pub async fn get_world_settings(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let dir = std::env::current_dir().unwrap().join("generated").join("settings");
+    let path = dir.join(format!("{}.json", id));
+    match fs::read_to_string(&path) {
+        Ok(data) => {
+            let json: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!({ "worldId": id, "baseTypes": [] }));
+            Ok((StatusCode::OK, Json(json)))
+        },
+        Err(_) => {
+            Ok((StatusCode::OK, Json(serde_json::json!({ "worldId": id, "baseTypes": [] }))))
+        },
+    }
+}
+
+pub async fn save_world_settings(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let dir = std::env::current_dir().unwrap().join("generated").join("settings");
+    if let Err(e) = fs::create_dir_all(&dir) {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create settings dir: {}", e)));
+    }
+    
+    let path = dir.join(format!("{}.json", id));
+    let json_string = serde_json::to_string_pretty(&payload).unwrap();
+    match fs::write(&path, json_string) {
+        Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+}

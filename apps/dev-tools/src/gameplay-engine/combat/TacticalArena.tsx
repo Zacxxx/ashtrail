@@ -5,7 +5,7 @@
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Skill } from '@ashtrail/core';
 import type { TacticalEntity, CombatPhase, CombatLogMessage } from '@ashtrail/core';
-import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells } from './tacticalGrid';
+import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells, getReachableCells, getAttackableCells, findPath } from './tacticalGrid';
 import type { PlayerAction } from './useCombatWebSocket';
 import type { DamagePreview } from '@ashtrail/core';
 import { GameRulesManager } from '../rules/useGameRules';
@@ -82,6 +82,40 @@ export function TacticalArena({
         return set;
     }, [selectedSkill, hoveredCell, activeEntity, grid, phase, playerAction]);
 
+    const displayGrid = useMemo(() => {
+        // Create a shallow copy of the grid rows/cells to inject highlights
+        const newGrid = grid.map(row => row.map(cell => ({ ...cell, highlight: null as 'move' | 'attack' | 'path' | null })));
+
+        if (!activeEntity || phase !== 'combat' || !isPlayerTurn) return newGrid;
+
+        if (playerAction === 'idle') {
+            const reachable = getReachableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, activeEntity.mp);
+            reachable.forEach(c => {
+                newGrid[c.row][c.col].highlight = 'move';
+            });
+
+            // Add path highlighting on hover
+            if (hoveredCell) {
+                const isReachable = reachable.some(c => c.row === hoveredCell.row && c.col === hoveredCell.col);
+                if (isReachable) {
+                    const path = findPath(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, hoveredCell.row, hoveredCell.col);
+                    if (path) {
+                        path.forEach(c => {
+                            newGrid[c.row][c.col].highlight = 'path';
+                        });
+                    }
+                }
+            }
+        } else if (playerAction === 'targeting_skill' && selectedSkill) {
+            const attackable = getAttackableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, selectedSkill.minRange, selectedSkill.maxRange);
+            attackable.forEach(c => {
+                newGrid[c.row][c.col].highlight = 'attack';
+            });
+        }
+
+        return newGrid;
+    }, [grid, activeEntity, phase, isPlayerTurn, playerAction, selectedSkill, hoveredCell]);
+
     return (
         <div className="w-full h-full flex flex-col gap-0 overflow-hidden">
             {/* Top Bar: Turn info + Phase */}
@@ -141,7 +175,7 @@ export function TacticalArena({
                             />
                         )}
 
-                        {grid.map((row, r) =>
+                        {displayGrid.map((row, r) =>
                             row.map((cell, c) => {
                                 const { x, y } = gridToScreen(r, c);
                                 const occupant = cell.occupantId ? entities.get(cell.occupantId) : undefined;
@@ -178,6 +212,16 @@ export function TacticalArena({
                                 );
                             })
                         )}
+
+                        {/* Entities Layer */}
+                        {Array.from(entities.values()).map(entity => (
+                            <TacticalEntityView
+                                key={entity.id}
+                                entity={entity}
+                                grid={grid}
+                                isActive={entity.id === activeEntityId}
+                            />
+                        ))}
                     </div>
                 </div>
 
@@ -301,7 +345,7 @@ export function TacticalArena({
                                                     <div className="flex justify-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono bg-black/50 py-1.5 px-2 rounded-lg border border-white/5">
                                                         {(() => {
                                                             const rules = GameRulesManager.get();
-                                                            const hasWeaponScaling = skill.effects?.some(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT');
+                                                            const hasWeaponScaling = skill.effects?.some(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT' as any);
                                                             const weapon = activeEntity?.equipped?.mainHand;
 
                                                             let strBonus = 0;
@@ -615,46 +659,99 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
                 </svg>
             )}
 
-            {entity && !isDead && (
-                <div className={`
-                    absolute inset-0 flex items-center justify-center pointer-events-none 
-                    transition-all duration-500
-                    ${entity.activeEffects?.some((e: any) => e.type === 'STEALTH' as any) ? 'opacity-30 grayscale-[50%] blur-[0.5px]' : 'opacity-100'}
-                `} style={{ top: -12, zIndex: 2 }}>
 
-                    <div className="absolute -top-5 flex gap-1 z-10">
-                        {entity.activeEffects?.some((e: any) => e.type === 'PROTECTION_STANCE' as any) && (
-                            <span className="text-[10px] drop-shadow-[0_0_5px_rgba(255,255,255,0.8)] animate-pulse">🛡️</span>
-                        )}
-                        {entity.activeEffects?.some((e: any) => e.type === 'STEALTH' as any) && (
-                            <span className="text-[10px] drop-shadow-[0_0_5px_rgba(99,102,241,0.8)] animate-bounce">👤</span>
-                        )}
-                        {entity.activeEffects?.some((e: any) => e.type === 'ANALYZED' as any) && (
-                            <span className="text-[10px] drop-shadow-[0_0_5px_rgba(234,179,8,0.8)] animate-[pulse_1s_infinite]">🔍</span>
-                        )}
-                    </div>
+        </div>
+    );
+}
 
-                    <div className={`
-                        w-7 h-7 rounded-full border-2 flex items-center justify-center text-[10px] font-black
-                        shadow-lg transition-all duration-300
-                        ${entity.isPlayer
-                            ? 'bg-blue-600 border-blue-400 text-white shadow-blue-500/40'
-                            : 'bg-red-600 border-red-400 text-white shadow-red-500/40'
-                        }
-                        ${isActive ? 'scale-125 ring-2 ring-orange-400 ring-offset-1 ring-offset-transparent' : ''}
-                    `}>
-                        {entity.name.charAt(0)}
-                    </div>
-                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-black/80 rounded-full overflow-hidden">
-                        <div
-                            className={`h-full rounded-full transition-all duration-300 ${entity.hp / entity.maxHp > 0.5 ? 'bg-green-500' :
-                                entity.hp / entity.maxHp > 0.25 ? 'bg-yellow-500' : 'bg-red-500'
-                                }`}
-                            style={{ width: `${Math.max(0, (entity.hp / entity.maxHp) * 100)}%` }}
-                        />
-                    </div>
-                </div>
-            )}
+// ═══════════════════════════════════════════════════════════
+// TacticalEntityView — Animated character sprite
+// ═══════════════════════════════════════════════════════════
+
+interface TacticalEntityViewProps {
+    entity: TacticalEntity;
+    grid: Grid;
+    isActive: boolean;
+}
+
+function TacticalEntityView({ entity, grid, isActive }: TacticalEntityViewProps) {
+    const [visualPos, setVisualPos] = useState({ row: entity.gridPos.row, col: entity.gridPos.col });
+    const lastPosRef = useRef(entity.gridPos);
+
+    useEffect(() => {
+        if (entity.gridPos.row !== lastPosRef.current.row || entity.gridPos.col !== lastPosRef.current.col) {
+            // Position changed! Perform path-based animation
+            const from = lastPosRef.current;
+            const to = entity.gridPos;
+            lastPosRef.current = to;
+
+            const path = findPath(grid, from.row, from.col, to.row, to.col);
+            if (path && path.length > 0) {
+                animatePath(path);
+            } else {
+                setVisualPos(to);
+            }
+        }
+    }, [entity.gridPos, grid]);
+
+    const animatePath = async (path: GridCell[]) => {
+        for (const step of path) {
+            setVisualPos({ row: step.row, col: step.col });
+            await new Promise(resolve => setTimeout(resolve, 200)); // 200ms per cell
+        }
+    };
+
+    const { x, y } = gridToScreen(visualPos.row, visualPos.col);
+    const isDead = entity.hp <= 0;
+
+    if (isDead) return null;
+
+    return (
+        <div
+            className={`
+                absolute flex items-center justify-center pointer-events-none 
+                transition-all duration-200 ease-linear
+                ${entity.activeEffects?.some((e: any) => e.type === 'STEALTH' as any) ? 'opacity-30 grayscale-[50%] blur-[0.5px]' : 'opacity-100'}
+            `}
+            style={{
+                left: x,
+                top: y - 12,
+                width: TILE_WIDTH,
+                height: TILE_HEIGHT,
+                zIndex: visualPos.row + visualPos.col + 100, // High z-index to stay above tiles
+            }}
+        >
+            <div className="absolute -top-5 flex gap-1 z-10">
+                {entity.activeEffects?.some((e: any) => e.type === 'PROTECTION_STANCE' as any) && (
+                    <span className="text-[10px] drop-shadow-[0_0_5px_rgba(255,255,255,0.8)] animate-pulse">🛡️</span>
+                )}
+                {entity.activeEffects?.some((e: any) => e.type === 'STEALTH' as any) && (
+                    <span className="text-[10px] drop-shadow-[0_0_5px_rgba(99,102,241,0.8)] animate-bounce">👤</span>
+                )}
+                {entity.activeEffects?.some((e: any) => e.type === 'ANALYZED' as any) && (
+                    <span className="text-[10px] drop-shadow-[0_0_5px_rgba(234,179,8,0.8)] animate-[pulse_1s_infinite]">🔍</span>
+                )}
+            </div>
+
+            <div className={`
+                w-7 h-7 rounded-full border-2 flex items-center justify-center text-[10px] font-black
+                shadow-lg transition-all duration-300
+                ${entity.isPlayer
+                    ? 'bg-blue-600 border-blue-400 text-white shadow-blue-500/40'
+                    : 'bg-red-600 border-red-400 text-white shadow-red-500/40'
+                }
+                ${isActive ? 'scale-125 ring-2 ring-orange-400 ring-offset-1 ring-offset-transparent' : ''}
+            `}>
+                {entity.name.charAt(0)}
+            </div>
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-black/80 rounded-full overflow-hidden">
+                <div
+                    className={`h-full rounded-full transition-all duration-300 ${entity.hp / entity.maxHp > 0.5 ? 'bg-green-500' :
+                        entity.hp / entity.maxHp > 0.25 ? 'bg-yellow-500' : 'bg-red-500'
+                        }`}
+                    style={{ width: `${Math.max(0, (entity.hp / entity.maxHp) * 100)}%` }}
+                />
+            </div>
         </div>
     );
 }

@@ -863,34 +863,34 @@ Initiative: descending Agility → Endurance tiebreak`}
                             <div className="space-y-4">
                                 <p className="text-[10px] text-blue-400/70 font-bold uppercase tracking-widest">Population Multipliers</p>
                                 <div className="grid grid-cols-4 gap-4">
-                                    <RuleNumber label="Continent ×" desc="Pop multiplier" value={rules.regions.popMultiplierContinent} min={1} max={200} onChange={v => patch("regions", "popMultiplierContinent", v)} />
-                                    <RuleNumber label="Kingdom ×" desc="Pop multiplier" value={rules.regions.popMultiplierKingdom} min={1} max={100} onChange={v => patch("regions", "popMultiplierKingdom", v)} />
-                                    <RuleNumber label="Duchy ×" desc="Pop multiplier" value={rules.regions.popMultiplierDuchy} min={1} max={50} onChange={v => patch("regions", "popMultiplierDuchy", v)} />
-                                    <RuleNumber label="Province ×" desc="Pop multiplier" value={rules.regions.popMultiplierProvince} min={1} max={20} onChange={v => patch("regions", "popMultiplierProvince", v)} />
+                                    <RuleNumber label="Continent ×" desc="Pop multiplier" value={rules.regions?.popMultiplierContinent} min={1} max={200} onChange={v => patch("regions", "popMultiplierContinent", v)} />
+                                    <RuleNumber label="Kingdom ×" desc="Pop multiplier" value={rules.regions?.popMultiplierKingdom} min={1} max={100} onChange={v => patch("regions", "popMultiplierKingdom", v)} />
+                                    <RuleNumber label="Duchy ×" desc="Pop multiplier" value={rules.regions?.popMultiplierDuchy} min={1} max={50} onChange={v => patch("regions", "popMultiplierDuchy", v)} />
+                                    <RuleNumber label="Province ×" desc="Pop multiplier" value={rules.regions?.popMultiplierProvince} min={1} max={20} onChange={v => patch("regions", "popMultiplierProvince", v)} />
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="space-y-4">
                                     <p className="text-[10px] text-emerald-400/70 font-bold uppercase tracking-widest">Base Population Range</p>
-                                    <RuleNumber label="Base Min" desc="Minimum base pop" value={rules.regions.popBaseMin} min={0} max={10000} onChange={v => patch("regions", "popBaseMin", v)} />
-                                    <RuleNumber label="Base Max" desc="Maximum base pop" value={rules.regions.popBaseMax} min={0} max={50000} onChange={v => patch("regions", "popBaseMax", v)} />
+                                    <RuleNumber label="Base Min" desc="Minimum base pop" value={rules.regions?.popBaseMin} min={0} max={10000} onChange={v => patch("regions", "popBaseMin", v)} />
+                                    <RuleNumber label="Base Max" desc="Maximum base pop" value={rules.regions?.popBaseMax} min={0} max={50000} onChange={v => patch("regions", "popBaseMax", v)} />
                                 </div>
                                 <div className="space-y-4">
                                     <p className="text-[10px] text-amber-400/70 font-bold uppercase tracking-widest">Wealth & Development Range</p>
-                                    <RuleNumber label="Wealth Min" desc="Minimum wealth score" value={rules.regions.wealthMin} min={-100} max={0} onChange={v => patch("regions", "wealthMin", v)} />
-                                    <RuleNumber label="Wealth Max" desc="Maximum wealth score" value={rules.regions.wealthMax} min={0} max={100} onChange={v => patch("regions", "wealthMax", v)} />
-                                    <RuleNumber label="Dev Min" desc="Minimum development" value={rules.regions.devMin} min={-100} max={0} onChange={v => patch("regions", "devMin", v)} />
-                                    <RuleNumber label="Dev Max" desc="Maximum development" value={rules.regions.devMax} min={0} max={100} onChange={v => patch("regions", "devMax", v)} />
+                                    <RuleNumber label="Wealth Min" desc="Minimum wealth score" value={rules.regions?.wealthMin} min={-100} max={0} onChange={v => patch("regions", "wealthMin", v)} />
+                                    <RuleNumber label="Wealth Max" desc="Maximum wealth score" value={rules.regions?.wealthMax} min={0} max={100} onChange={v => patch("regions", "wealthMax", v)} />
+                                    <RuleNumber label="Dev Min" desc="Minimum development" value={rules.regions?.devMin} min={-100} max={0} onChange={v => patch("regions", "devMin", v)} />
+                                    <RuleNumber label="Dev Max" desc="Maximum development" value={rules.regions?.devMax} min={0} max={100} onChange={v => patch("regions", "devMax", v)} />
                                 </div>
                             </div>
 
                             <FormulaBox>
-                                {`Population = random(${rules.regions.popBaseMin}, ${rules.regions.popBaseMax}) × TypeMultiplier
-  Continent: ×${rules.regions.popMultiplierContinent}
-  Kingdom:   ×${rules.regions.popMultiplierKingdom}
-  Duchy:     ×${rules.regions.popMultiplierDuchy}
-  Province:  ×${rules.regions.popMultiplierProvince}
+                                {`Population = random(${rules.regions?.popBaseMin}, ${rules.regions?.popBaseMax}) × TypeMultiplier
+  Continent: ×${rules.regions?.popMultiplierContinent}
+  Kingdom:   ×${rules.regions?.popMultiplierKingdom}
+  Duchy:     ×${rules.regions?.popMultiplierDuchy}
+  Province:  ×${rules.regions?.popMultiplierProvince}
 
 Wealth      = random(${rules.regions.wealthMin}, ${rules.regions.wealthMax})
   Positive → rich trade, abundant resources

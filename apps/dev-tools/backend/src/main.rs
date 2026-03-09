@@ -5,6 +5,9 @@ mod gemini;
 mod worldgen_pipeline;
 mod cms;
 mod combat_engine;
+mod ai_events;
+mod ai_characters;
+mod ecology;
 
 use axum::{
     extract::{Path, Query, State},
@@ -436,8 +439,18 @@ async fn main() {
         .route("/api/planet/saved/{cache_key}", get(load_saved_planet))
         .route("/api/planet/lore/query", post(query_lore_handler))
         .route("/api/text/generate", post(generate_text_handler))
+        .route("/api/events/generate", post(ai_events::generate_event_handler))
+        .route("/api/events/resolve", post(ai_events::resolve_event_handler))
+        .route("/api/events/rethink", post(ai_events::rethink_event_handler))
+        .route("/api/characters/generate", post(ai_characters::generate_character_handler))
         .route("/api/planet/ecology", post(start_ecology_job))
         .route("/api/planet/ecology/{job_id}", get(get_job_status))
+        .route("/api/planet/ecology-data/{world_id}", get(ecology::get_ecology_data).post(ecology::save_ecology_data))
+        .route("/api/planet/ecology-data/{world_id}/generate/world", post(ecology::generate_world_baseline))
+        .route("/api/planet/ecology-data/{world_id}/generate/kingdom/{kingdom_id}", post(ecology::generate_kingdom_baseline))
+        .route("/api/planet/ecology-data/{world_id}/generate/duchy/{duchy_id}", post(ecology::generate_duchy_baseline))
+        .route("/api/planet/ecology-data/{world_id}/generate/province/{province_id}", post(ecology::generate_province_record))
+        .route("/api/planet/ecology-jobs/{job_id}", get(get_job_status))
         .route("/api/planet/humanity", post(start_humanity_job))
         .route("/api/planet/humanity/{job_id}", get(get_job_status))
         .route("/api/history", get(get_history).post(save_history).delete(clear_history))
@@ -467,6 +480,7 @@ async fn main() {
         .route("/api/textures/batches/{batch_id}/rename", axum::routing::put(rename_texture_batch))
         .route("/api/textures/batches/{batch_id}/textures/{filename}/regenerate", post(regenerate_texture))
         .route("/api/textures/export", post(export_textures_registry))
+        .route("/api/ai/image-models", get(get_ai_image_models))
         .route("/api/storage/supabase/browse", get(browse_supabase_objects))
         .route("/api/storage/supabase/sync", post(sync_supabase_storage))
         // ── Worldgen Pipeline ──
@@ -477,9 +491,16 @@ async fn main() {
         .route("/api/worldgen/{planet_id}/hierarchy/reassign", post(reassign_worldgen_hierarchy))
         .route("/api/worldgen/{planet_id}/hierarchy/rename", post(rename_worldgen_hierarchy))
         .route("/api/worldgen/{planet_id}/hierarchy/init-stats", post(init_province_stats))
+        .route("/api/worldgen/{planet_id}/isolate/provinces", post(worldgen_pipeline::isolate_all_provinces))
         .route("/api/worldgen/{planet_id}/isolate", post(worldgen_pipeline::isolate_region))
         .route("/api/worldgen/{planet_id}/isolated", get(worldgen_pipeline::list_isolated_regions))
+        .route("/api/worldgen/{planet_id}/isolated/{filename}", delete(worldgen_pipeline::delete_isolated_region))
         .route("/api/worldgen/isolated/all", get(worldgen_pipeline::list_all_isolated_regions))
+        .route("/api/worldgen/{planet_id}/upscaled/province", post(worldgen_pipeline::start_upscaled_province_refine))
+        .route("/api/worldgen/{planet_id}/upscaled", get(worldgen_pipeline::list_upscaled_regions))
+        .route("/api/worldgen/upscaled/all", get(worldgen_pipeline::list_all_upscaled_regions))
+        .route("/api/worldgen/{planet_id}/upscaled/{artifact_id}", delete(worldgen_pipeline::delete_upscaled_region))
+        .route("/api/worldgen/{planet_id}/upscaled/{artifact_id}/apply", post(worldgen_pipeline::apply_upscaled_region))
         // Static file serving for all planet textures
         .route("/api/data/traits", get(cms::get_traits).post(cms::save_traits))
         .route("/api/data/traits/{id}", delete(cms::delete_trait))
@@ -491,6 +512,7 @@ async fn main() {
         .route("/api/data/skills", get(cms::get_skills).post(cms::save_skill))
         .route("/api/data/skills/{id}", delete(cms::delete_skill))
         .route("/api/data/game-rules", get(cms::get_game_rules).post(cms::save_game_rules))
+        .route("/api/settings/world/{id}", get(cms::get_world_settings).post(cms::save_world_settings))
         // ── Combat Engine WebSocket ──
         .route("/api/combat/ws", get(combat_engine::session::ws_handler))
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
@@ -517,6 +539,10 @@ async fn main() {
 
 async fn health() -> &'static str {
     "ok"
+}
+
+async fn get_ai_image_models() -> impl IntoResponse {
+    (StatusCode::OK, Json(gemini::image_model_catalog())).into_response()
 }
 
 async fn start_generate_job(
@@ -3904,17 +3930,24 @@ fn local_to_cloud_key(state: &AppState, cfg: &SupabaseStorageConfig, local_path:
     if let Ok(rel) = local_path.strip_prefix(&state.icons_dir) {
         return Some(format!("{}/icons/{}", cfg.prefix, normalize_slashes(rel)));
     }
+    if let Ok(rel) = local_path.strip_prefix(&state.isolated_dir) {
+        return Some(format!("{}/isolated/{}", cfg.prefix, normalize_slashes(rel)));
+    }
     None
 }
 
 fn cloud_key_to_local(state: &AppState, cfg: &SupabaseStorageConfig, key: &str) -> Option<PathBuf> {
     let planets_prefix = format!("{}/planets/", cfg.prefix);
     let icons_prefix = format!("{}/icons/", cfg.prefix);
+    let isolated_prefix = format!("{}/isolated/", cfg.prefix);
     if let Some(rel) = key.strip_prefix(&planets_prefix) {
         return Some(state.planets_dir.join(rel));
     }
     if let Some(rel) = key.strip_prefix(&icons_prefix) {
         return Some(state.icons_dir.join(rel));
+    }
+    if let Some(rel) = key.strip_prefix(&isolated_prefix) {
+        return Some(state.isolated_dir.join(rel));
     }
     None
 }
@@ -4188,6 +4221,7 @@ async fn sync_supabase_storage(
 
     let planets_prefix = format!("{}/planets", cfg.prefix);
     let icons_prefix = format!("{}/icons", cfg.prefix);
+    let isolated_prefix = format!("{}/isolated", cfg.prefix);
     let remote_planets = match list_supabase_objects_recursive(&client, cfg, &planets_prefix).await {
         Ok(v) => v,
         Err(err) => {
@@ -4208,7 +4242,21 @@ async fn sync_supabase_storage(
                 .into_response();
         }
     };
-    let remote_files = remote_planets.into_iter().chain(remote_icons.into_iter()).collect::<Vec<_>>();
+    let remote_isolated = match list_supabase_objects_recursive(&client, cfg, &isolated_prefix).await {
+        Ok(v) => v,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": err })),
+            )
+                .into_response();
+        }
+    };
+    let remote_files = remote_planets
+        .into_iter()
+        .chain(remote_icons.into_iter())
+        .chain(remote_isolated.into_iter())
+        .collect::<Vec<_>>();
     let remote_map = remote_files
         .iter()
         .map(|o| (o.path.clone(), o.clone()))
@@ -4217,6 +4265,7 @@ async fn sync_supabase_storage(
     let mut local_files = Vec::new();
     collect_files_recursive(&state.planets_dir, &mut local_files);
     collect_files_recursive(&state.icons_dir, &mut local_files);
+    collect_files_recursive(&state.isolated_dir, &mut local_files);
 
     if direction == "push" || direction == "both" {
         for local_path in &local_files {

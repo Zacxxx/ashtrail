@@ -1,8 +1,64 @@
 {
   "age": 23,
-  "appearancePrompt": "Un homme immense a l'allure ronde ",
+  "alignment": "Lawful Evil",
+  "appearancePrompt": "Il etait un homme que toutes les minorites redoutes terriblement ! Il avait un gourdin magique, dont la violence n'avait d'egal que la perte d'intellecte qu'il procurait. ",
+  "backstory": "Il etait un homme que toutes les minorites redoutes terriblement ! Il avait un gourdin magique, dont la violence n'avait d'egal que la perte d'intellecte qu'il procurait. ",
+  "badge": "",
+  "currentStory": "",
+  "equipped": {
+    "head": {
+      "bagIndex": 0,
+      "category": "armor",
+      "cost": 0,
+      "description": "There's no way that you can equip sterling's set ? WTF ? ",
+      "effects": [
+        {
+          "target": "intelligence",
+          "type": "STAT_MODIFIER",
+          "value": 4
+        },
+        {
+          "target": "strength",
+          "type": "STAT_MODIFIER",
+          "value": -4
+        }
+      ],
+      "icon": "📦",
+      "id": "item-1772208031388-1772210026373",
+      "name": "Sterling's helmet",
+      "rarity": "ashmarked"
+    },
+    "mainHand": {
+      "bagIndex": 0,
+      "category": "weapon",
+      "cost": 0,
+      "description": "Un gros gourdin appartenant a Alexandre François avant la chute.\nMefiez-vous du gros gourdin ainsi que de son propriétaire. ",
+      "effects": [
+        {
+          "target": "strength",
+          "type": "STAT_MODIFIER",
+          "value": 200
+        },
+        {
+          "target": "intelligence",
+          "type": "STAT_MODIFIER",
+          "value": -20
+        },
+        {
+          "target": "damage",
+          "type": "COMBAT_BONUS",
+          "value": 25
+        }
+      ],
+      "icon": "📦",
+      "id": "item-1772210100258-1772210190577",
+      "name": "Le gourdin d'AF",
+      "rarity": "ashmarked"
+    }
+  },
+  "faction": "",
   "gender": "Non-Binary",
-  "history": "Un jeune étudiant en faculté d'informatique avant la chute du monde. ",
+  "history": "Before the heavens suffocated under a permanent blanket of soot, AF was defined by a different life. Built on the legacy of Il etait un homme que toutes les minorites redoutes terriblement ! Il avait un gourdin magique, dont la violence n'avait d'egal que la perte d'intellecte qu'il procurait. , they participated in the shimmering final years of the 20th century, before the sky darkened and the world dissolved.\n\nThe end did not arrive with a scream, but with the silent, creeping advance of the Great Fog. AF witnessed the terrifying transition as the horizon vanished and the sun became a pale, dying ember. They navigated the frantic desperation of the era, where the last vestiges of sovereignty were traded for drops of fuel.\n\nWhen the surface finally became uninhabitable, the migration into the deep began. AF lived through the agonizing silence of the underground vaults, surviving for years behind reinforced structural shells as the world they remembered slowly turned to dust.\n\nEmerging from the vaults, AF found a planet that no longer recognized its masters. They became a scavenger of the wastes, reclaiming artifacts of the past to build the foundations of a new, fractured society, proving to be a vital component in the machinery of reclamation.\n\nToday, as a specialized Militia Member, AF has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Each step is a testament to a spirit for whom the Ash has finally become home.",
   "hp": 45,
   "id": "char-1772210022882",
   "inventory": [
@@ -56,59 +112,9 @@
       "rarity": "ashmarked"
     }
   ],
-  "equipped": {
-    "head": {
-      "bagIndex": 0,
-      "category": "armor",
-      "cost": 0,
-      "description": "There's no way that you can equip sterling's set ? WTF ? ",
-      "effects": [
-        {
-          "target": "intelligence",
-          "type": "STAT_MODIFIER",
-          "value": 4
-        },
-        {
-          "target": "strength",
-          "type": "STAT_MODIFIER",
-          "value": -4
-        }
-      ],
-      "icon": "📦",
-      "id": "item-1772208031388-1772210026373",
-      "name": "Sterling's helmet",
-      "rarity": "ashmarked"
-    },
-    "mainHand": {
-      "bagIndex": 0,
-      "category": "weapon",
-      "cost": 0,
-      "description": "Un gros gourdin appartenant a Alexandre François avant la chute.\nMefiez-vous du gros gourdin ainsi que de son propriétaire. ",
-      "effects": [
-        {
-          "target": "strength",
-          "type": "STAT_MODIFIER",
-          "value": 200
-        },
-        {
-          "target": "intelligence",
-          "type": "STAT_MODIFIER",
-          "value": -20
-        },
-        {
-          "target": "damage",
-          "type": "COMBAT_BONUS",
-          "value": 25
-        }
-      ],
-      "icon": "📦",
-      "id": "item-1772210100258-1772210190577",
-      "name": "Le gourdin d'AF",
-      "rarity": "ashmarked"
-    }
-  },
+  "isFamily": false,
   "isNPC": false,
-  "level": 1,
+  "level": 12,
   "maxHp": 45,
   "name": "AF",
   "occupation": {
@@ -123,6 +129,150 @@
     ],
     "shortDescription": "Civilian fighter defending the community."
   },
+  "parents": {
+    "father": null,
+    "mother": null
+  },
+  "relationships": [],
+  "skills": [
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 0,
+      "damage": 12,
+      "description": "A quick melee strike with a blade.",
+      "effectType": "physical",
+      "icon": "⚔️",
+      "id": "slash",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Slash",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Basic medical patch-up.",
+      "effectType": "support",
+      "healing": 15,
+      "icon": "🩹",
+      "id": "first-aid",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "First Aid",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Push an enemy back and potentially cause shock damage.",
+      "effectType": "physical",
+      "icon": "✋",
+      "id": "shove",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Shove",
+      "pushDistance": 2,
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Protect an ally for 1 turn. You tank damage redirected to them with reductions based on your Endurance vs Incoming Damage.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "PROTECTION_STANCE",
+          "value": 0
+        }
+      ],
+      "icon": "🛡️",
+      "id": "defend",
+      "maxRange": 2,
+      "minRange": 1,
+      "name": "Defend",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Become invisible to enemies. Any damage taken will reveal you. Duration increases with Wisdom.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "STEALTH",
+          "value": 0
+        }
+      ],
+      "icon": "👤",
+      "id": "hide",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Hide",
+      "targetType": "self"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Bother the enemy with your charisma, reducing their MP based on your Charisma vs target Wisdom.",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 1,
+          "target": "mp",
+          "type": "STAT_MODIFIER",
+          "value": 0
+        }
+      ],
+      "icon": "🎭",
+      "id": "distract",
+      "maxRange": 4,
+      "minRange": 1,
+      "name": "Distract",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Find weaknesses in the target, increasing critical chance for all attackers based on your Intelligence. (Max difference: 5 levels)",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 2,
+          "type": "ANALYZED",
+          "value": 0
+        }
+      ],
+      "icon": "🔍",
+      "id": "analyze",
+      "maxRange": 5,
+      "minRange": 1,
+      "name": "Analyze",
+      "targetType": "enemy"
+    }
+  ],
   "stats": {
     "agility": 7,
     "charisma": 1,
@@ -131,6 +281,7 @@
     "strength": 12,
     "wisdom": 1
   },
+  "title": "",
   "traits": [
     {
       "cost": 10,
@@ -232,5 +383,7 @@
       "type": "positive"
     }
   ],
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
   "xp": 0
 }

@@ -51,30 +51,52 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
         skills,
         skillCooldowns: {},
         gridPos: { row: 0, col: 0 },
-        equipped: char.equipped
+        equipped: char.equipped,
+        baseStats: {
+            strength: char.stats.strength,
+            agility: char.stats.agility,
+            intelligence: char.stats.intelligence,
+            wisdom: char.stats.wisdom,
+            endurance: char.stats.endurance,
+            charisma: char.stats.charisma,
+            evasion: Math.floor(char.stats.agility / 4),
+            defense: Math.floor(char.stats.endurance / 2),
+        }
     };
 }
 
-export function CombatSimulator() {
+export function CombatSimulator({
+    initialPlayerIds,
+    initialEnemyIds,
+    initialCombatStarted
+}: {
+    initialPlayerIds?: string[],
+    initialEnemyIds?: string[],
+    initialCombatStarted?: boolean
+} = {}) {
     const chars = GameRegistry.getAllCharacters();
 
     // ── Phase: 'setup' or 'combat' ──
-    const [combatStarted, setCombatStarted] = useState(false);
+    const [combatStarted, setCombatStarted] = useState(initialCombatStarted || false);
     const [combatKey, setCombatKey] = useState(0);
 
     // ── Combat Config ──
     const [gridRows, setGridRows] = useState(12);
     const [gridCols, setGridCols] = useState(12);
-    const [playerCount, setPlayerCount] = useState(1);
-    const [enemyCount, setEnemyCount] = useState(1);
+
     const [playerIds, setPlayerIds] = useState<string[]>(() => {
+        if (initialPlayerIds && initialPlayerIds.length > 0) return initialPlayerIds;
         const allC = GameRegistry.getAllCharacters();
         return [allC.length > 0 ? allC[0].id : ''];
     });
     const [enemyIds, setEnemyIds] = useState<string[]>(() => {
+        if (initialEnemyIds && initialEnemyIds.length > 0) return initialEnemyIds;
         const allC = GameRegistry.getAllCharacters();
         return [allC.length > 1 ? allC[1].id : allC.length > 0 ? allC[0].id : ''];
     });
+
+    const [playerCount, setPlayerCount] = useState(playerIds.length);
+    const [enemyCount, setEnemyCount] = useState(enemyIds.length);
 
     // AI Map
     const [mapPrompt, setMapPrompt] = useState('');

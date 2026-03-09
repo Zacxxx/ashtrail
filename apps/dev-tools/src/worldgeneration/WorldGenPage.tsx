@@ -1,9 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { TabBar, Modal } from "@ashtrail/ui";
 import { Link } from "react-router-dom";
 import type { SimulationConfig, TerrainCell } from "../modules/geo/types";
 import { DEFAULT_CONFIG } from "../modules/geo/engine";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
+import { useActiveWorld } from "../hooks/useActiveWorld";
 
 import type { WorkflowStep, ViewMode, InspectorTab, ContinentConfig, PlanetWorld } from "./types";
 import { useWorldGeneration } from "./useWorldGeneration";
@@ -38,8 +39,32 @@ export function WorldGenPage() {
     const [isMaxView, setIsMaxView] = useState(false);
 
     // ── History ──
-    const { history, saveToHistory, deleteFromHistory } = useGenerationHistory();
-    const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+    const { history, saveToHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
+    const { activeWorldId, setActiveWorldId } = useActiveWorld();
+    const [activeHistoryId, setActiveHistoryId] = useState<string | null>(activeWorldId);
+
+    // Sync local activeHistoryId with persistent activeWorldId
+    useEffect(() => {
+        if (activeWorldId && activeWorldId !== activeHistoryId) {
+            setActiveHistoryId(activeWorldId);
+            // Also load the world data if it's in history
+            const item = history.find(h => h.id === activeWorldId);
+            if (item) {
+                setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
+                setConfig(item.config);
+                setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
+            }
+        }
+    }, [activeWorldId, activeHistoryId, history]);
+
+    // Update persistent state when local activeHistoryId changes
+    const handleUpdateActiveHistoryId = (item: any) => {
+        setActiveHistoryId(item.id);
+        setActiveWorldId(item.id);
+        setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
+        setConfig(item.config);
+        setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
+    };
 
     // ── Planet State ──
     const [prompt, setPrompt] = useState<string>("A desolate, dusty orange planet with deep canyon scars, dry ocean basins, and rocky gray mountain ranges.");
@@ -118,63 +143,50 @@ export function WorldGenPage() {
         setGeoBulkSelectedIds([]);
     }, []);
 
+    const selectedWorld = history.find(h => h.id === activeHistoryId);
+
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
             <div className="absolute inset-0 z-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-900/20 via-[#030508] to-[#030508]" />
 
-            {/* ══ Header ══ */}
-            <header className="absolute top-0 left-0 right-0 z-30 bg-[#030508]/90 backdrop-blur-md border-b border-white/5 pointer-events-auto">
-                <div className="h-16 flex items-center justify-between px-6 w-full">
-                    {/* Left: Logo & Contextual Tabs */}
-                    <div className="flex items-center gap-6">
-                        <Link to="/" className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 hover:text-white transition-all">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                        </Link>
-                        <h1 className="text-xs font-black tracking-[0.3em] text-white">ASHTRAIL</h1>
-
-                        {/* Sub-Header Tabs attached to header when in GEO Step */}
-                        {activeStep === "GEO" && (
-                            <div className="flex items-center ml-4 pl-4 border-l border-white/10 h-8">
-                                <TabBar
-                                    tabs={["base", "world", "continents", "geology", "climate"]}
-                                    activeTab={inspectorTab}
-                                    onTabChange={(tab) => setInspectorTab(tab as InspectorTab)}
-                                    className="flex-1 shrink-0"
-                                />
-                                <button
-                                    onClick={() => setShowConfigPanel(prev => !prev)}
-                                    className="flex items-center justify-center w-8 h-8 ml-2 rounded-full border border-white/5 text-gray-400 hover:text-white hover:bg-white/5 transition-all"
-                                    title={showConfigPanel ? "Collapse config" : "Expand config"}
-                                >
-                                    <svg className={`w-4 h-4 transition-transform ${showConfigPanel ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Center: Stage Navigation */}
-                    <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center">
-                        <WorkflowBar activeStep={activeStep} onStepChange={handleStepChange} />
-                    </div>
-
-                    {/* Right: Map Controls */}
-                    <div className="flex items-center justify-end gap-4">
-                        <div className="flex items-center bg-[#1e1e1e]/60 border border-white/5 rounded-full p-0.5 shadow-lg">
-                            <button onClick={() => setViewMode("2d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "2d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 2D</button>
-                            <button onClick={() => setViewMode("map3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "map3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 3D</button>
-                            <button onClick={() => setViewMode("3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>GLOBE 3D</button>
-                            <button onClick={() => setViewMode("provinces")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "provinces" ? "bg-cyan-500/20 text-cyan-300 shadow-sm border border-cyan-500/30" : "text-gray-500 hover:text-gray-300"}`}>PROVINCES</button>
+            {/* ══ Tool-Specific Sub-Header ══ */}
+            <div className="fixed top-16 left-0 right-0 z-30 bg-[#030508]/60 backdrop-blur-md border-b border-white/5 pointer-events-auto flex items-center justify-between px-6 h-12 shadow-2xl">
+                {/* Left: Contextual Tabs */}
+                <div className="flex items-center gap-4">
+                    {activeStep === "GEO" && (
+                        <div className="flex items-center">
+                            <TabBar
+                                tabs={["base", "world", "continents", "geology", "climate"]}
+                                activeTab={inspectorTab}
+                                onTabChange={(tab) => setInspectorTab(tab as InspectorTab)}
+                                className="h-8"
+                            />
+                            <button
+                                onClick={() => setShowConfigPanel(prev => !prev)}
+                                className="flex items-center justify-center w-8 h-8 ml-2 rounded-full border border-white/5 text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+                                title={showConfigPanel ? "Collapse config" : "Expand config"}
+                            >
+                                <svg className={`w-4 h-4 transition-transform ${showConfigPanel ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                            </button>
                         </div>
-                        <button
-                            onClick={() => setShowHistory(!showHistory)}
-                            className={`flex items-center justify-center w-9 h-9 rounded-full border transition-all shadow-lg ${showHistory ? 'bg-[#E6E6FA]/20 border-[#E6E6FA]/50 text-[#E6E6FA]' : 'bg-[#1e1e1e]/60 border-white/5 text-gray-400 hover:text-white hover:bg-white/5'}`}
-                            title="Generation Gallery"
-                        >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                        </button>
+                    )}
+                </div>
+
+                {/* Center: Stage Navigation */}
+                <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center scale-90">
+                    <WorkflowBar activeStep={activeStep} onStepChange={handleStepChange} />
+                </div>
+
+                {/* Right: Map Controls */}
+                <div className="flex items-center justify-end gap-4 scale-90">
+                    <div className="flex items-center bg-[#1e1e1e]/60 border border-white/5 rounded-full p-0.5 shadow-lg">
+                        <button onClick={() => setViewMode("2d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "2d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 2D</button>
+                        <button onClick={() => setViewMode("map3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "map3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 3D</button>
+                        <button onClick={() => setViewMode("3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>GLOBE 3D</button>
+                        <button onClick={() => setViewMode("provinces")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "provinces" ? "bg-cyan-500/20 text-cyan-300 shadow-sm border border-cyan-500/30" : "text-gray-500 hover:text-gray-300"}`}>PROVINCES</button>
                     </div>
                 </div>
-            </header>
+            </div>
 
             {/* ══ Main Layout ══ */}
             <div className="flex-1 flex overflow-hidden relative z-10 pt-[80px] pb-12">
@@ -230,6 +242,22 @@ export function WorldGenPage() {
                                         planetId={activeHistoryId}
                                         selectedId={geoSelectedId}
                                         activeLayer={inspectorLayer}
+                                        onAppliedVariant={({ historyItem, variantId, textureUrl }) => {
+                                            const normalizedItem = {
+                                                ...(historyItem || {}),
+                                                id: historyItem?.id || variantId,
+                                                timestamp: historyItem?.timestamp || Date.now(),
+                                                prompt: historyItem?.prompt || prompt,
+                                                config: historyItem?.config || config,
+                                                textureUrl: historyItem?.textureUrl || textureUrl,
+                                            };
+                                            saveToHistory(normalizedItem as any).catch(console.error);
+                                            setActiveHistoryId(normalizedItem.id);
+                                            setActiveWorldId(normalizedItem.id);
+                                            setGlobeWorld(prev => prev
+                                                ? { ...prev, textureUrl: normalizedItem.textureUrl }
+                                                : { cols: 512, rows: 256, cellData: [], textureUrl: normalizedItem.textureUrl });
+                                        }}
                                     />
                                 )}
                             </div>
@@ -237,11 +265,7 @@ export function WorldGenPage() {
                     )}
                     {activeStep === "ECO" && (
                         <EcologyPanel
-                            ecoPrompt={ecoPrompt} setEcoPrompt={setEcoPrompt}
-                            ecoVegetation={ecoVegetation} setEcoVegetation={setEcoVegetation}
-                            ecoFauna={ecoFauna} setEcoFauna={setEcoFauna}
-                            generateEcology={generateEcology} genProgress={genProgress} globeWorld={globeWorld}
-                            regions={[]}
+                            planetId={activeHistoryId}
                         />
                     )}
                     {activeStep === "HUMANITY" && (
@@ -292,11 +316,9 @@ export function WorldGenPage() {
                         history={history}
                         activePlanetId={activeHistoryId}
                         deleteFromHistory={deleteFromHistory}
+                        onRenameWorld={renameInHistory}
                         onSelectPlanet={(item) => {
-                            setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
-                            setConfig(item.config);
-                            setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
-                            setActiveHistoryId(item.id);
+                            handleUpdateActiveHistoryId(item);
                             setShowHistory(false);
                         }}
                         onSelectTexture={(_, textureUrl) => {
