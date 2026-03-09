@@ -26,6 +26,25 @@ export interface Stats {
   charisma: number;
 }
 
+export type CharacterType = string;
+
+export type BuilderTab = "IDENTITY" | "LORE" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
+
+export interface CustomBaseType {
+  id: string;
+  name: string;
+  description: string;
+  allowedTabs: BuilderTab[];
+  innateStatsBonus: Partial<Stats>;
+  hasFamily: boolean;
+  canHaveOccupation: boolean;
+}
+
+export interface WorldSettings {
+  worldId: string;
+  baseTypes: CustomBaseType[];
+}
+
 export type EffectType =
   | 'STAT_MODIFIER'
   | 'COMBAT_BONUS'
@@ -123,9 +142,34 @@ export interface Skill {
   effects?: GameplayEffect[];
 }
 
+export type RelationshipType =
+  // Blood family
+  | 'father' | 'mother' | 'son' | 'daughter' | 'brother' | 'sister'
+  | 'grandfather' | 'grandmother' | 'grandson' | 'granddaughter'
+  | 'uncle' | 'aunt' | 'nephew' | 'niece' | 'cousin'
+  // Chosen family / social
+  | 'spouse' | 'partner' | 'fiancé'
+  | 'adoptive_parent' | 'adoptive_child' | 'step_parent' | 'step_child' | 'step_sibling'
+  // Social bonds
+  | 'friend' | 'best_friend' | 'ally' | 'mentor' | 'protégé' | 'companion'
+  // Adversarial
+  | 'enemy' | 'rival' | 'nemesis'
+  // Other
+  | 'lover' | 'ex' | 'ward' | 'guardian' | 'servant' | 'master' | 'liege' | 'vassal';
+
+export interface CharacterRelationship {
+  targetId: string;
+  type: RelationshipType;
+  note?: string; // e.g. "Childhood friends" or "Betrayed them"
+}
+
 export interface Character {
   id: string;
   isNPC?: boolean;
+  type?: CharacterType;
+  isFamily?: boolean;
+  familyId?: string;
+  worldId?: string;
   name: string;
   age: number;
   gender: string;
@@ -148,6 +192,8 @@ export interface Character {
   alignment?: string;
   backstory?: string;
   currentStory?: string;
+  parents?: { father: string | null; mother: string | null }; // legacy
+  relationships?: CharacterRelationship[];
 }
 
 /** @deprecated Use `Character` instead. Kept for backward compatibility. */

@@ -1,9 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "@ashtrail/ui";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
+import { useActiveWorld } from "../hooks/useActiveWorld";
 
 interface CloudObject {
     path: string;
@@ -14,8 +15,23 @@ interface CloudObject {
 }
 
 export function GalleryPage() {
-    const { history, deleteFromHistory } = useGenerationHistory();
-    const [activePlanetId, setActivePlanetId] = useState<string | null>(null);
+    const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
+    const { activeWorldId, setActiveWorldId } = useActiveWorld();
+    const [activePlanetId, setActivePlanetId] = useState<string | null>(activeWorldId);
+
+    // Sync local activePlanetId with persistent activeWorldId
+    useEffect(() => {
+        if (activeWorldId && activeWorldId !== activePlanetId) {
+            setActivePlanetId(activeWorldId);
+        }
+    }, [activeWorldId, activePlanetId]);
+
+    // Update persistent state when local activePlanetId changes
+    const handleSelectPlanet = (item: GenerationHistoryItem) => {
+        const newId = activePlanetId === item.id ? null : item.id;
+        setActivePlanetId(newId);
+        setActiveWorldId(newId);
+    };
     const [previewTexture, setPreviewTexture] = useState<{ url: string, planetId: string } | null>(null);
     const [isSyncingCloud, setIsSyncingCloud] = useState(false);
     const [syncResult, setSyncResult] = useState<string | null>(null);
@@ -74,48 +90,38 @@ export function GalleryPage() {
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
             <div className="absolute inset-0 z-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-teal-900/20 via-[#030508] to-[#030508]" />
 
-            {/* ══ Header ══ */}
-            <header className="absolute top-0 left-0 right-0 z-30 bg-[#030508]/90 backdrop-blur-md border-b border-white/5 pointer-events-auto">
-                <div className="h-16 flex items-center justify-between px-6 w-full">
-                    {/* Left: Logo & Contextual Tabs */}
-                    <div className="flex items-center gap-6">
-                        <Link to="/" className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 hover:text-white transition-all">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                        </Link>
-                        <h1 className="text-xs font-black tracking-[0.3em] text-white">
-                            ASHTRAIL <span className="text-gray-500">| GENERATION GALLERY</span>
-                        </h1>
-                    </div>
-                    {/* Right: Actions */}
-                    <div className="flex items-center gap-4">
-                        <button
-                            onClick={openCloudBrowser}
-                            className="px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-100"
-                        >
-                            BROWSE BUCKET
-                        </button>
-                        <button
-                            onClick={syncCloudStorage}
-                            disabled={isSyncingCloud}
-                            className="px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isSyncingCloud ? "SYNCING..." : "SYNC CLOUD <-> LOCAL"}
-                        </button>
-                        <Link to="/worldgen" className="px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white">
-                            RETURN TO WORLDGEN
-                        </Link>
-                    </div>
+            {/* ══ Tool-Specific Sub-Header ══ */}
+            <div className="fixed top-16 left-0 right-0 z-30 bg-[#030508]/60 backdrop-blur-md border-b border-white/5 pointer-events-auto flex items-center justify-between px-6 h-12 shadow-2xl">
+                <div className="flex items-center gap-4">
+                    <h1 className="text-[10px] font-black tracking-[0.3em] text-white uppercase">GENERATION GALLERY</h1>
                 </div>
-                {(syncResult || cloudError) && (
-                    <div className="px-6 pb-3 text-[10px] font-mono tracking-wide">
-                        {syncResult && <p className="text-emerald-300">{syncResult}</p>}
-                        {cloudError && <p className="text-red-300">{cloudError}</p>}
-                    </div>
-                )}
-            </header>
+
+                <div className="flex items-center gap-4 scale-90">
+                    <button
+                        onClick={openCloudBrowser}
+                        className="px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-100"
+                    >
+                        BROWSE BUCKET
+                    </button>
+                    <button
+                        onClick={syncCloudStorage}
+                        disabled={isSyncingCloud}
+                        className="px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isSyncingCloud ? "SYNCING..." : "SYNC CLOUD <-> LOCAL"}
+                    </button>
+                </div>
+            </div>
+
+            {(syncResult || cloudError) && (
+                <div className="absolute top-[112px] left-6 right-6 z-20 text-[10px] font-mono tracking-wide bg-black/50 p-2 rounded-lg backdrop-blur-sm border border-white/5">
+                    {syncResult && <p className="text-emerald-300">{syncResult}</p>}
+                    {cloudError && <p className="text-red-300">{cloudError}</p>}
+                </div>
+            )}
 
             {/* ══ Main Layout ══ */}
-            <div className="flex-1 flex overflow-hidden relative z-10 pt-[64px] bg-black/30 w-full">
+            <div className="flex-1 flex overflow-hidden relative z-10 pt-[112px] bg-black/30 w-full">
 
                 {/* Left: History Gallery */}
                 <div className="flex-1 h-full overflow-hidden">
@@ -123,12 +129,13 @@ export function GalleryPage() {
                         history={history}
                         activePlanetId={activePlanetId}
                         showExtendedTabs={true}
+                        onRenameWorld={renameInHistory}
                         deleteFromHistory={(id) => {
                             deleteFromHistory(id);
                             if (activePlanetId === id) setActivePlanetId(null);
                         }}
                         onSelectPlanet={(item: GenerationHistoryItem) => {
-                            setActivePlanetId(prevId => prevId === item.id ? null : item.id);
+                            handleSelectPlanet(item);
                         }}
                         onSelectTexture={(planetId, textureUrl) => {
                             setPreviewTexture({ url: textureUrl, planetId });

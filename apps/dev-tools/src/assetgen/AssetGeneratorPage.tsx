@@ -194,8 +194,8 @@ const TextureCard = React.memo(function TextureCard({
     );
 });
 
-export function IconGenPage() {
-    const [activeTab, setActiveTab] = useState<"icons" | "textures">("icons");
+export function AssetGeneratorPage() {
+    const [activeTab, setActiveTab] = useState<"icons" | "battlemaps" | "world-assets" | "game-assets">("icons");
 
     // ── Prompt State (Shared or separate depending on tab) ──
     const [stylePrompt, setStylePrompt] = useState("");
@@ -458,7 +458,7 @@ export function IconGenPage() {
         if (activeTab === "icons" && activeBatch) {
             setRenameValue(activeBatch.batchName || "");
             setIsRenaming(true);
-        } else if (activeTab === "textures" && activeTextureBatch) {
+        } else if (activeTab === "battlemaps" && activeTextureBatch) {
             setRenameValue(activeTextureBatch.batchName || "");
             setIsRenaming(true);
         }
@@ -632,23 +632,13 @@ export function IconGenPage() {
 
     return (
         <div className="flex flex-col h-screen bg-[#070b12] text-gray-300 font-sans overflow-hidden">
-            {/* ── Header ── */}
-            <header className="shrink-0 bg-[#030508]/90 backdrop-blur-md border-b border-white/5 z-30">
-                <div className="h-16 flex items-center px-6 gap-6">
-                    <Link
-                        to="/"
-                        className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 hover:text-white transition-all"
-                    >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                        </svg>
-                    </Link>
-                    <h1 className="text-xs font-black tracking-[0.3em] text-white">
-                        ASHTRAIL <span className="text-gray-600 font-normal tracking-widest">| IMAGE GENERATOR</span>
-                    </h1>
+            {/* ══ Tool-Specific Sub-Header ══ */}
+            <div className="fixed top-16 left-0 right-0 z-30 bg-[#030508]/60 backdrop-blur-md border-b border-white/5 pointer-events-auto flex items-center justify-between px-6 h-12 shadow-2xl">
+                <div className="flex items-center gap-4">
+                    <h1 className="text-[10px] font-black tracking-[0.3em] text-white uppercase">ASSET GENERATOR</h1>
 
                     {/* Tab Switcher */}
-                    <div className="flex items-center bg-white/5 p-1 rounded-lg border border-white/10 ml-4">
+                    <div className="flex items-center bg-white/5 p-1 rounded-lg border border-white/10 ml-4 scale-90">
                         <button
                             onClick={() => setActiveTab("icons")}
                             className={`px-4 py-1.5 rounded-md text-[10px] font-bold tracking-widest transition-all ${activeTab === "icons"
@@ -659,54 +649,53 @@ export function IconGenPage() {
                             ICONS
                         </button>
                         <button
-                            onClick={() => setActiveTab("textures")}
-                            className={`px-4 py-1.5 rounded-md text-[10px] font-bold tracking-widest transition-all ${activeTab === "textures"
+                            onClick={() => setActiveTab("battlemaps")}
+                            className={`px-4 py-1.5 rounded-md text-[10px] font-bold tracking-widest transition-all ${activeTab === "battlemaps"
                                 ? "bg-[#E6E6FA]/20 text-[#E6E6FA] shadow-lg shadow-black/20"
                                 : "text-gray-500 hover:text-gray-300"
                                 }`}
                         >
-                            TEXTURES
+                            BATTLEMAPS
                         </button>
-                    </div>
-                    <div className="ml-auto flex items-center gap-3 text-[10px] tracking-widest text-gray-600">
-                        {exportResult && (
-                            <span className="text-emerald-400 tracking-wider animate-pulse">
-                                ✓ {exportResult.totalIcons} icons exported ({exportResult.totalBatches} batches)
-                            </span>
-                        )}
                         <button
-                            onClick={handleExport}
-                            disabled={isExporting || batches.length === 0}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-all text-[10px] font-bold tracking-[0.1em] ${isExporting
-                                ? "border-white/5 bg-white/5 text-gray-500 cursor-wait"
-                                : batches.length === 0
-                                    ? "border-white/5 bg-white/5 text-gray-600 cursor-not-allowed"
-                                    : "border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                            onClick={() => setActiveTab("world-assets")}
+                            className={`px-4 py-1.5 rounded-md text-[10px] font-bold tracking-widest transition-all ${activeTab === "world-assets"
+                                ? "bg-[#E6E6FA]/20 text-[#E6E6FA] shadow-lg shadow-black/20"
+                                : "text-gray-500 hover:text-gray-300"
                                 }`}
-                            title="Export all batches to game-assets/assets/icons/"
                         >
-                            {isExporting ? (
-                                <>
-                                    <span className="inline-block w-3 h-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
-                                    EXPORTING...
-                                </>
-                            ) : (
-                                <>
-                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                    </svg>
-                                    EXPORT TO CODE
-                                </>
-                            )}
+                            WORLD ASSETS
                         </button>
-                        <span className="inline-block w-2 h-2 rounded-full bg-amber-500/60" />
-                        WIP
+                        <button
+                            onClick={() => setActiveTab("game-assets")}
+                            className={`px-4 py-1.5 rounded-md text-[10px] font-bold tracking-widest transition-all ${activeTab === "game-assets"
+                                ? "bg-[#E6E6FA]/20 text-[#E6E6FA] shadow-lg shadow-black/20"
+                                : "text-gray-500 hover:text-gray-300"
+                                }`}
+                        >
+                            GAME ASSETS
+                        </button>
                     </div>
                 </div>
-            </header>
+
+                <div className="flex items-center gap-3 scale-90">
+                    <button
+                        onClick={handleExport}
+                        disabled={isExporting || batches.length === 0}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-all text-[10px] font-bold tracking-[0.1em] ${isExporting
+                            ? "border-white/5 bg-white/5 text-gray-500 cursor-wait"
+                            : batches.length === 0
+                                ? "border-white/5 bg-white/5 text-gray-600 cursor-not-allowed"
+                                : "border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                            }`}
+                    >
+                        {isExporting ? "EXPORTING..." : "EXPORT TO CODE"}
+                    </button>
+                </div>
+            </div>
 
             {/* ── Body ── */}
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex overflow-hidden pt-28">
                 {/* ── Left Panel: Prompt & Settings ── */}
                 <aside className="w-[440px] shrink-0 border-r border-white/5 bg-[#0a0f16] flex flex-col p-4 overflow-hidden">
                     {/* Scrollable container for configuration sections */}
@@ -719,7 +708,7 @@ export function IconGenPage() {
                                 </h3>
                             </CardHeader>
                             <CardContent className="space-y-3 max-h-[300px] overflow-y-auto">
-                                {activeTab === "textures" && (
+                                {activeTab === "battlemaps" && (
                                     <>
                                         <div>
                                             <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">
@@ -786,7 +775,7 @@ export function IconGenPage() {
                                 <div>
                                     <div className="flex items-center justify-between mb-1.5">
                                         <label className="block text-[8px] text-gray-500 tracking-wider uppercase">
-                                            {activeTab === "icons" ? "Icon List" : "Texture List"}
+                                            {activeTab === "icons" ? "Icon List" : activeTab === "battlemaps" ? "Battlemap List" : "Asset List"}
                                         </label>
                                         <span className="text-[8px] text-[#E6E6FA] font-mono bg-[#E6E6FA]/10 px-1.5 py-0.5 rounded">
                                             {rawLineCount} ITEMS
@@ -795,7 +784,7 @@ export function IconGenPage() {
                                     <textarea
                                         value={iconListText}
                                         onChange={(e) => setIconListText(e.target.value)}
-                                        placeholder={activeTab === "icons" ? "potion bottle\niron sword" : "cobblestone path\ndirt field"}
+                                        placeholder={activeTab === "icons" ? "potion bottle\niron sword" : activeTab === "battlemaps" ? "cobblestone path\ndirt field" : "e.g. descriptive asset prompt"}
                                         rows={4}
                                         className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#E6E6FA]/30 resize-none transition-colors font-mono leading-relaxed"
                                     />
@@ -889,7 +878,7 @@ export function IconGenPage() {
                                     format={(v) => v.toFixed(1)}
                                     onChange={setTemperature}
                                 />
-                                {activeTab === "textures" && (
+                                {activeTab === "battlemaps" && (
                                     <Slider
                                         label="VARIATIONS PER PROMPT"
                                         value={textureVariations}
@@ -920,7 +909,7 @@ export function IconGenPage() {
                                     GENERATING {genProgress.total} {activeTab.toUpperCase()}...
                                 </span>
                             ) : (
-                                `⚡ BAKE ${rawLineCount > 0 ? rawLineCount : ""} ${activeTab === "icons" ? "ICON" : "TEXTURE"}${rawLineCount !== 1 ? "S" : ""}`
+                                `⚡ BAKE ${rawLineCount > 0 ? rawLineCount : ""} ${activeTab === "icons" ? "ICON" : activeTab === "battlemaps" ? "BATTLEMAP" : "ASSET"}${rawLineCount !== 1 ? "S" : ""}`
                             )}
                         </Button>
 
@@ -936,7 +925,7 @@ export function IconGenPage() {
                 <div className="w-[200px] shrink-0 border-r border-white/5 bg-[#080d14] overflow-y-auto">
                     <div className="p-3 border-b border-white/5">
                         <h3 className="text-[10px] font-bold tracking-[0.15em] text-gray-500 uppercase">
-                            {activeTab === "icons" ? "Icon Batches" : "Texture Batches"}
+                            {activeTab === "icons" ? "Icon Batches" : activeTab === "battlemaps" ? "Battlemap Batches" : "Asset Batches"}
                         </h3>
                     </div>
                     {activeTab === "icons" ? (
@@ -1023,7 +1012,7 @@ export function IconGenPage() {
 
                 {/* ── Right: Gallery ── */}
                 <main className="flex-1 overflow-y-auto p-8 relative">
-                    {((activeTab === "icons" && !activeBatch) || (activeTab === "textures" && !activeTextureBatch)) && !isGenerating ? (
+                    {((activeTab === "icons" && !activeBatch) || (activeTab === "battlemaps" && !activeTextureBatch)) && !isGenerating ? (
                         <div className="flex flex-col items-center justify-center h-full text-center">
                             <div className="text-6xl mb-6 opacity-30">{activeTab === "icons" ? "🎨" : "🖼️"}</div>
                             <h2 className="text-lg font-bold text-gray-500 tracking-wider mb-2">NO BATCH SELECTED</h2>
@@ -1135,7 +1124,7 @@ export function IconGenPage() {
                                 </div>
                             )}
                         </div>
-                    ) : (activeTab === "textures" && activeTextureBatch) ? (
+                    ) : (activeTab === "battlemaps" && activeTextureBatch) ? (
                         <div className="space-y-6">
                             {/* Texture Batch Header */}
                             <div className="flex items-center justify-between">

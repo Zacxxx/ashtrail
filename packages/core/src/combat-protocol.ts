@@ -22,6 +22,17 @@ export type Grid = GridCell[][];
 
 // ── Entities ────────────────────────────────────────────────
 
+export interface BaseStats {
+    strength: number;
+    agility: number;
+    intelligence: number;
+    wisdom: number;
+    endurance: number;
+    charisma: number;
+    evasion: number;
+    defense: number;
+}
+
 export interface TacticalEntity {
     id: string;
     isPlayer: boolean;
@@ -50,6 +61,7 @@ export interface TacticalEntity {
     gridPos: GridPos;
     equipped?: Record<string, Item | null>;
     activeEffects?: (GameplayEffect & { justApplied?: boolean; protectorId?: string; lastKnownPosition?: GridPos })[];
+    baseStats: BaseStats;
 }
 
 export interface DamagePreview {

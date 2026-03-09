@@ -10,6 +10,7 @@ export interface GenerationHistoryItem {
     id: string;            // The job ID or UUID
     timestamp: number;     // When it was generated
     prompt: string;        // The user's text prompt
+    name?: string;         // Optional display name (falls back to prompt)
     config: SimulationConfig; // All the simulation sliders
     textureUrl: string;    // Base64 object URL of the final image mapping
     thumbnailUrl?: string; // Smaller version for gallery
@@ -87,11 +88,30 @@ export function useGenerationHistory() {
         }
     }, []);
 
+    const renameInHistory = useCallback(async (id: string, newName: string) => {
+        const item = history.find(i => i.id === id);
+        if (!item) return;
+        const updated = { ...item, name: newName };
+        try {
+            const res = await fetch(API_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(updated)
+            });
+            if (res.ok) {
+                setHistory(prev => prev.map(i => i.id === id ? updated : i));
+            }
+        } catch (e) {
+            console.error("Rename history error:", e);
+        }
+    }, [history]);
+
     return {
         history,
         isReady,
         saveToHistory,
         deleteFromHistory,
-        clearHistory
+        clearHistory,
+        renameInHistory
     };
 }

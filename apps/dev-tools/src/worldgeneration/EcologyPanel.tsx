@@ -1,82 +1,189 @@
-import { useState } from "react";
-import { Slider, Button } from "@ashtrail/ui";
-import type { GenerationProgress, PlanetWorld, GeoRegion } from "./types";
+import { Link } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { EcologyHierarchyList } from "../ecology/EcologyHierarchyList";
+import { useEcologyData } from "../ecology/useEcologyData";
 
 interface EcologyPanelProps {
-    ecoPrompt: string;
-    setEcoPrompt: (value: string) => void;
-    ecoVegetation: number;
-    setEcoVegetation: (value: number) => void;
-    ecoFauna: number;
-    setEcoFauna: (value: number) => void;
-    generateEcology: (targetRegionId?: string) => void;
-    genProgress: GenerationProgress;
-    globeWorld: PlanetWorld | null;
-    regions: GeoRegion[];
+    planetId: string | null;
 }
 
-export function EcologyPanel({
-    ecoPrompt,
-    setEcoPrompt,
-    ecoVegetation,
-    setEcoVegetation,
-    ecoFauna,
-    setEcoFauna,
-    generateEcology,
-    genProgress,
-    globeWorld,
-    regions,
-}: EcologyPanelProps) {
-    const [targetRegionId, setTargetRegionId] = useState<string>("global");
+function baselinePill(status: string) {
+    switch (status) {
+        case "approved":
+            return "border-green-500/30 bg-green-500/10 text-green-300";
+        case "draft":
+            return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+        default:
+            return "border-white/10 bg-white/5 text-gray-500";
+    }
+}
+
+export function EcologyPanel({ planetId }: EcologyPanelProps) {
+    const ecology = useEcologyData(planetId);
+    const [selectedProvinceId, setSelectedProvinceId] = useState<number | null>(null);
+
+    const selectedProvince = useMemo(
+        () => ecology.regionsByType.provinces.find((entry) => entry.rawId === selectedProvinceId) ?? null,
+        [ecology.regionsByType.provinces, selectedProvinceId],
+    );
+    const selectedRecord = selectedProvince?.rawId
+        ? ecology.bundle?.provinces.find((entry) => entry.provinceId === selectedProvince.rawId) ?? null
+        : null;
+    const kingdomStatus = selectedProvince?.kingdomId
+        ? ecology.baselineLookup.get(`kingdom:${selectedProvince.kingdomId}`)?.status ?? "missing"
+        : "missing";
+    const duchyStatus = selectedProvince?.duchyId
+        ? ecology.baselineLookup.get(`duchy:${selectedProvince.duchyId}`)?.status ?? "missing"
+        : "missing";
+    const worldStatus = ecology.baselineLookup.get("world:world")?.status ?? "missing";
+
+    if (!planetId) {
+        return (
+            <div className="flex-1 flex flex-col bg-[#1e1e1e]/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl overflow-hidden h-full">
+                <div className="p-5 flex-1 flex items-center justify-center text-center text-gray-500 text-sm">
+                    Select a generated world to manage ecology.
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex-1 flex flex-col bg-[#1e1e1e]/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl overflow-hidden h-full">
             <div className="p-5 flex-1 overflow-y-auto scrollbar-thin">
-                <h3 className="text-[11px] font-black tracking-[0.2em] text-green-400 flex items-center gap-2 mb-6">
+                <h3 className="text-[11px] font-black tracking-[0.2em] text-green-400 flex items-center gap-2 mb-5">
                     <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
                     ECOLOGY ENGINE
                 </h3>
-                <div className="space-y-6">
-                    <div>
-                        <label className="block text-[10px] font-extrabold tracking-[0.15em] text-gray-400 mb-2">TARGET REGION</label>
-                        <select
-                            value={targetRegionId}
-                            onChange={(e) => setTargetRegionId(e.target.value)}
-                            className="w-full bg-black/40 text-[10px] font-bold tracking-widest text-green-300 border border-white/10 p-2.5 rounded-lg focus:outline-none focus:border-green-500/50 appearance-none truncate"
-                        >
-                            <option value="global">[Global Base]</option>
-                            {regions.map(r => (
-                                <option key={r.id} value={r.id}>{r.name} ({r.type.replace('_', ' ')})</option>
-                            ))}
-                        </select>
-                        {regions.length === 0 && <p className="text-[8px] text-gray-500 mt-1">Define regions in Geography step to apply localized biomes.</p>}
-                    </div>
 
-                    <div>
-                        <label className="block text-[10px] font-extrabold tracking-[0.15em] text-gray-400 mb-3">
-                            BIOME & EVOLUTION SEED
-                        </label>
-                        <textarea
-                            value={ecoPrompt}
-                            onChange={e => setEcoPrompt(e.target.value)}
-                            className="w-full h-32 bg-black/40 border border-white/10 rounded-xl p-4 text-sm text-gray-200 focus:outline-none focus:border-green-500/50 resize-none shadow-inner placeholder:text-gray-700 transition-colors"
-                            placeholder="Describe specific vegetation types, alien flora, etc..."
-                        />
+                <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <div>
+                            <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">Baseline Status</p>
+                            <p className="text-[10px] text-gray-500 mt-1">World {"->"} Kingdom {"->"} Duchy gates province generation.</p>
+                        </div>
+                        <Link
+                            to="/ecology"
+                            className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-emerald-300 transition-all hover:bg-emerald-500/20"
+                        >
+                            OPEN /ECOLOGY
+                        </Link>
                     </div>
-                    <Slider label="VEGETATION DENSITY" value={ecoVegetation} min={0} max={1} step={0.05} format={v => `${(v * 100).toFixed(0)}%`} onChange={setEcoVegetation} />
-                    <Slider label="FAUNA HOTSPOTS" value={ecoFauna} min={0} max={1} step={0.05} format={v => `${(v * 100).toFixed(0)}%`} onChange={setEcoFauna} />
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                        <StatusCard label="WORLD" status={worldStatus} />
+                        <StatusCard label="KINGDOM" status={kingdomStatus} />
+                        <StatusCard label="DUCHY" status={duchyStatus} />
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-2">
+                        <button
+                            type="button"
+                            onClick={() => void ecology.generateWorldBaseline()}
+                            className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-green-300 transition-all hover:bg-green-500/20"
+                        >
+                            GENERATE WORLD BASELINE
+                        </button>
+                        {selectedProvince?.kingdomId !== undefined && (
+                            <button
+                                type="button"
+                                onClick={() => void ecology.generateKingdomBaseline(selectedProvince.kingdomId!)}
+                                disabled={worldStatus !== "approved"}
+                                className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:opacity-40"
+                            >
+                                GENERATE KINGDOM BASELINE
+                            </button>
+                        )}
+                        {selectedProvince?.duchyId !== undefined && (
+                            <button
+                                type="button"
+                                onClick={() => void ecology.generateDuchyBaseline(selectedProvince.duchyId!)}
+                                disabled={kingdomStatus !== "approved"}
+                                className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:opacity-40"
+                            >
+                                GENERATE DUCHY BASELINE
+                            </button>
+                        )}
+                    </div>
                 </div>
-                <div className="pt-6 mt-4 border-t border-white/5">
-                    <Button
-                        variant="primary"
-                        onClick={() => generateEcology(targetRegionId === "global" ? undefined : targetRegionId)}
-                        disabled={genProgress.isActive || !globeWorld?.textureUrl}
-                        className="w-full text-[10px] tracking-[0.2em] font-black py-4 bg-green-600/80 hover:bg-green-500 border border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.3)] disabled:opacity-50 disabled:shadow-none transition-all rounded-xl"
-                    >
-                        {genProgress.isActive ? "GENERATING..." : `APPLY ECOLOGY TO ${targetRegionId === 'global' ? 'GLOBE' : 'REGION'}`}
-                    </Button>
+
+                <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-3 text-[10px] text-gray-400">
+                    {ecology.jobState.jobId
+                        ? `${ecology.jobState.status.toUpperCase()} • ${ecology.jobState.stage} • ${ecology.jobState.progress.toFixed(0)}%`
+                        : "No active ecology job."}
                 </div>
+
+                <EcologyHierarchyList
+                    regions={ecology.regions}
+                    bundle={ecology.bundle!}
+                    selectedProvinceId={selectedProvinceId}
+                    onSelectProvince={setSelectedProvinceId}
+                    onGenerateProvince={(provinceId) => void ecology.generateProvince(provinceId)}
+                    disableActions={ecology.jobState.status === "running" || ecology.jobState.status === "queued"}
+                    canGenerateProvince={(province) =>
+                        worldStatus === "approved"
+                        && (province.kingdomId ? ecology.baselineLookup.get(`kingdom:${province.kingdomId}`)?.status === "approved" : false)
+                        && (province.duchyId ? ecology.baselineLookup.get(`duchy:${province.duchyId}`)?.status === "approved" : false)
+                    }
+                />
+
+                {selectedProvince && (
+                    <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+                        <div className="mb-3 flex items-center justify-between">
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-100">{selectedProvince.name}</h4>
+                                <p className="text-[10px] tracking-widest text-gray-500 uppercase">
+                                    Dossier {selectedRecord?.status ?? "missing"}
+                                </p>
+                            </div>
+                            {selectedRecord && (
+                                <button
+                                    type="button"
+                                    onClick={() => void ecology.approveProvince(selectedRecord.provinceId)}
+                                    className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-1.5 text-[10px] font-bold tracking-widest text-green-300 transition-all hover:bg-green-500/20"
+                                >
+                                    APPROVE
+                                </button>
+                            )}
+                        </div>
+
+                        {selectedRecord?.sourceIsolatedImageUrl ? (
+                            <img
+                                src={`http://127.0.0.1:8787${selectedRecord.sourceIsolatedImageUrl}`}
+                                alt={selectedProvince.name}
+                                className="mb-3 h-44 w-full rounded-lg border border-white/10 object-contain bg-[#05080c]"
+                            />
+                        ) : (
+                            <div className="mb-3 rounded-lg border border-dashed border-white/10 p-4 text-center text-[10px] text-gray-500">
+                                Province isolate will be cached during the first generation.
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                            <div className="rounded-lg border border-white/10 bg-[#0a0f14] p-3">
+                                <p className="text-[9px] tracking-widest text-gray-500 uppercase mb-1">Ecological Potential</p>
+                                <p className="text-lg font-bold text-green-300">{selectedRecord?.ecologicalPotential ?? 0}</p>
+                            </div>
+                            <div className="rounded-lg border border-white/10 bg-[#0a0f14] p-3">
+                                <p className="text-[9px] tracking-widest text-gray-500 uppercase mb-1">Agriculture Potential</p>
+                                <p className="text-lg font-bold text-amber-300">{selectedRecord?.agriculturePotential ?? 0}</p>
+                            </div>
+                        </div>
+
+                        <p className="text-[11px] leading-relaxed text-gray-300 whitespace-pre-wrap">
+                            {selectedRecord?.description || "No province ecology draft yet."}
+                        </p>
+                    </div>
+                )}
             </div>
+        </div>
+    );
+}
+
+function StatusCard({ label, status }: { label: string; status: string }) {
+    return (
+        <div className="rounded-lg border border-white/10 bg-[#0a0f14] p-3">
+            <p className="text-[9px] font-bold tracking-widest text-gray-500 uppercase mb-2">{label}</p>
+            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[9px] font-bold tracking-widest uppercase ${baselinePill(status)}`}>
+                {status}
+            </span>
         </div>
     );
 }
