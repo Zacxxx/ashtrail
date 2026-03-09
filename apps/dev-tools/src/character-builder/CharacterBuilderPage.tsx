@@ -210,7 +210,21 @@ export function CharacterBuilderPage() {
 
     const handleGenerateConfirm = async (characters: Character[]) => {
         try {
-            for (const char of characters) {
+            const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
+
+            for (let char of characters) {
+                // Automatically equip base skills for players
+                if (!char.isNPC) {
+                    const existingSkills = char.skills || [];
+                    const merged = [...existingSkills];
+                    baseSkills.forEach(bs => {
+                        if (!merged.some(ms => ms.id === bs.id)) {
+                            merged.push(bs);
+                        }
+                    });
+                    char.skills = merged;
+                }
+
                 await fetch("http://127.0.0.1:8787/api/data/characters", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -539,9 +553,22 @@ export function CharacterBuilderPage() {
     useEffect(() => {
         async function load() {
             await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
-            setSavedCharacters(GameRegistry.getAllCharacters());
+            const rawCharacters = GameRegistry.getAllCharacters();
+            const skills = GameRegistry.getAllSkills();
+            const baseSkills = skills.filter(s => s.category === "base");
+
+            // Enrich all characters with base skills immediately
+            const enriched = rawCharacters.map(c => ({
+                ...c,
+                skills: [
+                    ...(c.skills || []),
+                    ...baseSkills.filter(bs => !(c.skills || []).some(ms => ms.id === bs.id))
+                ]
+            }));
+
+            setSavedCharacters(enriched);
             setLibraryItems(GameRegistry.getAllItems());
-            setLibrarySkills(GameRegistry.getAllSkills());
+            setLibrarySkills(skills);
             setIsLoading(false);
         }
         load();
@@ -713,7 +740,18 @@ export function CharacterBuilderPage() {
         setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
         setInventory(char.inventory || []);
-        setSelectedSkills(char.skills || []);
+        setSelectedSkills(prev => {
+            const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
+            const loadedSkills = char.skills || [];
+            // Merge char skills with base skills, avoiding duplicates
+            const merged = [...loadedSkills];
+            baseSkills.forEach(bs => {
+                if (!merged.some(ms => ms.id === bs.id)) {
+                    merged.push(bs);
+                }
+            });
+            return merged;
+        });
         if (char.equipped) {
             setEquippedItems(char.equipped);
         } else {
@@ -767,7 +805,7 @@ export function CharacterBuilderPage() {
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
         });
-        setSelectedSkills([]);
+        setSelectedSkills(GameRegistry.getAllSkills().filter(s => s.category === "base"));
         setActiveTab("IDENTITY");
         // Also reset inventory to fresh mock data
         const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
@@ -812,7 +850,18 @@ export function CharacterBuilderPage() {
             xp: 0,
             level: level,
             inventory: inventory,
-            skills: selectedSkills,
+            skills: (() => {
+                if (isNPC) return selectedSkills;
+                // Enforce base skills for players
+                const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
+                const merged = [...selectedSkills];
+                baseSkills.forEach(bs => {
+                    if (!merged.some(ms => ms.id === bs.id)) {
+                        merged.push(bs);
+                    }
+                });
+                return merged;
+            })(),
             equipped: equippedItems,
             title: characterTitle,
             badge: characterBadge,
@@ -1101,7 +1150,23 @@ export function CharacterBuilderPage() {
                                             <p className="text-xs text-gray-500 mt-1">NPCs/Archetypes are templates used by the game engine, not playable characters.</p>
                                         </div>
                                         <button
-                                            onClick={() => setIsNPC(!isNPC)}
+                                            onClick={() => {
+                                                const nextIsNPC = !isNPC;
+                                                setIsNPC(nextIsNPC);
+                                                // If switching to Player, auto-equip base skills
+                                                if (!nextIsNPC) {
+                                                    const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
+                                                    setSelectedSkills(prev => {
+                                                        const merged = [...prev];
+                                                        baseSkills.forEach(bs => {
+                                                            if (!merged.some(ms => ms.id === bs.id)) {
+                                                                merged.push(bs);
+                                                            }
+                                                        });
+                                                        return merged;
+                                                    });
+                                                }
+                                            }}
                                             className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg border transition-all ${isNPC
                                                 ? "bg-red-500/20 border-red-500/50 text-red-400"
                                                 : "bg-indigo-500/20 border-indigo-500/50 text-indigo-400"

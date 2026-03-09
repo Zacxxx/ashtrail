@@ -6,13 +6,24 @@
     "category": "base",
     "cooldown": 0,
     "damage": 12,
-    "description": "A quick melee strike with a blade.",
+    "description": "A quick melee strike using the equipped weapon.",
     "effectType": "physical",
+    "effects": [
+      {
+        "description": "",
+        "id": "effect-1773078073638",
+        "name": "New Effect",
+        "target": "mainHand",
+        "trigger": "passive",
+        "type": "WEAPON_DAMAGE_REPLACEMENT",
+        "value": 0
+      }
+    ],
     "icon": "⚔️",
     "id": "slash",
     "maxRange": 1,
     "minRange": 1,
-    "name": "Slash",
+    "name": "Use Weapon",
     "targetType": "enemy"
   },
   {
