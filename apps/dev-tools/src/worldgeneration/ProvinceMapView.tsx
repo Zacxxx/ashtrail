@@ -182,7 +182,7 @@ export type ProvinceLayer = "provinces" | "duchies" | "kingdoms" | "continents" 
 interface ProvinceMapViewProps {
     planetId: string | null;
     baseTextureUrl: string | null;
-    geographyTab?: "regions" | "cells" | "pipeline" | "inspector" | "isolator";
+    geographyTab?: "regions" | "cells" | "pipeline" | "inspector" | "isolator" | "refinement";
     hoveredId?: number | null;
     selectedId?: number | null;
     bulkSelectedIds?: number[];
@@ -225,6 +225,7 @@ export function ProvinceMapView({
     const [borderWidth, setBorderWidth] = useState(1.0);
     const [loaded, setLoaded] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const canSelectRegions = geographyTab === "inspector" || geographyTab === "refinement";
 
     // Pan / zoom state
     const panRef = useRef({ x: 0, y: 0 });
@@ -517,7 +518,7 @@ export function ProvinceMapView({
     }, []);
 
     const handlePointerMove = useCallback((e: PointerEvent<HTMLCanvasElement>) => {
-        if (!dragRef.current.dragging && geographyTab === "inspector" && planetId) {
+        if (!dragRef.current.dragging && canSelectRegions && planetId) {
             const targetKey = layer === "duchies"
                 ? "duchy_id"
                 : layer === "kingdoms"
@@ -591,7 +592,7 @@ export function ProvinceMapView({
         panRef.current.x = dragRef.current.startPanX + dx;
         panRef.current.y = dragRef.current.startPanY + dy;
         forceUpdate(n => n + 1);
-    }, [geographyTab, layer, planetId, onHover]);
+    }, [canSelectRegions, layer, planetId, onHover]);
 
     const handlePointerUp = useCallback((e: PointerEvent<HTMLCanvasElement>) => {
         dragRef.current.dragging = false;
@@ -601,7 +602,7 @@ export function ProvinceMapView({
         const dpr = window.devicePixelRatio || 1;
         const dx = Math.abs((e.clientX - dragRef.current.startX) * dpr);
         const dy = Math.abs((e.clientY - dragRef.current.startY) * dpr);
-        if (dx < 5 && dy < 5 && geographyTab === "inspector") {
+        if (dx < 5 && dy < 5 && canSelectRegions) {
             if (bulkSelectActive) {
                 onBulkToggle?.(hoveredId !== undefined ? hoveredId : null);
                 return;
@@ -612,7 +613,7 @@ export function ProvinceMapView({
             }
             onClick?.(hoveredId !== undefined ? hoveredId : null);
         }
-    }, [geographyTab, hoveredId, onClick, onBulkToggle, bulkSelectActive]);
+    }, [canSelectRegions, hoveredId, onClick, onBulkToggle, bulkSelectActive]);
 
     // ── No planet data ──
     if (!planetId || !baseTextureUrl) {

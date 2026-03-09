@@ -4,12 +4,27 @@ export interface PlanetCellLike {
   color: string;
 }
 
+export interface ProvinceOverlay {
+  artifactId: string;
+  sourcePlanetId: string;
+  provinceId: number;
+  bbox: { x: number; y: number; width: number; height: number };
+  scale: number;
+  artifactWidth: number;
+  artifactHeight: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  imageUrl: string;
+  appliedAt?: number;
+}
+
 export interface PlanetWorldData {
   cols: number;
   rows: number;
   cellData: PlanetCellLike[];
   textureUrl?: string;
   heightmapUrl?: string;
+  provinceOverlays?: ProvinceOverlay[];
 }
 
 export interface PlanetTile {

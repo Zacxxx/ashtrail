@@ -334,7 +334,7 @@ export function HistoryGallery({
                 {activeTab === "textures" && (activePlanetId ? activeVariants : textureImages).map(variant => (
                     <div key={variant.id} className={`relative justify-end flex flex-col aspect-[2/1] group border border-white/10 bg-black/40 rounded-xl overflow-hidden cursor-pointer hover:border-[#E6E6FA]/40 transition-all shadow-lg`}
                         onClick={() => {
-                            if (activePlanetId) onSelectTexture(activePlanetId, variant.textureUrl);
+                            if (activePlanetId) onSelectTexture(variant.id, variant.textureUrl);
                             else if ('url' in variant) onSelectTexture("batch", (variant as any).url);
                         }}
                     >

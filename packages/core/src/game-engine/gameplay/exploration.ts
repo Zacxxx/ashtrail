@@ -27,4 +27,5 @@ export interface ExplorationMap {
     tiles: Tile[];
     pawns: ExplorationPawn[];
     name?: string;
+    fogOfWar?: boolean[]; // true = revealed, false = hidden
 }

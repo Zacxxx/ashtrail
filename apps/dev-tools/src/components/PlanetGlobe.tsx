@@ -5,7 +5,8 @@ import {
   pickTile,
   tileCell,
   type PlanetWorldData,
-  type PlanetTiling
+  type PlanetTiling,
+  type ProvinceOverlay
 } from "../modules/planet/tiles";
 import type { TilingWorkerRequest, TilingWorkerResponse } from "../workers/tiling.worker";
 
@@ -270,6 +271,76 @@ export function PlanetGlobe({ world, onCellHover, onCellClick, showHexGrid }: Pl
     );
     scene.add(globe);
 
+    const overlayGroup = new THREE.Group();
+    scene.add(overlayGroup);
+    const overlayMeshes: THREE.Mesh[] = [];
+    let overlayDisposed = false;
+
+    const addOverlayMesh = (overlay: ProvinceOverlay) => {
+      const sourceWidth = overlay.sourceWidth || world.cols;
+      const sourceHeight = overlay.sourceHeight || world.rows;
+      if (!sourceWidth || !sourceHeight) {
+        return;
+      }
+
+      const u0 = Math.max(0, Math.min(1, overlay.bbox.x / sourceWidth));
+      const v0 = Math.max(0, Math.min(1, overlay.bbox.y / sourceHeight));
+      const u1 = Math.max(0, Math.min(1, (overlay.bbox.x + overlay.bbox.width) / sourceWidth));
+      const v1 = Math.max(0, Math.min(1, (overlay.bbox.y + overlay.bbox.height) / sourceHeight));
+      if (u1 <= u0 || v1 <= v0) {
+        return;
+      }
+
+      const widthRatio = u1 - u0;
+      const heightRatio = v1 - v0;
+      const widthSegments = Math.max(8, Math.ceil(widthRatio * 220));
+      const heightSegments = Math.max(8, Math.ceil(heightRatio * 110));
+      const geometry = new THREE.SphereGeometry(
+        1.002,
+        widthSegments,
+        heightSegments,
+        u0 * Math.PI * 2,
+        widthRatio * Math.PI * 2,
+        v0 * Math.PI,
+        heightRatio * Math.PI
+      );
+
+      const overlayLoader = new THREE.TextureLoader();
+      overlayLoader.setCrossOrigin("anonymous");
+      overlayLoader.load(
+        overlay.imageUrl,
+        (texture) => {
+          if (overlayDisposed) {
+            texture.dispose();
+            geometry.dispose();
+            return;
+          }
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.wrapS = THREE.ClampToEdgeWrapping;
+          texture.wrapT = THREE.ClampToEdgeWrapping;
+          const material = new THREE.MeshStandardMaterial({
+            map: texture,
+            transparent: true,
+            alphaTest: 0.02,
+            depthWrite: false,
+            roughness: 0.95,
+            metalness: 0,
+          });
+          const mesh = new THREE.Mesh(geometry, material);
+          overlayMeshes.push(mesh);
+          overlayGroup.add(mesh);
+        },
+        undefined,
+        () => {
+          geometry.dispose();
+        }
+      );
+    };
+
+    for (const overlay of world.provinceOverlays || []) {
+      addOverlayMesh(overlay);
+    }
+
     const atmosphere = new THREE.Mesh(
       new THREE.SphereGeometry(1.03, 64, 64),
       new THREE.MeshBasicMaterial({ color: 0x76a9ff, transparent: true, opacity: 0.08 })
@@ -368,6 +439,7 @@ export function PlanetGlobe({ world, onCellHover, onCellClick, showHexGrid }: Pl
       atmosphere.rotation.copy(globe.rotation);
       tileOverlay.rotation.copy(globe.rotation);
       highlightLine.rotation.copy(globe.rotation);
+      overlayGroup.rotation.copy(globe.rotation);
     };
 
     const onMove = (e: PointerEvent) => {
@@ -493,12 +565,19 @@ export function PlanetGlobe({ world, onCellHover, onCellClick, showHexGrid }: Pl
 
     return () => {
       cancelAnimationFrame(raf);
+      overlayDisposed = true;
       renderer.domElement.removeEventListener("pointerdown", onDown);
       renderer.domElement.removeEventListener("pointerleave", onLeave);
       renderer.domElement.removeEventListener("wheel", onWheel);
       renderer.domElement.removeEventListener("pointermove", onMove);
       renderer.domElement.removeEventListener("pointerup", onUp);
       window.removeEventListener("resize", resize);
+      for (const mesh of overlayMeshes) {
+        mesh.geometry.dispose();
+        const material = mesh.material as THREE.MeshStandardMaterial;
+        material.map?.dispose();
+        material.dispose();
+      }
       globeMaterial.map?.dispose();
       globeMaterial.displacementMap?.dispose();
       globeMaterial.bumpMap?.dispose();

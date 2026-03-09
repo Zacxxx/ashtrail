@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { SimulationConfig } from "../modules/geo/types";
+import type { ProvinceOverlay } from "../modules/planet/tiles";
 export interface TemporalityConfig {
     eras: { before: string; after: string; splitEvent: string };
     months: { name: string; days: number }[];
@@ -16,6 +17,8 @@ export interface GenerationHistoryItem {
     thumbnailUrl?: string; // Smaller version for gallery
     isUpscaled?: boolean;  // True if generated via ESRGAN
     parentId?: string;     // History ID of the original non-upscaled map
+    worldgenSourceId?: string;
+    provinceOverlays?: ProvinceOverlay[];
     temporality?: TemporalityConfig; // The custom time system
 }
 

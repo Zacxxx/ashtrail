@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { pickTile, tileCell, type PlanetWorldData, type PlanetTiling } from "../modules/planet/tiles";
+import { pickTile, tileCell, type PlanetWorldData, type PlanetTiling, type ProvinceOverlay } from "../modules/planet/tiles";
 import type { TerrainCell } from "../modules/geo/types";
 import type { TilingWorkerRequest, TilingWorkerResponse } from "../workers/tiling.worker";
 
@@ -32,9 +32,12 @@ export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick
   const [tiling, setTiling] = useState<PlanetTiling | null>(null);
   const selectedTileIdRef = useRef<string | null>(null);
   const hoveredTileIdRef = useRef<string | null>(null);
+  const overlayImageRef = useRef<Record<string, HTMLImageElement>>({});
 
   // We use a React ref for animation frames
   const rafRef = useRef<number>(0);
+
+  const overlayKey = (overlay: ProvinceOverlay) => `${overlay.sourcePlanetId}:${overlay.artifactId}:${overlay.imageUrl}`;
 
   // ── 0. Boundary Logic ──
   const clampTransform = (x: number, y: number, scale: number, w: number, h: number, imgWidth: number, imgHeight: number) => {
@@ -100,6 +103,35 @@ export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick
     };
   }, [world.textureUrl, size.width, size.height]); // Add size dependencies to ensure drawing happens if img loaded before resize triggered
 
+  useEffect(() => {
+    const overlays = world.provinceOverlays || [];
+    const nextKeys = new Set<string>();
+    for (const overlay of overlays) {
+      const key = overlayKey(overlay);
+      nextKeys.add(key);
+      if (overlayImageRef.current[key]) {
+        continue;
+      }
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        overlayImageRef.current[key] = img;
+        scheduleDraw();
+      };
+      img.onerror = () => {
+        delete overlayImageRef.current[key];
+      };
+      img.src = overlay.imageUrl;
+    }
+
+    for (const existing of Object.keys(overlayImageRef.current)) {
+      if (!nextKeys.has(existing)) {
+        delete overlayImageRef.current[existing];
+      }
+    }
+    scheduleDraw();
+  }, [world.provinceOverlays]);
+
   // ── 2. Handle Resize ──
   useEffect(() => {
     const container = containerRef.current;
@@ -159,6 +191,29 @@ export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick
     ctx.scale(scale, scale);
     // Draw the image
     ctx.drawImage(imageRef.current, 0, 0);
+
+    const overlays = world.provinceOverlays || [];
+    if (overlays.length > 0) {
+      ctx.imageSmoothingEnabled = true;
+      for (const overlay of overlays) {
+        const key = overlayKey(overlay);
+        const overlayImage = overlayImageRef.current[key];
+        if (!overlayImage) {
+          continue;
+        }
+        const srcW = overlay.sourceWidth || imageRef.current.width;
+        const srcH = overlay.sourceHeight || imageRef.current.height;
+        if (!srcW || !srcH) {
+          continue;
+        }
+        const dx = (overlay.bbox.x / srcW) * imageRef.current.width;
+        const dy = (overlay.bbox.y / srcH) * imageRef.current.height;
+        const dw = (overlay.bbox.width / srcW) * imageRef.current.width;
+        const dh = (overlay.bbox.height / srcH) * imageRef.current.height;
+        ctx.drawImage(overlayImage, dx, dy, dw, dh);
+      }
+      ctx.imageSmoothingEnabled = false;
+    }
 
     // Render Grid
     if (showHexGrid && tiling) {

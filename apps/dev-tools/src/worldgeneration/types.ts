@@ -1,4 +1,5 @@
 import type { SimulationConfig, TerrainCell } from "../modules/geo/types";
+import type { ProvinceOverlay } from "../modules/planet/tiles";
 
 // ── Pipeline Steps ──
 export type WorkflowStep = "GEO" | "GEOGRAPHY" | "ECO" | "HUMANITY";
@@ -26,6 +27,7 @@ export interface PlanetWorld {
     cellData: TerrainCell[];
     textureUrl?: string;
     heightmapUrl?: string;
+    provinceOverlays?: ProvinceOverlay[];
 }
 
 export interface GenerationProgress {
