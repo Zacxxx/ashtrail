@@ -1409,7 +1409,14 @@ export function CharacterBuilderPage() {
                                                                             gender: gender,
                                                                             occupation: selectedOccupation?.name || "Wanderer",
                                                                             draft: backstory || "",
-                                                                            relationships: relationships.map(r => `${r.type} (${r.targetId})`),
+                                                                            relationships: relationships.map(r => {
+                                                                                const target = savedCharacters.find(c => c.id === r.targetId);
+                                                                                return {
+                                                                                    targetName: target?.name || r.targetId,
+                                                                                    relType: r.type,
+                                                                                    isPlayer: target ? !target.isNPC : false
+                                                                                };
+                                                                            }),
                                                                             worldLore: worldSnippets.length > 0 ? worldSnippets[worldSnippets.length - 1].content : ""
                                                                         })
                                                                     });

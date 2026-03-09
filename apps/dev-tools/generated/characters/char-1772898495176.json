@@ -21,6 +21,7 @@
   "hp": 30,
   "id": "char-1772898495176",
   "inventory": [],
+  "isFamily": false,
   "isNPC": false,
   "level": 100,
   "maxHp": 30,
@@ -37,6 +38,17 @@
     ],
     "shortDescription": "Coordinates teams and complex projects."
   },
+  "parents": {
+    "father": null,
+    "mother": null
+  },
+  "relationships": [
+    {
+      "note": "Cofounded moebius with Tristan, his associate and bestfriend.",
+      "targetId": "char-1772901007990",
+      "type": "best_friend"
+    }
+  ],
   "skills": [
     {
       "apCost": 3,
@@ -243,5 +255,7 @@
       "type": "neutral"
     }
   ],
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
   "xp": 0
 }

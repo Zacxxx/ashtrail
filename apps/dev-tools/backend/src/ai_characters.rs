@@ -109,13 +109,21 @@ Keep 'history' and 'backstory' detailed and flavorful.
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Relationship {
+    pub target_name: String,
+    pub rel_type: String,
+    pub is_player: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GenerateStoryRequest {
     pub name: String,
     pub age: u32,
     pub gender: String,
     pub occupation: String,
     pub draft: String,
-    pub relationships: Option<Vec<String>>,
+    pub relationships: Option<Vec<Relationship>>,
     pub world_lore: Option<String>,
 }
 
@@ -139,7 +147,13 @@ pub async fn generate_story_handler(
     
     if let Some(rels) = &req.relationships {
         if !rels.is_empty() {
-            prompt.push_str(&format!("Known relationships (incorporate if relevant):\n{}\n\n", rels.join(", ")));
+            prompt.push_str("SOCIAL TIES & RELATIONSHIPS:\n");
+            for r in rels {
+                let player_tag = if r.is_player { " [MAIN PROTAGONIST / PLAYER CHARACTER]" } else { "" };
+                prompt.push_str(&format!("- {}: {} {}\n", r.target_name, r.rel_type, player_tag));
+            }
+            prompt.push_str("\nRELATIONSHIP DIRECTIVE:\n");
+            prompt.push_str("Characters marked as [MAIN PROTAGONIST / PLAYER CHARACTER] are CRITICAL. You MUST weave them into the narrative as active partners, rivals, or anchors. Their destiny is intertwined with the subject. Avoid generic 'lone wolf' tropes if these bonds exist; focus on shared survival or deep-rooted history.\n\n");
         }
     }
 
