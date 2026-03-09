@@ -485,6 +485,8 @@ async fn main() {
         .route("/api/planet/geography/{id}", get(get_geography).post(save_geography))
         .route("/api/planet/worldgen-regions/{id}", get(get_worldgen_regions))
         .route("/api/planet/lore-snippets/{id}", get(get_lore_snippets).post(save_lore_snippets))
+        .route("/api/planet/gm-settings/{id}", get(get_gm_settings).post(save_gm_settings))
+        .route("/api/planet/gm-context/{id}", get(get_gm_context))
         .route("/api/planet/factions/{id}", get(get_factions).post(save_factions))
         .route("/api/planet/locations/{id}", get(get_locations).post(save_locations))
         .route("/api/planet/characters/{id}", get(get_characters).post(save_characters))
@@ -1584,17 +1586,499 @@ async fn get_worldgen_regions(
     (StatusCode::OK, Json(serde_json::json!(regions))).into_response()
 }
 
+fn current_timestamp_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+fn default_main_lore_snippet() -> serde_json::Value {
+    serde_json::json!({
+        "id": "main-lore",
+        "title": "Main Lore",
+        "priority": "main",
+        "date": serde_json::Value::Null,
+        "location": "World",
+        "content": "",
+        "involvedFactions": [],
+        "involvedCharacters": []
+    })
+}
+
+fn ensure_string_array(value: Option<&serde_json::Value>) -> Vec<String> {
+    value
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn normalize_lore_priority(value: Option<&serde_json::Value>) -> String {
+    match value.and_then(|v| v.as_str()).unwrap_or("minor") {
+        "main" => "main".to_string(),
+        "critical" => "critical".to_string(),
+        "major" => "major".to_string(),
+        _ => "minor".to_string(),
+    }
+}
+
+fn normalize_lore_snippet_value(value: &serde_json::Value) -> Option<serde_json::Value> {
+    let obj = value.as_object()?;
+    let mut id = obj
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let mut priority = normalize_lore_priority(obj.get("priority"));
+    let mut title = obj
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
+
+    if id == "main-lore" || priority == "main" {
+        id = "main-lore".to_string();
+        priority = "main".to_string();
+        title = Some("Main Lore".to_string());
+    }
+
+    let date = match obj.get("date") {
+        Some(v) if v.is_object() => v.clone(),
+        _ => serde_json::Value::Null,
+    };
+    let location = obj
+        .get("location")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(if priority == "main" { "World" } else { "Unknown" })
+        .to_string();
+    let content = obj
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Some(serde_json::json!({
+        "id": id,
+        "title": title,
+        "priority": priority,
+        "date": if priority == "main" { serde_json::Value::Null } else { date },
+        "location": if priority == "main" { serde_json::Value::String("World".to_string()) } else { serde_json::Value::String(location) },
+        "content": content,
+        "involvedFactions": ensure_string_array(obj.get("involvedFactions")),
+        "involvedCharacters": ensure_string_array(obj.get("involvedCharacters"))
+    }))
+}
+
+fn normalize_lore_snippets_value(value: serde_json::Value) -> serde_json::Value {
+    let mut normalized = value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(normalize_lore_snippet_value)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let mut canonical_main: Option<serde_json::Value> = None;
+
+    for snippet in &mut normalized {
+        let is_main = snippet
+            .get("priority")
+            .and_then(|v| v.as_str())
+            .map(|v| v == "main")
+            .unwrap_or(false);
+        let is_main_id = snippet
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(|v| v == "main-lore")
+            .unwrap_or(false);
+
+        if is_main || is_main_id {
+            if canonical_main.is_none() {
+                let mut main = snippet.clone();
+                if let Some(obj) = main.as_object_mut() {
+                    obj.insert("id".to_string(), serde_json::Value::String("main-lore".to_string()));
+                    obj.insert("title".to_string(), serde_json::Value::String("Main Lore".to_string()));
+                    obj.insert("priority".to_string(), serde_json::Value::String("main".to_string()));
+                    obj.insert("date".to_string(), serde_json::Value::Null);
+                    obj.insert("location".to_string(), serde_json::Value::String("World".to_string()));
+                }
+                canonical_main = Some(main);
+            } else if let Some(obj) = snippet.as_object_mut() {
+                if obj
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v == "main-lore")
+                    .unwrap_or(false)
+                {
+                    obj.insert("id".to_string(), serde_json::Value::String(Uuid::new_v4().to_string()));
+                }
+                obj.insert("priority".to_string(), serde_json::Value::String("major".to_string()));
+            }
+        }
+    }
+
+    normalized.retain(|snippet| {
+        snippet
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(|id| id != "main-lore")
+            .unwrap_or(true)
+            || snippet
+                .get("priority")
+                .and_then(|v| v.as_str())
+                .map(|priority| priority != "main")
+                .unwrap_or(true)
+    });
+
+    let mut ordered = vec![canonical_main.unwrap_or_else(default_main_lore_snippet)];
+    normalized.sort_by(|a, b| {
+        let rank = |snippet: &serde_json::Value| match snippet
+            .get("priority")
+            .and_then(|v| v.as_str())
+            .unwrap_or("minor")
+        {
+            "critical" => 0,
+            "major" => 1,
+            "minor" => 2,
+            _ => 3,
+        };
+        rank(a).cmp(&rank(b))
+    });
+    ordered.extend(normalized);
+    serde_json::Value::Array(ordered)
+}
+
+fn read_lore_snippets(state: &AppState, world_id: &str) -> serde_json::Value {
+    let planet_dir = state.planets_dir.join(world_id);
+    let _ = std::fs::create_dir_all(&planet_dir);
+    let file_path = planet_dir.join("lore_snippets.json");
+    let raw = std::fs::read_to_string(&file_path)
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .unwrap_or_else(|| serde_json::Value::Array(vec![default_main_lore_snippet()]));
+    let normalized = normalize_lore_snippets_value(raw);
+    let _ = std::fs::write(&file_path, serde_json::to_string_pretty(&normalized).unwrap_or_default());
+    normalized
+}
+
+fn default_gm_settings(world_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "worldId": world_id,
+        "contextSources": {
+            "mainLore": true,
+            "criticalLore": true,
+            "majorLore": true,
+            "minorLore": false,
+            "regions": false,
+            "locations": true,
+            "factions": true,
+            "characters": true,
+            "temporality": true
+        },
+        "maxLoreSnippets": 8,
+        "systemDirective": "You are the Ashtrail Game Master. Treat the world canon as fixed context and generate events that reinforce it rather than overwrite it.",
+        "ambienceDirective": "Favor atmosphere, pressure, scarcity, social tension, and grounded consequences that match the world's established tone.",
+        "negativeDirective": "Do not contradict established lore, invent unrelated genre shifts, or let events rewrite canon history.",
+        "eventPromptPrefix": "Use the following world canon and ambience as hard context for event generation.",
+        "updatedAt": current_timestamp_ms()
+    })
+}
+
+fn normalize_gm_settings_value(value: serde_json::Value, world_id: &str) -> serde_json::Value {
+    let defaults = default_gm_settings(world_id);
+    let mut normalized = defaults.as_object().cloned().unwrap_or_default();
+    let input = value.as_object().cloned().unwrap_or_default();
+
+    if let Some(context_defaults) = normalized.get("contextSources").and_then(|v| v.as_object()).cloned() {
+        let input_sources = input
+            .get("contextSources")
+            .and_then(|v| v.as_object())
+            .cloned()
+            .unwrap_or_default();
+        let mut merged_sources = serde_json::Map::new();
+        for (key, default_value) in context_defaults {
+            let merged = input_sources
+                .get(&key)
+                .and_then(|v| v.as_bool())
+                .map(serde_json::Value::Bool)
+                .unwrap_or(default_value);
+            merged_sources.insert(key, merged);
+        }
+        normalized.insert("contextSources".to_string(), serde_json::Value::Object(merged_sources));
+    }
+
+    normalized.insert("worldId".to_string(), serde_json::Value::String(world_id.to_string()));
+    normalized.insert(
+        "maxLoreSnippets".to_string(),
+        serde_json::Value::Number(
+            input
+                .get("maxLoreSnippets")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(8)
+                .clamp(1, 32)
+                .into(),
+        ),
+    );
+
+    for key in ["systemDirective", "ambienceDirective", "negativeDirective", "eventPromptPrefix"] {
+        let value = input
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| normalized.get(key).and_then(|v| v.as_str()).map(str::to_string))
+            .unwrap_or_default();
+        normalized.insert(key.to_string(), serde_json::Value::String(value));
+    }
+
+    normalized.insert(
+        "updatedAt".to_string(),
+        serde_json::Value::Number(current_timestamp_ms().into()),
+    );
+
+    serde_json::Value::Object(normalized)
+}
+
+fn read_gm_settings(state: &AppState, world_id: &str) -> serde_json::Value {
+    let planet_dir = state.planets_dir.join(world_id);
+    let _ = std::fs::create_dir_all(&planet_dir);
+    let file_path = planet_dir.join("gm_settings.json");
+    let raw = std::fs::read_to_string(&file_path)
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .unwrap_or_else(|| default_gm_settings(world_id));
+    let normalized = normalize_gm_settings_value(raw, world_id);
+    let _ = std::fs::write(&file_path, serde_json::to_string_pretty(&normalized).unwrap_or_default());
+    normalized
+}
+
+fn summarize_named_records(data: &serde_json::Value, text_key: &str, limit: usize) -> String {
+    data.as_array()
+        .map(|items| {
+            items
+                .iter()
+                .take(limit)
+                .filter_map(|item| {
+                    let name = item.get("name").and_then(|v| v.as_str())?;
+                    let detail = item.get(text_key).and_then(|v| v.as_str()).unwrap_or("");
+                    if detail.trim().is_empty() {
+                        Some(name.to_string())
+                    } else {
+                        Some(format!("{name}: {detail}"))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
+}
+
+async fn get_gm_settings(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    (StatusCode::OK, Json(read_gm_settings(&state, &id))).into_response()
+}
+
+async fn save_gm_settings(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(settings): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let planet_dir = state.planets_dir.join(&id);
+    if let Err(e) = std::fs::create_dir_all(&planet_dir) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+    }
+
+    let normalized = normalize_gm_settings_value(settings, &id);
+    let file_path = planet_dir.join("gm_settings.json");
+    match std::fs::write(&file_path, serde_json::to_string_pretty(&normalized).unwrap_or_default()) {
+        Ok(_) => (StatusCode::OK, Json(normalized)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+async fn get_gm_context(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let lore = read_lore_snippets(&state, &id);
+    let settings = read_gm_settings(&state, &id);
+    let planet_dir = state.planets_dir.join(&id);
+    let metadata = std::fs::read_to_string(planet_dir.join("metadata.json"))
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let factions = std::fs::read_to_string(planet_dir.join("factions.json"))
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .unwrap_or_else(|| serde_json::json!([]));
+    let locations = std::fs::read_to_string(planet_dir.join("locations.json"))
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .unwrap_or_else(|| serde_json::json!([]));
+    let characters = std::fs::read_to_string(planet_dir.join("characters.json"))
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .unwrap_or_else(|| serde_json::json!([]));
+    let regions = std::fs::read_to_string(planet_dir.join("geography.json"))
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .unwrap_or_else(|| serde_json::json!([]));
+    let temporality = std::fs::read_to_string(planet_dir.join("temporality.json"))
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .unwrap_or(serde_json::Value::Null);
+
+    let context_sources = settings
+        .get("contextSources")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
+    let max_lore = settings
+        .get("maxLoreSnippets")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(8) as usize;
+
+    let lore_items = lore.as_array().cloned().unwrap_or_default();
+    let lore_counts = {
+        let mut counts = serde_json::Map::new();
+        for key in ["main", "critical", "major", "minor"] {
+            let count = lore_items
+                .iter()
+                .filter(|snippet| snippet.get("priority").and_then(|v| v.as_str()) == Some(key))
+                .count();
+            counts.insert(key.to_string(), serde_json::Value::Number((count as u64).into()));
+        }
+        counts
+    };
+
+    let mut selected_lore: Vec<serde_json::Value> = Vec::new();
+    if context_sources.get("mainLore").and_then(|v| v.as_bool()).unwrap_or(true) {
+        if let Some(main) = lore_items.iter().find(|snippet| snippet.get("priority").and_then(|v| v.as_str()) == Some("main")) {
+            selected_lore.push(main.clone());
+        }
+    }
+
+    let mut lore_budget = max_lore;
+    for (priority, enabled_key) in [("critical", "criticalLore"), ("major", "majorLore"), ("minor", "minorLore")] {
+        if !context_sources.get(enabled_key).and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        for snippet in lore_items.iter().filter(|snippet| snippet.get("priority").and_then(|v| v.as_str()) == Some(priority)) {
+            if lore_budget == 0 {
+                break;
+            }
+            selected_lore.push(snippet.clone());
+            lore_budget -= 1;
+        }
+    }
+
+    let used_counts = {
+        let mut counts = serde_json::Map::new();
+        for key in ["main", "critical", "major", "minor"] {
+            let count = selected_lore
+                .iter()
+                .filter(|snippet| snippet.get("priority").and_then(|v| v.as_str()) == Some(key))
+                .count();
+            counts.insert(key.to_string(), serde_json::Value::Number((count as u64).into()));
+        }
+        counts
+    };
+
+    let world_name = metadata
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown World");
+    let world_prompt = metadata.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+
+    let lore_block = selected_lore
+        .iter()
+        .map(|snippet| {
+            let priority = snippet.get("priority").and_then(|v| v.as_str()).unwrap_or("minor").to_uppercase();
+            let title = snippet
+                .get("title")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.trim().is_empty())
+                .or_else(|| snippet.get("location").and_then(|v| v.as_str()))
+                .unwrap_or("Untitled");
+            let content = snippet.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            format!("[{priority}] {title}\n{content}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let mut enabled_sources = Vec::new();
+    for (key, enabled) in &context_sources {
+        if enabled.as_bool().unwrap_or(false) {
+            enabled_sources.push(key.clone());
+        }
+    }
+
+    let prompt_block = format!(
+        "{event_prefix}\n\nWorld: {world_name}\nWorld Seed Prompt: {world_prompt}\n\nSystem Directive:\n{system_directive}\n\nAmbience Directive:\n{ambience_directive}\n\nNegative Directive:\n{negative_directive}\n\nCanon Lore:\n{lore_block}\n\nFactions:\n{factions_block}\n\nLocations:\n{locations_block}\n\nCharacters:\n{characters_block}\n\nRegions:\n{regions_block}\n\nTemporality:\n{temporality_block}\n\nUse this material as ambient canon and hard context. Generated gameplay events must fit within it and must not rewrite or replace it.",
+        event_prefix = settings.get("eventPromptPrefix").and_then(|v| v.as_str()).unwrap_or("Use the following world canon and ambience as hard context for event generation."),
+        system_directive = settings.get("systemDirective").and_then(|v| v.as_str()).unwrap_or(""),
+        ambience_directive = settings.get("ambienceDirective").and_then(|v| v.as_str()).unwrap_or(""),
+        negative_directive = settings.get("negativeDirective").and_then(|v| v.as_str()).unwrap_or(""),
+        factions_block = if context_sources.get("factions").and_then(|v| v.as_bool()).unwrap_or(false) {
+            summarize_named_records(&factions, "lore", 12)
+        } else {
+            "Disabled".to_string()
+        },
+        locations_block = if context_sources.get("locations").and_then(|v| v.as_bool()).unwrap_or(false) {
+            summarize_named_records(&locations, "lore", 12)
+        } else {
+            "Disabled".to_string()
+        },
+        characters_block = if context_sources.get("characters").and_then(|v| v.as_bool()).unwrap_or(false) {
+            summarize_named_records(&characters, "lore", 12)
+        } else {
+            "Disabled".to_string()
+        },
+        regions_block = if context_sources.get("regions").and_then(|v| v.as_bool()).unwrap_or(false) {
+            summarize_named_records(&regions, "lore", 12)
+        } else {
+            "Disabled".to_string()
+        },
+        temporality_block = if context_sources.get("temporality").and_then(|v| v.as_bool()).unwrap_or(false) {
+            serde_json::to_string_pretty(&temporality).unwrap_or_else(|_| "Unavailable".to_string())
+        } else {
+            "Disabled".to_string()
+        },
+    );
+
+    let response = serde_json::json!({
+        "worldId": id,
+        "worldName": world_name,
+        "worldPrompt": world_prompt,
+        "settings": settings,
+        "snippets": selected_lore,
+        "promptBlock": prompt_block,
+        "sourceSummary": {
+            "enabledSources": enabled_sources,
+            "loreCounts": lore_counts,
+            "usedLoreCounts": used_counts,
+            "maxLoreSnippets": max_lore
+        }
+    });
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
 async fn get_lore_snippets(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let file_path = state.planets_dir.join(&id).join("lore_snippets.json");
-    if let Ok(data) = std::fs::read_to_string(&file_path) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
-            return (StatusCode::OK, Json(json)).into_response();
-        }
-    }
-    (StatusCode::OK, Json(serde_json::json!([]))).into_response()
+    (StatusCode::OK, Json(read_lore_snippets(&state, &id))).into_response()
 }
 
 async fn save_lore_snippets(
@@ -1608,8 +2092,9 @@ async fn save_lore_snippets(
     }
 
     let file_path = planet_dir.join("lore_snippets.json");
-    match std::fs::write(&file_path, serde_json::to_string_pretty(&snippets).unwrap_or_default()) {
-        Ok(_) => StatusCode::OK.into_response(),
+    let normalized = normalize_lore_snippets_value(snippets);
+    match std::fs::write(&file_path, serde_json::to_string_pretty(&normalized).unwrap_or_default()) {
+        Ok(_) => (StatusCode::OK, Json(normalized)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }

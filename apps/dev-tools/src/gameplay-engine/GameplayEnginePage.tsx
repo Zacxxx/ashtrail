@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { TabBar } from "@ashtrail/ui";
-import { Link } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { CharacterRulePanel } from "./CharacterRulePanel";
 import { TraitsView } from "./TraitsView";
 import { OccupationsView } from "./OccupationsView";
@@ -15,8 +14,13 @@ import { GameRegistry, Trait, Occupation, Character, Item } from "@ashtrail/core
 
 export type GameplayStep = "RULES" | "EXPLORATION" | "EVENTS" | "COMBAT" | "CHARACTER" | "SKILLS";
 
+function isGameplayStep(value: string | null): value is GameplayStep {
+    return value === "RULES" || value === "EXPLORATION" || value === "EVENTS" || value === "COMBAT" || value === "CHARACTER" || value === "SKILLS";
+}
+
 export function GameplayEnginePage() {
-    const [activeStep, setActiveStep] = useState<GameplayStep>("CHARACTER");
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [activeStep, setActiveStep] = useState<GameplayStep>(isGameplayStep(searchParams.get("step")) ? searchParams.get("step") as GameplayStep : "CHARACTER");
     const [combatInitData, setCombatInitData] = useState<{ players: string[], enemies: string[] } | null>(null);
 
     // Character Data State for live editing
@@ -46,6 +50,16 @@ export function GameplayEnginePage() {
         loadRegistryData();
     }, []);
 
+    React.useEffect(() => {
+        const step = searchParams.get("step");
+        if (isGameplayStep(step) && step !== activeStep) {
+            setActiveStep(step);
+        }
+        if (!isGameplayStep(step)) {
+            setSearchParams({ step: "CHARACTER" }, { replace: true });
+        }
+    }, [activeStep, searchParams, setSearchParams]);
+
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
             <div className="absolute inset-0 z-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-orange-900/20 via-[#030508] to-[#030508]" />
@@ -62,7 +76,10 @@ export function GameplayEnginePage() {
                         {(["RULES", "EXPLORATION", "EVENTS", "COMBAT", "CHARACTER", "SKILLS"] as GameplayStep[]).map((step) => (
                             <button
                                 key={step}
-                                onClick={() => setActiveStep(step)}
+                                onClick={() => {
+                                    setActiveStep(step);
+                                    setSearchParams({ step });
+                                }}
                                 className={`relative px-4 py-1.5 text-[9px] font-black tracking-[0.2em] rounded-full transition-all duration-300 overflow-hidden ${activeStep === step
                                     ? "text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
                                     : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
@@ -167,6 +184,7 @@ export function GameplayEnginePage() {
                                     onCombatRedirect={(players, enemies) => {
                                         setCombatInitData({ players, enemies });
                                         setActiveStep("COMBAT");
+                                        setSearchParams({ step: "COMBAT" });
                                     }}
                                 />
                             </div>

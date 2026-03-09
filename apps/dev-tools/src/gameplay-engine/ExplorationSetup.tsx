@@ -14,8 +14,12 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     const [isGenerating, setIsGenerating] = useState(false);
     const [mapName, setMapName] = useState<string | null>(null);
     const [generatedMap, setGeneratedMap] = useState<ExplorationMap | null>(null);
-    const [textureBatches, setTextureBatches] = useState<any[]>([]);
-    const [selectedBatchId, setSelectedBatchId] = useState("");
+
+    // ── New State for Biomes & Structures ──
+    const [availableBiomes, setAvailableBiomes] = useState<any[]>([]);
+    const [availableStructures, setAvailableStructures] = useState<any[]>([]);
+    const [selectedBiomeId, setSelectedBiomeId] = useState<string | null>(null);
+    const [selectedStructureIds, setSelectedStructureIds] = useState<string[]>([]);
 
     const allCharacters = GameRegistry.getAllCharacters();
 
@@ -24,15 +28,25 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
         if (allCharacters.length > 0 && selectedCharIds.length === 0) {
             setSelectedCharIds([allCharacters[0].id]);
         }
+    }, [allCharacters, selectedCharIds]);
 
-        // Fetch texture batches
-        fetch("/api/textures/batches")
-            .then(res => res.json())
-            .then(data => {
-                if (Array.isArray(data)) setTextureBatches(data);
-            })
-            .catch(err => console.error("Failed to fetch batches:", err));
-    }, [allCharacters]);
+    useEffect(() => {
+        async function fetchAssets() {
+            try {
+                const res = await fetch("/api/textures/batches");
+                if (res.ok) {
+                    const batches: any[] = await res.json();
+                    const biomes = batches.filter(b => b.gameAsset?.grouping?.type === "biome");
+                    const structures = batches.filter(b => b.gameAsset?.grouping?.type === "structure");
+                    setAvailableBiomes(biomes);
+                    setAvailableStructures(structures);
+                }
+            } catch (err) {
+                console.error("Failed to fetch biome/structure assets:", err);
+            }
+        }
+        fetchAssets();
+    }, []);
 
     const handleGenerateMap = async () => {
         if (!mapPrompt.trim()) {
@@ -44,7 +58,19 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
 
         setIsGenerating(true);
         try {
-            const prompt = buildExplorationMapPrompt(mapPrompt, rows, cols);
+            const selectedBiome = availableBiomes.find(b => b.batchId === selectedBiomeId);
+            const selectedStructures = availableStructures.filter(s => selectedStructureIds.includes(s.batchId));
+
+            const prompt = buildExplorationMapPrompt(
+                mapPrompt,
+                rows,
+                cols,
+                selectedBiome ? { name: selectedBiome.gameAsset.grouping.name } : undefined,
+                selectedStructures.map(s => ({
+                    name: s.gameAsset.grouping.name,
+                    description: s.gameAsset.grouping.description
+                }))
+            );
             const res = await fetch('http://127.0.0.1:8787/api/text/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -67,32 +93,15 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     const handleLaunch = async () => {
         let mapToUse = generatedMap || generateExplorationGrid(rows, cols);
 
-        // Apply textures if batch is selected
-        if (selectedBatchId) {
-            try {
-                const res = await fetch(`/api/textures/batches/${selectedBatchId}`);
-                if (res.ok) {
-                    const manifest = await res.json();
-                    const textures = manifest.textures || [];
-                    const floorTextures = textures.filter((t: any) => t.prompt.toLowerCase().includes("floor") || t.prompt.toLowerCase().includes("ground"));
-                    const wallTextures = textures.filter((t: any) => t.prompt.toLowerCase().includes("wall") || t.prompt.toLowerCase().includes("rock"));
+        // Attach Biome and Structure info to map metadata if needed for rendering
+        const selectedBiome = availableBiomes.find(b => b.batchId === selectedBiomeId);
+        const selectedStructures = availableStructures.filter(s => selectedStructureIds.includes(s.batchId));
 
-                    if (floorTextures.length > 0 || wallTextures.length > 0) {
-                        mapToUse.tiles = mapToUse.tiles.map(tile => {
-                            if (tile.type === "floor" && floorTextures.length > 0) {
-                                return { ...tile, textureUrl: floorTextures[Math.floor(Math.random() * floorTextures.length)].url };
-                            }
-                            if (tile.type === "wall" && wallTextures.length > 0) {
-                                return { ...tile, textureUrl: wallTextures[Math.floor(Math.random() * wallTextures.length)].url };
-                            }
-                            return tile;
-                        });
-                    }
-                }
-            } catch (err) {
-                console.error("Applying textures failed:", err);
-            }
-        }
+        // Note: The core ExplorationMap type might need extensions to store these IDs if we want to fetch textures later
+        // But for now we can just store them as arbitrary metadata if needed, or rely on them being part of the 'grid'
+        // For rendering, we'll need to know which Pack to use.
+        (mapToUse as any).biomePackId = selectedBiomeId;
+        (mapToUse as any).structurePackIds = selectedStructureIds;
 
         // Add selected pawns to map
         const pawns: ExplorationPawn[] = selectedCharIds.map(id => {
@@ -122,37 +131,21 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
 
                 <div className="p-10 space-y-10">
                     {/* Grid Config */}
-                    <div className="grid grid-cols-2 gap-8">
-                        <section>
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-4">Map Dimensions</h3>
-                            <div className="flex items-center gap-4">
-                                <div className="flex-1 flex flex-col gap-2">
-                                    <label className="text-[9px] text-gray-500 uppercase tracking-tighter">Width</label>
-                                    <input type="number" value={cols} onChange={e => setCols(+e.target.value)}
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500/50 transition-all outline-none" />
-                                </div>
-                                <div className="flex-1 flex flex-col gap-2">
-                                    <label className="text-[9px] text-gray-500 uppercase tracking-tighter">Height</label>
-                                    <input type="number" value={rows} onChange={e => setRows(+e.target.value)}
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500/50 transition-all outline-none" />
-                                </div>
+                    <section>
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-4">Map Dimensions</h3>
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1 flex flex-col gap-2">
+                                <label className="text-[9px] text-gray-500 uppercase tracking-tighter">Width</label>
+                                <input type="number" value={cols} onChange={e => setCols(+e.target.value)}
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500/50 transition-all outline-none" />
                             </div>
-                        </section>
-
-                        <section>
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-4">Visual Theme</h3>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[9px] text-gray-500 uppercase tracking-tighter">Asset Pack</label>
-                                <select value={selectedBatchId} onChange={e => setSelectedBatchId(e.target.value)}
-                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500/50 transition-all outline-none">
-                                    <option value="">Default (Flat Colors)</option>
-                                    {textureBatches.map(b => (
-                                        <option key={b.batchId} value={b.batchId}>{b.batchName || b.batchId}</option>
-                                    ))}
-                                </select>
+                            <div className="flex-1 flex flex-col gap-2">
+                                <label className="text-[9px] text-gray-500 uppercase tracking-tighter">Height</label>
+                                <input type="number" value={rows} onChange={e => setRows(+e.target.value)}
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500/50 transition-all outline-none" />
                             </div>
-                        </section>
-                    </div>
+                        </div>
+                    </section>
 
                     {/* Character Selection */}
                     <section>
@@ -174,6 +167,63 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                                     </div>
                                 </button>
                             ))}
+                        </div>
+                    </section>
+
+                    {/* Biome & Pack Selection */}
+                    <section className="space-y-6">
+                        <div>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-4">Biome Selection (Asset Pack)</h3>
+                            {availableBiomes.length === 0 ? (
+                                <div className="p-4 bg-black/20 border border-white/5 rounded-2xl text-[10px] text-gray-600 uppercase tracking-widest text-center">
+                                    No Biome Packs Found. Create some in Asset Generator.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-3 gap-3">
+                                    {availableBiomes.map(biome => (
+                                        <button
+                                            key={biome.batchId}
+                                            onClick={() => setSelectedBiomeId(selectedBiomeId === biome.batchId ? null : biome.batchId)}
+                                            className={`p-3 rounded-xl border transition-all text-left flex flex-col gap-2 ${selectedBiomeId === biome.batchId ? "bg-emerald-500/10 border-emerald-500/40" : "bg-black/20 border-white/5 hover:border-white/10"}`}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[10px] font-bold text-white tracking-wide uppercase">{biome.gameAsset.grouping.name}</span>
+                                                {selectedBiomeId === biome.batchId && <span className="text-emerald-500 text-[8px]">ACTIVE</span>}
+                                            </div>
+                                            <span className="text-[8px] text-gray-600 uppercase truncate">{biome.batchName || biome.batchId.substring(0, 8)}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-amber-400 mb-4">Target Structures</h3>
+                            {availableStructures.length === 0 ? (
+                                <div className="p-4 bg-black/20 border border-white/5 rounded-2xl text-[10px] text-gray-600 uppercase tracking-widest text-center">
+                                    No Structures Found.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-3">
+                                    {availableStructures.map(struct => (
+                                        <button
+                                            key={struct.batchId}
+                                            onClick={() => setSelectedStructureIds(prev => prev.includes(struct.batchId) ? prev.filter(id => id !== struct.batchId) : [...prev, struct.batchId])}
+                                            className={`p-3 rounded-xl border transition-all text-left flex items-start gap-3 ${selectedStructureIds.includes(struct.batchId) ? "bg-amber-500/10 border-amber-500/40" : "bg-black/20 border-white/5 hover:border-white/10"}`}
+                                        >
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${selectedStructureIds.includes(struct.batchId) ? "bg-amber-500 text-black" : "bg-white/5 text-gray-500"}`}>
+                                                🏛️
+                                            </div>
+                                            <div className="flex flex-col min-w-0">
+                                                <span className="text-[10px] font-bold text-white tracking-wide uppercase truncate">{struct.gameAsset.grouping.name}</span>
+                                                <span className="text-[8px] text-gray-600 uppercase truncate" title={struct.gameAsset.grouping.description}>
+                                                    {struct.gameAsset.grouping.description || "No description"}
+                                                </span>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </section>
 

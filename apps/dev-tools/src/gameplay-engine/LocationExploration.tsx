@@ -22,11 +22,22 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
     const [hoverTile, setHoverTile] = useState<{ x: number, y: number } | null>(null);
     const [selectedPawnId, setSelectedPawnId] = useState<string | null>(initialSelectedPawnId);
 
+    // ── Asset Pack State ──
+    const [biomePack, setBiomePack] = useState<any | null>(null);
+    const [structurePacks, setStructurePacks] = useState<any[]>([]);
+    const [isAssetsLoading, setIsAssetsLoading] = useState(false);
+
     const mousePos = useRef({ x: 0, y: 0 });
     const keysPressed = useRef<Set<string>>(new Set());
     const lastTickRef = useRef<number>(0);
-    const requestRef = useRef<number>();
+    const requestRef = useRef<number>(0);
     const texturesRef = useRef<Map<string, HTMLImageElement>>(new Map());
+
+    // Stable Ref for loop access
+    const stateRef = useRef({ map, zoom, offset, hoverTile, selectedPawnId });
+    useEffect(() => {
+        stateRef.current = { map, zoom, offset, hoverTile, selectedPawnId };
+    }, [map, zoom, offset, hoverTile, selectedPawnId]);
 
     // Initialize WASM
     useEffect(() => {
@@ -35,9 +46,87 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
         }).catch(err => console.error("WASM Init Error:", err));
     }, []);
 
+    // Fetch Asset Packs and Assign Textures
+    useEffect(() => {
+        const biomeId = (initialMap as any).biomePackId;
+        const structureIds = (initialMap as any).structurePackIds || [];
+
+        async function loadPacks() {
+            setIsAssetsLoading(true);
+            try {
+                let fetchedBiome: any = null;
+                if (biomeId) {
+                    const res = await fetch(`/api/textures/batches/${biomeId}`);
+                    if (res.ok) fetchedBiome = await res.json();
+                }
+
+                const fetchedStructures: any[] = [];
+                for (const sid of structureIds) {
+                    const res = await fetch(`/api/textures/batches/${sid}`);
+                    if (res.ok) fetchedStructures.push(await res.json());
+                }
+
+                setBiomePack(fetchedBiome);
+                setStructurePacks(fetchedStructures);
+
+                // Assign textures to tiles and objects
+                setMap(prev => {
+                    const newTiles = [...prev.tiles];
+                    const groundTextures = fetchedBiome?.textures.filter((t: any) => t.subCategory === "ground") || [];
+                    const wallTextures = fetchedBiome?.textures.filter((t: any) => t.subCategory === "obstacle") || [];
+
+                    // Structures might have specific walls/floors too
+                    // Fallback to biome if structure doesn't have specific ones
+
+                    newTiles.forEach(tile => {
+                        if (!tile.textureUrl) {
+                            if (tile.type === "wall") {
+                                if (wallTextures.length > 0) {
+                                    const rand = Math.floor(Math.random() * wallTextures.length);
+                                    tile.textureUrl = wallTextures[rand].url;
+                                }
+                            } else {
+                                if (groundTextures.length > 0) {
+                                    const rand = Math.floor(Math.random() * groundTextures.length);
+                                    tile.textureUrl = groundTextures[rand].url;
+                                }
+                            }
+                        }
+                    });
+
+                    const newObjects = prev.objects.map(obj => {
+                        if (!obj.textureUrl) {
+                            const allPacks = [fetchedBiome, ...fetchedStructures].filter(Boolean);
+                            for (const pack of allPacks) {
+                                const match = pack.textures.find((t: any) =>
+                                    (t.itemPrompt?.toLowerCase().includes(obj.type.toLowerCase())) ||
+                                    (t.prompt.toLowerCase().includes(obj.type.toLowerCase()))
+                                );
+                                if (match) return { ...obj, textureUrl: match.url };
+                            }
+                        }
+                        return obj;
+                    });
+
+                    return { ...prev, tiles: newTiles, objects: newObjects };
+                });
+
+            } catch (err) {
+                console.error("Failed to load asset packs:", err);
+            } finally {
+                setIsAssetsLoading(false);
+            }
+        }
+
+        loadPacks();
+    }, [initialMap]);
+
     // Load Textures
     useEffect(() => {
-        const uniqueUrls = Array.from(new Set(map.tiles.map(t => t.textureUrl).filter(Boolean))) as string[];
+        const uniqueUrls = new Set<string>();
+        map.tiles.forEach(t => t.textureUrl && uniqueUrls.add(t.textureUrl));
+        map.objects.forEach(o => o.textureUrl && uniqueUrls.add(o.textureUrl));
+
         uniqueUrls.forEach(url => {
             if (!texturesRef.current.has(url)) {
                 const img = new Image();
@@ -47,7 +136,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                 };
             }
         });
-    }, [map.tiles]);
+    }, [map.tiles, map.objects]);
 
     // Center camera on first pawn initially
     useEffect(() => {
@@ -65,6 +154,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
 
 
     const update = (delta: number) => {
+        const { map, zoom, offset, selectedPawnId } = stateRef.current;
         // 1. Camera Movement (Edge Scrolling + Keyboard)
         const EDGE_THRESHOLD = 50;
         const SCROLL_SPEED = 800 * delta;
@@ -131,6 +221,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
     };
 
     const render = () => {
+        const { map, zoom, offset, hoverTile, selectedPawnId } = stateRef.current;
         const canvas = canvasRef.current;
         if (!canvas || !map) return;
         const ctx = canvas.getContext("2d");
@@ -169,6 +260,24 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                 }
             }
         }
+
+        // 1.5. Draw Objects
+        map.objects.forEach(obj => {
+            if (obj.isHidden) return;
+            const screenX = obj.x * tileSize;
+            const screenY = obj.y * tileSize;
+            const w = obj.width * tileSize;
+            const h = obj.height * tileSize;
+
+            if (obj.textureUrl && texturesRef.current.has(obj.textureUrl)) {
+                ctx.drawImage(texturesRef.current.get(obj.textureUrl)!, screenX, screenY, w, h);
+            } else {
+                ctx.fillStyle = obj.isNatural ? "rgba(74, 78, 105, 0.8)" : "rgba(154, 140, 152, 0.8)";
+                ctx.fillRect(screenX, screenY, w, h);
+                ctx.strokeStyle = "rgba(255,255,255,0.1)";
+                ctx.strokeRect(screenX, screenY, w, h);
+            }
+        });
 
         // 2. Hover Highlight
         if (hoverTile) {
@@ -262,7 +371,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
             window.removeEventListener("keyup", handleKeyUp);
             if (requestRef.current) cancelAnimationFrame(requestRef.current);
         };
-    }, [map, zoom, offset, hoverTile, selectedPawnId]);
+    }, []); // STABLE LOOP
 
     const handleCanvasClick = (e: React.MouseEvent) => {
         if (!map || !wasmReady) return;
@@ -290,6 +399,21 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
             const startX = Math.round(pawn.x);
             const startY = Math.round(pawn.y);
             const walkableGrid = map.tiles.map(t => t.walkable);
+
+            // Objects block pathfinding if not passable
+            map.objects.forEach(obj => {
+                if (!obj.passable) {
+                    for (let oy = 0; oy < obj.height; oy++) {
+                        for (let ox = 0; ox < obj.width; ox++) {
+                            const tx = obj.x + ox;
+                            const ty = obj.y + oy;
+                            if (tx >= 0 && tx < map.width && ty >= 0 && ty < map.height) {
+                                walkableGrid[ty * map.width + tx] = false;
+                            }
+                        }
+                    }
+                }
+            });
 
             try {
                 const pathResult = find_path_wasm(startX, startY, tileX, tileY, map.width, map.height, walkableGrid);
@@ -364,11 +488,31 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                 <div className="px-5 py-2.5 bg-black/80 border border-white/10 rounded-2xl backdrop-blur-xl text-[9px] font-bold text-gray-400 flex items-center gap-3">
                     <span className="text-emerald-500 tracking-widest uppercase">{map.name || "SECTOR_X"}</span>
                     <span className="opacity-20">|</span>
+                    {biomePack && (
+                        <>
+                            <span className="text-blue-400 uppercase tracking-tighter">BIOME: {biomePack.gameAsset.grouping.name}</span>
+                            <span className="opacity-20">|</span>
+                        </>
+                    )}
+                    {structurePacks.length > 0 && (
+                        <>
+                            <span className="text-amber-400 uppercase tracking-tighter">STRUCTURES: {structurePacks.length}</span>
+                            <span className="opacity-20">|</span>
+                        </>
+                    )}
                     <span>COORD: {hoverTile ? `${hoverTile.x}, ${hoverTile.y}` : "--, --"}</span>
                     <span className="opacity-20">|</span>
                     <span>ZOOM: {(zoom * 100).toFixed(0)}%</span>
                 </div>
             </div>
+
+            {/* Loading Overlay */}
+            {isAssetsLoading && (
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-50 animate-in fade-in duration-300">
+                    <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mb-4" />
+                    <div className="text-[10px] font-black text-white uppercase tracking-[0.4em] animate-pulse">Syncing Asset Lattice...</div>
+                </div>
+            )}
 
             {/* Pawn Selection Indicator (Left Center) */}
             {selectedPawnId && (

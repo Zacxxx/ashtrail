@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { TabBar, Modal } from "@ashtrail/ui";
 
 import { TimelineTab } from "./TimelineTab";
@@ -15,12 +15,27 @@ import { useActiveWorld } from "../hooks/useActiveWorld";
 
 export type HistoryTab = "lore" | "regions" | "locations" | "factions" | "characters" | "timeline" | "temporality";
 
+function isHistoryTab(value: string | null): value is HistoryTab {
+    return value === "lore" || value === "regions" || value === "locations" || value === "factions" || value === "characters" || value === "timeline" || value === "temporality";
+}
+
 export function HistoryPage() {
-    const [activeTab, setActiveTab] = useState<HistoryTab>("lore");
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [activeTab, setActiveTab] = useState<HistoryTab>(isHistoryTab(searchParams.get("tab")) ? searchParams.get("tab") as HistoryTab : "lore");
     const [selectedWorld, setSelectedWorld] = useState<GenerationHistoryItem | null>(null);
     const [showGalleryModal, setShowGalleryModal] = useState(false);
     const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
+
+    useEffect(() => {
+        const tab = searchParams.get("tab");
+        if (isHistoryTab(tab) && tab !== activeTab) {
+            setActiveTab(tab);
+        }
+        if (!isHistoryTab(tab)) {
+            setSearchParams({ tab: "lore" }, { replace: true });
+        }
+    }, [activeTab, searchParams, setSearchParams]);
 
     // Sync selectedWorld with activeWorldId
     useEffect(() => {
@@ -51,7 +66,11 @@ export function HistoryPage() {
                     <TabBar
                         tabs={["lore", "regions", "locations", "factions", "characters", "timeline", "temporality"]}
                         activeTab={activeTab}
-                        onTabChange={(tab) => setActiveTab(tab as HistoryTab)}
+                        onTabChange={(tab) => {
+                            const nextTab = tab as HistoryTab;
+                            setActiveTab(nextTab);
+                            setSearchParams({ tab: nextTab });
+                        }}
                     />
                 </div>
 

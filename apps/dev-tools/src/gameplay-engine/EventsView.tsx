@@ -1,9 +1,16 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Character, Trait, Stats } from "@ashtrail/core";
 import { Card, Button, Input } from "@ashtrail/ui";
-import { User, Sparkles, Wand2, Shield, HeartPulse, Plus } from "lucide-react";
+import { User, Sparkles, Wand2, Shield, HeartPulse } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { CharacterGeneratorModal } from "../character-builder/CharacterGeneratorModal";
+import type { CompiledGmContext } from "../types/lore";
+import type { GeographyRegion } from "../history/RegionsTab";
+import type { Area } from "../history/LocationsTab";
+import type { Faction } from "../history/FactionsTab";
+import type { LoreSnippet } from "../types/lore";
+import { formatAshtrailDate } from "../lib/calendar";
 
 interface EventChoice {
     id: string;
@@ -30,6 +37,16 @@ interface EventOutcome {
     starts_quest: boolean;
 }
 
+type InfluenceKind = "region" | "location" | "faction" | "timeline";
+
+interface EventInfluenceSummary {
+    kind: InfluenceKind;
+    id: string;
+    label: string;
+    lore: string;
+    meta?: string;
+}
+
 export function EventsView({
     characters,
     onCharacterUpdated,
@@ -39,13 +56,24 @@ export function EventsView({
     onCharacterUpdated?: () => void,
     onCombatRedirect?: (playerIds: string[], enemyIds: string[]) => void
 }) {
-    const [selectedCharacterId, setSelectedCharacterId] = useState<string>(characters[0]?.id || "");
+    const [selectedCharacterId, setSelectedCharacterId] = useState<string>("");
     const [eventType, setEventType] = useState<string>("Random Encounter");
     const [context, setContext] = useState<string>("Traveling through a dense, foggy forest.");
     const [involvedCharacterIds, setInvolvedCharacterIds] = useState<string[]>([]);
 
     const { activeWorldId } = useActiveWorld();
     const [showGeneratorModal, setShowGeneratorModal] = useState(false);
+    const [gmContext, setGmContext] = useState<CompiledGmContext | null>(null);
+    const [isLoadingGmContext, setIsLoadingGmContext] = useState(false);
+    const [gmContextError, setGmContextError] = useState<string | null>(null);
+    const [regions, setRegions] = useState<GeographyRegion[]>([]);
+    const [locations, setLocations] = useState<Area[]>([]);
+    const [factions, setFactions] = useState<Faction[]>([]);
+    const [timelineEvents, setTimelineEvents] = useState<LoreSnippet[]>([]);
+    const [selectedRegionId, setSelectedRegionId] = useState("");
+    const [selectedLocationId, setSelectedLocationId] = useState("");
+    const [selectedFactionId, setSelectedFactionId] = useState("");
+    const [selectedTimelineEventId, setSelectedTimelineEventId] = useState("");
 
     const [isGenerating, setIsGenerating] = useState(false);
     const [eventData, setEventData] = useState<EventData | null>(null);
@@ -54,21 +82,254 @@ export function EventsView({
     const [isResolving, setIsResolving] = useState(false);
     const [outcomeData, setOutcomeData] = useState<EventOutcome | null>(null);
 
-    const character = characters.find(c => c.id === selectedCharacterId);
+    const worldScopedCharacters = useMemo(() => {
+        if (!activeWorldId) return [];
+        const matching = characters.filter(c => c.worldId === activeWorldId);
+        return matching.length > 0 ? matching : characters.filter(c => !c.worldId);
+    }, [activeWorldId, characters]);
+
+    const character = worldScopedCharacters.find(c => c.id === selectedCharacterId);
+    const selectedRegion = regions.find(region => region.id === selectedRegionId) || null;
+    const selectedLocation = locations.find(location => location.id === selectedLocationId) || null;
+    const selectedFaction = factions.find(faction => faction.id === selectedFactionId) || null;
+    const selectedTimelineEvent = timelineEvents.find(event => event.id === selectedTimelineEventId) || null;
+
+    const selectedInfluences = useMemo<EventInfluenceSummary[]>(() => {
+        const influences: EventInfluenceSummary[] = [];
+        if (selectedRegion && selectedRegion.lore?.trim()) {
+            influences.push({
+                kind: "region",
+                id: selectedRegion.id,
+                label: selectedRegion.name,
+                lore: selectedRegion.lore,
+                meta: selectedRegion.type,
+            });
+        } else if (selectedRegion) {
+            influences.push({
+                kind: "region",
+                id: selectedRegion.id,
+                label: selectedRegion.name,
+                lore: `Use ${selectedRegion.name} as a ${selectedRegion.type.toLowerCase()} regional anchor. No dedicated region lore is documented yet.`,
+                meta: selectedRegion.type,
+            });
+        }
+        if (selectedLocation && selectedLocation.lore?.trim()) {
+            influences.push({
+                kind: "location",
+                id: selectedLocation.id,
+                label: selectedLocation.name,
+                lore: selectedLocation.lore,
+                meta: `${selectedLocation.type}${selectedLocation.provinceName ? ` • ${selectedLocation.provinceName}` : ""}`,
+            });
+        } else if (selectedLocation) {
+            influences.push({
+                kind: "location",
+                id: selectedLocation.id,
+                label: selectedLocation.name,
+                lore: `Use ${selectedLocation.name} as the active scene location. No dedicated location lore is documented yet.`,
+                meta: `${selectedLocation.type}${selectedLocation.provinceName ? ` • ${selectedLocation.provinceName}` : ""}`,
+            });
+        }
+        if (selectedFaction && selectedFaction.lore?.trim()) {
+            influences.push({
+                kind: "faction",
+                id: selectedFaction.id,
+                label: selectedFaction.name,
+                lore: selectedFaction.lore,
+                meta: `${selectedFaction.type} • ${selectedFaction.status}`,
+            });
+        } else if (selectedFaction) {
+            influences.push({
+                kind: "faction",
+                id: selectedFaction.id,
+                label: selectedFaction.name,
+                lore: `Use ${selectedFaction.name} as a factional influence in the event. No dedicated faction lore is documented yet.`,
+                meta: `${selectedFaction.type} • ${selectedFaction.status}`,
+            });
+        }
+        if (selectedTimelineEvent && selectedTimelineEvent.content?.trim()) {
+            influences.push({
+                kind: "timeline",
+                id: selectedTimelineEvent.id,
+                label: selectedTimelineEvent.title || selectedTimelineEvent.location,
+                lore: selectedTimelineEvent.content,
+                meta: selectedTimelineEvent.date ? formatAshtrailDate(selectedTimelineEvent.date) : selectedTimelineEvent.location,
+            });
+        }
+        return influences;
+    }, [selectedFaction, selectedLocation, selectedRegion, selectedTimelineEvent]);
+
+    const influenceContextBlock = useMemo(() => {
+        if (selectedInfluences.length === 0) return "";
+        return [
+            "Selected Influence Context:",
+            ...selectedInfluences.map(influence => {
+                const meta = influence.meta ? ` (${influence.meta})` : "";
+                return `- ${influence.kind.toUpperCase()}: ${influence.label}${meta}\n${influence.lore}`;
+            }),
+            "Use these selected records as focused influence for the event while staying inside the broader world canon."
+        ].join("\n");
+    }, [selectedInfluences]);
+
+    useEffect(() => {
+        if (!activeWorldId) {
+            setGmContext(null);
+            setGmContextError(null);
+            setSelectedCharacterId("");
+            setRegions([]);
+            setLocations([]);
+            setFactions([]);
+            setTimelineEvents([]);
+            return;
+        }
+
+        let isCancelled = false;
+        async function loadContext() {
+            setIsLoadingGmContext(true);
+            setGmContextError(null);
+            try {
+                const response = await fetch(`http://127.0.0.1:8787/api/planet/gm-context/${activeWorldId}`);
+                if (!response.ok) throw new Error("Failed to load GM context");
+                const data = await response.json();
+                if (!isCancelled) setGmContext(data);
+            } catch (error) {
+                console.error(error);
+                if (!isCancelled) setGmContextError("GM context unavailable");
+            } finally {
+                if (!isCancelled) setIsLoadingGmContext(false);
+            }
+        }
+        loadContext();
+        return () => {
+            isCancelled = true;
+        };
+    }, [activeWorldId]);
+
+    useEffect(() => {
+        if (!activeWorldId) return;
+        let isCancelled = false;
+        async function loadInfluenceData() {
+            try {
+                const [savedRegionsRes, worldgenRegionsRes, locationsRes, factionsRes, loreRes] = await Promise.all([
+                    fetch(`http://127.0.0.1:8787/api/planet/geography/${activeWorldId}`),
+                    fetch(`http://127.0.0.1:8787/api/planet/worldgen-regions/${activeWorldId}`),
+                    fetch(`http://127.0.0.1:8787/api/planet/locations/${activeWorldId}`),
+                    fetch(`http://127.0.0.1:8787/api/planet/factions/${activeWorldId}`),
+                    fetch(`http://127.0.0.1:8787/api/planet/lore-snippets/${activeWorldId}`),
+                ]);
+                if (!savedRegionsRes.ok || !worldgenRegionsRes.ok || !locationsRes.ok || !factionsRes.ok || !loreRes.ok) {
+                    throw new Error("Failed to load event influence data");
+                }
+                const [savedRegionsData, worldgenRegionsData, locationsData, factionsData, loreData] = await Promise.all([
+                    savedRegionsRes.json(),
+                    worldgenRegionsRes.json(),
+                    locationsRes.json(),
+                    factionsRes.json(),
+                    loreRes.json(),
+                ]);
+                if (isCancelled) return;
+
+                const savedRegions = Array.isArray(savedRegionsData) ? savedRegionsData : [];
+                const worldgenRegions = Array.isArray(worldgenRegionsData) ? worldgenRegionsData : [];
+                const savedRegionMap = new Map(savedRegions.map((region: GeographyRegion) => [region.id, region]));
+                const mergedRegions = worldgenRegions.map((region: GeographyRegion) => {
+                    const saved = savedRegionMap.get(region.id);
+                    return saved ? { ...region, ...saved } : region;
+                });
+                for (const saved of savedRegions) {
+                    if (!mergedRegions.find((region: GeographyRegion) => region.id === saved.id)) {
+                        mergedRegions.push(saved);
+                    }
+                }
+
+                setRegions(mergedRegions);
+                setLocations(Array.isArray(locationsData) ? locationsData : []);
+                setFactions(Array.isArray(factionsData) ? factionsData : []);
+                setTimelineEvents(
+                    (Array.isArray(loreData) ? loreData : [])
+                        .filter((event: LoreSnippet) => event.priority !== "main" && event.content?.trim())
+                );
+            } catch (error) {
+                console.error(error);
+            }
+        }
+        loadInfluenceData();
+        return () => {
+            isCancelled = true;
+        };
+    }, [activeWorldId]);
+
+    const fetchLatestGmContext = async () => {
+        if (!activeWorldId) return null;
+        setIsLoadingGmContext(true);
+        setGmContextError(null);
+        try {
+            const response = await fetch(`http://127.0.0.1:8787/api/planet/gm-context/${activeWorldId}`);
+            if (!response.ok) throw new Error("Failed to load GM context");
+            const data = await response.json();
+            setGmContext(data);
+            return data as CompiledGmContext;
+        } catch (error) {
+            console.error(error);
+            setGmContextError("GM context unavailable");
+            return null;
+        } finally {
+            setIsLoadingGmContext(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!worldScopedCharacters.length) {
+            setSelectedCharacterId("");
+            return;
+        }
+        if (!worldScopedCharacters.some(c => c.id === selectedCharacterId)) {
+            setSelectedCharacterId(worldScopedCharacters[0]?.id || "");
+        }
+    }, [selectedCharacterId, worldScopedCharacters]);
+
+    useEffect(() => {
+        setInvolvedCharacterIds(prev => prev.filter(id => worldScopedCharacters.some(c => c.id === id && c.id !== selectedCharacterId)));
+    }, [selectedCharacterId, worldScopedCharacters]);
+
+    useEffect(() => {
+        if (selectedRegionId && !regions.some(region => region.id === selectedRegionId)) setSelectedRegionId("");
+    }, [regions, selectedRegionId]);
+
+    useEffect(() => {
+        if (selectedLocationId && !locations.some(location => location.id === selectedLocationId)) setSelectedLocationId("");
+    }, [locations, selectedLocationId]);
+
+    useEffect(() => {
+        if (selectedFactionId && !factions.some(faction => faction.id === selectedFactionId)) setSelectedFactionId("");
+    }, [factions, selectedFactionId]);
+
+    useEffect(() => {
+        if (selectedTimelineEventId && !timelineEvents.some(event => event.id === selectedTimelineEventId)) setSelectedTimelineEventId("");
+    }, [timelineEvents, selectedTimelineEventId]);
 
     const generateEvent = async (isThink: boolean = false) => {
-        if (!character) return;
+        if (!character || !activeWorldId) return;
         setIsGenerating(true);
         setOutcomeData(null);
         if (!isThink) setEventData(null);
 
         try {
+            const latestGmContext = await fetchLatestGmContext();
+            if (!latestGmContext) return;
             if (isThink && eventData) {
                 const body = {
                     characterStats: character.stats,
                     characterTraits: character.traits,
                     characterAlignment: character.alignment || "Neutral",
-                    eventDescription: eventData.description,
+                    eventDescription: influenceContextBlock
+                        ? `${eventData.description}\n\n${influenceContextBlock}`
+                        : eventData.description,
+                    gmContext: {
+                        worldId: latestGmContext.worldId,
+                        promptBlock: latestGmContext.promptBlock,
+                        sourceSummary: latestGmContext.sourceSummary,
+                    },
                 };
                 const res = await fetch("http://127.0.0.1:8787/api/events/rethink", {
                     method: "POST",
@@ -85,14 +346,23 @@ export function EventsView({
                     }
                 }
             } else {
-                const involvedNames = involvedCharacterIds.map(id => characters.find(c => c.id === id)?.name).filter(Boolean);
+                const involvedNames = involvedCharacterIds.map(id => worldScopedCharacters.find(c => c.id === id)?.name).filter(Boolean);
                 const involvedContext = involvedNames.length > 0 ? ` (Involved Characters: ${involvedNames.join(', ')})` : "";
+                const promptContext = [
+                    context + involvedContext,
+                    influenceContextBlock,
+                ].filter(Boolean).join("\n\n");
                 const body = {
                     characterStats: character.stats,
                     characterTraits: character.traits,
                     characterAlignment: character.alignment || "Neutral",
-                    context: context + involvedContext,
+                    context: promptContext,
                     eventType,
+                    gmContext: {
+                        worldId: latestGmContext.worldId,
+                        promptBlock: latestGmContext.promptBlock,
+                        sourceSummary: latestGmContext.sourceSummary,
+                    },
                 };
                 const res = await fetch("http://127.0.0.1:8787/api/events/generate", {
                     method: "POST",
@@ -121,12 +391,21 @@ export function EventsView({
         setIsResolving(true);
 
         try {
+            const latestGmContext = await fetchLatestGmContext();
+            if (!latestGmContext) return;
             const body = {
                 characterStats: character.stats,
                 characterTraits: character.traits,
                 characterAlignment: character.alignment || "Neutral",
-                eventDescription: eventData.description,
+                eventDescription: influenceContextBlock
+                    ? `${eventData.description}\n\n${influenceContextBlock}`
+                    : eventData.description,
                 chosenAction: action,
+                gmContext: {
+                    worldId: latestGmContext.worldId,
+                    promptBlock: latestGmContext.promptBlock,
+                    sourceSummary: latestGmContext.sourceSummary,
+                },
             };
 
             const res = await fetch("http://127.0.0.1:8787/api/events/resolve", {
@@ -250,10 +529,21 @@ export function EventsView({
         }
     };
 
+    if (!activeWorldId) {
+        return (
+            <div className="flex flex-col items-center justify-center p-12 text-gray-500 border border-dashed border-white/10 rounded-xl bg-white/[0.02]">
+                <p className="text-sm uppercase tracking-widest font-bold text-gray-400">Select a world to run events</p>
+                <Link to="/game-master?tab=context" className="mt-4 px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
+                    Open Game Master
+                </Link>
+            </div>
+        );
+    }
+
     if (!character) {
         return (
             <div className="flex flex-col items-center justify-center p-12 text-gray-500">
-                <p>No characters available. Please create a character first.</p>
+                <p>No characters available for this world. Please create a character first.</p>
             </div>
         );
     }
@@ -262,6 +552,24 @@ export function EventsView({
         <div className="flex w-full gap-6">
             {/* Left Column: Context & Trigger */}
             <Card className="w-[300px] shrink-0 flex flex-col gap-4 p-4">
+                <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/10 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-300">GM Context Active</span>
+                        <Link to="/game-master?tab=context" className="text-[10px] font-bold uppercase tracking-widest text-indigo-200 hover:text-white">
+                            Tune
+                        </Link>
+                    </div>
+                    <div className="text-xs text-gray-300 mt-2">{gmContext?.worldName || activeWorldId}</div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                {(["main", "critical", "major", "minor"] as const).map(priority => (
+                                    <span key={priority} className="px-1.5 py-0.5 rounded bg-black/30 text-[9px] font-bold uppercase tracking-widest text-gray-300">
+                                        {priority}:{gmContext?.sourceSummary?.usedLoreCounts?.[priority] ?? 0}
+                                    </span>
+                                ))}
+                    </div>
+                    {gmContextError && <div className="text-[10px] text-red-300 mt-2">{gmContextError}</div>}
+                </div>
+
                 <h2 className="text-sm font-bold text-white mb-2 flex items-center gap-2 uppercase tracking-wider">
                     <User size={16} /> Actor
                 </h2>
@@ -273,7 +581,7 @@ export function EventsView({
                         value={selectedCharacterId}
                         onChange={e => setSelectedCharacterId(e.target.value)}
                     >
-                        {characters.map(c => (
+                        {worldScopedCharacters.map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                     </select>
@@ -302,6 +610,79 @@ export function EventsView({
                     />
                 </div>
 
+                <div className="flex flex-col gap-1 mt-2">
+                    <label className="text-xs text-gray-400">Influence Region:</label>
+                    <select
+                        className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50"
+                        value={selectedRegionId}
+                        onChange={e => setSelectedRegionId(e.target.value)}
+                    >
+                        <option value="">None</option>
+                        {regions.map(region => (
+                            <option key={region.id} value={region.id}>{region.name} ({region.type})</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs text-gray-400">Influence Location:</label>
+                    <select
+                        className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50"
+                        value={selectedLocationId}
+                        onChange={e => setSelectedLocationId(e.target.value)}
+                    >
+                        <option value="">None</option>
+                        {locations.map(location => (
+                            <option key={location.id} value={location.id}>{location.name} ({location.type})</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs text-gray-400">Influence Faction:</label>
+                    <select
+                        className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50"
+                        value={selectedFactionId}
+                        onChange={e => setSelectedFactionId(e.target.value)}
+                    >
+                        <option value="">None</option>
+                        {factions.map(faction => (
+                            <option key={faction.id} value={faction.id}>{faction.name} ({faction.type})</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs text-gray-400">Influence Timeline Event:</label>
+                    <select
+                        className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50"
+                        value={selectedTimelineEventId}
+                        onChange={e => setSelectedTimelineEventId(e.target.value)}
+                    >
+                        <option value="">None</option>
+                        {timelineEvents.map(event => (
+                            <option key={event.id} value={event.id}>
+                                {(event.title || event.location)}{event.date ? ` (${formatAshtrailDate(event.date)})` : ""}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                {selectedInfluences.length > 0 && (
+                    <div className="flex flex-col gap-2 mt-2 p-3 bg-black/30 border border-orange-500/20 rounded-lg">
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-orange-300">Selected Lore Influence</div>
+                        {selectedInfluences.map(influence => (
+                            <div key={`${influence.kind}-${influence.id}`} className="rounded border border-white/5 bg-white/[0.02] p-2">
+                                <div className="text-[10px] font-bold uppercase tracking-widest text-gray-300">
+                                    {influence.kind} • {influence.label}
+                                </div>
+                                {influence.meta && <div className="text-[10px] text-gray-500 mt-1">{influence.meta}</div>}
+                                <div className="text-xs text-gray-400 mt-2 line-clamp-4">{influence.lore}</div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 <div className="flex flex-col gap-1 mt-2 mb-2">
                     <div className="flex justify-between items-center">
                         <label className="text-xs text-gray-400">Involved Characters:</label>
@@ -311,10 +692,10 @@ export function EventsView({
                     </div>
 
                     <div className="flex flex-col gap-1 mt-1 p-2 bg-black/30 border border-white/5 rounded-lg max-h-32 overflow-y-auto">
-                        {characters.length <= 1 ? (
+                        {worldScopedCharacters.length <= 1 ? (
                             <span className="text-xs text-gray-600 italic">No other characters available.</span>
                         ) : (
-                            characters.filter(c => c.id !== selectedCharacterId).map(c => (
+                            worldScopedCharacters.filter(c => c.id !== selectedCharacterId).map(c => (
                                 <label key={`inv-${c.id}`} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-white">
                                     <input
                                         type="checkbox"
@@ -336,9 +717,9 @@ export function EventsView({
                     variant="primary"
                     className="w-full mt-4"
                     onClick={() => generateEvent(false)}
-                    disabled={isGenerating}
+                    disabled={isGenerating || isLoadingGmContext || !gmContext}
                 >
-                    {isGenerating ? <span className="animate-pulse">Generating...</span> : "Trigger Event"}
+                    {isLoadingGmContext ? <span className="animate-pulse">Loading GM context...</span> : isGenerating ? <span className="animate-pulse">Generating...</span> : "Trigger Event"}
                 </Button>
             </Card>
 
@@ -488,7 +869,7 @@ export function EventsView({
                     open={showGeneratorModal}
                     worldId={activeWorldId || ""}
                     baseTypes={[]}
-                    worldLore=""
+                    worldLore={gmContext?.promptBlock || ""}
                     onClose={() => setShowGeneratorModal(false)}
                     onConfirm={async () => {
                         setShowGeneratorModal(false);

@@ -43,20 +43,37 @@ export function generateExplorationGrid(rows: number, cols: number, obstacleRati
         height: rows,
         tiles,
         pawns: [],
+        objects: [],
     };
 }
 
 /**
  * Build a prompt for generating an exploration map.
  */
-export function buildExplorationMapPrompt(description: string, rows: number, cols: number): string {
+export function buildExplorationMapPrompt(
+    description: string,
+    rows: number,
+    cols: number,
+    biome?: { name: string },
+    structures?: { name: string, description?: string }[]
+): string {
+    const biomeText = biome ? `The map belongs to the "${biome.name}" BIOME.` : "";
+    const structuresText = structures && structures.length > 0
+        ? `Incorporate the following STRUCTURES and related objects into the map layout:\n${structures.map(s => `- ${s.name}: ${s.description || "Generic structure"}`).join('\n')}`
+        : "";
+
     return `You are a level designer for a Rimworld-like colony simulator.
 Generate a ${rows}x${cols} exploration map based on this description: "${description}"
 
+CONTEXT:
+${biomeText}
+${structuresText}
+
 RULES:
 - Grid size: ${rows} rows x ${cols} columns.
-- Use 'floor' for walkable areas and 'wall' for obstacles.
-- Create logical structures: rooms, corridors, natural rock formations, or ruins.
+- Use 'floor' (0) for walkable areas and 'wall' (1) for obstacles/buildings/walls.
+- Create logical structures: rooms, corridors, natural rock formations, or ruins based on the provided structures and biome.
+- In addition to tiles, you can place 'objects' (e.g., furniture, specialized machines, sarcophagi, trees, or decorative ruins).
 - Ensure the center area (around row ${Math.floor(rows / 2)}, col ${Math.floor(cols / 2)}) is clear of obstacles for the player's initial landing.
 - Obstacle density should be around 15-25%.
 - Output MUST be valid JSON.
@@ -68,6 +85,9 @@ OUTPUT FORMAT:
     [0, 0, 1, ...],
     [0, 1, 0, ...],
     ...
+  ],
+  "objects": [
+    { "type": "object_type_name", "x": 5, "y": 8, "width": 1, "height": 1, "passable": false, "isNatural": true/false }
   ]
 }
 where 0 is floor and 1 is wall.
@@ -103,6 +123,18 @@ export function parseAIExplorationResponse(raw: string, rows: number, cols: numb
             }
         }
 
+        const objects = (parsed.objects || []).map((obj: any, idx: number) => ({
+            id: `obj-${idx}-${Date.now()}`,
+            type: obj.type || "unknown",
+            x: obj.x || 0,
+            y: obj.y || 0,
+            width: obj.width || 1,
+            height: obj.height || 1,
+            passable: obj.passable ?? false,
+            isNatural: obj.isNatural ?? false,
+            isHidden: obj.isHidden ?? false
+        }));
+
         // Enforce center spawn
         const centerX = Math.floor(cols / 2);
         const centerY = Math.floor(rows / 2);
@@ -124,6 +156,7 @@ export function parseAIExplorationResponse(raw: string, rows: number, cols: numb
             height: rows,
             tiles,
             pawns: [],
+            objects,
         };
     } catch (e) {
         console.error("Failed to parse AI exploration map:", e);

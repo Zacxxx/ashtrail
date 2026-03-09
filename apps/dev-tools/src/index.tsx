@@ -5,12 +5,12 @@ import { App } from "./App";
 import { RootLayout } from "./components/RootLayout";
 import { WorldGenPage } from "./worldgeneration";
 import { AssetGeneratorPage } from "./assetgen";
-import { TravelPage } from "./travel";
 import { GalleryPage } from "./gallery";
 import { GameplayEnginePage } from "./gameplay-engine";
 import { CharacterBuilderPage } from "./character-builder";
 import { HistoryPage } from "./history";
 import { EcologyPage } from "./ecology";
+import { GameMasterPage } from "./game-master";
 
 const router = createBrowserRouter([
     {
@@ -20,7 +20,7 @@ const router = createBrowserRouter([
             { path: "/", element: <App /> },
             { path: "/worldgen", element: <WorldGenPage /> },
             { path: "/asset-generator", element: <AssetGeneratorPage /> },
-            { path: "/travel", element: <TravelPage /> },
+            { path: "/game-master", element: <GameMasterPage /> },
             { path: "/gallery", element: <GalleryPage /> },
             { path: "/gameplay-engine", element: <GameplayEnginePage /> },
             { path: "/character-builder", element: <CharacterBuilderPage /> },

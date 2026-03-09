@@ -20,12 +20,28 @@ export interface ExplorationPawn {
     textureUrl?: string;
 }
 
+export interface MapObject {
+    id: string;
+    type: string; // e.g., 'building', 'tree', 'rock'
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    passable: boolean;
+    textureUrl?: string;
+    isNatural?: boolean;
+    isHidden?: boolean;
+    moveCost?: number;
+    fertility?: number;
+}
+
 export interface ExplorationMap {
     id: string;
     width: number;
     height: number;
     tiles: Tile[];
     pawns: ExplorationPawn[];
+    objects: MapObject[];
     name?: string;
     fogOfWar?: boolean[]; // true = revealed, false = hidden
 }

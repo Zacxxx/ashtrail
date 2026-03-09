@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { Button } from "@ashtrail/ui";
 import { type GenerationHistoryItem, type TemporalityConfig } from "../hooks/useGenerationHistory";
 import { formatAshtrailDate, type AshtrailDate } from "../lib/calendar";
+import type { LoreSnippet } from "../types/lore";
 import {
     ReactFlow,
     Background,
@@ -16,19 +17,6 @@ import {
     Handle
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { type Area } from "./LocationsTab";
-import { type Faction } from "./FactionsTab";
-import { type Character } from "./CharactersTab";
-
-interface LoreSnippet {
-    id: string;
-    date: AshtrailDate;
-    location: string;
-    content: string;
-    involvedFactions?: string[];
-    involvedCharacters?: string[];
-}
-
 interface TimelineTabProps {
     selectedWorld: GenerationHistoryItem | null;
 }
@@ -112,24 +100,27 @@ export function TimelineTab({ selectedWorld }: TimelineTabProps) {
 
     // Build graph whenever we have events
     useEffect(() => {
-        if (!events || events.length === 0) {
+        const timelineEvents = (events || []).filter(event => event.priority !== "main" && event.date);
+        if (timelineEvents.length === 0) {
             setNodes([]);
             setEdges([]);
             return;
         }
 
         // Sort events chronologically. Need a helper to compare AshtrailDate. Assuming simple year/month/day struct.
-        const sortedEvents = [...events].sort((a, b) => {
-            if (a.date.year !== b.date.year) return a.date.year - b.date.year;
-            if (a.date.month !== b.date.month) return a.date.month - b.date.month;
-            return a.date.day - b.date.day;
+        const sortedEvents = [...timelineEvents].sort((a, b) => {
+            const aDate = a.date as AshtrailDate;
+            const bDate = b.date as AshtrailDate;
+            if (aDate.year !== bDate.year) return aDate.year - bDate.year;
+            if (aDate.month !== bDate.month) return aDate.month - bDate.month;
+            return aDate.day - bDate.day;
         });
 
         const newNodes: Node[] = [];
         const newEdges: Edge[] = [];
 
         sortedEvents.forEach((ev, index) => {
-            const dateStr = formatAshtrailDate(ev.date, temporality || undefined);
+            const dateStr = formatAshtrailDate(ev.date as AshtrailDate, temporality || undefined);
 
             newNodes.push({
                 id: ev.id,
@@ -182,7 +173,7 @@ export function TimelineTab({ selectedWorld }: TimelineTabProps) {
         );
     }
 
-    if (events.length === 0) {
+    if (events.filter(event => event.priority !== "main" && event.date).length === 0) {
         return (
             <div className="flex-1 flex flex-col items-center justify-center bg-[#121820] border border-[#1f2937] rounded-xl opacity-80 h-full">
                 <div className="text-4xl mb-4">📜</div>

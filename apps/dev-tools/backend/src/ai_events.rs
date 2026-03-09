@@ -22,6 +22,14 @@ pub struct Trait {
     pub description: String,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GmContextPayload {
+    pub world_id: String,
+    pub prompt_block: String,
+    pub source_summary: serde_json::Value,
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerateEventRequest {
@@ -30,6 +38,7 @@ pub struct GenerateEventRequest {
     pub character_alignment: Option<String>,
     pub context: String,
     pub event_type: String,
+    pub gm_context: Option<GmContextPayload>,
 }
 
 #[derive(Serialize, Debug)]
@@ -42,9 +51,14 @@ pub async fn generate_event_handler(
     Json(payload): Json<GenerateEventRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let traits_list: Vec<String> = payload.character_traits.iter().map(|t| t.name.clone()).collect();
+    let gm_context_block = payload.gm_context.as_ref().map(|ctx| format!(
+        "World Canon Context for {}:\n{}\n\nTreat this as ambience and canon constraints. Generated events must fit it and must not rewrite it.\n",
+        ctx.world_id, ctx.prompt_block
+    )).unwrap_or_default();
     
     let prompt = format!(
         "You are an AI Game Master for an RPG. Generate a dynamic event.
+{}
 Context: {}
 Event Type: {}
 
@@ -73,6 +87,7 @@ Output strictly in JSON format matching this schema:
     }}
   ]
 }}",
+        gm_context_block,
         payload.context,
         payload.event_type,
         payload.character_alignment.unwrap_or_else(|| "Neutral".to_string()),
@@ -112,6 +127,7 @@ pub struct ResolveEventRequest {
     pub character_alignment: Option<String>,
     pub event_description: String,
     pub chosen_action: String, // Can be one of the choices OR a custom string
+    pub gm_context: Option<GmContextPayload>,
 }
 
 #[derive(Serialize, Debug)]
@@ -124,9 +140,14 @@ pub async fn resolve_event_handler(
     Json(payload): Json<ResolveEventRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let traits_list: Vec<String> = payload.character_traits.iter().map(|t| t.name.clone()).collect();
+    let gm_context_block = payload.gm_context.as_ref().map(|ctx| format!(
+        "World Canon Context for {}:\n{}\n\nUse this as ambient canon while resolving the outcome. Do not contradict or rewrite established lore.\n",
+        ctx.world_id, ctx.prompt_block
+    )).unwrap_or_default();
     
     let prompt = format!(
         "You are an AI Game Master. Resolve the outcome of the player's action.
+{}
 Event Context: {}
 
 Character Attributes:
@@ -171,6 +192,7 @@ Output strictly in JSON format matching this schema:
   \"starts_combat\": \"boolean\",
   \"starts_quest\": \"boolean\"
 }}",
+        gm_context_block,
         payload.event_description,
         payload.character_alignment.unwrap_or_else(|| "Neutral".to_string()),
         traits_list.join(", "),
@@ -206,6 +228,7 @@ pub struct RethinkEventRequest {
     pub character_traits: Vec<Trait>,
     pub character_alignment: Option<String>,
     pub event_description: String,
+    pub gm_context: Option<GmContextPayload>,
 }
 
 #[derive(Serialize, Debug)]
@@ -218,9 +241,14 @@ pub async fn rethink_event_handler(
     Json(payload): Json<RethinkEventRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let traits_list: Vec<String> = payload.character_traits.iter().map(|t| t.name.clone()).collect();
+    let gm_context_block = payload.gm_context.as_ref().map(|ctx| format!(
+        "World Canon Context for {}:\n{}\n\nUse this as ambience and constraint while generating alternative choices.\n",
+        ctx.world_id, ctx.prompt_block
+    )).unwrap_or_default();
     
     let prompt = format!(
         "You are an AI Game Master for an RPG. The player has encountered the following event:
+{}
 {}
 
 The player has used their 'THINK' action. Based strictly on their mental stats (INT, WIS, CHA) and traits, generate 4 NEW alternative choices for this event.
@@ -242,6 +270,7 @@ Output strictly in JSON format matching this schema:
     }}
   ]
 }}",
+        gm_context_block,
         payload.event_description,
         payload.character_alignment.unwrap_or_else(|| "Neutral".to_string()),
         traits_list.join(", "),
@@ -268,4 +297,3 @@ Output strictly in JSON format matching this schema:
         raw_json: cleaned,
     }))
 }
-

@@ -26,6 +26,14 @@ interface BatchTexture {
     stylePrompt?: string;
     itemPrompt?: string;
     url: string;
+    // Game Asset Metadata
+    metadata?: {
+        isNatural?: boolean;
+        isPassable?: boolean;
+        isHidden?: boolean;
+        moveEfficiency?: number;
+        fertility?: number;
+    };
 }
 
 interface TextureBatchManifest {
@@ -35,6 +43,15 @@ interface TextureBatchManifest {
     category: string;
     subCategory?: string;
     textures: BatchTexture[];
+    // Optional global metadata for the batch
+    gameAsset?: {
+        type: "building" | "terrain";
+        grouping?: {
+            type: "biome" | "structure";
+            name: string;
+            description?: string;
+        };
+    };
 }
 
 interface TextureBatchSummary {
@@ -72,59 +89,59 @@ const IconCard = React.memo(function IconCard({
 }) {
     return (
         <div
-            className="group relative flex flex-col items-center justify-start bg-[#0f1520] border border-white/5 rounded-xl p-4 hover:border-[#E6E6FA]/20 transition-all h-full"
+            className="group relative flex flex-col items-center justify-start bg-[#0f1520] border border-white/5 rounded-lg p-2 hover:border-[#E6E6FA]/20 transition-all h-full"
             onMouseEnter={() => setHoveredIcon(icon)}
             onMouseLeave={() => setHoveredIcon(null)}
         >
             {/* Download */}
             <button
                 onClick={() => downloadIcon(icon.url)}
-                className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-lg bg-white/10 backdrop-blur-md text-white border border-white/10 hover:bg-[#E6E6FA] hover:text-[#070b12] transition-all z-20"
+                className="opacity-0 group-hover:opacity-100 absolute top-1.5 right-1.5 w-6 h-6 flex items-center justify-center rounded-md bg-white/10 backdrop-blur-md text-white border border-white/10 hover:bg-[#E6E6FA] hover:text-[#070b12] transition-all z-20"
                 title="Download Icon"
             >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
             </button>
 
             {/* Icon image */}
-            <div className="relative mb-4 flex-shrink-0 group/img shadow-2xl shadow-black/40 rounded-lg overflow-hidden">
+            <div className="relative mb-2 flex-shrink-0 group/img shadow-xl shadow-black/40 rounded-md overflow-hidden">
                 <img
                     src={`${icon.url}?t=${lastRefreshedAt}`}
                     alt={icon.prompt}
-                    className="w-20 h-20 relative z-10"
+                    className="w-14 h-14 relative z-10"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity" />
             </div>
 
             {/* Prompt label */}
             <div className="flex-1 flex flex-col items-center w-full">
-                <p className="text-[11px] text-gray-300 text-center leading-snug line-clamp-2 w-full font-mono mb-3 px-1 min-h-[2.4em]">
+                <p className="text-[9px] text-gray-400 text-center leading-tight line-clamp-2 w-full font-mono mb-2 px-0.5 min-h-[2.2em]">
                     {icon.itemPrompt || icon.prompt}
                 </p>
-                <div className="flex gap-2 w-full">
+                <div className="flex gap-1.5 w-full mt-auto">
                     <button
                         onClick={() => setAssigningIcon(icon)}
-                        className="flex-1 group/btn relative py-2 rounded-lg bg-white/[0.03] border border-white/10 transition-all hover:bg-emerald-500/10 hover:border-emerald-500/30 overflow-hidden"
-                        title="Assign to Item/Skill/Trait..."
+                        className="flex-1 group/btn relative py-1.5 rounded-md bg-white/[0.03] border border-white/10 transition-all hover:bg-emerald-500/10 hover:border-emerald-500/30 overflow-hidden"
+                        title="Assign..."
                     >
-                        <div className="flex items-center justify-center gap-1.5 text-[10px] text-[#E6E6FA] group-hover/btn:text-emerald-400 font-black uppercase tracking-widest relative z-10 transition-colors">
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <div className="flex items-center justify-center gap-1 text-[8px] text-[#E6E6FA]/80 group-hover/btn:text-emerald-400 font-black uppercase tracking-widest relative z-10 transition-colors">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                             </svg>
-                            Assign
+                            SET
                         </div>
                     </button>
                     <button
                         onClick={() => startEditingIcon(icon)}
-                        className="flex-1 group/btn relative py-2 rounded-lg bg-white/[0.03] border border-white/10 transition-all hover:bg-[#E6E6FA]/10 hover:border-[#E6E6FA]/30 overflow-hidden"
-                        title="Regenerate Icon"
+                        className="flex-1 group/btn relative py-1.5 rounded-md bg-white/[0.03] border border-white/10 transition-all hover:bg-[#E6E6FA]/10 hover:border-[#E6E6FA]/30 overflow-hidden"
+                        title="Reroll"
                     >
-                        <div className="flex items-center justify-center gap-1.5 text-[10px] text-[#E6E6FA] font-black uppercase tracking-widest relative z-10">
-                            <svg className="w-3.5 h-3.5 group-hover/btn:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <div className="flex items-center justify-center gap-1 text-[8px] text-[#E6E6FA]/80 font-black uppercase tracking-widest relative z-10">
+                            <svg className="w-3 h-3 group-hover/btn:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                             </svg>
-                            Reroll
+                            REROLL
                         </div>
                     </button>
                 </div>
@@ -138,33 +155,38 @@ const TextureCard = React.memo(function TextureCard({
     lastRefreshedAt,
     setHoveredTexture,
     downloadTexture,
-    startEditingTexture
+    startEditingTexture,
+    updateMetadata
 }: {
     texture: BatchTexture;
     lastRefreshedAt: number;
     setHoveredTexture: (texture: BatchTexture | null) => void;
     downloadTexture: (url: string) => void;
     startEditingTexture: (texture: BatchTexture) => void;
+    updateMetadata?: (filename: string, metadata: any) => void;
 }) {
+    const isBuilding = texture.metadata?.hasOwnProperty("isPassable");
+    const isTerrain = texture.metadata?.hasOwnProperty("moveEfficiency");
+
     return (
         <div
-            className="group relative flex flex-col bg-[#0f1520] border border-white/5 rounded-xl p-3 hover:border-[#E6E6FA]/20 transition-all"
+            className="group relative flex flex-col bg-[#0f1520] border border-white/5 rounded-lg p-2 hover:border-[#E6E6FA]/20 transition-all"
             onMouseEnter={() => setHoveredTexture(texture)}
             onMouseLeave={() => setHoveredTexture(null)}
         >
             {/* Download */}
             <button
                 onClick={() => downloadTexture(texture.url)}
-                className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-lg bg-white/10 backdrop-blur-md text-white border border-white/10 hover:bg-[#E6E6FA] hover:text-[#070b12] transition-all z-20"
+                className="opacity-0 group-hover:opacity-100 absolute top-1.5 right-1.5 w-6 h-6 flex items-center justify-center rounded-md bg-white/10 backdrop-blur-md text-white border border-white/10 hover:bg-[#E6E6FA] hover:text-[#070b12] transition-all z-20"
                 title="Download Texture"
             >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
             </button>
 
             {/* Texture image */}
-            <div className="relative mb-3 aspect-square shadow-2xl shadow-black/40 rounded-lg overflow-hidden bg-black/20 text-center flex items-center justify-center">
+            <div className="relative mb-2 aspect-square shadow-xl shadow-black/40 rounded-md overflow-hidden bg-black/20 text-center flex items-center justify-center">
                 <img
                     src={`${texture.url}?t=${lastRefreshedAt}`}
                     alt={texture.prompt}
@@ -173,20 +195,56 @@ const TextureCard = React.memo(function TextureCard({
             </div>
 
             {/* Label & Actions */}
-            <div className="flex flex-col gap-2">
-                <p className="text-[10px] text-gray-400 leading-snug line-clamp-1 font-mono px-1">
+            <div className="flex flex-col gap-1.5">
+                <p className="text-[9px] text-gray-400 leading-tight line-clamp-1 font-mono px-0.5">
                     {texture.itemPrompt || texture.prompt}
                 </p>
+
+                {/* Metadata Badges */}
+                {texture.metadata && (
+                    <div className="flex flex-wrap gap-1 mb-0.5">
+                        {isBuilding && (
+                            <>
+                                <button
+                                    onClick={() => updateMetadata?.(texture.filename, { ...texture.metadata, isPassable: !texture.metadata?.isPassable })}
+                                    className={`px-1 py-0.5 rounded text-[6px] font-black uppercase tracking-tighter transition-all ${texture.metadata.isPassable ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}
+                                >
+                                    {texture.metadata.isPassable ? "PASS" : "BLOK"}
+                                </button>
+                                <button
+                                    onClick={() => updateMetadata?.(texture.filename, { ...texture.metadata, isHidden: !texture.metadata?.isHidden })}
+                                    className={`px-1 py-0.5 rounded text-[6px] font-black uppercase tracking-tighter transition-all ${texture.metadata.isHidden ? "bg-amber-500/20 text-amber-400" : "bg-blue-500/20 text-blue-400"}`}
+                                >
+                                    {texture.metadata.isHidden ? "HIDE" : "SHOW"}
+                                </button>
+                            </>
+                        )}
+                        {isTerrain && (
+                            <>
+                                <div className="px-1 py-0.5 rounded bg-white/5 text-gray-500 text-[6px] font-black uppercase tracking-tighter">
+                                    E:{texture.metadata.moveEfficiency?.toFixed(1)}
+                                </div>
+                                <div className="px-1 py-0.5 rounded bg-white/5 text-gray-500 text-[6px] font-black uppercase tracking-tighter">
+                                    F:{texture.metadata.fertility?.toFixed(1)}
+                                </div>
+                            </>
+                        )}
+                        <span className={`px-1 py-0.5 rounded text-[6px] font-black uppercase tracking-tighter ${texture.metadata.isNatural ? "bg-emerald-500/10 text-emerald-600" : "bg-purple-500/10 text-purple-600"}`}>
+                            {texture.metadata.isNatural ? "NAT" : "ART"}
+                        </span>
+                    </div>
+                )}
+
                 <button
                     onClick={() => startEditingTexture(texture)}
-                    className="w-full group/btn relative py-1.5 rounded-lg bg-white/[0.03] border border-white/10 transition-all hover:bg-[#E6E6FA]/10 hover:border-[#E6E6FA]/30 overflow-hidden"
-                    title="Regenerate Texture"
+                    className="w-full group/btn relative py-1 rounded-md bg-white/[0.03] border border-white/10 transition-all hover:bg-[#E6E6FA]/10 hover:border-[#E6E6FA]/30 overflow-hidden"
+                    title="Reroll"
                 >
-                    <div className="flex items-center justify-center gap-1.5 text-[9px] text-[#E6E6FA] font-black uppercase tracking-widest relative z-10">
-                        <svg className="w-3 h-3 group-hover/btn:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="flex items-center justify-center gap-1 text-[8px] text-[#E6E6FA]/80 font-black uppercase tracking-widest relative z-10">
+                        <svg className="w-2.5 h-2.5 group-hover/btn:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
-                        Reroll
+                        REROLL
                     </div>
                 </button>
             </div>
@@ -253,6 +311,21 @@ export function AssetGeneratorPage() {
     const [assignCategory, setAssignCategory] = useState<"traits" | "occupations" | "items" | "skills" | "characters">("items");
     const [assignEntityId, setAssignEntityId] = useState("");
     const [isAssigning, setIsAssigning] = useState(false);
+
+    // ── Game Assets Specific State ──
+    const [gameAssetType, setGameAssetType] = useState<"building" | "terrain">("building");
+    // Building Metadata
+    const [isBuildingNatural, setIsBuildingNatural] = useState(false);
+    const [isBuildingPassable, setIsBuildingPassable] = useState(false);
+    const [isBuildingHidden, setIsBuildingHidden] = useState(false);
+    // Terrain Metadata
+    const [isTerrainNatural, setIsTerrainNatural] = useState(true);
+    const [terrainMoveEfficiency, setTerrainMoveEfficiency] = useState(1.0);
+    const [terrainFertility, setTerrainFertility] = useState(1.0);
+    // Grouping
+    const [gameAssetGroupType, setGameAssetGroupType] = useState<"biome" | "structure">("biome");
+    const [gameAssetGroupName, setGameAssetGroupName] = useState("");
+    const [structureDescription, setStructureDescription] = useState("");
 
     // ── Parse prompts from textarea ──
     const parsePrompts = useCallback((): string[] => {
@@ -371,7 +444,27 @@ export function AssetGeneratorPage() {
                 setActiveBatch(manifest);
                 await loadBatches();
             } else {
-                payload.category = textureCategory;
+                payload.category = activeTab === "world-assets" ? "world_assets" : "game_assets";
+                if (activeTab === "game-assets") {
+                    payload.gameAsset = {
+                        type: gameAssetType,
+                        metadata: gameAssetType === "building" ? {
+                            isNatural: isBuildingNatural,
+                            isPassable: isBuildingPassable,
+                            isHidden: isBuildingHidden
+                        } : {
+                            isNatural: isTerrainNatural,
+                            moveEfficiency: terrainMoveEfficiency,
+                            fertility: terrainFertility
+                        },
+                        grouping: {
+                            type: gameAssetGroupType,
+                            name: gameAssetGroupName,
+                            description: structureDescription
+                        }
+                    };
+                }
+
                 if (textureSubCategory) {
                     payload.subCategory = textureSubCategory;
                 }
@@ -394,7 +487,7 @@ export function AssetGeneratorPage() {
             setIsGenerating(false);
             setGenProgress({ current: 0, total: 0 });
         }
-    }, [pendingPrompts, referenceImage, batchName, stylePrompt, temperature, activeTab, textureCategory, textureSubCategory, loadBatches, loadTextureBatches]);
+    }, [pendingPrompts, referenceImage, batchName, stylePrompt, temperature, activeTab, textureCategory, textureSubCategory, loadBatches, loadTextureBatches, gameAssetType, isBuildingNatural, isBuildingPassable, isBuildingHidden, isTerrainNatural, terrainMoveEfficiency, terrainFertility, gameAssetGroupType, gameAssetGroupName, structureDescription]);
 
     // ── Load a batch ──
     const selectBatch = useCallback(async (batchId: string) => {
@@ -415,12 +508,37 @@ export function AssetGeneratorPage() {
             if (res.ok) {
                 const data: TextureBatchManifest = await res.json();
                 setActiveTextureBatch(data);
-                // Also set this as active in broader sense if we want to show it
             }
         } catch {
             // silent
         }
     }, []);
+
+    const updateMetadata = useCallback(async (filename: string, metadata: any) => {
+        if (!activeTextureBatch) return;
+
+        try {
+            const res = await fetch(`/api/textures/batches/${activeTextureBatch.batchId}/textures/${filename}/metadata`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ metadata }),
+            });
+
+            if (res.ok) {
+                // Refresh manifest
+                const mRes = await fetch(`/api/textures/batches/${activeTextureBatch.batchId}`);
+                if (mRes.ok) {
+                    const refreshed: TextureBatchManifest = await mRes.json();
+                    setActiveTextureBatch(refreshed);
+                }
+            } else {
+                const msg = await res.text();
+                throw new Error(msg || `HTTP ${res.status}`);
+            }
+        } catch (e: any) {
+            setError(e.message || "Failed to update metadata");
+        }
+    }, [activeTextureBatch]);
 
     const downloadIcon = useCallback((url: string) => {
         const a = document.createElement("a");
@@ -789,9 +907,100 @@ export function AssetGeneratorPage() {
                                         className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#E6E6FA]/30 resize-none transition-colors font-mono leading-relaxed"
                                     />
                                 </div>
+
+                                {activeTab === "game-assets" && (
+                                    <div className="space-y-4 pt-4 border-t border-white/5">
+                                        {/* Asset Type */}
+                                        <div>
+                                            <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Asset Type</label>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {["building", "terrain"].map((type) => (
+                                                    <button
+                                                        key={type}
+                                                        onClick={() => setGameAssetType(type as any)}
+                                                        className={`px-2 py-1.5 rounded-lg text-[9px] font-bold tracking-wider border transition-all ${gameAssetType === type
+                                                            ? "bg-[#E6E6FA]/10 border-[#E6E6FA]/40 text-[#E6E6FA]"
+                                                            : "bg-white/[0.02] border-white/5 text-gray-500 hover:border-white/20 hover:text-gray-300"
+                                                            }`}
+                                                    >
+                                                        {type.toUpperCase()}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {gameAssetType === "building" ? (
+                                            <div className="space-y-3">
+                                                <div className="flex items-center justify-between p-2 bg-white/[0.02] border border-white/5 rounded-lg">
+                                                    <span className="text-[9px] font-bold text-gray-400">NATURAL</span>
+                                                    <button onClick={() => setIsBuildingNatural(!isBuildingNatural)} className={`w-10 h-5 rounded-full relative transition-all ${isBuildingNatural ? "bg-emerald-500/40" : "bg-white/10"}`}>
+                                                        <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${isBuildingNatural ? "left-6" : "left-1"}`} />
+                                                    </button>
+                                                </div>
+                                                <div className="flex items-center justify-between p-2 bg-white/[0.02] border border-white/5 rounded-lg">
+                                                    <span className="text-[9px] font-bold text-gray-400">PASSABLE</span>
+                                                    <button onClick={() => setIsBuildingPassable(!isBuildingPassable)} className={`w-10 h-5 rounded-full relative transition-all ${isBuildingPassable ? "bg-emerald-500/40" : "bg-white/10"}`}>
+                                                        <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${isBuildingPassable ? "left-6" : "left-1"}`} />
+                                                    </button>
+                                                </div>
+                                                <div className="flex items-center justify-between p-2 bg-white/[0.02] border border-white/5 rounded-lg">
+                                                    <span className="text-[9px] font-bold text-gray-400">HIDDEN</span>
+                                                    <button onClick={() => setIsBuildingHidden(!isBuildingHidden)} className={`w-10 h-5 rounded-full relative transition-all ${isBuildingHidden ? "bg-amber-500/40" : "bg-white/10"}`}>
+                                                        <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${isBuildingHidden ? "left-6" : "left-1"}`} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center justify-between p-2 bg-white/[0.02] border border-white/5 rounded-lg">
+                                                    <span className="text-[9px] font-bold text-gray-400">NATURAL</span>
+                                                    <button onClick={() => setIsTerrainNatural(!isTerrainNatural)} className={`w-10 h-5 rounded-full relative transition-all ${isTerrainNatural ? "bg-emerald-500/40" : "bg-white/10"}`}>
+                                                        <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${isTerrainNatural ? "left-6" : "left-1"}`} />
+                                                    </button>
+                                                </div>
+                                                <Slider label="MOVE EFFICIENCY" value={terrainMoveEfficiency} min={0.1} max={2.0} step={0.1} format={(v) => v.toFixed(1)} onChange={setTerrainMoveEfficiency} />
+                                                <Slider label="FERTILITY" value={terrainFertility} min={0} max={2.0} step={0.1} format={(v) => v.toFixed(1)} onChange={setTerrainFertility} />
+                                            </div>
+                                        )}
+
+                                        {/* Grouping Section */}
+                                        <div className="pt-4 border-t border-white/5 space-y-3">
+                                            <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Group Content Under</label>
+                                            <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
+                                                {["biome", "structure"].map((g) => (
+                                                    <button
+                                                        key={g}
+                                                        onClick={() => setGameAssetGroupType(g as any)}
+                                                        className={`flex-1 py-1 px-3 rounded text-[9px] font-bold tracking-widest transition-all ${gameAssetGroupType === g ? "bg-[#E6E6FA] text-[#070b12]" : "text-gray-500"}`}
+                                                    >
+                                                        {g.toUpperCase()}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <input
+                                                type="text"
+                                                value={gameAssetGroupName}
+                                                onChange={(e) => setGameAssetGroupName(e.target.value)}
+                                                placeholder={gameAssetGroupType === "biome" ? "e.g. 'Tundra', 'Desert'" : "e.g. 'Ancient Tomb'"}
+                                                className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#E6E6FA]/30 transition-colors font-mono"
+                                            />
+                                            {gameAssetGroupType === "structure" && (
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Structure Logic (AI)</label>
+                                                    <textarea
+                                                        value={structureDescription}
+                                                        onChange={(e) => setStructureDescription(e.target.value)}
+                                                        placeholder="Describe how this structure should spawn... e.g. 'Small interconnected stone corridors with a central pillar...'"
+                                                        rows={3}
+                                                        className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-[10px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-[#E6E6FA]/30 resize-none transition-colors font-mono"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
-
                         {/* Reference Image */}
                         <Card className="!bg-[#0f1520] !border-white/5 shrink-0">
                             <CardHeader className="!bg-transparent !border-white/5 !py-2.5">
@@ -1094,7 +1303,7 @@ export function AssetGeneratorPage() {
                             </div>
 
                             {/* Icons Grid */}
-                            <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-4">
+                            <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3">
                                 {activeBatch.icons.map((icon, i) => (
                                     <IconCard
                                         key={`${icon.url}-${i}`}
@@ -1138,6 +1347,17 @@ export function AssetGeneratorPage() {
                                     <p className="text-[9px] text-gray-600">
                                         {activeTextureBatch.textures.length} textures · {new Date(activeTextureBatch.createdAt).toLocaleString()}
                                     </p>
+                                    {activeTextureBatch.gameAsset?.grouping && (
+                                        <div className="flex items-center gap-2 ml-4 px-3 py-1 bg-[#E6E6FA]/10 border border-[#E6E6FA]/20 rounded-full">
+                                            <span className="text-[8px] font-black text-[#E6E6FA] uppercase tracking-widest">{activeTextureBatch.gameAsset.grouping.type}:</span>
+                                            <span className="text-[10px] font-bold text-white">{activeTextureBatch.gameAsset.grouping.name}</span>
+                                            {activeTextureBatch.gameAsset.grouping.description && (
+                                                <span className="text-[8px] text-gray-500 italic truncate max-w-[200px]" title={activeTextureBatch.gameAsset.grouping.description}>
+                                                    — {activeTextureBatch.gameAsset.grouping.description}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                                 <button
                                     onClick={() => setActiveTextureBatch(null)}
@@ -1147,7 +1367,7 @@ export function AssetGeneratorPage() {
                                 </button>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 pb-20">
+                            <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3 pb-20">
                                 {activeTextureBatch.textures.map((texture) => (
                                     <TextureCard
                                         key={texture.filename}
@@ -1156,6 +1376,7 @@ export function AssetGeneratorPage() {
                                         setHoveredTexture={setHoveredTexture}
                                         downloadTexture={downloadIcon}
                                         startEditingTexture={() => { }} // TODO
+                                        updateMetadata={updateMetadata}
                                     />
                                 ))}
                             </div>
@@ -1166,16 +1387,16 @@ export function AssetGeneratorPage() {
                             <h2 className="text-[10px] font-bold tracking-[0.15em] text-gray-500">
                                 GENERATING <span className="text-[#E6E6FA]">{genProgress.total}</span> {activeTab.toUpperCase()}...
                             </h2>
-                            <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-4">
+                            <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3">
                                 {Array.from({ length: genProgress.total }).map((_, i) => (
                                     <div
                                         key={`shimmer-${i}`}
-                                        className="flex flex-col items-center bg-[#0f1520] border border-white/5 rounded-xl p-4 animate-pulse h-[140px]"
+                                        className="flex flex-col items-center bg-[#0f1520] border border-white/5 rounded-lg p-2 animate-pulse h-[110px]"
                                     >
-                                        <div className="w-16 h-16 bg-white/5 rounded mb-3 flex-shrink-0" />
-                                        <div className="w-full space-y-2">
-                                            <div className="w-full h-2 bg-white/5 rounded" />
-                                            <div className="w-2/3 h-2 bg-white/5 rounded mx-auto" />
+                                        <div className="w-12 h-12 bg-white/5 rounded mb-2 flex-shrink-0" />
+                                        <div className="w-full space-y-1.5">
+                                            <div className="w-full h-1.5 bg-white/5 rounded" />
+                                            <div className="w-2/3 h-1.5 bg-white/5 rounded mx-auto" />
                                         </div>
                                     </div>
                                 ))}
