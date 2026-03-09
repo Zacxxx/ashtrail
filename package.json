@@ -6,8 +6,7 @@
   "workspaces": [
     "apps/*",
     "packages/core",
-    "packages/ui",
-    "packages/geo-wasm/pkg"
+    "packages/ui"
   ],
   "scripts": {
     "dev:server": "bun run --cwd apps/server dev",
