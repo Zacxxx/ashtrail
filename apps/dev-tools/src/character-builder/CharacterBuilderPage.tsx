@@ -181,11 +181,11 @@ export function CharacterBuilderPage() {
         const interval = setInterval(() => {
             setGenProgress(prev => {
                 if (prev >= 98) return 98;
-                // Faster at start, slower at end
-                const inc = prev < 50 ? 5 : prev < 80 ? 2 : 1;
+                // Slower, more realistic pacing for AI generation
+                const inc = prev < 30 ? 3 : prev < 60 ? 2 : 1;
                 return prev + inc;
             });
-        }, 150);
+        }, 350);
 
         return () => clearInterval(interval);
     }, [isGeneratingStory]);
@@ -1417,7 +1417,15 @@ export function CharacterBuilderPage() {
                                                                     if (resp.ok) {
                                                                         const data = await resp.json();
                                                                         const fullHistory = data.story;
-                                                                        setTargetHistory(fullHistory);
+
+                                                                        // Force 100% progress before completing
+                                                                        setGenProgress(100);
+
+                                                                        // Small delay to let the user see the 100%
+                                                                        setTimeout(() => {
+                                                                            setTargetHistory(fullHistory);
+                                                                            setIsGeneratingStory(false);
+                                                                        }, 500);
 
                                                                         // Refined Moral Sentiment Analysis based on AI output
                                                                         const h = fullHistory.toLowerCase();
@@ -1449,7 +1457,6 @@ export function CharacterBuilderPage() {
                                                                     }
                                                                 } catch (e) {
                                                                     console.error("AI Lore Generation Failed:", e);
-                                                                } finally {
                                                                     setIsGeneratingStory(false);
                                                                 }
                                                             }}
