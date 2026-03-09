@@ -51,6 +51,12 @@ pub struct ListIsolatedResponse {
     pub images: Vec<IsolatedImage>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteIsolatedResponse {
+    pub success: bool,
+}
+
 // ── Job Response Types ──
 
 #[derive(Deserialize)]
@@ -371,6 +377,33 @@ pub async fn list_all_isolated_regions(
     }
 
     Ok(Json(ListIsolatedResponse { images }))
+}
+
+// ── DELETE /api/worldgen/{planet_id}/isolated/{filename} ──
+
+pub async fn delete_isolated_region(
+    State(state): State<AppState>,
+    Path((planet_id, filename)): Path<(String, String)>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let is_valid = filename.ends_with(".png")
+        && filename
+            .trim_end_matches(".png")
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !is_valid {
+        return Err((StatusCode::BAD_REQUEST, "Invalid isolated image filename.".into()));
+    }
+
+    let isolated_dir = state.isolated_dir.join(&planet_id);
+    let file_path = isolated_dir.join(&filename);
+    if !file_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Isolated image not found.".into()));
+    }
+
+    fs::remove_file(&file_path)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete image: {}", e)))?;
+
+    Ok(Json(DeleteIsolatedResponse { success: true }))
 }
 
 // ── POST /api/worldgen/{planet_id}/run/{stage_name} ──

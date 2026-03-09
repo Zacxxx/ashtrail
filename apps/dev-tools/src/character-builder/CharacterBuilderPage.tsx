@@ -789,50 +789,30 @@ export function CharacterBuilderPage() {
             <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
                 <div className="absolute inset-0 z-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-900/20 via-[#030508] to-[#030508]" />
 
-                {/* ══ Header ══ */}
-                <header className="absolute top-0 left-0 right-0 z-30 bg-[#030508]/90 backdrop-blur-md border-b border-white/5 pointer-events-auto">
-                    <div className="h-16 flex items-center justify-between px-6 w-full">
-                        <div className="flex items-center gap-6">
-                            <Link to="/" className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 hover:text-white transition-all">
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                            </Link>
-                            <h1 className="text-xs font-black tracking-[0.3em] text-white">CHARACTER BUILDER</h1>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            {selectedWorld && (
-                                <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-full shrink-0">
-                                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                                    <span className="text-[10px] font-bold text-cyan-300 tracking-widest uppercase truncate max-w-[200px]">{(selectedWorld.name || selectedWorld.prompt || 'Unknown World').substring(0, 40)}...</span>
-                                </div>
-                            )}
-                            <button
-                                onClick={() => setShowSettingsModal(true)}
-                                className="flex items-center justify-center w-8 h-8 rounded-full border transition-all shadow-lg bg-gray-500/10 border-gray-500/40 text-gray-400 hover:bg-gray-500/20"
-                                title="World Settings"
-                            >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                </svg>
-                            </button>
-                            <button
-                                onClick={() => setShowGalleryModal(true)}
-                                className="flex items-center justify-center w-8 h-8 rounded-full border transition-all shadow-lg bg-[#E6E6FA]/10 border-[#E6E6FA]/40 text-[#E6E6FA] hover:bg-[#E6E6FA]/20"
-                                title="Pick World"
-                            >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                                </svg>
-                            </button>
-                            <button onClick={() => setShowGeneratorModal(true)} className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-orange-400 border border-orange-500/30 bg-orange-500/10 rounded-lg hover:bg-orange-500/20 transition-all flex items-center gap-1.5">
-                                <span>✨</span> AI Gen
-                            </button>
-                            <button onClick={resetForm} className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 border border-white/10 rounded-lg hover:bg-white/5 transition-all">
-                                + New
-                            </button>
-                        </div>
+                {/* ══ Tool-Specific Sub-Header ══ */}
+                <div className="fixed top-16 left-0 right-0 z-30 bg-[#030508]/60 backdrop-blur-md border-b border-white/5 pointer-events-auto flex items-center justify-between px-6 h-12 shadow-2xl">
+                    <div className="flex items-center gap-4">
+                        <h1 className="text-[10px] font-black tracking-[0.3em] text-white uppercase">CHARACTER BUILDER</h1>
                     </div>
-                </header >
+                    <div className="flex items-center gap-3 scale-90">
+                        <button
+                            onClick={() => setShowSettingsModal(true)}
+                            className="flex items-center justify-center w-8 h-8 rounded-full border transition-all shadow-lg bg-gray-500/10 border-gray-500/40 text-gray-400 hover:bg-gray-500/20"
+                            title="World Settings"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                        </button>
+                        <button onClick={() => setShowGeneratorModal(true)} className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-orange-400 border border-orange-500/30 bg-orange-500/10 rounded-lg hover:bg-orange-500/20 transition-all flex items-center gap-1.5">
+                            <span>✨</span> AI Gen
+                        </button>
+                        <button onClick={resetForm} className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 border border-white/10 rounded-lg hover:bg-white/5 transition-all">
+                            + New
+                        </button>
+                    </div>
+                </div>
 
                 {/* ══ Main Layout ══ */}
                 < div className="flex-1 flex overflow-hidden relative z-10 pt-[80px] pb-6 px-6 gap-6" >

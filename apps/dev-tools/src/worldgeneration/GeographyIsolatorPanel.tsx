@@ -34,6 +34,8 @@ export function GeographyIsolatorPanel({ planetId, selectedId, activeLayer }: Ge
     const [isolatedImages, setIsolatedImages] = useState<IsolatedImage[]>([]);
     const [loading, setLoading] = useState(false);
     const [isolating, setIsolating] = useState(false);
+    const [deletingFilename, setDeletingFilename] = useState<string | null>(null);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [regions, setRegions] = useState<Record<number, RegionRecord>>({});
     const [bulkJobId, setBulkJobId] = useState<string | null>(null);
@@ -204,6 +206,29 @@ export function GeographyIsolatorPanel({ planetId, selectedId, activeLayer }: Ge
         }
     };
 
+    const handleDeleteIsolated = async (filename: string) => {
+        if (!planetId || deletingFilename) return;
+        if (!window.confirm(`Delete ${filename}?`)) return;
+
+        setDeletingFilename(filename);
+        setDeleteError(null);
+        try {
+            const res = await fetch(`${API_BASE}/api/worldgen/${planetId}/isolated/${encodeURIComponent(filename)}`, {
+                method: "DELETE",
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || "Failed to delete isolated image.");
+            }
+
+            await loadImages();
+        } catch (err: any) {
+            setDeleteError(err.message || "Failed to delete isolated image.");
+        } finally {
+            setDeletingFilename(null);
+        }
+    };
+
     if (!planetId) {
         return <div className="p-4 text-xs text-center text-gray-500 font-mono">NO PLANET ACTIVE</div>;
     }
@@ -284,6 +309,7 @@ export function GeographyIsolatorPanel({ planetId, selectedId, activeLayer }: Ge
                 {!loading && isolatedImages.length === 0 && (
                     <p className="text-[10px] text-gray-500 font-mono text-center mt-4">No regions isolated yet.</p>
                 )}
+                {deleteError && <p className="text-[10px] text-red-400 font-mono mb-3">{deleteError}</p>}
 
                 <div className="grid grid-cols-2 gap-3 pb-8">
                     {isolatedImages.map((img) => (
@@ -295,9 +321,19 @@ export function GeographyIsolatorPanel({ planetId, selectedId, activeLayer }: Ge
                                     alt={img.filename}
                                 />
                             </div>
-                            <div className="p-2 border-t border-white/5 bg-black/60">
-                                <p className="text-[9px] text-cyan-400 font-black tracking-widest uppercase">{img.entityType}</p>
-                                <p className="text-[10px] text-gray-400 font-mono">ID: {img.entityId}</p>
+                            <div className="p-2 border-t border-white/5 bg-black/60 flex items-end justify-between gap-2">
+                                <div>
+                                    <p className="text-[9px] text-cyan-400 font-black tracking-widest uppercase">{img.entityType}</p>
+                                    <p className="text-[10px] text-gray-400 font-mono">ID: {img.entityId}</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleDeleteIsolated(img.filename)}
+                                    disabled={deletingFilename === img.filename || deletingFilename !== null}
+                                    className="px-2 py-1 text-[9px] font-black tracking-widest rounded border border-red-500/40 text-red-300 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {deletingFilename === img.filename ? "..." : "DELETE"}
+                                </button>
                             </div>
                         </div>
                     ))}

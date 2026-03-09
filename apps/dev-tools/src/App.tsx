@@ -51,7 +51,7 @@ const TOOLS = [
     },
     {
         id: "history",
-        name: "History Generator",
+        name: "History",
         description: "AI powered tool to generate game history for lore, world, and factions.",
         icon: "📜",
         status: "WIP",
@@ -59,7 +59,7 @@ const TOOLS = [
     },
     {
         id: "ecology",
-        name: "Ecology Archive",
+        name: "Ecology",
         description: "World-scoped flora, fauna, climate, and province ecology canon management.",
         icon: "🌿",
         status: "WIP",
@@ -69,22 +69,7 @@ const TOOLS = [
 
 export function App() {
     return (
-        <div className="min-h-screen bg-[#070b12] text-gray-300 font-sans p-8">
-            {/* Header */}
-            <header className="mb-12">
-                <div className="flex items-center gap-4 mb-2">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-teal-500 text-[#0a0f14] font-bold text-sm">
-                        ◆
-                    </div>
-                    <h1 className="text-xl font-bold tracking-[0.2em] text-gray-100">
-                        ASHTRAIL <span className="text-gray-600 font-normal">| DEV TOOLS</span>
-                    </h1>
-                </div>
-                <p className="text-gray-500 text-sm tracking-widest pl-12">
-                    INTERNAL DEVELOPMENT UTILITIES
-                </p>
-            </header>
-
+        <div className="bg-[#070b12] text-gray-300 font-sans p-8">
             {/* Tools Grid */}
             <main className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl">
                 {TOOLS.map((tool) => (

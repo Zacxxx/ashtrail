@@ -493,6 +493,7 @@ async fn main() {
         .route("/api/worldgen/{planet_id}/isolate/provinces", post(worldgen_pipeline::isolate_all_provinces))
         .route("/api/worldgen/{planet_id}/isolate", post(worldgen_pipeline::isolate_region))
         .route("/api/worldgen/{planet_id}/isolated", get(worldgen_pipeline::list_isolated_regions))
+        .route("/api/worldgen/{planet_id}/isolated/{filename}", delete(worldgen_pipeline::delete_isolated_region))
         .route("/api/worldgen/isolated/all", get(worldgen_pipeline::list_all_isolated_regions))
         // Static file serving for all planet textures
         .route("/api/data/traits", get(cms::get_traits).post(cms::save_traits))
