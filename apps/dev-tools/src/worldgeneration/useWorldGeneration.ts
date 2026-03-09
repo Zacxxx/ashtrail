@@ -20,7 +20,7 @@ interface UseWorldGenerationParams {
     saveToHistory: (item: GenerationHistoryItem) => Promise<void>;
     setGlobeWorld: (world: PlanetWorld | null) => void;
     setContinents: (continents: ContinentConfig[]) => void;
-    setActiveHistoryId: (id: string | null) => void;
+    setActiveWorldId: (id: string | null) => void;
     saveCellSubTiles: (cellX: number, cellY: number, subTiles: any[]) => void;
 }
 
@@ -40,7 +40,7 @@ export function useWorldGeneration({
     saveToHistory,
     setGlobeWorld,
     setContinents,
-    setActiveHistoryId,
+    setActiveWorldId,
     saveCellSubTiles,
 }: UseWorldGenerationParams) {
     const [genProgress, setGenProgress] = useState<GenerationProgress>({
@@ -101,7 +101,7 @@ export function useWorldGeneration({
                             ...data.result,
                             textureUrl: data.result.textureUrl
                         });
-                        setActiveHistoryId(jobId);
+                        setActiveWorldId(jobId);
 
                         setGenProgress({
                             isActive: false,
