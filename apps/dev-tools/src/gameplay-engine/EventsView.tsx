@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Character, Trait, Stats } from "@ashtrail/core";
 import { Card, Button, Input } from "@ashtrail/ui";
-import { User, Sparkles, Wand2, Shield, HeartPulse } from "lucide-react";
+import { User, Sparkles, Wand2, Shield, HeartPulse, ChevronDown } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { CharacterGeneratorModal } from "../character-builder/CharacterGeneratorModal";
@@ -37,10 +37,10 @@ interface EventOutcome {
     starts_quest: boolean;
 }
 
-type InfluenceKind = "region" | "location" | "faction" | "timeline";
+type EventContextKind = "region" | "location" | "faction" | "timeline";
 
-interface EventInfluenceSummary {
-    kind: InfluenceKind;
+interface EventContextSummary {
+    kind: EventContextKind;
     id: string;
     label: string;
     lore: string;
@@ -56,6 +56,9 @@ export function EventsView({
     onCharacterUpdated?: () => void,
     onCombatRedirect?: (playerIds: string[], enemyIds: string[]) => void
 }) {
+    const selectorClassName = "bg-[#0b1017] border border-white/10 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-orange-500/50";
+    const selectorOptionClassName = "bg-[#0b1017] text-gray-100";
+
     const [selectedCharacterId, setSelectedCharacterId] = useState<string>("");
     const [eventType, setEventType] = useState<string>("Random Encounter");
     const [context, setContext] = useState<string>("Traveling through a dense, foggy forest.");
@@ -74,6 +77,7 @@ export function EventsView({
     const [selectedLocationId, setSelectedLocationId] = useState("");
     const [selectedFactionId, setSelectedFactionId] = useState("");
     const [selectedTimelineEventId, setSelectedTimelineEventId] = useState("");
+    const [isInvolvedCharactersOpen, setIsInvolvedCharactersOpen] = useState(false);
 
     const [isGenerating, setIsGenerating] = useState(false);
     const [eventData, setEventData] = useState<EventData | null>(null);
@@ -89,13 +93,14 @@ export function EventsView({
     }, [activeWorldId, characters]);
 
     const character = worldScopedCharacters.find(c => c.id === selectedCharacterId);
+    const availableInvolvedCharacters = worldScopedCharacters.filter(c => c.id !== selectedCharacterId);
     const selectedRegion = regions.find(region => region.id === selectedRegionId) || null;
     const selectedLocation = locations.find(location => location.id === selectedLocationId) || null;
     const selectedFaction = factions.find(faction => faction.id === selectedFactionId) || null;
     const selectedTimelineEvent = timelineEvents.find(event => event.id === selectedTimelineEventId) || null;
 
-    const selectedInfluences = useMemo<EventInfluenceSummary[]>(() => {
-        const influences: EventInfluenceSummary[] = [];
+    const selectedContextItems = useMemo<EventContextSummary[]>(() => {
+        const influences: EventContextSummary[] = [];
         if (selectedRegion && selectedRegion.lore?.trim()) {
             influences.push({
                 kind: "region",
@@ -159,17 +164,31 @@ export function EventsView({
         return influences;
     }, [selectedFaction, selectedLocation, selectedRegion, selectedTimelineEvent]);
 
+    const placementContextBlock = useMemo(() => {
+        const placementItems = selectedContextItems.filter(item => item.kind === "region" || item.kind === "location");
+        if (placementItems.length === 0) return "";
+        return [
+            "Event Placement Context:",
+            ...placementItems.map(item => {
+                const meta = item.meta ? ` (${item.meta})` : "";
+                return `- ${item.kind.toUpperCase()}: ${item.label}${meta}\n${item.lore}`;
+            }),
+            "Treat these selected records as the location anchor for where the event is taking place."
+        ].join("\n");
+    }, [selectedContextItems]);
+
     const influenceContextBlock = useMemo(() => {
-        if (selectedInfluences.length === 0) return "";
+        const influenceItems = selectedContextItems.filter(item => item.kind === "faction" || item.kind === "timeline");
+        if (influenceItems.length === 0) return "";
         return [
             "Selected Influence Context:",
-            ...selectedInfluences.map(influence => {
+            ...influenceItems.map(influence => {
                 const meta = influence.meta ? ` (${influence.meta})` : "";
                 return `- ${influence.kind.toUpperCase()}: ${influence.label}${meta}\n${influence.lore}`;
             }),
             "Use these selected records as focused influence for the event while staying inside the broader world canon."
         ].join("\n");
-    }, [selectedInfluences]);
+    }, [selectedContextItems]);
 
     useEffect(() => {
         if (!activeWorldId) {
@@ -242,7 +261,7 @@ export function EventsView({
                     }
                 }
 
-                setRegions(mergedRegions);
+                setRegions(mergedRegions.filter((region: GeographyRegion) => region.lore?.trim()));
                 setLocations(Array.isArray(locationsData) ? locationsData : []);
                 setFactions(Array.isArray(factionsData) ? factionsData : []);
                 setTimelineEvents(
@@ -293,6 +312,12 @@ export function EventsView({
     }, [selectedCharacterId, worldScopedCharacters]);
 
     useEffect(() => {
+        if (availableInvolvedCharacters.length === 0) {
+            setIsInvolvedCharactersOpen(false);
+        }
+    }, [availableInvolvedCharacters.length]);
+
+    useEffect(() => {
         if (selectedRegionId && !regions.some(region => region.id === selectedRegionId)) setSelectedRegionId("");
     }, [regions, selectedRegionId]);
 
@@ -323,7 +348,9 @@ export function EventsView({
                     characterTraits: character.traits,
                     characterAlignment: character.alignment || "Neutral",
                     eventDescription: influenceContextBlock
-                        ? `${eventData.description}\n\n${influenceContextBlock}`
+                        ? [eventData.description, placementContextBlock, influenceContextBlock].filter(Boolean).join("\n\n")
+                        : placementContextBlock
+                            ? `${eventData.description}\n\n${placementContextBlock}`
                         : eventData.description,
                     gmContext: {
                         worldId: latestGmContext.worldId,
@@ -350,6 +377,7 @@ export function EventsView({
                 const involvedContext = involvedNames.length > 0 ? ` (Involved Characters: ${involvedNames.join(', ')})` : "";
                 const promptContext = [
                     context + involvedContext,
+                    placementContextBlock,
                     influenceContextBlock,
                 ].filter(Boolean).join("\n\n");
                 const body = {
@@ -397,9 +425,7 @@ export function EventsView({
                 characterStats: character.stats,
                 characterTraits: character.traits,
                 characterAlignment: character.alignment || "Neutral",
-                eventDescription: influenceContextBlock
-                    ? `${eventData.description}\n\n${influenceContextBlock}`
-                    : eventData.description,
+                eventDescription: [eventData.description, placementContextBlock, influenceContextBlock].filter(Boolean).join("\n\n"),
                 chosenAction: action,
                 gmContext: {
                     worldId: latestGmContext.worldId,
@@ -577,12 +603,14 @@ export function EventsView({
                 <div className="flex flex-col gap-1">
                     <label className="text-xs text-gray-400">Select Character:</label>
                     <select
-                        className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50"
+                        className={selectorClassName}
+                        style={{ colorScheme: "dark" }}
                         value={selectedCharacterId}
                         onChange={e => setSelectedCharacterId(e.target.value)}
                     >
+                        <option className={selectorOptionClassName} value="">Select character</option>
                         {worldScopedCharacters.map(c => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
+                            <option className={selectorOptionClassName} key={c.id} value={c.id}>{c.name}</option>
                         ))}
                     </select>
                 </div>
@@ -590,13 +618,14 @@ export function EventsView({
                 <div className="flex flex-col gap-1 mt-2">
                     <label className="text-xs text-gray-400">Event Type:</label>
                     <select
-                        className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50"
+                        className={selectorClassName}
+                        style={{ colorScheme: "dark" }}
                         value={eventType}
                         onChange={e => setEventType(e.target.value)}
                     >
-                        <option value="Random Encounter">Random Encounter</option>
-                        <option value="Conversation">Conversation</option>
-                        <option value="Location Event">Location Event</option>
+                        <option className={selectorOptionClassName} value="Random Encounter">Random Encounter</option>
+                        <option className={selectorOptionClassName} value="Conversation">Conversation</option>
+                        <option className={selectorOptionClassName} value="Location Event">Location Event</option>
                     </select>
                 </div>
 
@@ -611,29 +640,31 @@ export function EventsView({
                 </div>
 
                 <div className="flex flex-col gap-1 mt-2">
-                    <label className="text-xs text-gray-400">Influence Region:</label>
+                    <label className="text-xs text-gray-400">Event Region:</label>
                     <select
-                        className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50"
+                        className={selectorClassName}
+                        style={{ colorScheme: "dark" }}
                         value={selectedRegionId}
                         onChange={e => setSelectedRegionId(e.target.value)}
                     >
-                        <option value="">None</option>
+                        <option className={selectorOptionClassName} value="">None</option>
                         {regions.map(region => (
-                            <option key={region.id} value={region.id}>{region.name} ({region.type})</option>
+                            <option className={selectorOptionClassName} key={region.id} value={region.id}>{region.name} ({region.type})</option>
                         ))}
                     </select>
                 </div>
 
                 <div className="flex flex-col gap-1">
-                    <label className="text-xs text-gray-400">Influence Location:</label>
+                    <label className="text-xs text-gray-400">Event Location:</label>
                     <select
-                        className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50"
+                        className={selectorClassName}
+                        style={{ colorScheme: "dark" }}
                         value={selectedLocationId}
                         onChange={e => setSelectedLocationId(e.target.value)}
                     >
-                        <option value="">None</option>
+                        <option className={selectorOptionClassName} value="">None</option>
                         {locations.map(location => (
-                            <option key={location.id} value={location.id}>{location.name} ({location.type})</option>
+                            <option className={selectorOptionClassName} key={location.id} value={location.id}>{location.name} ({location.type})</option>
                         ))}
                     </select>
                 </div>
@@ -641,13 +672,14 @@ export function EventsView({
                 <div className="flex flex-col gap-1">
                     <label className="text-xs text-gray-400">Influence Faction:</label>
                     <select
-                        className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50"
+                        className={selectorClassName}
+                        style={{ colorScheme: "dark" }}
                         value={selectedFactionId}
                         onChange={e => setSelectedFactionId(e.target.value)}
                     >
-                        <option value="">None</option>
+                        <option className={selectorOptionClassName} value="">None</option>
                         {factions.map(faction => (
-                            <option key={faction.id} value={faction.id}>{faction.name} ({faction.type})</option>
+                            <option className={selectorOptionClassName} key={faction.id} value={faction.id}>{faction.name} ({faction.type})</option>
                         ))}
                     </select>
                 </div>
@@ -655,26 +687,27 @@ export function EventsView({
                 <div className="flex flex-col gap-1">
                     <label className="text-xs text-gray-400">Influence Timeline Event:</label>
                     <select
-                        className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500/50"
+                        className={selectorClassName}
+                        style={{ colorScheme: "dark" }}
                         value={selectedTimelineEventId}
                         onChange={e => setSelectedTimelineEventId(e.target.value)}
                     >
-                        <option value="">None</option>
+                        <option className={selectorOptionClassName} value="">None</option>
                         {timelineEvents.map(event => (
-                            <option key={event.id} value={event.id}>
+                            <option className={selectorOptionClassName} key={event.id} value={event.id}>
                                 {(event.title || event.location)}{event.date ? ` (${formatAshtrailDate(event.date)})` : ""}
                             </option>
                         ))}
                     </select>
                 </div>
 
-                {selectedInfluences.length > 0 && (
+                {selectedContextItems.length > 0 && (
                     <div className="flex flex-col gap-2 mt-2 p-3 bg-black/30 border border-orange-500/20 rounded-lg">
-                        <div className="text-[10px] font-bold uppercase tracking-widest text-orange-300">Selected Lore Influence</div>
-                        {selectedInfluences.map(influence => (
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-orange-300">Selected Event Context</div>
+                        {selectedContextItems.map(influence => (
                             <div key={`${influence.kind}-${influence.id}`} className="rounded border border-white/5 bg-white/[0.02] p-2">
                                 <div className="text-[10px] font-bold uppercase tracking-widest text-gray-300">
-                                    {influence.kind} • {influence.label}
+                                    {(influence.kind === "region" || influence.kind === "location") ? "placement" : "influence"} • {influence.kind} • {influence.label}
                                 </div>
                                 {influence.meta && <div className="text-[10px] text-gray-500 mt-1">{influence.meta}</div>}
                                 <div className="text-xs text-gray-400 mt-2 line-clamp-4">{influence.lore}</div>
@@ -686,29 +719,73 @@ export function EventsView({
                 <div className="flex flex-col gap-1 mt-2 mb-2">
                     <div className="flex justify-between items-center">
                         <label className="text-xs text-gray-400">Involved Characters:</label>
-                        <Button variant="secondary" className="text-[10px] h-6 px-2 py-0 text-orange-400 border border-transparent hover:border-orange-500/30 font-bold uppercase tracking-wider" onClick={() => setShowGeneratorModal(true)}>
-                            <Sparkles size={10} className="mr-1" /> GEN NPC
+                        <Button
+                            variant="secondary"
+                            className="inline-flex items-center justify-center gap-1.5 text-[10px] h-7 px-3 py-0 text-orange-400 border border-orange-500/20 bg-orange-500/10 hover:border-orange-500/40 hover:bg-orange-500/15 font-bold uppercase tracking-wider whitespace-nowrap"
+                            onClick={() => setShowGeneratorModal(true)}
+                        >
+                            <Sparkles size={10} />
+                            <span>GEN NPC</span>
                         </Button>
                     </div>
 
-                    <div className="flex flex-col gap-1 mt-1 p-2 bg-black/30 border border-white/5 rounded-lg max-h-32 overflow-y-auto">
-                        {worldScopedCharacters.length <= 1 ? (
-                            <span className="text-xs text-gray-600 italic">No other characters available.</span>
-                        ) : (
-                            worldScopedCharacters.filter(c => c.id !== selectedCharacterId).map(c => (
-                                <label key={`inv-${c.id}`} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-white">
-                                    <input
-                                        type="checkbox"
-                                        checked={involvedCharacterIds.includes(c.id)}
-                                        onChange={(e) => {
-                                            if (e.target.checked) setInvolvedCharacterIds(prev => [...prev, c.id]);
-                                            else setInvolvedCharacterIds(prev => prev.filter(id => id !== c.id));
-                                        }}
-                                        className="accent-orange-500 bg-white/5 border-white/10 rounded w-3 h-3 cursor-pointer"
-                                    />
-                                    {c.name}
-                                </label>
-                            ))
+                    <div className="relative mt-1">
+                        <button
+                            type="button"
+                            onClick={() => availableInvolvedCharacters.length > 0 && setIsInvolvedCharactersOpen(open => !open)}
+                            className={`w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${availableInvolvedCharacters.length > 0 ? "bg-black/30 border-white/5 hover:border-white/20" : "bg-black/20 border-white/5 cursor-not-allowed"}`}
+                        >
+                            <div className="min-w-0">
+                                <div className="text-xs text-gray-300 truncate">
+                                    {availableInvolvedCharacters.length === 0
+                                        ? "No other characters available."
+                                        : involvedCharacterIds.length === 0
+                                            ? "Select supporting characters"
+                                            : involvedCharacterIds
+                                                .map(id => availableInvolvedCharacters.find(character => character.id === id)?.name)
+                                                .filter(Boolean)
+                                                .join(", ")}
+                                </div>
+                                {availableInvolvedCharacters.length > 0 && (
+                                    <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-1">
+                                        {involvedCharacterIds.length} selected
+                                    </div>
+                                )}
+                            </div>
+                            <ChevronDown size={14} className={`shrink-0 text-gray-500 transition-transform ${isInvolvedCharactersOpen ? "rotate-180" : ""}`} />
+                        </button>
+
+                        {isInvolvedCharactersOpen && availableInvolvedCharacters.length > 0 && (
+                            <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 rounded-xl border border-white/10 bg-[#0b1017] shadow-2xl overflow-hidden">
+                                <div className="max-h-56 overflow-y-auto p-2 custom-scrollbar">
+                                    {availableInvolvedCharacters.map(c => (
+                                        <label key={`inv-${c.id}`} className="flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-gray-300 cursor-pointer hover:bg-white/5 hover:text-white">
+                                            <input
+                                                type="checkbox"
+                                                checked={involvedCharacterIds.includes(c.id)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) setInvolvedCharacterIds(prev => [...prev, c.id]);
+                                                    else setInvolvedCharacterIds(prev => prev.filter(id => id !== c.id));
+                                                }}
+                                                className="accent-orange-500 bg-white/5 border-white/10 rounded w-3.5 h-3.5 cursor-pointer"
+                                            />
+                                            <span className="truncate">{c.name}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                                <div className="flex items-center justify-between border-t border-white/5 px-3 py-2 bg-black/20">
+                                    <span className="text-[10px] uppercase tracking-widest text-gray-500">
+                                        {involvedCharacterIds.length} selected
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsInvolvedCharactersOpen(false)}
+                                        className="text-[10px] uppercase tracking-widest text-orange-300 hover:text-orange-200"
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                            </div>
                         )}
                     </div>
                 </div>

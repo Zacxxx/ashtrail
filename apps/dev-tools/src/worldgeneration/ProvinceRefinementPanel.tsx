@@ -22,7 +22,10 @@ interface ProvinceRefinementPanelProps {
 interface UpscaledImage {
     artifactId: string;
     planetId: string;
+    entityType: string;
+    entityId: number;
     provinceId: number;
+    provinceIds: number[];
     modelId: string;
     fallbackModelId?: string | null;
     prompt: string;
@@ -82,7 +85,8 @@ export function ProvinceRefinementPanel({
     const [applyingUpscaledId, setApplyingUpscaledId] = useState<string | null>(null);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const refinePollRef = useRef<number | null>(null);
-    const canRefineProvince = activeLayer === "provinces" && selectedId !== null;
+    const activeEntityType = activeLayer.endsWith("s") ? activeLayer.slice(0, -1) : activeLayer;
+    const canRefineProvince = ["provinces", "duchies", "kingdoms"].includes(activeLayer) && selectedId !== null;
 
     useEffect(() => {
         if (!planetId) return;
@@ -132,9 +136,9 @@ export function ProvinceRefinementPanel({
     };
 
     const loadRegions = async () => {
-        if (!planetId || activeLayer !== "provinces") return;
+        if (!planetId || !["provinces", "duchies", "kingdoms"].includes(activeLayer)) return;
         try {
-            const res = await fetch(`${API_BASE}/api/planets/${planetId}/worldgen/provinces.json`);
+            const res = await fetch(`${API_BASE}/api/planets/${planetId}/worldgen/${activeLayer}.json`);
             if (!res.ok) return;
             const data: RegionRecord[] = await res.json();
             const next: Record<number, RegionRecord> = {};
@@ -207,7 +211,9 @@ export function ProvinceRefinementPanel({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    provinceId: selectedId,
+                    entityType: activeEntityType,
+                    entityId: selectedId,
+                    provinceId: activeEntityType === "province" ? selectedId : undefined,
                     prompt: refinePrompt.trim() || undefined,
                     modelId: selectedModelId || undefined,
                     temperature: Number.isFinite(refineTemperature) ? refineTemperature : undefined,
@@ -216,7 +222,7 @@ export function ProvinceRefinementPanel({
             });
             if (!res.ok) {
                 const text = await res.text();
-                throw new Error(text || "Failed to start province refinement.");
+                throw new Error(text || `Failed to start ${activeEntityType} refinement.`);
             }
             const data = await res.json();
             setRefineJobId(data.jobId);
@@ -224,7 +230,7 @@ export function ProvinceRefinementPanel({
         } catch (err: any) {
             setRefineRunning(false);
             setRefineStage(null);
-            setRefineError(err.message || "Failed to start province refinement.");
+            setRefineError(err.message || `Failed to start ${activeEntityType} refinement.`);
         }
     };
 
@@ -301,9 +307,9 @@ export function ProvinceRefinementPanel({
     return (
         <div className="flex flex-col gap-4 p-4 h-full">
             <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl p-4 shadow-lg backdrop-blur-md">
-                <h2 className="text-[10px] font-black tracking-[0.2em] text-indigo-300 mb-4">PROVINCE REFINEMENT</h2>
+                <h2 className="text-[10px] font-black tracking-[0.2em] text-indigo-300 mb-4">HIERARCHY REFINEMENT</h2>
                 <p className="text-[11px] text-gray-400 leading-relaxed font-mono mb-4">
-                    Refine one selected province into a high-resolution artifact, then apply it as a layered map variant.
+                    Refine the selected province, duchy, or kingdom into a high-resolution artifact, then apply it as a layered map variant.
                 </p>
 
                 <div className="text-left space-y-3">
@@ -381,7 +387,7 @@ export function ProvinceRefinementPanel({
                         disabled={!canRefineProvince || refineRunning || !selectedModelId}
                         className="w-full text-[10px] font-black tracking-widest bg-indigo-600/40 hover:bg-indigo-600/60 border border-indigo-500/40 disabled:opacity-50"
                     >
-                        {refineRunning ? "REFINING..." : "REFINE SELECTED PROVINCE"}
+                        {refineRunning ? "REFINING..." : `REFINE SELECTED ${activeEntityType.toUpperCase()}`}
                     </Button>
 
                     <Button
@@ -395,7 +401,7 @@ export function ProvinceRefinementPanel({
 
                     {!canRefineProvince && (
                         <p className="text-[10px] text-gray-500 font-mono">
-                            Select a province while the Provinces layer is active.
+                            Select a province, duchy, or kingdom on the matching hierarchy layer.
                         </p>
                     )}
                     {canRefineProvince && (
@@ -423,7 +429,7 @@ export function ProvinceRefinementPanel({
             </div>
 
             <div className="flex-1 overflow-y-auto bg-[#1e1e1e]/60 border border-white/5 rounded-2xl p-4 shadow-lg backdrop-blur-md">
-                <h3 className="text-[10px] font-black tracking-[0.1em] text-indigo-300 mb-3 mt-1">UPSCALED PROVINCES</h3>
+                <h3 className="text-[10px] font-black tracking-[0.1em] text-indigo-300 mb-3 mt-1">UPSCALED HIERARCHY ASSETS</h3>
                 {deleteError && <p className="text-[10px] text-red-400 font-mono mb-3">{deleteError}</p>}
                 {upscaledImages.length === 0 && (
                     <p className="text-[10px] text-gray-500 font-mono text-center mb-4">No upscaled artifacts yet.</p>
@@ -440,8 +446,13 @@ export function ProvinceRefinementPanel({
                             </div>
                             <div className="p-2 border-t border-white/5 bg-black/60">
                                 <p className="text-[9px] text-indigo-300 font-black tracking-widest uppercase">
-                                    PROVINCE {img.provinceId} • {img.scale}X
+                                    {img.entityType.toUpperCase()} {img.entityId} • {img.scale}X
                                 </p>
+                                {img.provinceIds.length > 1 && (
+                                    <p className="text-[9px] text-gray-500 font-mono">
+                                        {img.provinceIds.length} provinces merged
+                                    </p>
+                                )}
                                 <p className="text-[9px] text-gray-500 font-mono truncate">{img.modelId}</p>
                                 <p className="text-[9px] text-gray-500 font-mono">
                                     {img.artifactWidth}x{img.artifactHeight}

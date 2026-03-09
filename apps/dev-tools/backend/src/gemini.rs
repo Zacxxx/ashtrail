@@ -219,7 +219,13 @@ pub fn image_model_catalog() -> ImageModelCatalog {
     }
 }
 
-pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>, cols: u32, rows: u32, aspect_ratio: Option<&str>) -> Result<Vec<u8>, (StatusCode, String)> {
+pub async fn generate_image_bytes(
+    prompt: &str,
+    temperature: Option<f32>,
+    cols: u32,
+    rows: u32,
+    aspect_ratio: Option<&str>,
+) -> Result<Vec<u8>, (StatusCode, String)> {
     let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
         let msg = "GEMINI_API_KEY environment variable not set";
         error!(msg);
@@ -232,13 +238,14 @@ pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>, cols: 
     );
 
     let client = Client::new();
-    
+
     let image_size = match cols {
         1024..=2047 => "1K",
         2048..=4095 => "2K",
         4096..=u32::MAX => "4K",
         _ => "1K",
-    }.to_string();
+    }
+    .to_string();
 
     let req_body = GeminiRequest {
         contents: vec![GeminiContent {
@@ -291,10 +298,15 @@ pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>, cols: 
                     if let Some(part) = parts.first() {
                         if let Some(inline_data) = &part.inline_data {
                             use base64::{engine::general_purpose, Engine as _};
-                            let bytes = general_purpose::STANDARD.decode(&inline_data.data).map_err(|e| {
-                                error!("Failed to decode base64 image: {}", e);
-                                (StatusCode::INTERNAL_SERVER_ERROR, "Invalid base64 from Gemini".to_string())
-                            })?;
+                            let bytes = general_purpose::STANDARD
+                                .decode(&inline_data.data)
+                                .map_err(|e| {
+                                    error!("Failed to decode base64 image: {}", e);
+                                    (
+                                        StatusCode::INTERNAL_SERVER_ERROR,
+                                        "Invalid base64 from Gemini".to_string(),
+                                    )
+                                })?;
                             return Ok(bytes);
                         }
                     }
@@ -552,10 +564,15 @@ pub async fn generate_image_edit_bytes_with_model(
                     if let Some(part) = parts.first() {
                         if let Some(inline_data) = &part.inline_data {
                             use base64::{engine::general_purpose, Engine as _};
-                            let bytes = general_purpose::STANDARD.decode(&inline_data.data).map_err(|e| {
-                                error!("Failed to decode base64 image: {}", e);
-                                (StatusCode::INTERNAL_SERVER_ERROR, "Invalid base64 from Gemini".to_string())
-                            })?;
+                            let bytes = general_purpose::STANDARD
+                                .decode(&inline_data.data)
+                                .map_err(|e| {
+                                    error!("Failed to decode base64 image: {}", e);
+                                    (
+                                        StatusCode::INTERNAL_SERVER_ERROR,
+                                        "Invalid base64 from Gemini".to_string(),
+                                    )
+                                })?;
                             return Ok(bytes);
                         }
                     }

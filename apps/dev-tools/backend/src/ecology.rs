@@ -346,7 +346,12 @@ pub async fn generate_kingdom_baseline(
     State(state): State<AppState>,
     Path((world_id, kingdom_id)): Path<(String, u32)>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    spawn_ecology_job(state, world_id, EcologyJobKind::KingdomBaseline { kingdom_id }).await
+    spawn_ecology_job(
+        state,
+        world_id,
+        EcologyJobKind::KingdomBaseline { kingdom_id },
+    )
+    .await
 }
 
 pub async fn generate_duchy_baseline(
@@ -378,10 +383,12 @@ async fn spawn_ecology_job(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let job_id = Uuid::new_v4().to_string();
     {
-        let mut jobs = state
-            .jobs
-            .lock()
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()))?;
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
         jobs.insert(
             job_id.clone(),
             JobRecord {
@@ -400,7 +407,15 @@ async fn spawn_ecology_job(
     let isolated_dir = state.isolated_dir.clone();
     let spawned_job_id = job_id.clone();
     tokio::spawn(async move {
-        run_ecology_job(spawned_job_id, jobs, planets_dir, isolated_dir, world_id, job_kind).await;
+        run_ecology_job(
+            spawned_job_id,
+            jobs,
+            planets_dir,
+            isolated_dir,
+            world_id,
+            job_kind,
+        )
+        .await;
     });
 
     Ok((StatusCode::ACCEPTED, Json(EcologyJobAccepted { job_id })))
@@ -414,9 +429,18 @@ async fn run_ecology_job(
     world_id: String,
     job_kind: EcologyJobKind,
 ) {
-    update_job(&jobs, &job_id, JobStatus::Running, 5.0, "Loading ecology bundle", None);
+    update_job(
+        &jobs,
+        &job_id,
+        JobStatus::Running,
+        5.0,
+        "Loading ecology bundle",
+        None,
+    );
     let result = match job_kind {
-        EcologyJobKind::WorldBaseline => generate_world_baseline_impl(&planets_dir, &world_id).await,
+        EcologyJobKind::WorldBaseline => {
+            generate_world_baseline_impl(&planets_dir, &world_id).await
+        }
         EcologyJobKind::KingdomBaseline { kingdom_id } => {
             generate_kingdom_baseline_impl(&planets_dir, &world_id, kingdom_id).await
         }
@@ -429,8 +453,22 @@ async fn run_ecology_job(
     };
 
     match result {
-        Ok(()) => update_job(&jobs, &job_id, JobStatus::Completed, 100.0, "Completed", None),
-        Err(err) => update_job(&jobs, &job_id, JobStatus::Failed, 100.0, "Failed", Some(err)),
+        Ok(()) => update_job(
+            &jobs,
+            &job_id,
+            JobStatus::Completed,
+            100.0,
+            "Completed",
+            None,
+        ),
+        Err(err) => update_job(
+            &jobs,
+            &job_id,
+            JobStatus::Failed,
+            100.0,
+            "Failed",
+            Some(err),
+        ),
     }
 }
 
@@ -456,7 +494,9 @@ async fn generate_world_baseline_impl(planets_dir: &FsPath, world_id: &str) -> R
     let hierarchy = load_hierarchy(planets_dir, world_id)?;
     let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
     let prompt = build_world_baseline_prompt(&hierarchy);
-    let text = gemini::generate_text(&prompt).await.map_err(|(_, err)| err)?;
+    let text = gemini::generate_text(&prompt)
+        .await
+        .map_err(|(_, err)| err)?;
     let mut baseline: EcologyBaseline = parse_json_payload(&text)?;
     baseline.scope = BaselineScope::World;
     baseline.entity_id = BaselineEntityId::World("world".to_string());
@@ -481,9 +521,15 @@ async fn generate_kingdom_baseline_impl(
         &BaselineEntityId::World("world".to_string()),
     )?
     .clone();
-    if let Some(existing) = find_baseline_mut(&mut bundle.baselines, BaselineScope::Kingdom, &BaselineEntityId::Numeric(kingdom_id)) {
+    if let Some(existing) = find_baseline_mut(
+        &mut bundle.baselines,
+        BaselineScope::Kingdom,
+        &BaselineEntityId::Numeric(kingdom_id),
+    ) {
         if existing.status == EcologyStatus::Approved {
-            return Err("Approved kingdom baseline cannot be overwritten automatically.".to_string());
+            return Err(
+                "Approved kingdom baseline cannot be overwritten automatically.".to_string(),
+            );
         }
     }
     let kingdom = hierarchy
@@ -492,7 +538,9 @@ async fn generate_kingdom_baseline_impl(
         .find(|entry| entry.id == kingdom_id)
         .ok_or_else(|| format!("Kingdom {} not found", kingdom_id))?;
     let prompt = build_kingdom_baseline_prompt(&hierarchy, kingdom, &world_baseline);
-    let text = gemini::generate_text(&prompt).await.map_err(|(_, err)| err)?;
+    let text = gemini::generate_text(&prompt)
+        .await
+        .map_err(|(_, err)| err)?;
     let mut baseline: EcologyBaseline = parse_json_payload(&text)?;
     baseline.scope = BaselineScope::Kingdom;
     baseline.entity_id = BaselineEntityId::Numeric(kingdom_id);
@@ -522,13 +570,19 @@ async fn generate_duchy_baseline_impl(
         &BaselineEntityId::Numeric(duchy.kingdom_id),
     )?
     .clone();
-    if let Some(existing) = find_baseline_mut(&mut bundle.baselines, BaselineScope::Duchy, &BaselineEntityId::Numeric(duchy_id)) {
+    if let Some(existing) = find_baseline_mut(
+        &mut bundle.baselines,
+        BaselineScope::Duchy,
+        &BaselineEntityId::Numeric(duchy_id),
+    ) {
         if existing.status == EcologyStatus::Approved {
             return Err("Approved duchy baseline cannot be overwritten automatically.".to_string());
         }
     }
     let prompt = build_duchy_baseline_prompt(&hierarchy, duchy, &kingdom_baseline);
-    let text = gemini::generate_text(&prompt).await.map_err(|(_, err)| err)?;
+    let text = gemini::generate_text(&prompt)
+        .await
+        .map_err(|(_, err)| err)?;
     let mut baseline: EcologyBaseline = parse_json_payload(&text)?;
     baseline.scope = BaselineScope::Duchy;
     baseline.entity_id = BaselineEntityId::Numeric(duchy_id);
@@ -566,16 +620,27 @@ async fn generate_province_record_impl(
         .cloned()
         .ok_or_else(|| format!("Kingdom {} not found", province.kingdom_id))?;
 
-    let filename = worldgen_pipeline::ensure_isolated_province_asset(planets_dir, isolated_dir, world_id, province_id)?;
+    let filename = worldgen_pipeline::ensure_isolated_province_asset(
+        planets_dir,
+        isolated_dir,
+        world_id,
+        province_id,
+    )?;
     let image_path = isolated_dir.join(world_id).join(&filename);
     let image_base64 = general_purpose::STANDARD.encode(
         fs::read(&image_path).map_err(|e| format!("Failed to read isolated image: {}", e))?,
     );
 
     let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
-    if let Some(existing) = bundle.provinces.iter().find(|entry| entry.province_id == province_id) {
+    if let Some(existing) = bundle
+        .provinces
+        .iter()
+        .find(|entry| entry.province_id == province_id)
+    {
         if existing.status == EcologyStatus::Approved {
-            return Err("Approved province ecology cannot be overwritten automatically.".to_string());
+            return Err(
+                "Approved province ecology cannot be overwritten automatically.".to_string(),
+            );
         }
     }
 
@@ -671,7 +736,13 @@ async fn generate_province_record_impl(
         fauna_ids.push(id);
     }
 
-    link_existing_entries(&mut bundle, province_id, &climate_ids, &flora_ids, &fauna_ids);
+    link_existing_entries(
+        &mut bundle,
+        province_id,
+        &climate_ids,
+        &flora_ids,
+        &fauna_ids,
+    );
     let province_record = ProvinceEcologyRecord {
         province_id,
         duchy_id: duchy.id,
@@ -718,10 +789,13 @@ fn load_ecology_bundle(planets_dir: &FsPath, world_id: &str) -> Result<EcologyBu
     Ok(bundle)
 }
 
-fn save_ecology_bundle(planets_dir: &FsPath, world_id: &str, bundle: &EcologyBundle) -> Result<(), String> {
+fn save_ecology_bundle(
+    planets_dir: &FsPath,
+    world_id: &str,
+    bundle: &EcologyBundle,
+) -> Result<(), String> {
     let ecology_dir = ecology_dir(planets_dir, world_id);
-    fs::create_dir_all(&ecology_dir)
-        .map_err(|e| format!("Failed to create ecology dir: {}", e))?;
+    fs::create_dir_all(&ecology_dir).map_err(|e| format!("Failed to create ecology dir: {}", e))?;
     let mut normalized = bundle.clone();
     normalized.world_id = world_id.to_string();
     normalized.updated_at = Utc::now().to_rfc3339();
@@ -844,7 +918,12 @@ fn build_duchy_baseline_prompt(
     let provinces = duchy
         .province_ids
         .iter()
-        .filter_map(|province_id| hierarchy.provinces.iter().find(|province| province.id == *province_id))
+        .filter_map(|province_id| {
+            hierarchy
+                .provinces
+                .iter()
+                .find(|province| province.id == *province_id)
+        })
         .map(|province| {
             format!(
                 "- {} (area {}, biomePrimary {})",
@@ -904,7 +983,12 @@ fn build_province_prompt(
         .fauna
         .iter()
         .filter(|entry| entry.status == EntryStatus::Approved)
-        .map(|entry| format!("{}: {} [{:?}] Earth analog {}", entry.id, entry.name, entry.category, entry.earth_analog))
+        .map(|entry| {
+            format!(
+                "{}: {} [{:?}] Earth analog {}",
+                entry.id, entry.name, entry.category, entry.earth_analog
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -969,7 +1053,11 @@ fn get_approved_baseline<'a>(
 ) -> Result<&'a EcologyBaseline, String> {
     baselines
         .iter()
-        .find(|entry| entry.scope == scope && &entry.entity_id == entity_id && entry.status == EcologyStatus::Approved)
+        .find(|entry| {
+            entry.scope == scope
+                && &entry.entity_id == entity_id
+                && entry.status == EcologyStatus::Approved
+        })
         .ok_or_else(|| match scope {
             BaselineScope::World => "Approved world baseline required".to_string(),
             BaselineScope::Kingdom => "Approved kingdom baseline required".to_string(),
@@ -999,7 +1087,10 @@ fn upsert_world_baseline(baselines: &mut Vec<EcologyBaseline>, baseline: Ecology
 }
 
 fn upsert_province_record(records: &mut Vec<ProvinceEcologyRecord>, record: ProvinceEcologyRecord) {
-    if let Some(index) = records.iter().position(|entry| entry.province_id == record.province_id) {
+    if let Some(index) = records
+        .iter()
+        .position(|entry| entry.province_id == record.province_id)
+    {
         records[index] = record;
     } else {
         records.push(record);
@@ -1008,7 +1099,9 @@ fn upsert_province_record(records: &mut Vec<ProvinceEcologyRecord>, record: Prov
 
 fn dedupe_ids(ids: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
-    ids.into_iter().filter(|id| seen.insert(id.clone())).collect()
+    ids.into_iter()
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
 }
 
 fn link_existing_entries(
@@ -1035,7 +1128,10 @@ fn link_existing_entries(
     }
 }
 
-fn validate_generation_reuse(bundle: &EcologyBundle, response: &ProvinceGenerationResponse) -> Result<(), String> {
+fn validate_generation_reuse(
+    bundle: &EcologyBundle,
+    response: &ProvinceGenerationResponse,
+) -> Result<(), String> {
     let approved_climates: HashSet<&str> = bundle
         .climates
         .iter()
@@ -1057,7 +1153,10 @@ fn validate_generation_reuse(bundle: &EcologyBundle, response: &ProvinceGenerati
 
     for climate_id in &response.reuse_climate_profile_ids {
         if !approved_climates.contains(climate_id.as_str()) {
-            return Err(format!("Unknown approved climate reference: {}", climate_id));
+            return Err(format!(
+                "Unknown approved climate reference: {}",
+                climate_id
+            ));
         }
     }
     for flora_id in &response.reuse_flora_ids {
@@ -1074,38 +1173,57 @@ fn validate_generation_reuse(bundle: &EcologyBundle, response: &ProvinceGenerati
 }
 
 fn validate_bundle_references(bundle: &EcologyBundle) -> Result<(), String> {
-    let climate_ids: HashSet<&str> = bundle.climates.iter().map(|entry| entry.id.as_str()).collect();
+    let climate_ids: HashSet<&str> = bundle
+        .climates
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
     let flora_ids: HashSet<&str> = bundle.flora.iter().map(|entry| entry.id.as_str()).collect();
     let fauna_ids: HashSet<&str> = bundle.fauna.iter().map(|entry| entry.id.as_str()).collect();
 
     for flora in &bundle.flora {
         for climate_id in &flora.climate_profile_ids {
             if !climate_ids.contains(climate_id.as_str()) {
-                return Err(format!("Flora {} references missing climate {}", flora.id, climate_id));
+                return Err(format!(
+                    "Flora {} references missing climate {}",
+                    flora.id, climate_id
+                ));
             }
         }
     }
     for fauna in &bundle.fauna {
         for climate_id in &fauna.climate_profile_ids {
             if !climate_ids.contains(climate_id.as_str()) {
-                return Err(format!("Fauna {} references missing climate {}", fauna.id, climate_id));
+                return Err(format!(
+                    "Fauna {} references missing climate {}",
+                    fauna.id, climate_id
+                ));
             }
         }
     }
     for province in &bundle.provinces {
         for climate_id in &province.climate_profile_ids {
             if !climate_ids.contains(climate_id.as_str()) {
-                return Err(format!("Province {} references missing climate {}", province.province_id, climate_id));
+                return Err(format!(
+                    "Province {} references missing climate {}",
+                    province.province_id, climate_id
+                ));
             }
         }
         for flora_id in &province.flora_ids {
             if !flora_ids.contains(flora_id.as_str()) {
-                return Err(format!("Province {} references missing flora {}", province.province_id, flora_id));
+                return Err(format!(
+                    "Province {} references missing flora {}",
+                    province.province_id, flora_id
+                ));
             }
         }
         for fauna_id in &province.fauna_ids {
             if !fauna_ids.contains(fauna_id.as_str()) {
-                return Err(format!("Province {} references missing fauna {}", province.province_id, fauna_id));
+                return Err(format!(
+                    "Province {} references missing fauna {}",
+                    province.province_id, fauna_id
+                ));
             }
         }
     }
@@ -1126,10 +1244,9 @@ fn normalize_baselines_for_save(existing: &[EcologyBaseline], incoming: &mut [Ec
         if entry.status == EcologyStatus::Approved && entry.approved_at.is_none() {
             entry.approved_at = Some(Utc::now().to_rfc3339());
         }
-        if let Some(previous) = existing
-            .iter()
-            .find(|candidate| candidate.scope == entry.scope && candidate.entity_id == entry.entity_id)
-        {
+        if let Some(previous) = existing.iter().find(|candidate| {
+            candidate.scope == entry.scope && candidate.entity_id == entry.entity_id
+        }) {
             if previous.status == EcologyStatus::Approved && previous != entry {
                 entry.status = EcologyStatus::Draft;
                 entry.approved_at = None;
@@ -1146,24 +1263,48 @@ trait IdentifiedEntry {
 }
 
 impl IdentifiedEntry for ClimateProfile {
-    fn id(&self) -> &str { &self.id }
-    fn status(&self) -> &EntryStatus { &self.status }
-    fn status_mut(&mut self) -> &mut EntryStatus { &mut self.status }
-    fn approved_at_mut(&mut self) -> &mut Option<String> { &mut self.approved_at }
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn status(&self) -> &EntryStatus {
+        &self.status
+    }
+    fn status_mut(&mut self) -> &mut EntryStatus {
+        &mut self.status
+    }
+    fn approved_at_mut(&mut self) -> &mut Option<String> {
+        &mut self.approved_at
+    }
 }
 
 impl IdentifiedEntry for FloraEntry {
-    fn id(&self) -> &str { &self.id }
-    fn status(&self) -> &EntryStatus { &self.status }
-    fn status_mut(&mut self) -> &mut EntryStatus { &mut self.status }
-    fn approved_at_mut(&mut self) -> &mut Option<String> { &mut self.approved_at }
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn status(&self) -> &EntryStatus {
+        &self.status
+    }
+    fn status_mut(&mut self) -> &mut EntryStatus {
+        &mut self.status
+    }
+    fn approved_at_mut(&mut self) -> &mut Option<String> {
+        &mut self.approved_at
+    }
 }
 
 impl IdentifiedEntry for FaunaEntry {
-    fn id(&self) -> &str { &self.id }
-    fn status(&self) -> &EntryStatus { &self.status }
-    fn status_mut(&mut self) -> &mut EntryStatus { &mut self.status }
-    fn approved_at_mut(&mut self) -> &mut Option<String> { &mut self.approved_at }
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn status(&self) -> &EntryStatus {
+        &self.status
+    }
+    fn status_mut(&mut self) -> &mut EntryStatus {
+        &mut self.status
+    }
+    fn approved_at_mut(&mut self) -> &mut Option<String> {
+        &mut self.approved_at
+    }
 }
 
 fn normalize_entry_status_for_save<T>(existing: &[T], incoming: &mut [T])
@@ -1174,7 +1315,10 @@ where
         if *entry.status() == EntryStatus::Approved && entry.approved_at_mut().is_none() {
             *entry.approved_at_mut() = Some(Utc::now().to_rfc3339());
         }
-        if let Some(previous) = existing.iter().find(|candidate| candidate.id() == entry.id()) {
+        if let Some(previous) = existing
+            .iter()
+            .find(|candidate| candidate.id() == entry.id())
+        {
             if *previous.status() == EntryStatus::Approved && previous != entry {
                 *entry.status_mut() = EntryStatus::Draft;
                 *entry.approved_at_mut() = None;
@@ -1183,12 +1327,18 @@ where
     }
 }
 
-fn normalize_provinces_for_save(existing: &[ProvinceEcologyRecord], incoming: &mut [ProvinceEcologyRecord]) {
+fn normalize_provinces_for_save(
+    existing: &[ProvinceEcologyRecord],
+    incoming: &mut [ProvinceEcologyRecord],
+) {
     for entry in incoming {
         if entry.status == EcologyStatus::Approved && entry.approved_at.is_none() {
             entry.approved_at = Some(Utc::now().to_rfc3339());
         }
-        if let Some(previous) = existing.iter().find(|candidate| candidate.province_id == entry.province_id) {
+        if let Some(previous) = existing
+            .iter()
+            .find(|candidate| candidate.province_id == entry.province_id)
+        {
             if previous.status == EcologyStatus::Approved && previous != entry {
                 entry.status = EcologyStatus::Draft;
                 entry.approved_at = None;
@@ -1197,7 +1347,11 @@ fn normalize_provinces_for_save(existing: &[ProvinceEcologyRecord], incoming: &m
     }
 }
 
-fn load_cell_metrics(planets_dir: &FsPath, world_id: &str, province_id: u32) -> Result<ProvinceCellMetrics, String> {
+fn load_cell_metrics(
+    planets_dir: &FsPath,
+    world_id: &str,
+    province_id: u32,
+) -> Result<ProvinceCellMetrics, String> {
     let path = planets_dir.join(world_id).join("cell_features.json");
     if !path.exists() {
         return Ok(ProvinceCellMetrics::default());
@@ -1206,7 +1360,10 @@ fn load_cell_metrics(planets_dir: &FsPath, world_id: &str, province_id: u32) -> 
     let matching: Vec<&CellFeatureRecord> = payload
         .cells
         .iter()
-        .filter(|cell| cell.primary_region == Some(province_id) && cell.primary_region_type.as_deref() == Some("province"))
+        .filter(|cell| {
+            cell.primary_region == Some(province_id)
+                && cell.primary_region_type.as_deref() == Some("province")
+        })
         .collect();
     if matching.is_empty() {
         return Ok(ProvinceCellMetrics::default());
@@ -1244,8 +1401,13 @@ fn load_cell_metrics(planets_dir: &FsPath, world_id: &str, province_id: u32) -> 
     dominant_terrain_classes.sort_by(|a, b| b.1.cmp(&a.1));
 
     Ok(ProvinceCellMetrics {
-        dominant_terrain_classes: dominant_terrain_classes.into_iter().take(3).map(|entry| entry.0).collect(),
-        avg_vegetation_index: (vegetation_count > 0).then_some(vegetation_total / vegetation_count as f64),
+        dominant_terrain_classes: dominant_terrain_classes
+            .into_iter()
+            .take(3)
+            .map(|entry| entry.0)
+            .collect(),
+        avg_vegetation_index: (vegetation_count > 0)
+            .then_some(vegetation_total / vegetation_count as f64),
         avg_aridity_index: (aridity_count > 0).then_some(aridity_total / aridity_count as f64),
         water_share: Some(water_count as f64 / matching.len() as f64),
         coastal_share: Some(coastal_count as f64 / matching.len() as f64),
@@ -1258,12 +1420,17 @@ mod tests {
     use image::{Rgb, RgbImage};
 
     fn temp_world_dir(label: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("ashtrail-ecology-{}-{}", label, Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("ashtrail-ecology-{}-{}", label, Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }
 
-    fn approved_baseline(scope: BaselineScope, entity_id: BaselineEntityId, parent: Option<BaselineEntityId>) -> EcologyBaseline {
+    fn approved_baseline(
+        scope: BaselineScope,
+        entity_id: BaselineEntityId,
+        parent: Option<BaselineEntityId>,
+    ) -> EcologyBaseline {
         EcologyBaseline {
             scope,
             entity_id,
@@ -1286,7 +1453,11 @@ mod tests {
         let bundle = EcologyBundle {
             world_id: "world-1".to_string(),
             updated_at: Utc::now().to_rfc3339(),
-            baselines: vec![approved_baseline(BaselineScope::World, BaselineEntityId::World("world".to_string()), None)],
+            baselines: vec![approved_baseline(
+                BaselineScope::World,
+                BaselineEntityId::World("world".to_string()),
+                None,
+            )],
             climates: Vec::new(),
             flora: Vec::new(),
             fauna: Vec::new(),
@@ -1296,7 +1467,11 @@ mod tests {
         let loaded = load_ecology_bundle(&planets_dir, "world-1").expect("load bundle");
         assert_eq!(loaded.world_id, "world-1");
         assert_eq!(loaded.baselines.len(), 1);
-        assert!(planets_dir.join("world-1").join("ecology").join("flora.json").exists());
+        assert!(planets_dir
+            .join("world-1")
+            .join("ecology")
+            .join("flora.json")
+            .exists());
     }
 
     #[test]
@@ -1440,9 +1615,27 @@ mod tests {
             &["flora-ok".to_string()],
             &["fauna-ok".to_string()],
         );
-        assert!(bundle.climates.iter().find(|entry| entry.id == "climate-ok").unwrap().province_ids.contains(&7));
-        assert!(bundle.flora.iter().find(|entry| entry.id == "flora-ok").unwrap().province_ids.contains(&7));
-        assert!(bundle.fauna.iter().find(|entry| entry.id == "fauna-ok").unwrap().province_ids.contains(&7));
+        assert!(bundle
+            .climates
+            .iter()
+            .find(|entry| entry.id == "climate-ok")
+            .unwrap()
+            .province_ids
+            .contains(&7));
+        assert!(bundle
+            .flora
+            .iter()
+            .find(|entry| entry.id == "flora-ok")
+            .unwrap()
+            .province_ids
+            .contains(&7));
+        assert!(bundle
+            .fauna
+            .iter()
+            .find(|entry| entry.id == "fauna-ok")
+            .unwrap()
+            .province_ids
+            .contains(&7));
     }
 
     #[test]
@@ -1469,31 +1662,76 @@ mod tests {
                 image::Rgb([2, 0, 0])
             }
         });
-        province_img.save(worldgen_dir.join("province_id.png")).expect("save province ids");
+        province_img
+            .save(worldgen_dir.join("province_id.png"))
+            .expect("save province ids");
 
         fs::write(
             worldgen_dir.join("provinces.json"),
             serde_json::to_string_pretty(&vec![
-                ProvinceRecord { id: 1, seed_x: 0, seed_y: 0, area: 2, duchy_id: 1, kingdom_id: 1, biome_primary: 3, name: "P1".to_string(), population: 0, wealth: 0, development: 0 },
-                ProvinceRecord { id: 2, seed_x: 1, seed_y: 0, area: 2, duchy_id: 1, kingdom_id: 1, biome_primary: 3, name: "P2".to_string(), population: 0, wealth: 0, development: 0 },
+                ProvinceRecord {
+                    id: 1,
+                    seed_x: 0,
+                    seed_y: 0,
+                    area: 2,
+                    duchy_id: 1,
+                    kingdom_id: 1,
+                    biome_primary: 3,
+                    name: "P1".to_string(),
+                    population: 0,
+                    wealth: 0,
+                    development: 0,
+                },
+                ProvinceRecord {
+                    id: 2,
+                    seed_x: 1,
+                    seed_y: 0,
+                    area: 2,
+                    duchy_id: 1,
+                    kingdom_id: 1,
+                    biome_primary: 3,
+                    name: "P2".to_string(),
+                    population: 0,
+                    wealth: 0,
+                    development: 0,
+                },
             ])
             .unwrap(),
         )
         .expect("save provinces");
         fs::write(
             worldgen_dir.join("duchies.json"),
-            serde_json::to_string_pretty(&vec![DuchyRecord { id: 1, province_ids: vec![1, 2], kingdom_id: 1, name: "D1".to_string() }]).unwrap(),
+            serde_json::to_string_pretty(&vec![DuchyRecord {
+                id: 1,
+                province_ids: vec![1, 2],
+                kingdom_id: 1,
+                name: "D1".to_string(),
+            }])
+            .unwrap(),
         )
         .expect("save duchies");
         fs::write(
             worldgen_dir.join("kingdoms.json"),
-            serde_json::to_string_pretty(&vec![KingdomRecord { id: 1, duchy_ids: vec![1], name: "K1".to_string() }]).unwrap(),
+            serde_json::to_string_pretty(&vec![KingdomRecord {
+                id: 1,
+                duchy_ids: vec![1],
+                name: "K1".to_string(),
+            }])
+            .unwrap(),
         )
         .expect("save kingdoms");
 
-        let filename = worldgen_pipeline::ensure_isolated_province_asset(&planets_dir, &isolated_root, "world-a", 1)
-            .expect("ensure isolated province");
+        let filename = worldgen_pipeline::ensure_isolated_province_asset(
+            &planets_dir,
+            &isolated_root,
+            "world-a",
+            1,
+        )
+        .expect("ensure isolated province");
         assert_eq!(filename, "province_1.png");
-        assert!(isolated_root.join("world-a").join("province_1.png").exists());
+        assert!(isolated_root
+            .join("world-a")
+            .join("province_1.png")
+            .exists());
     }
 }

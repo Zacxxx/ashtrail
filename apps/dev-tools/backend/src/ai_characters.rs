@@ -1,7 +1,7 @@
-use axum::{Json, http::StatusCode};
+use crate::gemini;
+use axum::{http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::gemini;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,16 +36,19 @@ pub async fn generate_character_handler(
     prompt.push_str(&format!("You are an expert game designer creating {} unique characters for a dark fantasy post-apocalyptic roleplaying game.\n", req.count));
     prompt.push_str("Each character must be returned in a JSON array of objects. ");
     prompt.push_str("DO NOT return markdown codeblocks, just the raw JSON array.\n\n");
-    
-    prompt.push_str(&format!("Base Character Type/Species: {}\n", req.character_type));
+
+    prompt.push_str(&format!(
+        "Base Character Type/Species: {}\n",
+        req.character_type
+    ));
     prompt.push_str(&format!("General Concept/Direction: {}\n", req.prompt));
-    
+
     if let Some(lore) = &req.world_lore {
         if !lore.is_empty() {
             prompt.push_str(&format!("World Context:\n{}\n", lore));
         }
     }
-    
+
     if let Some(fac) = &req.faction {
         if !fac.is_empty() {
             prompt.push_str(&format!("Faction constraint: {}\n", fac));
@@ -57,8 +60,11 @@ pub async fn generate_character_handler(
             prompt.push_str(&format!("Location constraint: {}\n", loc));
         }
     }
-    
-    prompt.push_str(&format!("Level range: {} to {}\n", req.variance.min_level, req.variance.max_level));
+
+    prompt.push_str(&format!(
+        "Level range: {} to {}\n",
+        req.variance.min_level, req.variance.max_level
+    ));
     prompt.push_str(&format!("Sex/Gender parameter: {}\n", req.variance.sex));
 
     prompt.push_str(r#"
@@ -87,7 +93,10 @@ Keep 'history' and 'backstory' detailed and flavorful.
     "#);
 
     let text = gemini::generate_text(&prompt).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Gemini API error: {:?}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Gemini API error: {:?}", e),
+        )
     })?;
 
     // Optionally cleanup markdown fences

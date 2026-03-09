@@ -50,6 +50,7 @@ export function GeographyIsolatorPanel({
     const bulkPollRef = useRef<number | null>(null);
 
     const entityTypeStr = activeLayer.endsWith("s") ? activeLayer.slice(0, -1) : activeLayer;
+    const supportsBulkReassembly = activeLayer === "provinces" || activeLayer === "duchies" || activeLayer === "kingdoms";
 
     useEffect(() => {
         if (!planetId) return;
@@ -181,21 +182,26 @@ export function GeographyIsolatorPanel({
         }, 800);
     };
 
-    const handleIsolateAllProvinces = async () => {
+    const handleBulkIsolate = async (entityType: "province" | "duchy" | "kingdom") => {
         if (!planetId || bulkRunning) return;
         setBulkError(null);
         setBulkJobId(null);
         setBulkProgress(0);
-        setBulkStage("Queuing province isolation...");
+        setBulkStage(`Queuing ${entityType} isolation...`);
         setBulkRunning(true);
 
         try {
-            const res = await fetch(`${API_BASE}/api/worldgen/${planetId}/isolate/provinces`, {
+            const endpoint = entityType === "province"
+                ? `${API_BASE}/api/worldgen/${planetId}/isolate/provinces`
+                : `${API_BASE}/api/worldgen/${planetId}/isolate/bulk`;
+            const res = await fetch(endpoint, {
                 method: "POST",
+                headers: entityType === "province" ? undefined : { "Content-Type": "application/json" },
+                body: entityType === "province" ? undefined : JSON.stringify({ entityType }),
             });
             if (!res.ok) {
                 const text = await res.text();
-                throw new Error(text || "Failed to start bulk province isolation.");
+                throw new Error(text || `Failed to start bulk ${entityType} isolation.`);
             }
 
             const data = await res.json();
@@ -204,7 +210,7 @@ export function GeographyIsolatorPanel({
         } catch (err: any) {
             setBulkRunning(false);
             setBulkStage(null);
-            setBulkError(err.message || "Failed to start bulk province isolation.");
+            setBulkError(err.message || `Failed to start bulk ${entityType} isolation.`);
         }
     };
 
@@ -248,22 +254,42 @@ export function GeographyIsolatorPanel({
                 </h2>
 
                 <p className="text-[11px] text-gray-400 leading-relaxed font-mono mb-4">
-                    Isolate a selected region, or bulk-isolate all provinces into transparent full-canvas assets.
+                    Isolate a selected region, bulk-isolate all provinces, then reassemble larger hierarchy groups as duchy and kingdom assets.
                 </p>
 
                 <div className="bg-black/40 border border-white/10 rounded-xl p-4 text-center mb-4">
-                    <p className="text-[10px] text-gray-500 font-mono mb-2">PROVINCE WORKFLOW</p>
+                    <p className="text-[10px] text-gray-500 font-mono mb-2">HIERARCHY WORKFLOW</p>
                     <p className="text-[11px] text-gray-400 leading-relaxed font-mono mb-4">
-                        Isolate every province into its own full-canvas transparent image.
+                        Step 1 isolates every province. Step 2 reassembles those shapes into duchy and kingdom assets you can inspect and refine directly.
                     </p>
-                    <Button
-                        variant="primary"
-                        onClick={handleIsolateAllProvinces}
-                        disabled={!planetId || bulkRunning}
-                        className="w-full text-[10px] font-black tracking-widest bg-cyan-600/40 hover:bg-cyan-600/60 border border-cyan-500/40 disabled:opacity-50"
-                    >
-                        {bulkRunning ? "ISOLATING PROVINCES..." : "ISOLATE ALL PROVINCES"}
-                    </Button>
+                    <div className="grid grid-cols-1 gap-2">
+                        <Button
+                            variant="primary"
+                            onClick={() => handleBulkIsolate("province")}
+                            disabled={!planetId || bulkRunning}
+                            className="w-full text-[10px] font-black tracking-widest bg-cyan-600/40 hover:bg-cyan-600/60 border border-cyan-500/40 disabled:opacity-50"
+                        >
+                            {bulkRunning ? "RUNNING BULK ISOLATION..." : "STEP 1 · ISOLATE ALL PROVINCES"}
+                        </Button>
+                        <div className="grid grid-cols-2 gap-2">
+                            <Button
+                                variant="secondary"
+                                onClick={() => handleBulkIsolate("duchy")}
+                                disabled={!planetId || bulkRunning}
+                                className="w-full text-[10px] font-black tracking-widest border border-violet-400/30 text-violet-200 hover:bg-violet-500/10 disabled:opacity-50"
+                            >
+                                STEP 2 · REASSEMBLE DUCHIES
+                            </Button>
+                            <Button
+                                variant="secondary"
+                                onClick={() => handleBulkIsolate("kingdom")}
+                                disabled={!planetId || bulkRunning}
+                                className="w-full text-[10px] font-black tracking-widest border border-amber-400/30 text-amber-200 hover:bg-amber-500/10 disabled:opacity-50"
+                            >
+                                STEP 2 · REASSEMBLE KINGDOMS
+                            </Button>
+                        </div>
+                    </div>
                     {(bulkRunning || bulkJobId || bulkStage) && (
                         <div className="mt-3 text-left bg-black/30 border border-white/10 rounded-lg p-3">
                             <div className="flex items-center justify-between mb-2">
@@ -298,7 +324,9 @@ export function GeographyIsolatorPanel({
                     </div>
                 ) : (
                     <div className="bg-black/20 border border-dashed border-white/10 rounded-xl p-4 text-center text-[10px] text-gray-500 font-mono">
-                        Select a region on the map to isolate it.
+                        {supportsBulkReassembly
+                            ? "Select a province, duchy, or kingdom on the map to isolate it."
+                            : "Select a region on the map to isolate it."}
                     </div>
                 )}
             </div>

@@ -7,7 +7,10 @@ export interface PlanetCellLike {
 export interface ProvinceOverlay {
   artifactId: string;
   sourcePlanetId: string;
+  entityType?: string;
+  entityId?: number;
   provinceId: number;
+  provinceIds?: number[];
   bbox: { x: number; y: number; width: number; height: number };
   scale: number;
   artifactWidth: number;

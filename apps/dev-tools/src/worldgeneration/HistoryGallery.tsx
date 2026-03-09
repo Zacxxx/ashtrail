@@ -29,6 +29,7 @@ interface CharacterPortraitItem {
 
 interface IsolatedImageItem {
     id: string;
+    planetId: string;
     url: string;
     entityType: string;
     entityId: number;
@@ -37,9 +38,13 @@ interface IsolatedImageItem {
 
 interface UpscaledIsolatedItem {
     id: string;
+    planetId: string;
     url: string;
     artifactId: string;
+    entityType: string;
+    entityId: number;
     provinceId: number;
+    provinceIds: number[];
     modelId: string;
     createdAt: number;
 }
@@ -61,6 +66,7 @@ export function HistoryGallery({
     showExtendedTabs = false,
     onRenameWorld,
 }: HistoryGalleryProps) {
+    const ISOLATED_PAGE_SIZE = 24;
     const [activeTab, setActiveTab] = useState<TabType>("planets");
     const [iconImages, setIconImages] = useState<IconImageItem[]>([]);
     const [textureImages, setTextureImages] = useState<TextureImageItem[]>([]);
@@ -68,6 +74,8 @@ export function HistoryGallery({
     const [isolatedImages, setIsolatedImages] = useState<IsolatedImageItem[]>([]);
     const [upscaledImages, setUpscaledImages] = useState<UpscaledIsolatedItem[]>([]);
     const [isolatedSection, setIsolatedSection] = useState<"isolated" | "upscaled">("isolated");
+    const [isolatedGrouping, setIsolatedGrouping] = useState<"all" | "province" | "duchy" | "kingdom">("all");
+    const [isolatedPage, setIsolatedPage] = useState(1);
     const [isLoadingExtended, setIsLoadingExtended] = useState(false);
     const [extendedError, setExtendedError] = useState<string | null>(null);
     const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -94,11 +102,54 @@ export function HistoryGallery({
     const activePlanet = history.find(p => p.id === activePlanetId);
     // Include the base planet itself as a texture option
     const activeVariants = activePlanet ? [activePlanet, ...(textureVariants.get(activePlanet.id) || [])] : [];
-    const contentGridClassName = (activeTab === "icons" || activeTab === "isolated")
+    const contentGridClassName = activeTab === "icons"
         ? "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8 gap-2.5"
+        : activeTab === "isolated"
+            ? "grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 items-start"
         : activeTab === "characters"
             ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5"
             : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6";
+
+    const scopedIsolatedImages = useMemo(() => {
+        const byWorld = activePlanetId
+            ? isolatedImages.filter((item) => item.planetId === activePlanetId)
+            : isolatedImages;
+        if (isolatedGrouping === "all") return byWorld;
+        return byWorld.filter((item) => item.entityType === isolatedGrouping);
+    }, [activePlanetId, isolatedGrouping, isolatedImages]);
+
+    const scopedUpscaledImages = useMemo(() => {
+        const byWorld = activePlanetId
+            ? upscaledImages.filter((item) => item.planetId === activePlanetId)
+            : upscaledImages;
+        if (isolatedGrouping === "all") return byWorld;
+        return byWorld.filter((item) => item.entityType === isolatedGrouping);
+    }, [activePlanetId, isolatedGrouping, upscaledImages]);
+
+    const isolatedPageCount = useMemo(() => {
+        const totalItems = isolatedSection === "isolated" ? scopedIsolatedImages.length : scopedUpscaledImages.length;
+        return Math.max(1, Math.ceil(totalItems / ISOLATED_PAGE_SIZE));
+    }, [ISOLATED_PAGE_SIZE, isolatedSection, scopedIsolatedImages.length, scopedUpscaledImages.length]);
+
+    const pagedVisibleIsolatedImages = useMemo(() => {
+        const start = (isolatedPage - 1) * ISOLATED_PAGE_SIZE;
+        return scopedIsolatedImages.slice(start, start + ISOLATED_PAGE_SIZE);
+    }, [ISOLATED_PAGE_SIZE, isolatedPage, scopedIsolatedImages]);
+
+    const pagedVisibleUpscaledImages = useMemo(() => {
+        const start = (isolatedPage - 1) * ISOLATED_PAGE_SIZE;
+        return scopedUpscaledImages.slice(start, start + ISOLATED_PAGE_SIZE);
+    }, [ISOLATED_PAGE_SIZE, isolatedPage, scopedUpscaledImages]);
+
+    useEffect(() => {
+        setIsolatedPage(1);
+    }, [activeTab, isolatedGrouping, isolatedSection]);
+
+    useEffect(() => {
+        if (isolatedPage > isolatedPageCount) {
+            setIsolatedPage(isolatedPageCount);
+        }
+    }, [isolatedPage, isolatedPageCount]);
 
     useEffect(() => {
         if (!showExtendedTabs) return;
@@ -168,6 +219,7 @@ export function HistoryGallery({
                 const isolatedRaw = isolatedRes.ok ? await isolatedRes.json() : { images: [] };
                 const isolatedItems = (isolatedRaw.images || []).map((img: any, index: number) => ({
                     id: `isolated-${img.filename}-${index}`,
+                    planetId: img.planetId || "",
                     url: img.url,
                     entityType: img.entityType,
                     entityId: img.entityId,
@@ -178,9 +230,13 @@ export function HistoryGallery({
                 const upscaledRaw = upscaledRes.ok ? await upscaledRes.json() : { images: [] };
                 const upscaledItems = (upscaledRaw.images || []).map((img: any, index: number) => ({
                     id: `upscaled-${img.artifactId || index}-${index}`,
+                    planetId: img.planetId || "",
                     url: img.imageUrl,
                     artifactId: img.artifactId,
+                    entityType: img.entityType || "province",
+                    entityId: img.entityId || img.provinceId || 0,
                     provinceId: img.provinceId,
+                    provinceIds: Array.isArray(img.provinceIds) ? img.provinceIds : (img.provinceId ? [img.provinceId] : []),
                     modelId: img.modelId,
                     createdAt: img.createdAt || 0,
                 } as UpscaledIsolatedItem));
@@ -417,64 +473,129 @@ export function HistoryGallery({
                     <div className="col-span-full text-xs text-gray-500">Loading isolated regions...</div>
                 )}
                 {activeTab === "isolated" && showExtendedTabs && (
-                    <div className="col-span-full flex items-center justify-center mb-2">
+                    <div className="col-span-full flex flex-wrap items-center justify-center gap-3 mb-2">
                         <div className="inline-flex items-center rounded-full border border-white/10 bg-black/40 p-1">
                             <button
-                                onClick={() => setIsolatedSection("isolated")}
+                                onClick={() => {
+                                    setIsolatedSection("isolated");
+                                    setIsolatedPage(1);
+                                }}
                                 className={`px-3 py-1 rounded-full text-[9px] font-black tracking-widest transition-all ${isolatedSection === "isolated" ? "bg-white/10 text-purple-300" : "text-gray-500 hover:text-gray-300"}`}
                             >
                                 ISOLATED
                             </button>
                             <button
-                                onClick={() => setIsolatedSection("upscaled")}
+                                onClick={() => {
+                                    setIsolatedSection("upscaled");
+                                    setIsolatedPage(1);
+                                }}
                                 className={`px-3 py-1 rounded-full text-[9px] font-black tracking-widest transition-all ${isolatedSection === "upscaled" ? "bg-white/10 text-indigo-300" : "text-gray-500 hover:text-gray-300"}`}
                             >
                                 UPSCALED
                             </button>
                         </div>
+                        <div className="inline-flex items-center rounded-full border border-white/10 bg-black/40 p-1">
+                            {(["all", "province", "duchy", "kingdom"] as const).map((group) => (
+                                <button
+                                    key={group}
+                                    onClick={() => {
+                                        setIsolatedGrouping(group);
+                                        setIsolatedPage(1);
+                                    }}
+                                    className={`px-3 py-1 rounded-full text-[9px] font-black tracking-widest transition-all ${
+                                        isolatedGrouping === group
+                                            ? "bg-white/10 text-amber-200"
+                                            : "text-gray-500 hover:text-gray-300"
+                                    }`}
+                                >
+                                    {group === "all" ? "ALL" : `${group.toUpperCase()}S`}
+                                </button>
+                            ))}
+                        </div>
+                        <p className="text-[9px] tracking-widest uppercase text-gray-500">
+                            {activePlanetId ? "Active world only" : "All worlds"}
+                        </p>
                     </div>
                 )}
-                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedSection === "isolated" && isolatedImages.length === 0 && (
+                {activeTab === "isolated" && showExtendedTabs && activePlanetId && (
+                    <div className="col-span-full text-center text-[9px] uppercase tracking-widest text-gray-500 -mt-1 mb-1">
+                        Grouping isolated assets for the selected world
+                    </div>
+                )}
+                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && ((isolatedSection === "isolated" && scopedIsolatedImages.length > 0) || (isolatedSection === "upscaled" && scopedUpscaledImages.length > 0)) && (
+                    <div className="col-span-full flex items-center justify-between gap-4 mb-1 px-1">
+                        <p className="text-[10px] uppercase tracking-widest text-gray-500">
+                            Showing {(isolatedPage - 1) * ISOLATED_PAGE_SIZE + 1}-{Math.min(isolatedPage * ISOLATED_PAGE_SIZE, isolatedSection === "isolated" ? scopedIsolatedImages.length : scopedUpscaledImages.length)} of {isolatedSection === "isolated" ? scopedIsolatedImages.length : scopedUpscaledImages.length}
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setIsolatedPage(page => Math.max(1, page - 1))}
+                                disabled={isolatedPage === 1}
+                                className="px-3 py-1.5 rounded-lg border border-white/10 bg-black/30 text-[10px] font-bold tracking-widest text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed hover:border-white/20"
+                            >
+                                PREV
+                            </button>
+                            <span className="text-[10px] font-bold tracking-widest text-gray-400">
+                                {isolatedPage} / {isolatedPageCount}
+                            </span>
+                            <button
+                                onClick={() => setIsolatedPage(page => Math.min(isolatedPageCount, page + 1))}
+                                disabled={isolatedPage === isolatedPageCount}
+                                className="px-3 py-1.5 rounded-lg border border-white/10 bg-black/30 text-[10px] font-bold tracking-widest text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed hover:border-white/20"
+                            >
+                                NEXT
+                            </button>
+                        </div>
+                    </div>
+                )}
+                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedSection === "isolated" && scopedIsolatedImages.length === 0 && (
                     <div className="col-span-full text-xs text-gray-500">No isolated regions found yet.</div>
                 )}
-                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedSection === "upscaled" && upscaledImages.length === 0 && (
-                    <div className="col-span-full text-xs text-gray-500">No upscaled province artifacts found yet.</div>
+                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedSection === "upscaled" && scopedUpscaledImages.length === 0 && (
+                    <div className="col-span-full text-xs text-gray-500">No upscaled hierarchy artifacts found yet.</div>
                 )}
-                {activeTab === "isolated" && showExtendedTabs && isolatedSection === "isolated" && isolatedImages.map((img) => (
+                {activeTab === "isolated" && showExtendedTabs && isolatedSection === "isolated" && pagedVisibleIsolatedImages.map((img) => (
                     <div
                         key={img.id}
                         className="bg-black/40 border border-white/10 rounded-xl overflow-hidden group cursor-pointer hover:border-purple-400/40 transition-all shadow-lg"
                         onClick={() => onSelectTexture("isolated", img.url)}
                     >
-                        <div className="aspect-square bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiMzMzMiLz48cGF0aCBkPSJNMCAwdjRoNHYtNEh6IiBmaWxsPSIjNDQ0Ii8+PHBvbHlnb24gcG9pbnRzPSI0IDggOCA4IDggNCA0IDQiIGZpbGw9IiM0NDQiLz48L3N2Zz+')] relative">
+                        <div className="aspect-[1.2/1] bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiMzMzMiLz48cGF0aCBkPSJNMCAwdjRoNHYtNEh6IiBmaWxsPSIjNDQ0Ii8+PHBvbHlnb24gcG9pbnRzPSI0IDggOCA4IDggNCA0IDQiIGZpbGw9IiM0NDQiLz48L3N2Zz+')] relative">
                             <img
                                 src={img.url}
-                                className="absolute inset-0 w-full h-full object-contain p-2 group-hover:scale-105 transition-transform"
+                                className="absolute inset-0 w-full h-full object-contain p-4 group-hover:scale-[1.02] transition-transform"
                                 alt={img.filename}
+                                loading="lazy"
+                                decoding="async"
                             />
                         </div>
-                        <div className="p-2 border-t border-white/5 bg-black/60">
-                            <p className="text-[9px] text-cyan-400 font-black tracking-widest uppercase">{img.entityType}</p>
-                            <p className="text-[10px] text-gray-400 font-mono">ID: {img.entityId}</p>
+                        <div className="p-3 border-t border-white/5 bg-black/70 backdrop-blur-sm">
+                            <p className="text-[10px] text-cyan-400 font-black tracking-widest uppercase">{img.entityType}</p>
+                            <p className="text-[11px] text-gray-300 font-mono">ID: {img.entityId}</p>
                         </div>
                     </div>
                 ))}
-                {activeTab === "isolated" && showExtendedTabs && isolatedSection === "upscaled" && upscaledImages.map((img) => (
+                {activeTab === "isolated" && showExtendedTabs && isolatedSection === "upscaled" && pagedVisibleUpscaledImages.map((img) => (
                     <div
                         key={img.id}
                         className="bg-black/40 border border-white/10 rounded-xl overflow-hidden group cursor-pointer hover:border-indigo-400/40 transition-all shadow-lg"
                         onClick={() => onSelectTexture("upscaled", img.url)}
                     >
-                        <div className="aspect-square bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiMzMzMiLz48cGF0aCBkPSJNMCAwdjRoNHYtNEh6IiBmaWxsPSIjNDQ0Ii8+PHBvbHlnb24gcG9pbnRzPSI0IDggOCA4IDggNCA0IDQiIGZpbGw9IiM0NDQiLz48L3N2Zz+')] relative">
+                        <div className="aspect-[1.2/1] bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiMzMzMiLz48cGF0aCBkPSJNMCAwdjRoNHYtNEh6IiBmaWxsPSIjNDQ0Ii8+PHBvbHlnb24gcG9pbnRzPSI0IDggOCA4IDggNCA0IDQiIGZpbGw9IiM0NDQiLz48L3N2Zz+')] relative">
                             <img
                                 src={img.url}
-                                className="absolute inset-0 w-full h-full object-contain p-2 group-hover:scale-105 transition-transform"
+                                className="absolute inset-0 w-full h-full object-contain p-4 group-hover:scale-[1.02] transition-transform"
                                 alt={img.artifactId}
+                                loading="lazy"
+                                decoding="async"
                             />
                         </div>
-                        <div className="p-2 border-t border-white/5 bg-black/60">
-                            <p className="text-[9px] text-indigo-300 font-black tracking-widest uppercase">Province {img.provinceId}</p>
-                            <p className="text-[9px] text-gray-500 font-mono truncate">{img.modelId}</p>
+                        <div className="p-3 border-t border-white/5 bg-black/70 backdrop-blur-sm">
+                            <p className="text-[10px] text-indigo-300 font-black tracking-widest uppercase">{img.entityType} {img.entityId}</p>
+                            {img.provinceIds.length > 1 && (
+                                <p className="text-[10px] text-gray-400 font-mono">{img.provinceIds.length} merged provinces</p>
+                            )}
+                            <p className="text-[10px] text-gray-400 font-mono truncate">{img.modelId}</p>
                         </div>
                     </div>
                 ))}

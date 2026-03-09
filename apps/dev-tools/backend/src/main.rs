@@ -1,24 +1,26 @@
+mod ai_characters;
+mod ai_events;
 mod cell_analyzer;
-mod generator;
-mod hierarchy;
-mod gemini;
-mod worldgen_pipeline;
 mod cms;
 mod combat_engine;
-mod ai_events;
-mod ai_characters;
 mod ecology;
+mod gemini;
+mod generator;
+mod hierarchy;
+mod worldgen_pipeline;
 
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post, delete},
+    routing::{delete, get, post},
     Json, Router,
 };
+use base64::Engine as _;
 use generator::{
-    generate_hybrid_with_progress_and_cancel, generate_world_with_progress_and_cancel, load_cached_response, request_cache_key,
-    save_cached_response, GenerateTerrainRequest, GenerateTerrainResponse,
+    generate_hybrid_with_progress_and_cancel, generate_world_with_progress_and_cancel,
+    load_cached_response, request_cache_key, save_cached_response, GenerateTerrainRequest,
+    GenerateTerrainResponse,
 };
 use hierarchy::{generate_full_planet_hierarchy, HierarchyGenerateRequest, PlanetManifest};
 use serde::Deserialize;
@@ -27,13 +29,12 @@ use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
     path::PathBuf,
-    sync::{Arc, Mutex},
     sync::atomic::AtomicUsize,
+    sync::{Arc, Mutex},
 };
 use tokio::sync::Semaphore;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
-use base64::Engine as _;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
@@ -182,7 +183,7 @@ struct TextureBatchRequest {
     base64_image: Option<String>,
     batch_name: Option<String>,
     temperature: Option<f32>,
-    category: String, // "battle_assets", "character", "item"
+    category: String,             // "battle_assets", "character", "item"
     sub_category: Option<String>, // "ground", "obstacle"
 }
 
@@ -403,19 +404,24 @@ async fn main() {
     std::fs::create_dir_all(&planets_dir).expect("failed to create planets directory");
 
     let icons_dir = PathBuf::from("../../game-assets/assets/Icons");
-    std::fs::create_dir_all(&icons_dir).expect("failed to create game-assets/assets/Icons directory");
+    std::fs::create_dir_all(&icons_dir)
+        .expect("failed to create game-assets/assets/Icons directory");
 
     let icons_export_dir = PathBuf::from("../../game-assets/assets/Icons");
-    std::fs::create_dir_all(&icons_export_dir).expect("failed to create game-assets/assets/Icons directory");
+    std::fs::create_dir_all(&icons_export_dir)
+        .expect("failed to create game-assets/assets/Icons directory");
 
     let textures_dir = PathBuf::from("../../game-assets/assets/Textures");
-    std::fs::create_dir_all(&textures_dir).expect("failed to create game-assets/assets/Textures directory");
+    std::fs::create_dir_all(&textures_dir)
+        .expect("failed to create game-assets/assets/Textures directory");
 
     let textures_export_dir = PathBuf::from("../../game-assets/assets/Textures");
-    std::fs::create_dir_all(&textures_export_dir).expect("failed to create game-assets/assets/Textures directory");
+    std::fs::create_dir_all(&textures_export_dir)
+        .expect("failed to create game-assets/assets/Textures directory");
 
     let isolated_dir = PathBuf::from("../../game-assets/assets/IsolatedRegions");
-    std::fs::create_dir_all(&isolated_dir).expect("failed to create game-assets/assets/IsolatedRegions directory");
+    std::fs::create_dir_all(&isolated_dir)
+        .expect("failed to create game-assets/assets/IsolatedRegions directory");
 
     let refine_max_concurrent = std::env::var("WORLDGEN_REFINE_MAX_CONCURRENT")
         .ok()
@@ -466,31 +472,85 @@ async fn main() {
         .route("/api/planet/saved/{cache_key}", get(load_saved_planet))
         .route("/api/planet/lore/query", post(query_lore_handler))
         .route("/api/text/generate", post(generate_text_handler))
-        .route("/api/events/generate", post(ai_events::generate_event_handler))
-        .route("/api/events/resolve", post(ai_events::resolve_event_handler))
-        .route("/api/events/rethink", post(ai_events::rethink_event_handler))
-        .route("/api/characters/generate", post(ai_characters::generate_character_handler))
+        .route(
+            "/api/events/generate",
+            post(ai_events::generate_event_handler),
+        )
+        .route(
+            "/api/events/resolve",
+            post(ai_events::resolve_event_handler),
+        )
+        .route(
+            "/api/events/rethink",
+            post(ai_events::rethink_event_handler),
+        )
+        .route(
+            "/api/characters/generate",
+            post(ai_characters::generate_character_handler),
+        )
         .route("/api/planet/ecology", post(start_ecology_job))
         .route("/api/planet/ecology/{job_id}", get(get_job_status))
-        .route("/api/planet/ecology-data/{world_id}", get(ecology::get_ecology_data).post(ecology::save_ecology_data))
-        .route("/api/planet/ecology-data/{world_id}/generate/world", post(ecology::generate_world_baseline))
-        .route("/api/planet/ecology-data/{world_id}/generate/kingdom/{kingdom_id}", post(ecology::generate_kingdom_baseline))
-        .route("/api/planet/ecology-data/{world_id}/generate/duchy/{duchy_id}", post(ecology::generate_duchy_baseline))
-        .route("/api/planet/ecology-data/{world_id}/generate/province/{province_id}", post(ecology::generate_province_record))
+        .route(
+            "/api/planet/ecology-data/{world_id}",
+            get(ecology::get_ecology_data).post(ecology::save_ecology_data),
+        )
+        .route(
+            "/api/planet/ecology-data/{world_id}/generate/world",
+            post(ecology::generate_world_baseline),
+        )
+        .route(
+            "/api/planet/ecology-data/{world_id}/generate/kingdom/{kingdom_id}",
+            post(ecology::generate_kingdom_baseline),
+        )
+        .route(
+            "/api/planet/ecology-data/{world_id}/generate/duchy/{duchy_id}",
+            post(ecology::generate_duchy_baseline),
+        )
+        .route(
+            "/api/planet/ecology-data/{world_id}/generate/province/{province_id}",
+            post(ecology::generate_province_record),
+        )
         .route("/api/planet/ecology-jobs/{job_id}", get(get_job_status))
         .route("/api/planet/humanity", post(start_humanity_job))
         .route("/api/planet/humanity/{job_id}", get(get_job_status))
-        .route("/api/history", get(get_history).post(save_history).delete(clear_history))
+        .route(
+            "/api/history",
+            get(get_history).post(save_history).delete(clear_history),
+        )
         .route("/api/history/{id}", delete(delete_history))
-        .route("/api/planet/geography/{id}", get(get_geography).post(save_geography))
-        .route("/api/planet/worldgen-regions/{id}", get(get_worldgen_regions))
-        .route("/api/planet/lore-snippets/{id}", get(get_lore_snippets).post(save_lore_snippets))
-        .route("/api/planet/gm-settings/{id}", get(get_gm_settings).post(save_gm_settings))
+        .route(
+            "/api/planet/geography/{id}",
+            get(get_geography).post(save_geography),
+        )
+        .route(
+            "/api/planet/worldgen-regions/{id}",
+            get(get_worldgen_regions),
+        )
+        .route(
+            "/api/planet/lore-snippets/{id}",
+            get(get_lore_snippets).post(save_lore_snippets),
+        )
+        .route(
+            "/api/planet/gm-settings/{id}",
+            get(get_gm_settings).post(save_gm_settings),
+        )
         .route("/api/planet/gm-context/{id}", get(get_gm_context))
-        .route("/api/planet/factions/{id}", get(get_factions).post(save_factions))
-        .route("/api/planet/locations/{id}", get(get_locations).post(save_locations))
-        .route("/api/planet/characters/{id}", get(get_characters).post(save_characters))
-        .route("/api/planet/temporality/{id}", get(get_temporality).post(save_temporality))
+        .route(
+            "/api/planet/factions/{id}",
+            get(get_factions).post(save_factions),
+        )
+        .route(
+            "/api/planet/locations/{id}",
+            get(get_locations).post(save_locations),
+        )
+        .route(
+            "/api/planet/characters/{id}",
+            get(get_characters).post(save_characters),
+        )
+        .route(
+            "/api/planet/temporality/{id}",
+            get(get_temporality).post(save_temporality),
+        )
         .route("/api/planet/cells/job", post(start_cells_job))
         .route("/api/planet/cells/job/{job_id}", get(get_job_status))
         .route("/api/planet/cells/{id}", get(get_cells).post(save_cells))
@@ -499,52 +559,141 @@ async fn main() {
         .route("/api/planet/upscale/{job_id}", get(get_job_status))
         .route("/api/icons/generate-batch", post(generate_icon_batch))
         .route("/api/icons/batches", get(list_icon_batches))
-        .route("/api/icons/batches/{batch_id}", get(get_icon_batch).delete(delete_icon_batch))
-        .route("/api/icons/batches/{batch_id}/rename", axum::routing::put(rename_icon_batch))
-        .route("/api/icons/batches/{batch_id}/icons/{filename}/regenerate", post(regenerate_icon))
+        .route(
+            "/api/icons/batches/{batch_id}",
+            get(get_icon_batch).delete(delete_icon_batch),
+        )
+        .route(
+            "/api/icons/batches/{batch_id}/rename",
+            axum::routing::put(rename_icon_batch),
+        )
+        .route(
+            "/api/icons/batches/{batch_id}/icons/{filename}/regenerate",
+            post(regenerate_icon),
+        )
         .route("/api/icons/export", post(export_icons_registry))
         .route("/api/textures/generate-batch", post(generate_texture_batch))
         .route("/api/textures/batches", get(list_texture_batches))
-        .route("/api/textures/batches/{batch_id}", get(get_texture_batch).delete(delete_texture_batch))
-        .route("/api/textures/batches/{batch_id}/rename", axum::routing::put(rename_texture_batch))
-        .route("/api/textures/batches/{batch_id}/textures/{filename}/regenerate", post(regenerate_texture))
+        .route(
+            "/api/textures/batches/{batch_id}",
+            get(get_texture_batch).delete(delete_texture_batch),
+        )
+        .route(
+            "/api/textures/batches/{batch_id}/rename",
+            axum::routing::put(rename_texture_batch),
+        )
+        .route(
+            "/api/textures/batches/{batch_id}/textures/{filename}/regenerate",
+            post(regenerate_texture),
+        )
         .route("/api/textures/export", post(export_textures_registry))
         .route("/api/ai/image-models", get(get_ai_image_models))
         .route("/api/storage/supabase/browse", get(browse_supabase_objects))
         .route("/api/storage/supabase/sync", post(sync_supabase_storage))
         // ── Worldgen Pipeline ──
-        .route("/api/worldgen/{planet_id}/status", get(worldgen_pipeline::get_pipeline_status))
-        .route("/api/worldgen/{planet_id}/run/{stage_name}", post(worldgen_pipeline::run_pipeline_stage))
+        .route(
+            "/api/worldgen/{planet_id}/status",
+            get(worldgen_pipeline::get_pipeline_status),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/run/{stage_name}",
+            post(worldgen_pipeline::run_pipeline_stage),
+        )
         .route(
             "/api/worldgen/{planet_id}/job/{job_id}",
-            get(worldgen_pipeline::get_worldgen_job_status).delete(worldgen_pipeline::cancel_worldgen_job),
+            get(worldgen_pipeline::get_worldgen_job_status)
+                .delete(worldgen_pipeline::cancel_worldgen_job),
         )
-        .route("/api/worldgen/{planet_id}/clear", delete(worldgen_pipeline::clear_pipeline))
-        .route("/api/worldgen/{planet_id}/hierarchy/reassign", post(reassign_worldgen_hierarchy))
-        .route("/api/worldgen/{planet_id}/hierarchy/rename", post(rename_worldgen_hierarchy))
-        .route("/api/worldgen/{planet_id}/hierarchy/init-stats", post(init_province_stats))
-        .route("/api/worldgen/{planet_id}/isolate/provinces", post(worldgen_pipeline::isolate_all_provinces))
-        .route("/api/worldgen/{planet_id}/isolate", post(worldgen_pipeline::isolate_region))
-        .route("/api/worldgen/{planet_id}/isolated", get(worldgen_pipeline::list_isolated_regions))
-        .route("/api/worldgen/{planet_id}/isolated/{filename}", delete(worldgen_pipeline::delete_isolated_region))
-        .route("/api/worldgen/isolated/all", get(worldgen_pipeline::list_all_isolated_regions))
-        .route("/api/worldgen/{planet_id}/upscaled/province", post(worldgen_pipeline::start_upscaled_province_refine))
-        .route("/api/worldgen/{planet_id}/upscaled", get(worldgen_pipeline::list_upscaled_regions))
-        .route("/api/worldgen/upscaled/all", get(worldgen_pipeline::list_all_upscaled_regions))
-        .route("/api/worldgen/{planet_id}/upscaled/{artifact_id}", delete(worldgen_pipeline::delete_upscaled_region))
-        .route("/api/worldgen/{planet_id}/upscaled/{artifact_id}/apply", post(worldgen_pipeline::apply_upscaled_region))
+        .route(
+            "/api/worldgen/{planet_id}/clear",
+            delete(worldgen_pipeline::clear_pipeline),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/hierarchy/reassign",
+            post(reassign_worldgen_hierarchy),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/hierarchy/rename",
+            post(rename_worldgen_hierarchy),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/hierarchy/init-stats",
+            post(init_province_stats),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/isolate/bulk",
+            post(worldgen_pipeline::isolate_all_entities),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/isolate/provinces",
+            post(worldgen_pipeline::isolate_all_provinces),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/isolate",
+            post(worldgen_pipeline::isolate_region),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/isolated",
+            get(worldgen_pipeline::list_isolated_regions),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/isolated/{filename}",
+            delete(worldgen_pipeline::delete_isolated_region),
+        )
+        .route(
+            "/api/worldgen/isolated/all",
+            get(worldgen_pipeline::list_all_isolated_regions),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/upscaled/province",
+            post(worldgen_pipeline::start_upscaled_province_refine),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/upscaled",
+            get(worldgen_pipeline::list_upscaled_regions),
+        )
+        .route(
+            "/api/worldgen/upscaled/all",
+            get(worldgen_pipeline::list_all_upscaled_regions),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/upscaled/{artifact_id}",
+            delete(worldgen_pipeline::delete_upscaled_region),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/upscaled/{artifact_id}/apply",
+            post(worldgen_pipeline::apply_upscaled_region),
+        )
         // Static file serving for all planet textures
-        .route("/api/data/traits", get(cms::get_traits).post(cms::save_traits))
+        .route(
+            "/api/data/traits",
+            get(cms::get_traits).post(cms::save_traits),
+        )
         .route("/api/data/traits/{id}", delete(cms::delete_trait))
-        .route("/api/data/occupations", get(cms::get_occupations).post(cms::save_occupations))
+        .route(
+            "/api/data/occupations",
+            get(cms::get_occupations).post(cms::save_occupations),
+        )
         .route("/api/data/occupations/{id}", delete(cms::delete_occupation))
         .route("/api/data/items", get(cms::get_items).post(cms::save_items))
         .route("/api/data/items/{id}", delete(cms::delete_item))
-        .route("/api/data/characters", get(cms::get_characters).post(cms::save_character))
-        .route("/api/data/skills", get(cms::get_skills).post(cms::save_skill))
+        .route(
+            "/api/data/characters",
+            get(cms::get_characters).post(cms::save_character),
+        )
+        .route(
+            "/api/data/skills",
+            get(cms::get_skills).post(cms::save_skill),
+        )
         .route("/api/data/skills/{id}", delete(cms::delete_skill))
-        .route("/api/data/game-rules", get(cms::get_game_rules).post(cms::save_game_rules))
-        .route("/api/settings/world/{id}", get(cms::get_world_settings).post(cms::save_world_settings))
+        .route(
+            "/api/data/game-rules",
+            get(cms::get_game_rules).post(cms::save_game_rules),
+        )
+        .route(
+            "/api/settings/world/{id}",
+            get(cms::get_world_settings).post(cms::save_world_settings),
+        )
         // ── Combat Engine WebSocket ──
         .route("/api/combat/ws", get(combat_engine::session::ws_handler))
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
@@ -730,7 +879,13 @@ async fn start_preview_job(
             }
         }
 
-        run_generation_job(&spawned_job_id, terrain_request, &request_key, &jobs, &planets_dir);
+        run_generation_job(
+            &spawned_job_id,
+            terrain_request,
+            &request_key,
+            &jobs,
+            &planets_dir,
+        );
     });
 
     Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
@@ -903,12 +1058,22 @@ async fn start_hybrid_job(
     let jobs = state.jobs.clone();
     let planets_dir = state.planets_dir.clone();
     let spawned_job_id = job_id.clone();
-    
+
     let request_key = spawned_job_id.clone();
     let generate_cells_opt = request.generate_cells;
 
     tokio::task::spawn(async move {
-        run_hybrid_generation_job(spawned_job_id, terrain_request, request.prompt, request.temperature, generate_cells_opt, request_key, jobs, planets_dir).await;
+        run_hybrid_generation_job(
+            spawned_job_id,
+            terrain_request,
+            request.prompt,
+            request.temperature,
+            generate_cells_opt,
+            request_key,
+            jobs,
+            planets_dir,
+        )
+        .await;
     });
 
     Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
@@ -929,7 +1094,7 @@ async fn run_hybrid_generation_job(
     // The unique planet folder for this generated world
     let planet_dir = planets_dir.join(&request_key);
     let planet_textures_dir = planet_dir.join("textures");
-    
+
     // Create directories
     if let Err(e) = std::fs::create_dir_all(&planet_textures_dir) {
         error!("Failed to create planet directory structure: {}", e);
@@ -951,20 +1116,23 @@ async fn run_hybrid_generation_job(
         }
     }
 
-    let image_bytes = match gemini::generate_image_bytes(&prompt, temperature, request.cols, request.rows, None).await {
-        Ok(b) => b,
-        Err((_code, err_msg)) => {
-            error!("Failed to fetch Gemini image: {}", err_msg);
-            if let Ok(mut map) = jobs.lock() {
-                if let Some(job) = map.get_mut(&job_id) {
-                    job.status = JobStatus::Failed;
-                    job.current_stage = "Failed to communicate with Gemini".to_string();
-                    job.error = Some(err_msg);
+    let image_bytes =
+        match gemini::generate_image_bytes(&prompt, temperature, request.cols, request.rows, None)
+            .await
+        {
+            Ok(b) => b,
+            Err((_code, err_msg)) => {
+                error!("Failed to fetch Gemini image: {}", err_msg);
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&job_id) {
+                        job.status = JobStatus::Failed;
+                        job.current_stage = "Failed to communicate with Gemini".to_string();
+                        job.error = Some(err_msg);
+                    }
                 }
+                return;
             }
-            return;
-        }
-    };
+        };
 
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(&job_id) {
@@ -975,7 +1143,9 @@ async fn run_hybrid_generation_job(
     // Decode image in background thread
     let decode_result = tokio::task::spawn_blocking(move || {
         image::load_from_memory(&image_bytes).map(|img| (img.to_rgba8(), image_bytes))
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
 
     let (rgba_image, raw_bytes) = match decode_result {
         Ok((i, b)) => (i, b),
@@ -996,7 +1166,7 @@ async fn run_hybrid_generation_job(
     let texture_filename = format!("base.jpg");
     let texture_path = planet_textures_dir.join(&texture_filename);
     let texture_url = format!("/api/planets/{}/textures/{}", request_key, texture_filename);
-    
+
     if let Err(e) = std::fs::write(&texture_path, &raw_bytes) {
         error!(job_id = %job_id, error = %e, "failed to save texture to disk");
     } else {
@@ -1054,7 +1224,8 @@ async fn run_hybrid_generation_job(
             },
             generate_cells.unwrap_or(true),
         )
-    }).await;
+    })
+    .await;
 
     let elapsed = start.elapsed();
 
@@ -1091,7 +1262,9 @@ async fn run_hybrid_generation_job(
             let world_data_path = planet_dir.join("world_data.json");
             match std::fs::File::create(&world_data_path) {
                 Ok(file) => {
-                    if let Err(err) = serde_json::to_writer(std::io::BufWriter::new(file), &response) {
+                    if let Err(err) =
+                        serde_json::to_writer(std::io::BufWriter::new(file), &response)
+                    {
                         error!(job_id = %log_job_id2, error = %err, "failed to write world_data json");
                     } else {
                         info!(job_id = %log_job_id2, path = %world_data_path.display(), "hybrid result cached");
@@ -1254,16 +1427,18 @@ async fn list_saved_planets(
             let entry = entry.map_err(|e| format!("dir entry error: {e}"))?;
             let path = entry.path();
             if path.extension().map_or(false, |ext| ext == "json") {
-                let metadata = std::fs::metadata(&path)
-                    .map_err(|e| format!("metadata error: {e}"))?;
-                let modified = metadata.modified()
+                let metadata =
+                    std::fs::metadata(&path).map_err(|e| format!("metadata error: {e}"))?;
+                let modified = metadata
+                    .modified()
                     .ok()
                     .and_then(|t| {
                         let dt: chrono::DateTime<chrono::Utc> = t.into();
                         Some(dt.format("%Y-%m-%d %H:%M:%S").to_string())
                     })
                     .unwrap_or_default();
-                let file_name = path.file_name()
+                let file_name = path
+                    .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
                 let cache_key = file_name.clone();
@@ -1279,7 +1454,12 @@ async fn list_saved_planets(
         Ok(result)
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task error: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("task error: {e}"),
+        )
+    })?
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(entries))
@@ -1292,12 +1472,16 @@ async fn load_saved_planet(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     info!(cache_key = %cache_key, "loading saved planet");
     let planets_dir = state.planets_dir.clone();
-    let response = tokio::task::spawn_blocking(move || {
-        load_cached_response(&planets_dir, &cache_key)
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task error: {e}")))?
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let response =
+        tokio::task::spawn_blocking(move || load_cached_response(&planets_dir, &cache_key))
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("task error: {e}"),
+                )
+            })?
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     match response {
         Some(data) => {
@@ -1321,7 +1505,10 @@ async fn query_lore_handler(
     State(state): State<AppState>,
     Json(payload): Json<LoreQueryRequest>,
 ) -> impl IntoResponse {
-    info!("Handling lore query for coords {}, {}", payload.lon, payload.lat);
+    info!(
+        "Handling lore query for coords {}, {}",
+        payload.lon, payload.lat
+    );
 
     // Build the prompt for Gemini
     let prompt = format!(
@@ -1372,11 +1559,17 @@ async fn query_lore_handler(
 
     match gemini::generate_text(&prompt).await {
         Ok(text) => {
-            let clean_text = text.trim().strip_prefix("```json").unwrap_or(&text)
-                .strip_prefix("```").unwrap_or(&text)
-                .strip_suffix("```").unwrap_or(&text)
-                .trim().to_string();
-                
+            let clean_text = text
+                .trim()
+                .strip_prefix("```json")
+                .unwrap_or(&text)
+                .strip_prefix("```")
+                .unwrap_or(&text)
+                .strip_suffix("```")
+                .unwrap_or(&text)
+                .trim()
+                .to_string();
+
             let _ = std::fs::create_dir_all(&state.planets_dir);
             let _ = std::fs::write(&cache_file, &clean_text);
 
@@ -1385,7 +1578,7 @@ async fn query_lore_handler(
                 Json(serde_json::json!({ "status": "success", "text": clean_text })),
             )
                 .into_response()
-        },
+        }
         Err((status, msg)) => (
             status,
             Json(serde_json::json!({ "status": "error", "message": msg })),
@@ -1433,11 +1626,18 @@ async fn save_history(
 
     let planet_dir = state.planets_dir.join(&id);
     if let Err(e) = std::fs::create_dir_all(&planet_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create planet dir: {e}"),
+        )
+            .into_response();
     }
 
     let metadata_file = planet_dir.join("metadata.json");
-    match std::fs::write(&metadata_file, serde_json::to_string_pretty(&item).unwrap_or_default()) {
+    match std::fs::write(
+        &metadata_file,
+        serde_json::to_string_pretty(&item).unwrap_or_default(),
+    ) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -1470,10 +1670,7 @@ async fn clear_history(State(state): State<AppState>) -> impl IntoResponse {
     StatusCode::OK.into_response()
 }
 
-async fn get_geography(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
+async fn get_geography(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     let file_path = state.planets_dir.join(&id).join("geography.json");
     if let Ok(data) = std::fs::read_to_string(&file_path) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
@@ -1490,11 +1687,18 @@ async fn save_geography(
 ) -> impl IntoResponse {
     let planet_dir = state.planets_dir.join(&id);
     if let Err(e) = std::fs::create_dir_all(&planet_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create planet dir: {e}"),
+        )
+            .into_response();
     }
 
     let file_path = planet_dir.join("geography.json");
-    match std::fs::write(&file_path, serde_json::to_string_pretty(&regions).unwrap_or_default()) {
+    match std::fs::write(
+        &file_path,
+        serde_json::to_string_pretty(&regions).unwrap_or_default(),
+    ) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -1655,7 +1859,11 @@ fn normalize_lore_snippet_value(value: &serde_json::Value) -> Option<serde_json:
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or(if priority == "main" { "World" } else { "Unknown" })
+        .unwrap_or(if priority == "main" {
+            "World"
+        } else {
+            "Unknown"
+        })
         .to_string();
     let content = obj
         .get("content")
@@ -1704,11 +1912,23 @@ fn normalize_lore_snippets_value(value: serde_json::Value) -> serde_json::Value 
             if canonical_main.is_none() {
                 let mut main = snippet.clone();
                 if let Some(obj) = main.as_object_mut() {
-                    obj.insert("id".to_string(), serde_json::Value::String("main-lore".to_string()));
-                    obj.insert("title".to_string(), serde_json::Value::String("Main Lore".to_string()));
-                    obj.insert("priority".to_string(), serde_json::Value::String("main".to_string()));
+                    obj.insert(
+                        "id".to_string(),
+                        serde_json::Value::String("main-lore".to_string()),
+                    );
+                    obj.insert(
+                        "title".to_string(),
+                        serde_json::Value::String("Main Lore".to_string()),
+                    );
+                    obj.insert(
+                        "priority".to_string(),
+                        serde_json::Value::String("main".to_string()),
+                    );
                     obj.insert("date".to_string(), serde_json::Value::Null);
-                    obj.insert("location".to_string(), serde_json::Value::String("World".to_string()));
+                    obj.insert(
+                        "location".to_string(),
+                        serde_json::Value::String("World".to_string()),
+                    );
                 }
                 canonical_main = Some(main);
             } else if let Some(obj) = snippet.as_object_mut() {
@@ -1718,9 +1938,15 @@ fn normalize_lore_snippets_value(value: serde_json::Value) -> serde_json::Value 
                     .map(|v| v == "main-lore")
                     .unwrap_or(false)
                 {
-                    obj.insert("id".to_string(), serde_json::Value::String(Uuid::new_v4().to_string()));
+                    obj.insert(
+                        "id".to_string(),
+                        serde_json::Value::String(Uuid::new_v4().to_string()),
+                    );
                 }
-                obj.insert("priority".to_string(), serde_json::Value::String("major".to_string()));
+                obj.insert(
+                    "priority".to_string(),
+                    serde_json::Value::String("major".to_string()),
+                );
             }
         }
     }
@@ -1765,7 +1991,10 @@ fn read_lore_snippets(state: &AppState, world_id: &str) -> serde_json::Value {
         .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
         .unwrap_or_else(|| serde_json::Value::Array(vec![default_main_lore_snippet()]));
     let normalized = normalize_lore_snippets_value(raw);
-    let _ = std::fs::write(&file_path, serde_json::to_string_pretty(&normalized).unwrap_or_default());
+    let _ = std::fs::write(
+        &file_path,
+        serde_json::to_string_pretty(&normalized).unwrap_or_default(),
+    );
     normalized
 }
 
@@ -1797,7 +2026,11 @@ fn normalize_gm_settings_value(value: serde_json::Value, world_id: &str) -> serd
     let mut normalized = defaults.as_object().cloned().unwrap_or_default();
     let input = value.as_object().cloned().unwrap_or_default();
 
-    if let Some(context_defaults) = normalized.get("contextSources").and_then(|v| v.as_object()).cloned() {
+    if let Some(context_defaults) = normalized
+        .get("contextSources")
+        .and_then(|v| v.as_object())
+        .cloned()
+    {
         let input_sources = input
             .get("contextSources")
             .and_then(|v| v.as_object())
@@ -1812,10 +2045,16 @@ fn normalize_gm_settings_value(value: serde_json::Value, world_id: &str) -> serd
                 .unwrap_or(default_value);
             merged_sources.insert(key, merged);
         }
-        normalized.insert("contextSources".to_string(), serde_json::Value::Object(merged_sources));
+        normalized.insert(
+            "contextSources".to_string(),
+            serde_json::Value::Object(merged_sources),
+        );
     }
 
-    normalized.insert("worldId".to_string(), serde_json::Value::String(world_id.to_string()));
+    normalized.insert(
+        "worldId".to_string(),
+        serde_json::Value::String(world_id.to_string()),
+    );
     normalized.insert(
         "maxLoreSnippets".to_string(),
         serde_json::Value::Number(
@@ -1828,13 +2067,23 @@ fn normalize_gm_settings_value(value: serde_json::Value, world_id: &str) -> serd
         ),
     );
 
-    for key in ["systemDirective", "ambienceDirective", "negativeDirective", "eventPromptPrefix"] {
+    for key in [
+        "systemDirective",
+        "ambienceDirective",
+        "negativeDirective",
+        "eventPromptPrefix",
+    ] {
         let value = input
             .get(key)
             .and_then(|v| v.as_str())
             .map(str::to_string)
             .filter(|v| !v.trim().is_empty())
-            .or_else(|| normalized.get(key).and_then(|v| v.as_str()).map(str::to_string))
+            .or_else(|| {
+                normalized
+                    .get(key)
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
             .unwrap_or_default();
         normalized.insert(key.to_string(), serde_json::Value::String(value));
     }
@@ -1856,7 +2105,10 @@ fn read_gm_settings(state: &AppState, world_id: &str) -> serde_json::Value {
         .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
         .unwrap_or_else(|| default_gm_settings(world_id));
     let normalized = normalize_gm_settings_value(raw, world_id);
-    let _ = std::fs::write(&file_path, serde_json::to_string_pretty(&normalized).unwrap_or_default());
+    let _ = std::fs::write(
+        &file_path,
+        serde_json::to_string_pretty(&normalized).unwrap_or_default(),
+    );
     normalized
 }
 
@@ -1895,12 +2147,19 @@ async fn save_gm_settings(
 ) -> impl IntoResponse {
     let planet_dir = state.planets_dir.join(&id);
     if let Err(e) = std::fs::create_dir_all(&planet_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create planet dir: {e}"),
+        )
+            .into_response();
     }
 
     let normalized = normalize_gm_settings_value(settings, &id);
     let file_path = planet_dir.join("gm_settings.json");
-    match std::fs::write(&file_path, serde_json::to_string_pretty(&normalized).unwrap_or_default()) {
+    match std::fs::write(
+        &file_path,
+        serde_json::to_string_pretty(&normalized).unwrap_or_default(),
+    ) {
         Ok(_) => (StatusCode::OK, Json(normalized)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -1956,24 +2215,45 @@ async fn get_gm_context(
                 .iter()
                 .filter(|snippet| snippet.get("priority").and_then(|v| v.as_str()) == Some(key))
                 .count();
-            counts.insert(key.to_string(), serde_json::Value::Number((count as u64).into()));
+            counts.insert(
+                key.to_string(),
+                serde_json::Value::Number((count as u64).into()),
+            );
         }
         counts
     };
 
     let mut selected_lore: Vec<serde_json::Value> = Vec::new();
-    if context_sources.get("mainLore").and_then(|v| v.as_bool()).unwrap_or(true) {
-        if let Some(main) = lore_items.iter().find(|snippet| snippet.get("priority").and_then(|v| v.as_str()) == Some("main")) {
+    if context_sources
+        .get("mainLore")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+    {
+        if let Some(main) = lore_items
+            .iter()
+            .find(|snippet| snippet.get("priority").and_then(|v| v.as_str()) == Some("main"))
+        {
             selected_lore.push(main.clone());
         }
     }
 
     let mut lore_budget = max_lore;
-    for (priority, enabled_key) in [("critical", "criticalLore"), ("major", "majorLore"), ("minor", "minorLore")] {
-        if !context_sources.get(enabled_key).and_then(|v| v.as_bool()).unwrap_or(false) {
+    for (priority, enabled_key) in [
+        ("critical", "criticalLore"),
+        ("major", "majorLore"),
+        ("minor", "minorLore"),
+    ] {
+        if !context_sources
+            .get(enabled_key)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             continue;
         }
-        for snippet in lore_items.iter().filter(|snippet| snippet.get("priority").and_then(|v| v.as_str()) == Some(priority)) {
+        for snippet in lore_items
+            .iter()
+            .filter(|snippet| snippet.get("priority").and_then(|v| v.as_str()) == Some(priority))
+        {
             if lore_budget == 0 {
                 break;
             }
@@ -1989,7 +2269,10 @@ async fn get_gm_context(
                 .iter()
                 .filter(|snippet| snippet.get("priority").and_then(|v| v.as_str()) == Some(key))
                 .count();
-            counts.insert(key.to_string(), serde_json::Value::Number((count as u64).into()));
+            counts.insert(
+                key.to_string(),
+                serde_json::Value::Number((count as u64).into()),
+            );
         }
         counts
     };
@@ -1998,19 +2281,29 @@ async fn get_gm_context(
         .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or("Unknown World");
-    let world_prompt = metadata.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+    let world_prompt = metadata
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     let lore_block = selected_lore
         .iter()
         .map(|snippet| {
-            let priority = snippet.get("priority").and_then(|v| v.as_str()).unwrap_or("minor").to_uppercase();
+            let priority = snippet
+                .get("priority")
+                .and_then(|v| v.as_str())
+                .unwrap_or("minor")
+                .to_uppercase();
             let title = snippet
                 .get("title")
                 .and_then(|v| v.as_str())
                 .filter(|v| !v.trim().is_empty())
                 .or_else(|| snippet.get("location").and_then(|v| v.as_str()))
                 .unwrap_or("Untitled");
-            let content = snippet.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let content = snippet
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             format!("[{priority}] {title}\n{content}")
         })
         .collect::<Vec<_>>()
@@ -2088,12 +2381,19 @@ async fn save_lore_snippets(
 ) -> impl IntoResponse {
     let planet_dir = state.planets_dir.join(&id);
     if let Err(e) = std::fs::create_dir_all(&planet_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create planet dir: {e}"),
+        )
+            .into_response();
     }
 
     let file_path = planet_dir.join("lore_snippets.json");
     let normalized = normalize_lore_snippets_value(snippets);
-    match std::fs::write(&file_path, serde_json::to_string_pretty(&normalized).unwrap_or_default()) {
+    match std::fs::write(
+        &file_path,
+        serde_json::to_string_pretty(&normalized).unwrap_or_default(),
+    ) {
         Ok(_) => (StatusCode::OK, Json(normalized)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -2120,20 +2420,24 @@ async fn save_temporality(
 ) -> impl IntoResponse {
     let planet_dir = state.planets_dir.join(&id);
     if let Err(e) = std::fs::create_dir_all(&planet_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create planet dir: {e}"),
+        )
+            .into_response();
     }
 
     let file_path = planet_dir.join("temporality.json");
-    match std::fs::write(&file_path, serde_json::to_string_pretty(&temporality).unwrap_or_default()) {
+    match std::fs::write(
+        &file_path,
+        serde_json::to_string_pretty(&temporality).unwrap_or_default(),
+    ) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
-async fn get_factions(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
+async fn get_factions(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     let file_path = state.planets_dir.join(&id).join("factions.json");
     if let Ok(data) = std::fs::read_to_string(&file_path) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
@@ -2150,20 +2454,24 @@ async fn save_factions(
 ) -> impl IntoResponse {
     let planet_dir = state.planets_dir.join(&id);
     if let Err(e) = std::fs::create_dir_all(&planet_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create planet dir: {e}"),
+        )
+            .into_response();
     }
 
     let file_path = planet_dir.join("factions.json");
-    match std::fs::write(&file_path, serde_json::to_string_pretty(&factions).unwrap_or_default()) {
+    match std::fs::write(
+        &file_path,
+        serde_json::to_string_pretty(&factions).unwrap_or_default(),
+    ) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
-async fn get_locations(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
+async fn get_locations(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     let file_path = state.planets_dir.join(&id).join("locations.json");
     if let Ok(data) = std::fs::read_to_string(&file_path) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
@@ -2180,11 +2488,18 @@ async fn save_locations(
 ) -> impl IntoResponse {
     let planet_dir = state.planets_dir.join(&id);
     if let Err(e) = std::fs::create_dir_all(&planet_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create planet dir: {e}"),
+        )
+            .into_response();
     }
 
     let file_path = planet_dir.join("locations.json");
-    match std::fs::write(&file_path, serde_json::to_string_pretty(&locations).unwrap_or_default()) {
+    match std::fs::write(
+        &file_path,
+        serde_json::to_string_pretty(&locations).unwrap_or_default(),
+    ) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -2210,20 +2525,24 @@ async fn save_characters(
 ) -> impl IntoResponse {
     let planet_dir = state.planets_dir.join(&id);
     if let Err(e) = std::fs::create_dir_all(&planet_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create planet dir: {e}"),
+        )
+            .into_response();
     }
 
     let file_path = planet_dir.join("characters.json");
-    match std::fs::write(&file_path, serde_json::to_string_pretty(&characters).unwrap_or_default()) {
+    match std::fs::write(
+        &file_path,
+        serde_json::to_string_pretty(&characters).unwrap_or_default(),
+    ) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
-async fn get_cells(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
+async fn get_cells(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     let file_path = state.planets_dir.join(&id).join("cells.json");
     if let Ok(data) = std::fs::read_to_string(&file_path) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
@@ -2240,11 +2559,18 @@ async fn save_cells(
 ) -> impl IntoResponse {
     let planet_dir = state.planets_dir.join(&id);
     if let Err(e) = std::fs::create_dir_all(&planet_dir) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create planet dir: {e}")).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create planet dir: {e}"),
+        )
+            .into_response();
     }
 
     let file_path = planet_dir.join("cells.json");
-    match std::fs::write(&file_path, serde_json::to_string_pretty(&cells).unwrap_or_default()) {
+    match std::fs::write(
+        &file_path,
+        serde_json::to_string_pretty(&cells).unwrap_or_default(),
+    ) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -2300,11 +2626,13 @@ async fn reassign_worldgen_hierarchy(
         let entity_type = request.entity_type.trim().to_ascii_lowercase();
         match entity_type.as_str() {
             "province" => {
-                let Some(new_duchy_index) = duchies.iter().position(|d| d.id == request.target_id) else {
+                let Some(new_duchy_index) = duchies.iter().position(|d| d.id == request.target_id)
+                else {
                     return Err(format!("Target duchy {} not found", request.target_id));
                 };
 
-                let Some(province_index) = provinces.iter().position(|p| p.id == request.entity_id) else {
+                let Some(province_index) = provinces.iter().position(|p| p.id == request.entity_id)
+                else {
                     return Err(format!("Province {} not found", request.entity_id));
                 };
 
@@ -2313,13 +2641,19 @@ async fn reassign_worldgen_hierarchy(
                 let new_kingdom_id = duchies[new_duchy_index].kingdom_id;
 
                 if old_duchy_id != new_duchy_id {
-                    if let Some(old_duchy_index) = duchies.iter().position(|d| d.id == old_duchy_id) {
+                    if let Some(old_duchy_index) = duchies.iter().position(|d| d.id == old_duchy_id)
+                    {
                         duchies[old_duchy_index]
                             .province_ids
                             .retain(|&pid| pid != request.entity_id);
                     }
-                    if !duchies[new_duchy_index].province_ids.contains(&request.entity_id) {
-                        duchies[new_duchy_index].province_ids.push(request.entity_id);
+                    if !duchies[new_duchy_index]
+                        .province_ids
+                        .contains(&request.entity_id)
+                    {
+                        duchies[new_duchy_index]
+                            .province_ids
+                            .push(request.entity_id);
                     }
                 }
 
@@ -2327,11 +2661,14 @@ async fn reassign_worldgen_hierarchy(
                 provinces[province_index].kingdom_id = new_kingdom_id;
             }
             "duchy" => {
-                let Some(new_kingdom_index) = kingdoms.iter().position(|k| k.id == request.target_id) else {
+                let Some(new_kingdom_index) =
+                    kingdoms.iter().position(|k| k.id == request.target_id)
+                else {
                     return Err(format!("Target kingdom {} not found", request.target_id));
                 };
 
-                let Some(duchy_index) = duchies.iter().position(|d| d.id == request.entity_id) else {
+                let Some(duchy_index) = duchies.iter().position(|d| d.id == request.entity_id)
+                else {
                     return Err(format!("Duchy {} not found", request.entity_id));
                 };
 
@@ -2340,7 +2677,9 @@ async fn reassign_worldgen_hierarchy(
                 let new_kingdom_id = kingdoms[new_kingdom_index].id;
 
                 if old_kingdom_id != new_kingdom_id {
-                    if let Some(old_kingdom_index) = kingdoms.iter().position(|k| k.id == old_kingdom_id) {
+                    if let Some(old_kingdom_index) =
+                        kingdoms.iter().position(|k| k.id == old_kingdom_id)
+                    {
                         kingdoms[old_kingdom_index]
                             .duchy_ids
                             .retain(|&did| did != duchy_id);
@@ -2358,10 +2697,13 @@ async fn reassign_worldgen_hierarchy(
                 }
             }
             "kingdom" => {
-                let Some(kingdom_index) = kingdoms.iter().position(|k| k.id == request.entity_id) else {
+                let Some(kingdom_index) = kingdoms.iter().position(|k| k.id == request.entity_id)
+                else {
                     return Err(format!("Kingdom {} not found", request.entity_id));
                 };
-                let target_continent_exists = existing_continents.iter().any(|c| c.id == request.target_id);
+                let target_continent_exists = existing_continents
+                    .iter()
+                    .any(|c| c.id == request.target_id);
                 if !target_continent_exists {
                     return Err(format!("Target continent {} not found", request.target_id));
                 }
@@ -2423,22 +2765,35 @@ async fn reassign_worldgen_hierarchy(
         let (w, h) = province_img.dimensions();
         let labels_len = (w * h) as usize;
 
-        let province_to_duchy: HashMap<u32, u32> = provinces.iter().map(|p| (p.id, p.duchy_id)).collect();
-        let duchy_to_kingdom: HashMap<u32, u32> = duchies.iter().map(|d| (d.id, d.kingdom_id)).collect();
+        let province_to_duchy: HashMap<u32, u32> =
+            provinces.iter().map(|p| (p.id, p.duchy_id)).collect();
+        let duchy_to_kingdom: HashMap<u32, u32> =
+            duchies.iter().map(|d| (d.id, d.kingdom_id)).collect();
 
         let mut duchy_labels = vec![0u32; labels_len];
         let mut kingdom_labels = vec![0u32; labels_len];
 
         for (i, pixel) in province_img.pixels().enumerate() {
-            let province_id = pixel[0] as u32 | ((pixel[1] as u32) << 8) | ((pixel[2] as u32) << 16);
+            let province_id =
+                pixel[0] as u32 | ((pixel[1] as u32) << 8) | ((pixel[2] as u32) << 16);
             let duchy_id = province_to_duchy.get(&province_id).copied().unwrap_or(0);
             let kingdom_id = duchy_to_kingdom.get(&duchy_id).copied().unwrap_or(0);
             duchy_labels[i] = duchy_id;
             kingdom_labels[i] = kingdom_id;
         }
 
-        worldgen_core::export::write_id_texture(&duchy_labels, w, h, &worldgen_dir.join("duchy_id.png"))?;
-        worldgen_core::export::write_id_texture(&kingdom_labels, w, h, &worldgen_dir.join("kingdom_id.png"))?;
+        worldgen_core::export::write_id_texture(
+            &duchy_labels,
+            w,
+            h,
+            &worldgen_dir.join("duchy_id.png"),
+        )?;
+        worldgen_core::export::write_id_texture(
+            &kingdom_labels,
+            w,
+            h,
+            &worldgen_dir.join("kingdom_id.png"),
+        )?;
 
         let mut kingdom_to_continent: HashMap<u32, u32> = HashMap::new();
         let mut continent_names: HashMap<u32, String> = HashMap::new();
@@ -2461,8 +2816,14 @@ async fn reassign_worldgen_hierarchy(
 
         let mut continent_kingdom_ids: HashMap<u32, Vec<u32>> = HashMap::new();
         for kingdom in &kingdoms {
-            let cid = kingdom_to_continent.get(&kingdom.id).copied().unwrap_or(kingdom.id);
-            continent_kingdom_ids.entry(cid).or_default().push(kingdom.id);
+            let cid = kingdom_to_continent
+                .get(&kingdom.id)
+                .copied()
+                .unwrap_or(kingdom.id);
+            continent_kingdom_ids
+                .entry(cid)
+                .or_default()
+                .push(kingdom.id);
         }
 
         let mut continents: Vec<ContinentRecord> = continent_kingdom_ids
@@ -2510,7 +2871,12 @@ async fn reassign_worldgen_hierarchy(
             .iter()
             .map(|&kid| kingdom_to_continent.get(&kid).copied().unwrap_or(0))
             .collect();
-        worldgen_core::export::write_id_texture(&continent_labels, w, h, &worldgen_dir.join("continent_id.png"))?;
+        worldgen_core::export::write_id_texture(
+            &continent_labels,
+            w,
+            h,
+            &worldgen_dir.join("continent_id.png"),
+        )?;
         let continents_json = serde_json::to_string_pretty(&continents)
             .map_err(|e| format!("Failed to serialize continents: {e}"))?;
         std::fs::write(&continents_path, continents_json)
@@ -2519,7 +2885,12 @@ async fn reassign_worldgen_hierarchy(
         Ok(())
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task error: {e}"),
+        )
+    })?
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     Ok(Json(HierarchyReassignResponse { success: true }))
@@ -2602,13 +2973,22 @@ async fn rename_worldgen_hierarchy(
                 std::fs::write(&continents_path, payload)
                     .map_err(|e| format!("Failed to write continents.json: {e}"))?;
             }
-            _ => return Err("entityType must be one of: province, duchy, kingdom, continent".to_string()),
+            _ => {
+                return Err(
+                    "entityType must be one of: province, duchy, kingdom, continent".to_string(),
+                )
+            }
         }
 
         Ok(())
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task error: {e}"),
+        )
+    })?
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     Ok(Json(HierarchyRenameResponse { success: true }))
@@ -2641,21 +3021,26 @@ async fn init_province_stats(
             let dv = ((seed.wrapping_mul(40503) >> 8) % 61) as i32 - 50;
             // population based on biome
             let base_pop: u64 = match prov.biome_primary {
-                0 => 0,       // ocean
-                1 => 50,      // tundra
-                2 => 200,     // taiga
-                3 => 800,     // temperate
-                4 => 500,     // grassland
-                5 => 80,      // desert
-                6 => 350,     // savanna
-                7 => 600,     // tropical
-                8 => 120,     // mountain
-                9 => 10,      // ice
-                _ => 60,      // volcanic / other
+                0 => 0,   // ocean
+                1 => 50,  // tundra
+                2 => 200, // taiga
+                3 => 800, // temperate
+                4 => 500, // grassland
+                5 => 80,  // desert
+                6 => 350, // savanna
+                7 => 600, // tropical
+                8 => 120, // mountain
+                9 => 10,  // ice
+                _ => 60,  // volcanic / other
             };
             // scale by area (bigger province = more population, roughly)
             let area_factor = (prov.area as f64 / 10000.0).max(0.1).min(20.0);
-            let pop_variation = ((seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407) >> 20) % 50) as f64 / 100.0;
+            let pop_variation = ((seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407)
+                >> 20)
+                % 50) as f64
+                / 100.0;
             let pop = (base_pop as f64 * area_factor * (0.75 + pop_variation)) as u64;
 
             prov.wealth = Some(wh);
@@ -2671,7 +3056,12 @@ async fn init_province_stats(
         Ok(())
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task error: {e}"),
+        )
+    })?
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     Ok(Json(serde_json::json!({ "success": true })))
@@ -2683,8 +3073,7 @@ fn read_continents_file(path: &std::path::Path) -> Result<Vec<ContinentRecord>, 
     }
     let text = std::fs::read_to_string(path)
         .map_err(|e| format!("Failed to read continents.json: {e}"))?;
-    serde_json::from_str(&text)
-        .map_err(|e| format!("Failed to parse continents.json: {e}"))
+    serde_json::from_str(&text).map_err(|e| format!("Failed to parse continents.json: {e}"))
 }
 
 fn build_continents(
@@ -2694,16 +3083,19 @@ fn build_continents(
     adjacency: &[ProvinceAdjacency],
     previous_names: Option<&HashMap<u32, String>>,
 ) -> Vec<ContinentRecord> {
-    let province_to_kingdom: HashMap<u32, u32> = provinces.iter().map(|p| (p.id, p.kingdom_id)).collect();
-    let mut kingdom_graph: HashMap<u32, HashSet<u32>> = kingdoms
-        .iter()
-        .map(|k| (k.id, HashSet::new()))
-        .collect();
+    let province_to_kingdom: HashMap<u32, u32> =
+        provinces.iter().map(|p| (p.id, p.kingdom_id)).collect();
+    let mut kingdom_graph: HashMap<u32, HashSet<u32>> =
+        kingdoms.iter().map(|k| (k.id, HashSet::new())).collect();
 
     for adj in adjacency {
-        let Some(&k1) = province_to_kingdom.get(&adj.province_id) else { continue; };
+        let Some(&k1) = province_to_kingdom.get(&adj.province_id) else {
+            continue;
+        };
         for edge in &adj.neighbors {
-            let Some(&k2) = province_to_kingdom.get(&edge.neighbor_id) else { continue; };
+            let Some(&k2) = province_to_kingdom.get(&edge.neighbor_id) else {
+                continue;
+            };
             if k1 == k2 {
                 continue;
             }
@@ -2821,7 +3213,7 @@ async fn start_upscale_job(
     let jobs = state.jobs.clone();
     let planets_dir = state.planets_dir.clone();
     let spawned_job_id = job_id.clone();
-    
+
     tokio::task::spawn(async move {
         run_upscale_job(spawned_job_id, request.history_id, jobs, planets_dir).await;
     });
@@ -2836,7 +3228,7 @@ async fn run_upscale_job(
     planets_dir: std::path::PathBuf,
 ) {
     let start = std::time::Instant::now();
-    
+
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(&job_id) {
             job.status = JobStatus::Running;
@@ -2846,7 +3238,7 @@ async fn run_upscale_job(
 
     let planet_dir = planets_dir.join(&history_id);
     let metadata_file = planet_dir.join("metadata.json");
-    
+
     let item: serde_json::Value = match std::fs::read_to_string(&metadata_file) {
         Ok(data) => match serde_json::from_str(&data) {
             Ok(json) => json,
@@ -2872,7 +3264,7 @@ async fn run_upscale_job(
             return;
         }
     };
-    
+
     let texture_url = match item.get("textureUrl").and_then(|t| t.as_str()) {
         Some(u) => u.to_string(),
         None => {
@@ -2886,12 +3278,15 @@ async fn run_upscale_job(
             return;
         }
     };
-    let heightmap_url = item.get("heightmapUrl").and_then(|t| t.as_str()).map(|s| s.to_string());
-    
+    let heightmap_url = item
+        .get("heightmapUrl")
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string());
+
     let file_name = texture_url.split('/').last().unwrap_or("");
     let textures_dir = planet_dir.join("textures");
     let input_path = textures_dir.join(file_name);
-    
+
     if !input_path.exists() {
         if let Ok(mut map) = jobs.lock() {
             if let Some(job) = map.get_mut(&job_id) {
@@ -2902,20 +3297,24 @@ async fn run_upscale_job(
         }
         return;
     }
-    
+
     let output_filename = format!("upscaled_{}.png", Uuid::new_v4());
     let output_path = textures_dir.join(&output_filename);
-    
+
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(&job_id) {
             job.progress = 50.0;
             job.current_stage = "Running ESRGAN (This may take a minute)...".to_string();
         }
     }
-    
-    let exe_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bin").join("realesrgan-ncnn-vulkan");
-    let model_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bin").join("models");
-    
+
+    let exe_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("bin")
+        .join("realesrgan-ncnn-vulkan");
+    let model_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("bin")
+        .join("models");
+
     info!(
         job_id = %job_id,
         exe_path = %exe_path.display(),
@@ -2934,7 +3333,7 @@ async fn run_upscale_job(
         .arg("-m")
         .arg(&model_dir)
         .output();
-        
+
     let success = match output {
         Ok(out) => out.status.success(),
         Err(e) => {
@@ -2942,7 +3341,7 @@ async fn run_upscale_job(
             false
         }
     };
-    
+
     if !success || !output_path.exists() {
         if let Ok(mut map) = jobs.lock() {
             if let Some(job) = map.get_mut(&job_id) {
@@ -2953,34 +3352,52 @@ async fn run_upscale_job(
         }
         return;
     }
-    
+
     let new_texture_url = format!("/api/planets/{}/textures/{}", history_id, output_filename);
-    
+
     // Create new history item pointing to upscale
     let mut new_item = item.clone();
     let new_id = Uuid::new_v4().to_string();
     if let Some(obj) = new_item.as_object_mut() {
         obj.insert("id".to_string(), serde_json::Value::String(new_id.clone()));
-        obj.insert("textureUrl".to_string(), serde_json::Value::String(new_texture_url.clone()));
+        obj.insert(
+            "textureUrl".to_string(),
+            serde_json::Value::String(new_texture_url.clone()),
+        );
         obj.insert("isUpscaled".to_string(), serde_json::Value::Bool(true));
-        obj.insert("parentId".to_string(), serde_json::Value::String(history_id.clone()));
-        obj.insert("timestamp".to_string(), serde_json::Value::Number(serde_json::Number::from(
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
-        )));
+        obj.insert(
+            "parentId".to_string(),
+            serde_json::Value::String(history_id.clone()),
+        );
+        obj.insert(
+            "timestamp".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+            )),
+        );
         // Also preserve heightmapUrl if it existed
         if let Some(ref h_url) = heightmap_url {
-            obj.insert("heightmapUrl".to_string(), serde_json::Value::String(h_url.clone()));
+            obj.insert(
+                "heightmapUrl".to_string(),
+                serde_json::Value::String(h_url.clone()),
+            );
         }
     }
-    
+
     // Save new item directly as its own planet dir (for now, to maintain API compatibility until frontend update)
     // Then we can switch correctly in frontend over to a "texture array"
     let new_planet_dir = planets_dir.join(&new_id);
     let _ = std::fs::create_dir_all(&new_planet_dir);
     // Link the texture over virtually so we don't have to duplicate the 20MB png
     // Actually we just use the url pointing back to history_id
-    let _ = std::fs::write(new_planet_dir.join("metadata.json"), serde_json::to_string_pretty(&new_item).unwrap_or_default());
-    
+    let _ = std::fs::write(
+        new_planet_dir.join("metadata.json"),
+        serde_json::to_string_pretty(&new_item).unwrap_or_default(),
+    );
+
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(&job_id) {
             job.status = JobStatus::Completed;
@@ -2997,10 +3414,9 @@ async fn run_upscale_job(
             job.error = None;
         }
     }
-    
+
     info!(job_id = %job_id, elapsed_ms = start.elapsed().as_millis(), "upscale completed successfully");
 }
-
 
 async fn start_ecology_job(
     State(state): State<AppState>,
@@ -3008,18 +3424,39 @@ async fn start_ecology_job(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let job_id = Uuid::new_v4().to_string();
     {
-        let mut jobs = state.jobs.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()))?;
-        jobs.insert(job_id.clone(), JobRecord {
-            status: JobStatus::Queued, progress: 0.0, current_stage: "Requesting Gemini Ecology Layer...".to_string(),
-            result: None, error: None, cancel_requested: false,
-        });
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        jobs.insert(
+            job_id.clone(),
+            JobRecord {
+                status: JobStatus::Queued,
+                progress: 0.0,
+                current_stage: "Requesting Gemini Ecology Layer...".to_string(),
+                result: None,
+                error: None,
+                cancel_requested: false,
+            },
+        );
     }
     let jobs = state.jobs.clone();
     let planets_dir = state.planets_dir.clone();
     let spawned_job_id = job_id.clone();
     let request_key = format!("ecology-{}", Uuid::new_v4());
     tokio::task::spawn(async move {
-        run_image_edit_job(spawned_job_id, request.prompt, request.base64_image, request.temperature, request_key, jobs, planets_dir).await;
+        run_image_edit_job(
+            spawned_job_id,
+            request.prompt,
+            request.base64_image,
+            request.temperature,
+            request_key,
+            jobs,
+            planets_dir,
+        )
+        .await;
     });
     Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
 }
@@ -3030,18 +3467,39 @@ async fn start_humanity_job(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let job_id = Uuid::new_v4().to_string();
     {
-        let mut jobs = state.jobs.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()))?;
-        jobs.insert(job_id.clone(), JobRecord {
-            status: JobStatus::Queued, progress: 0.0, current_stage: "Requesting Gemini Humanity Layer...".to_string(),
-            result: None, error: None, cancel_requested: false,
-        });
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        jobs.insert(
+            job_id.clone(),
+            JobRecord {
+                status: JobStatus::Queued,
+                progress: 0.0,
+                current_stage: "Requesting Gemini Humanity Layer...".to_string(),
+                result: None,
+                error: None,
+                cancel_requested: false,
+            },
+        );
     }
     let jobs = state.jobs.clone();
     let planets_dir = state.planets_dir.clone();
     let spawned_job_id = job_id.clone();
     let request_key = format!("humanity-{}", Uuid::new_v4());
     tokio::task::spawn(async move {
-        run_image_edit_job(spawned_job_id, request.prompt, request.base64_image, request.temperature, request_key, jobs, planets_dir).await;
+        run_image_edit_job(
+            spawned_job_id,
+            request.prompt,
+            request.base64_image,
+            request.temperature,
+            request_key,
+            jobs,
+            planets_dir,
+        )
+        .await;
     });
     Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
 }
@@ -3064,13 +3522,26 @@ async fn run_image_edit_job(
 
     let (mime_type, data) = if base64_image.starts_with("data:") {
         let parts: Vec<&str> = base64_image.split(',').collect();
-        let mime = parts[0].split(';').next().unwrap().strip_prefix("data:").unwrap_or("image/jpeg");
+        let mime = parts[0]
+            .split(';')
+            .next()
+            .unwrap()
+            .strip_prefix("data:")
+            .unwrap_or("image/jpeg");
         (mime.to_string(), parts.get(1).unwrap_or(&"").to_string())
     } else {
         ("image/jpeg".to_string(), base64_image)
     };
 
-    let image_bytes = match gemini::generate_image_edit_bytes(&prompt, &data, &mime_type, temperature, None).await {
+    let image_bytes = match gemini::generate_image_edit_bytes(
+        &prompt,
+        &data,
+        &mime_type,
+        temperature,
+        None,
+    )
+    .await
+    {
         Ok(b) => b,
         Err((_code, err_msg)) => {
             error!("Failed to fetch Gemini edit image: {}", err_msg);
@@ -3102,7 +3573,7 @@ async fn run_image_edit_job(
     if let Err(e) = std::fs::write(&image_path, &image_bytes) {
         error!("Failed to write edited image: {}", e);
     }
-    
+
     let response = GenerateTerrainResponse {
         cols: 0,
         rows: 0,
@@ -3232,9 +3703,10 @@ async fn run_cells_job(
 
     // Load texture image
     let tp = texture_path.clone();
-    let image_result = tokio::task::spawn_blocking(move || {
-        image::open(tp).map(|img| img.to_rgba8())
-    }).await.unwrap();
+    let image_result =
+        tokio::task::spawn_blocking(move || image::open(tp).map(|img| img.to_rgba8()))
+            .await
+            .unwrap();
 
     let rgba_image = match image_result {
         Ok(img) => img,
@@ -3290,7 +3762,8 @@ async fn run_cells_job(
                 }
             },
         )
-    }).await;
+    })
+    .await;
 
     let elapsed = start.elapsed();
 
@@ -3302,7 +3775,9 @@ async fn run_cells_job(
             // Write cell features to disk
             match std::fs::File::create(&features_path) {
                 Ok(file) => {
-                    if let Err(err) = serde_json::to_writer(std::io::BufWriter::new(file), &analysis) {
+                    if let Err(err) =
+                        serde_json::to_writer(std::io::BufWriter::new(file), &analysis)
+                    {
                         error!(job_id = %log_job_id2, error = %err, "failed to write cell_features.json");
                     } else {
                         info!(
@@ -3360,11 +3835,15 @@ async fn generate_icon_batch(
         return Err((StatusCode::BAD_REQUEST, "No prompts provided".to_string()));
     }
     if prompts.len() > 50 {
-        return Err((StatusCode::BAD_REQUEST, "Maximum 50 prompts per batch".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Maximum 50 prompts per batch".to_string(),
+        ));
     }
 
     // Use the user-supplied name (slugified) as folder name, fallback to UUID
-    let batch_name = request.batch_name
+    let batch_name = request
+        .batch_name
         .as_deref()
         .map(|n| n.trim())
         .filter(|n| !n.is_empty())
@@ -3379,7 +3858,10 @@ async fn generate_icon_batch(
 
     let batch_dir = state.icons_dir.join(&batch_id);
     std::fs::create_dir_all(&batch_dir).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create batch dir: {e}"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create batch dir: {e}"),
+        )
     })?;
 
     info!(
@@ -3414,7 +3896,14 @@ async fn generate_icon_batch(
 
         let image_bytes_result = if let Some(base64_img) = &request.base64_image {
             // If they provided a reference image, use the vision/edit endpoint
-            gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", temperature, Some("1:1")).await
+            gemini::generate_image_edit_bytes(
+                &wrapped_prompt,
+                base64_img,
+                "image/png",
+                temperature,
+                Some("1:1"),
+            )
+            .await
         } else {
             // Standard image generation
             gemini::generate_image_bytes(&wrapped_prompt, temperature, 256, 256, Some("1:1")).await
@@ -3431,32 +3920,44 @@ async fn generate_icon_batch(
         let item_prompt_cloned = item_prompt.clone();
         let style_prompt_cloned = style_prompt.clone();
 
-        let icon = tokio::task::spawn_blocking(move || -> Result<BatchIcon, (StatusCode, String)> {
-            let img = image::load_from_memory(&image_bytes).map_err(|e| {
-                error!("Failed to decode icon image: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Image decode error: {e}"))
-            })?;
+        let icon =
+            tokio::task::spawn_blocking(move || -> Result<BatchIcon, (StatusCode, String)> {
+                let img = image::load_from_memory(&image_bytes).map_err(|e| {
+                    error!("Failed to decode icon image: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Image decode error: {e}"),
+                    )
+                })?;
 
-            let filename = format!("{:03}.png", i);
-            let path = batch_dir_clone.join(&filename);
+                let filename = format!("{:03}.png", i);
+                let path = batch_dir_clone.join(&filename);
 
-            img.save(&path).map_err(|e| {
-                error!("Failed to save icon: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}"))
-            })?;
+                img.save(&path).map_err(|e| {
+                    error!("Failed to save icon: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Save error: {e}"),
+                    )
+                })?;
 
-            info!(path = %path.display(), "icon saved");
-            Ok(BatchIcon {
-                filename: filename.clone(),
-                prompt: full_prompt_cloned,
-                style_prompt: style_prompt_cloned,
-                item_prompt: item_prompt_cloned,
-                url: format!("/api/icons/{}/{}", batch_id_clone, filename),
+                info!(path = %path.display(), "icon saved");
+                Ok(BatchIcon {
+                    filename: filename.clone(),
+                    prompt: full_prompt_cloned,
+                    style_prompt: style_prompt_cloned,
+                    item_prompt: item_prompt_cloned,
+                    url: format!("/api/icons/{}/{}", batch_id_clone, filename),
+                })
             })
-        })
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {e}")))?
-        .map_err(|e| e)?;
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Task join error: {e}"),
+                )
+            })?
+            .map_err(|e| e)?;
 
         icons.push(icon);
     }
@@ -3464,17 +3965,27 @@ async fn generate_icon_batch(
     // Write manifest
     let manifest = BatchManifest {
         batch_id: batch_id.clone(),
-        batch_name: if batch_name.is_empty() { batch_id[..8].to_uppercase() } else { batch_name },
+        batch_name: if batch_name.is_empty() {
+            batch_id[..8].to_uppercase()
+        } else {
+            batch_name
+        },
         created_at,
         icons,
     };
 
     let manifest_path = batch_dir.join("manifest.json");
     let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {e}"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("JSON error: {e}"),
+        )
     })?;
     std::fs::write(&manifest_path, &manifest_json).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Manifest write error: {e}"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Manifest write error: {e}"),
+        )
     })?;
 
     info!(batch_id = %batch_id, total = manifest.icons.len(), "batch generation completed");
@@ -3505,8 +4016,8 @@ async fn list_icon_batches(
             }
             let data = std::fs::read_to_string(&manifest_path)
                 .map_err(|e| format!("read manifest: {e}"))?;
-            let manifest: BatchManifest = serde_json::from_str(&data)
-                .map_err(|e| format!("parse manifest: {e}"))?;
+            let manifest: BatchManifest =
+                serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
 
             let thumbnail_url = manifest.icons.first().map(|i| i.url.clone());
             result.push(BatchSummary {
@@ -3522,7 +4033,12 @@ async fn list_icon_batches(
         Ok(result)
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task error: {e}"),
+        )
+    })?
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(batches))
@@ -3536,11 +4052,19 @@ async fn get_icon_batch(
     if !manifest_path.exists() {
         return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
     }
-    let data = tokio::fs::read_to_string(&manifest_path).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"))
-    })?;
+    let data = tokio::fs::read_to_string(&manifest_path)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Read error: {e}"),
+            )
+        })?;
     let manifest: BatchManifest = serde_json::from_str(&data).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse error: {e}"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Parse error: {e}"),
+        )
     })?;
     Ok(Json(manifest))
 }
@@ -3555,7 +4079,10 @@ async fn delete_icon_batch(
         return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
     }
     std::fs::remove_dir_all(&batch_dir).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete batch: {e}"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to delete batch: {e}"),
+        )
     })?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -3571,7 +4098,8 @@ async fn generate_texture_batch(
         return Err((StatusCode::BAD_REQUEST, "No prompts provided".to_string()));
     }
 
-    let batch_name = request.batch_name
+    let batch_name = request
+        .batch_name
         .as_deref()
         .map(|n| n.trim())
         .filter(|n| !n.is_empty())
@@ -3586,7 +4114,10 @@ async fn generate_texture_batch(
 
     let batch_dir = state.textures_dir.join(&batch_id);
     std::fs::create_dir_all(&batch_dir).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create batch dir: {e}"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create batch dir: {e}"),
+        )
     })?;
 
     let created_at = chrono::Utc::now().to_rfc3339();
@@ -3643,7 +4174,14 @@ async fn generate_texture_batch(
         let temperature = request.temperature.or(Some(0.4));
 
         let image_bytes_result = if let Some(base64_img) = &request.base64_image {
-            gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", temperature, Some("1:1")).await
+            gemini::generate_image_edit_bytes(
+                &wrapped_prompt,
+                base64_img,
+                "image/png",
+                temperature,
+                Some("1:1"),
+            )
+            .await
         } else {
             gemini::generate_image_bytes(&wrapped_prompt, temperature, 512, 512, Some("1:1")).await
         };
@@ -3659,39 +4197,55 @@ async fn generate_texture_batch(
         let item_prompt_cloned = item_prompt.clone();
         let style_prompt_cloned = style_prompt.clone();
 
-        let texture = tokio::task::spawn_blocking(move || -> Result<BatchTexture, (StatusCode, String)> {
-            let img = image::load_from_memory(&image_bytes).map_err(|e| {
-                error!("Failed to decode texture image: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Image decode error: {e}"))
-            })?;
+        let texture =
+            tokio::task::spawn_blocking(move || -> Result<BatchTexture, (StatusCode, String)> {
+                let img = image::load_from_memory(&image_bytes).map_err(|e| {
+                    error!("Failed to decode texture image: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Image decode error: {e}"),
+                    )
+                })?;
 
-            let filename = format!("{:03}.png", i);
-            let path = batch_dir_clone.join(&filename);
+                let filename = format!("{:03}.png", i);
+                let path = batch_dir_clone.join(&filename);
 
-            img.save(&path).map_err(|e| {
-                error!("Failed to save texture: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}"))
-            })?;
+                img.save(&path).map_err(|e| {
+                    error!("Failed to save texture: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Save error: {e}"),
+                    )
+                })?;
 
-            info!(path = %path.display(), "texture saved");
-            Ok(BatchTexture {
-                filename: filename.clone(),
-                prompt: full_prompt_cloned,
-                style_prompt: style_prompt_cloned,
-                item_prompt: item_prompt_cloned,
-                url: format!("/api/textures/{}/{}", batch_id_clone, filename),
+                info!(path = %path.display(), "texture saved");
+                Ok(BatchTexture {
+                    filename: filename.clone(),
+                    prompt: full_prompt_cloned,
+                    style_prompt: style_prompt_cloned,
+                    item_prompt: item_prompt_cloned,
+                    url: format!("/api/textures/{}/{}", batch_id_clone, filename),
+                })
             })
-        })
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {e}")))?
-        .map_err(|e| e)?;
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Task join error: {e}"),
+                )
+            })?
+            .map_err(|e| e)?;
 
         textures.push(texture);
     }
 
     let manifest = TextureBatchManifest {
         batch_id: batch_id.clone(),
-        batch_name: if batch_name.is_empty() { batch_id[..8].to_uppercase() } else { batch_name },
+        batch_name: if batch_name.is_empty() {
+            batch_id[..8].to_uppercase()
+        } else {
+            batch_name
+        },
         created_at,
         category: request.category,
         sub_category: request.sub_category,
@@ -3700,10 +4254,16 @@ async fn generate_texture_batch(
 
     let manifest_path = batch_dir.join("manifest.json");
     let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("JSON error: {e}"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("JSON error: {e}"),
+        )
     })?;
     std::fs::write(&manifest_path, &manifest_json).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Manifest write error: {e}"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Manifest write error: {e}"),
+        )
     })?;
 
     info!(batch_id = %batch_id, total = manifest.textures.len(), "texture batch completed");
@@ -3716,44 +4276,50 @@ async fn list_texture_batches(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let textures_dir = state.textures_dir.clone();
 
-    let batches = tokio::task::spawn_blocking(move || -> Result<Vec<TextureBatchSummary>, String> {
-        let mut result = Vec::new();
-        if !textures_dir.exists() {
-            return Ok(result);
-        }
-        let dir = std::fs::read_dir(&textures_dir).map_err(|e| format!("read dir: {e}"))?;
-        for entry in dir {
-            let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
+    let batches =
+        tokio::task::spawn_blocking(move || -> Result<Vec<TextureBatchSummary>, String> {
+            let mut result = Vec::new();
+            if !textures_dir.exists() {
+                return Ok(result);
             }
-            let manifest_path = path.join("manifest.json");
-            if !manifest_path.exists() {
-                continue;
-            }
-            let data = std::fs::read_to_string(&manifest_path)
-                .map_err(|e| format!("read manifest: {e}"))?;
-            let manifest: TextureBatchManifest = serde_json::from_str(&data)
-                .map_err(|e| format!("parse manifest: {e}"))?;
+            let dir = std::fs::read_dir(&textures_dir).map_err(|e| format!("read dir: {e}"))?;
+            for entry in dir {
+                let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let manifest_path = path.join("manifest.json");
+                if !manifest_path.exists() {
+                    continue;
+                }
+                let data = std::fs::read_to_string(&manifest_path)
+                    .map_err(|e| format!("read manifest: {e}"))?;
+                let manifest: TextureBatchManifest =
+                    serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
 
-            let thumbnail_url = manifest.textures.first().map(|i| i.url.clone());
-            result.push(TextureBatchSummary {
-                batch_id: manifest.batch_id,
-                batch_name: manifest.batch_name,
-                texture_count: manifest.textures.len(),
-                created_at: manifest.created_at,
-                category: manifest.category,
-                sub_category: manifest.sub_category,
-                thumbnail_url,
-            });
-        }
-        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        Ok(result)
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+                let thumbnail_url = manifest.textures.first().map(|i| i.url.clone());
+                result.push(TextureBatchSummary {
+                    batch_id: manifest.batch_id,
+                    batch_name: manifest.batch_name,
+                    texture_count: manifest.textures.len(),
+                    created_at: manifest.created_at,
+                    category: manifest.category,
+                    sub_category: manifest.sub_category,
+                    thumbnail_url,
+                });
+            }
+            result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            Ok(result)
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Task error: {e}"),
+            )
+        })?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(batches))
 }
@@ -3767,11 +4333,19 @@ async fn get_texture_batch(
     if !manifest_path.exists() {
         return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
     }
-    let data = tokio::fs::read_to_string(&manifest_path).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}"))
-    })?;
+    let data = tokio::fs::read_to_string(&manifest_path)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Read error: {e}"),
+            )
+        })?;
     let manifest: TextureBatchManifest = serde_json::from_str(&data).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse error: {e}"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Parse error: {e}"),
+        )
     })?;
     Ok(Json(manifest))
 }
@@ -3786,7 +4360,10 @@ async fn delete_texture_batch(
         return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
     }
     std::fs::remove_dir_all(&batch_dir).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete batch: {e}"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to delete batch: {e}"),
+        )
     })?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -3825,7 +4402,14 @@ async fn regenerate_icon(
     let temperature = request.temperature.or(Some(0.4));
 
     let image_bytes_result = if let Some(base64_img) = &request.base64_image {
-        gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", temperature, Some("1:1")).await
+        gemini::generate_image_edit_bytes(
+            &wrapped_prompt,
+            base64_img,
+            "image/png",
+            temperature,
+            Some("1:1"),
+        )
+        .await
     } else {
         gemini::generate_image_bytes(&wrapped_prompt, temperature, 256, 256, Some("1:1")).await
     };
@@ -3841,60 +4425,87 @@ async fn regenerate_icon(
     let item_prompt_cloned = item_text.clone();
     let style_prompt_cloned = style_text.clone();
 
-    let updated_icon = tokio::task::spawn_blocking(move || -> Result<BatchIcon, (StatusCode, String)> {
-        let img = image::load_from_memory(&image_bytes).map_err(|e| {
-            error!("Failed to decode icon image: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Image decode error: {e}"))
-        })?;
+    let updated_icon =
+        tokio::task::spawn_blocking(move || -> Result<BatchIcon, (StatusCode, String)> {
+            let img = image::load_from_memory(&image_bytes).map_err(|e| {
+                error!("Failed to decode icon image: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Image decode error: {e}"),
+                )
+            })?;
 
-        let path = batch_dir.join(&filename_clone);
-        img.save(&path).map_err(|e| {
-            error!("Failed to save icon: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}"))
-        })?;
+            let path = batch_dir.join(&filename_clone);
+            img.save(&path).map_err(|e| {
+                error!("Failed to save icon: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Save error: {e}"),
+                )
+            })?;
 
-        // Update manifest
-        let data = std::fs::read_to_string(&manifest_path).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Read manifest error: {e}"))
-        })?;
-        let mut manifest: BatchManifest = serde_json::from_str(&data).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse manifest error: {e}"))
-        })?;
+            // Update manifest
+            let data = std::fs::read_to_string(&manifest_path).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Read manifest error: {e}"),
+                )
+            })?;
+            let mut manifest: BatchManifest = serde_json::from_str(&data).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Parse manifest error: {e}"),
+                )
+            })?;
 
-        let mut found = false;
-        for icon in &mut manifest.icons {
-            if icon.filename == filename_clone {
-                icon.prompt = full_prompt_cloned.clone();
-                icon.item_prompt = item_prompt_cloned.clone();
-                icon.style_prompt = style_prompt_cloned.clone();
-                found = true;
-                break;
+            let mut found = false;
+            for icon in &mut manifest.icons {
+                if icon.filename == filename_clone {
+                    icon.prompt = full_prompt_cloned.clone();
+                    icon.item_prompt = item_prompt_cloned.clone();
+                    icon.style_prompt = style_prompt_cloned.clone();
+                    found = true;
+                    break;
+                }
             }
-        }
 
-        if !found {
-            return Err((StatusCode::NOT_FOUND, "Icon not found in manifest".to_string()));
-        }
+            if !found {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    "Icon not found in manifest".to_string(),
+                ));
+            }
 
-        let updated_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Serialize manifest error: {e}"))
-        })?;
-        std::fs::write(&manifest_path, &updated_json).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Write manifest error: {e}"))
-        })?;
+            let updated_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Serialize manifest error: {e}"),
+                )
+            })?;
+            std::fs::write(&manifest_path, &updated_json).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Write manifest error: {e}"),
+                )
+            })?;
 
-        info!(path = %path.display(), "icon regenerated and manifest updated");
-        Ok(BatchIcon {
-            filename: filename_clone.clone(),
-            prompt: full_prompt_cloned,
-            item_prompt: item_prompt_cloned,
-            style_prompt: style_prompt_cloned,
-            url: format!("/api/icons/{}/{}", batch_id_clone, filename_clone),
+            info!(path = %path.display(), "icon regenerated and manifest updated");
+            Ok(BatchIcon {
+                filename: filename_clone.clone(),
+                prompt: full_prompt_cloned,
+                item_prompt: item_prompt_cloned,
+                style_prompt: style_prompt_cloned,
+                url: format!("/api/icons/{}/{}", batch_id_clone, filename_clone),
+            })
         })
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {e}")))?
-    .map_err(|e| e)?;
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Task join error: {e}"),
+            )
+        })?
+        .map_err(|e| e)?;
 
     Ok(Json(updated_icon))
 }
@@ -4063,16 +4674,19 @@ async fn rename_icon_batch(
 
     // If the new name resolves to a different folder that already exists, error
     if new_batch_id != batch_id && new_dir.exists() {
-        return Err((StatusCode::CONFLICT, format!("A batch named '{}' already exists", new_batch_id)));
+        return Err((
+            StatusCode::CONFLICT,
+            format!("A batch named '{}' already exists", new_batch_id),
+        ));
     }
 
     let result = tokio::task::spawn_blocking(move || -> Result<BatchManifest, String> {
         // Read current manifest
         let manifest_path = old_dir.join("manifest.json");
-        let data = std::fs::read_to_string(&manifest_path)
-            .map_err(|e| format!("read manifest: {e}"))?;
-        let mut manifest: BatchManifest = serde_json::from_str(&data)
-            .map_err(|e| format!("parse manifest: {e}"))?;
+        let data =
+            std::fs::read_to_string(&manifest_path).map_err(|e| format!("read manifest: {e}"))?;
+        let mut manifest: BatchManifest =
+            serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
 
         // Update manifest fields
         manifest.batch_name = new_name;
@@ -4091,8 +4705,7 @@ async fn rename_icon_batch(
 
         // Rename folder if batch_id changed
         if old_dir != new_dir {
-            std::fs::rename(&old_dir, &new_dir)
-                .map_err(|e| format!("rename folder: {e}"))?;
+            std::fs::rename(&old_dir, &new_dir).map_err(|e| format!("rename folder: {e}"))?;
             info!(
                 old = %old_dir.display(),
                 new = %new_dir.display(),
@@ -4103,7 +4716,12 @@ async fn rename_icon_batch(
         Ok(manifest)
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task error: {e}"),
+        )
+    })?
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(result))
@@ -4130,13 +4748,18 @@ async fn rename_texture_batch(
     }
 
     if new_batch_id != batch_id && new_dir.exists() {
-        return Err((StatusCode::CONFLICT, format!("A batch named '{}' already exists", new_batch_id)));
+        return Err((
+            StatusCode::CONFLICT,
+            format!("A batch named '{}' already exists", new_batch_id),
+        ));
     }
 
     let result = tokio::task::spawn_blocking(move || -> Result<TextureBatchManifest, String> {
         let manifest_path = old_dir.join("manifest.json");
-        let data = std::fs::read_to_string(&manifest_path).map_err(|e| format!("read manifest: {e}"))?;
-        let mut manifest: TextureBatchManifest = serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
+        let data =
+            std::fs::read_to_string(&manifest_path).map_err(|e| format!("read manifest: {e}"))?;
+        let mut manifest: TextureBatchManifest =
+            serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
 
         manifest.batch_name = new_name;
         manifest.batch_id = new_batch_id.clone();
@@ -4145,8 +4768,10 @@ async fn rename_texture_batch(
             texture.url = format!("/api/textures/{}/{}", new_batch_id, texture.filename);
         }
 
-        let updated_json = serde_json::to_string_pretty(&manifest).map_err(|e| format!("serialize manifest: {e}"))?;
-        std::fs::write(&manifest_path, &updated_json).map_err(|e| format!("write manifest: {e}"))?;
+        let updated_json = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| format!("serialize manifest: {e}"))?;
+        std::fs::write(&manifest_path, &updated_json)
+            .map_err(|e| format!("write manifest: {e}"))?;
 
         if old_dir != new_dir {
             std::fs::rename(&old_dir, &new_dir).map_err(|e| format!("rename folder: {e}"))?;
@@ -4155,7 +4780,12 @@ async fn rename_texture_batch(
         Ok(manifest)
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task error: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task error: {e}"),
+        )
+    })?
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(result))
@@ -4206,57 +4836,88 @@ async fn regenerate_texture(
 
     let temperature = request.temperature.or(Some(0.4));
     let image_bytes_result = if let Some(base64_img) = &request.base64_image {
-        gemini::generate_image_edit_bytes(&wrapped_prompt, base64_img, "image/png", temperature, Some("1:1")).await
+        gemini::generate_image_edit_bytes(
+            &wrapped_prompt,
+            base64_img,
+            "image/png",
+            temperature,
+            Some("1:1"),
+        )
+        .await
     } else {
         gemini::generate_image_bytes(&wrapped_prompt, temperature, 512, 512, Some("1:1")).await
     };
 
     let image_bytes = image_bytes_result.map_err(|(code, msg)| (code, msg))?;
 
-    let updated_texture = tokio::task::spawn_blocking(move || -> Result<BatchTexture, (StatusCode, String)> {
-        let img = image::load_from_memory(&image_bytes).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Image decode error: {e}"))
-        })?;
+    let updated_texture =
+        tokio::task::spawn_blocking(move || -> Result<BatchTexture, (StatusCode, String)> {
+            let img = image::load_from_memory(&image_bytes).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Image decode error: {e}"),
+                )
+            })?;
 
-        let path = batch_dir.join(&filename);
-        img.save(&path).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}"))
-        })?;
+            let path = batch_dir.join(&filename);
+            img.save(&path).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Save error: {e}"),
+                )
+            })?;
 
-        let data = std::fs::read_to_string(&manifest_path).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Read manifest error: {e}"))
-        })?;
-        let mut manifest: TextureBatchManifest = serde_json::from_str(&data).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Parse manifest error: {e}"))
-        })?;
+            let data = std::fs::read_to_string(&manifest_path).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Read manifest error: {e}"),
+                )
+            })?;
+            let mut manifest: TextureBatchManifest = serde_json::from_str(&data).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Parse manifest error: {e}"),
+                )
+            })?;
 
-        for texture in &mut manifest.textures {
-            if texture.filename == filename {
-                texture.prompt = full_prompt.clone();
-                texture.item_prompt = item_text.clone();
-                texture.style_prompt = style_text.clone();
-                break;
+            for texture in &mut manifest.textures {
+                if texture.filename == filename {
+                    texture.prompt = full_prompt.clone();
+                    texture.item_prompt = item_text.clone();
+                    texture.style_prompt = style_text.clone();
+                    break;
+                }
             }
-        }
 
-        let updated_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Serialize manifest error: {e}"))
-        })?;
-        std::fs::write(&manifest_path, &updated_json).map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Write manifest error: {e}"))
-        })?;
+            let updated_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Serialize manifest error: {e}"),
+                )
+            })?;
+            std::fs::write(&manifest_path, &updated_json).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Write manifest error: {e}"),
+                )
+            })?;
 
-        Ok(BatchTexture {
-            filename: filename.clone(),
-            prompt: full_prompt,
-            style_prompt: style_text,
-            item_prompt: item_text,
-            url: format!("/api/textures/{}/{}", batch_id, filename),
+            Ok(BatchTexture {
+                filename: filename.clone(),
+                prompt: full_prompt,
+                style_prompt: style_text,
+                item_prompt: item_text,
+                url: format!("/api/textures/{}/{}", batch_id, filename),
+            })
         })
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {e}")))?
-    .map_err(|e| e)?;
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Task join error: {e}"),
+            )
+        })?
+        .map_err(|e| e)?;
 
     Ok(Json(updated_texture))
 }
@@ -4373,8 +5034,15 @@ async fn export_textures_registry(
 }
 
 fn load_supabase_storage_config() -> Option<SupabaseStorageConfig> {
-    let url = std::env::var("SUPABASE_URL").ok()?.trim().trim_end_matches('/').to_string();
-    let service_role_key = std::env::var("SUPABASE_SERVICE_ROLE_KEY").ok()?.trim().to_string();
+    let url = std::env::var("SUPABASE_URL")
+        .ok()?
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
+    let service_role_key = std::env::var("SUPABASE_SERVICE_ROLE_KEY")
+        .ok()?
+        .trim()
+        .to_string();
     let bucket = std::env::var("SUPABASE_BUCKET").ok()?.trim().to_string();
 
     if url.is_empty() || service_role_key.is_empty() || bucket.is_empty() {
@@ -4438,7 +5106,11 @@ fn collect_files_recursive(root: &std::path::Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn local_to_cloud_key(state: &AppState, cfg: &SupabaseStorageConfig, local_path: &std::path::Path) -> Option<String> {
+fn local_to_cloud_key(
+    state: &AppState,
+    cfg: &SupabaseStorageConfig,
+    local_path: &std::path::Path,
+) -> Option<String> {
     if let Ok(rel) = local_path.strip_prefix(&state.planets_dir) {
         return Some(format!("{}/planets/{}", cfg.prefix, normalize_slashes(rel)));
     }
@@ -4446,7 +5118,11 @@ fn local_to_cloud_key(state: &AppState, cfg: &SupabaseStorageConfig, local_path:
         return Some(format!("{}/icons/{}", cfg.prefix, normalize_slashes(rel)));
     }
     if let Ok(rel) = local_path.strip_prefix(&state.isolated_dir) {
-        return Some(format!("{}/isolated/{}", cfg.prefix, normalize_slashes(rel)));
+        return Some(format!(
+            "{}/isolated/{}",
+            cfg.prefix,
+            normalize_slashes(rel)
+        ));
     }
     None
 }
@@ -4474,7 +5150,9 @@ fn local_modified_at(path: &std::path::Path) -> Option<chrono::DateTime<chrono::
 
 fn remote_updated_at(updated_at: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
     let raw = updated_at?;
-    chrono::DateTime::parse_from_rfc3339(raw).ok().map(|dt| dt.with_timezone(&chrono::Utc))
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|dt| dt.with_timezone(&chrono::Utc))
 }
 
 async fn list_supabase_objects_recursive(
@@ -4528,7 +5206,10 @@ async fn list_supabase_objects_recursive(
             }
             files.push(RemoteObject {
                 path: full_path,
-                updated_at: entry.get("updated_at").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                updated_at: entry
+                    .get("updated_at")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 size_bytes: entry
                     .get("metadata")
                     .and_then(|m| m.get("size"))
@@ -4582,7 +5263,10 @@ async fn ensure_supabase_bucket_exists(
         Ok(())
     } else {
         let body = create_response.text().await.unwrap_or_default();
-        Err(format!("bucket create failed ({}): {}", create_status, body))
+        Err(format!(
+            "bucket create failed ({}): {}",
+            create_status, body
+        ))
     }
 }
 
@@ -4682,11 +5366,21 @@ async fn browse_supabase_objects(
                     path: o.path.clone(),
                     size_bytes: o.size_bytes,
                     updated_at: o.updated_at.clone(),
-                    public_url: format!("{}/storage/v1/object/public/{}/{}", cfg.url, cfg.bucket, o.path),
+                    public_url: format!(
+                        "{}/storage/v1/object/public/{}/{}",
+                        cfg.url, cfg.bucket, o.path
+                    ),
                 })
                 .collect::<Vec<_>>();
 
-            (StatusCode::OK, Json(SupabaseBrowseResponse { prefix: normalized_prefix, objects: items })).into_response()
+            (
+                StatusCode::OK,
+                Json(SupabaseBrowseResponse {
+                    prefix: normalized_prefix,
+                    objects: items,
+                }),
+            )
+                .into_response()
         }
         Err(err) => (
             StatusCode::BAD_GATEWAY,
@@ -4710,7 +5404,10 @@ async fn sync_supabase_storage(
             .into_response();
     };
 
-    let direction = request.direction.unwrap_or_else(|| "both".to_string()).to_lowercase();
+    let direction = request
+        .direction
+        .unwrap_or_else(|| "both".to_string())
+        .to_lowercase();
     if direction != "push" && direction != "pull" && direction != "both" {
         return (
             StatusCode::BAD_REQUEST,
@@ -4737,7 +5434,8 @@ async fn sync_supabase_storage(
     let planets_prefix = format!("{}/planets", cfg.prefix);
     let icons_prefix = format!("{}/icons", cfg.prefix);
     let isolated_prefix = format!("{}/isolated", cfg.prefix);
-    let remote_planets = match list_supabase_objects_recursive(&client, cfg, &planets_prefix).await {
+    let remote_planets = match list_supabase_objects_recursive(&client, cfg, &planets_prefix).await
+    {
         Ok(v) => v,
         Err(err) => {
             return (
@@ -4757,16 +5455,17 @@ async fn sync_supabase_storage(
                 .into_response();
         }
     };
-    let remote_isolated = match list_supabase_objects_recursive(&client, cfg, &isolated_prefix).await {
-        Ok(v) => v,
-        Err(err) => {
-            return (
-                StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({ "error": err })),
-            )
-                .into_response();
-        }
-    };
+    let remote_isolated =
+        match list_supabase_objects_recursive(&client, cfg, &isolated_prefix).await {
+            Ok(v) => v,
+            Err(err) => {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({ "error": err })),
+                )
+                    .into_response();
+            }
+        };
     let remote_files = remote_planets
         .into_iter()
         .chain(remote_icons.into_iter())
@@ -4803,7 +5502,10 @@ async fn sync_supabase_storage(
 
             match std::fs::read(local_path) {
                 Ok(bytes) => {
-                    if upload_to_supabase(&client, cfg, &cloud_key, bytes).await.is_ok() {
+                    if upload_to_supabase(&client, cfg, &cloud_key, bytes)
+                        .await
+                        .is_ok()
+                    {
                         uploaded += 1;
                     } else {
                         failed += 1;
