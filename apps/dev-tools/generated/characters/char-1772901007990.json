@@ -1,0 +1,240 @@
+{
+  "age": 24,
+  "alignment": "True Neutral",
+  "appearancePrompt": "The CLO of Moebius, a multination tech company and the right hand of the CEO Zach",
+  "backstory": "The CLO of Moebius, a multination tech company and the right hand of the CEO Zach",
+  "badge": "",
+  "currentStory": "",
+  "equipped": {
+    "boots": null,
+    "chest": null,
+    "gloves": null,
+    "head": null,
+    "legs": null,
+    "mainHand": null,
+    "offHand": null,
+    "waist": null
+  },
+  "faction": "",
+  "gender": "Male",
+  "history": "Before the heavens suffocated under a permanent blanket of soot, Tristan was defined by a different life. Built on the legacy of The CLO of Moebius, a multination tech company and the right hand of the CEO Zach, they participated in the shimmering final years of the 20th century, before the sky darkened and the world dissolved.\n\nThe end did not arrive with a scream, but with the silent, creeping advance of the Great Fog. Tristan witnessed the terrifying transition as the horizon vanished and the sun became a pale, dying ember. They navigated the frantic desperation of the era, where the last vestiges of sovereignty were traded for drops of fuel.\n\nWhen the surface finally became uninhabitable, the migration into the deep began. Tristan lived through the agonizing silence of the underground vaults, surviving for years behind reinforced structural shells as the world they remembered slowly turned to dust.\n\nEmerging from the vaults, Tristan found a planet that no longer recognized its masters. They became a scavenger of the wastes, reclaiming artifacts of the past to build the foundations of a new, fractured society, proving to be a vital component in the machinery of reclamation.\n\nToday, as a specialized Wanderer, Tristan has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Each step is a testament to a spirit for whom the Ash has finally become home.",
+  "hp": 35,
+  "id": "char-1772901007990",
+  "inventory": [],
+  "isNPC": false,
+  "level": 100,
+  "maxHp": 35,
+  "name": "Tristan",
+  "occupation": {
+    "category": "FIELD",
+    "description": "Moved ahead of groups to map terrain, mark hazards, and report back. Light on their feet, sharp-eyed, and comfortable alone in hostile territory.",
+    "id": "occ-scout",
+    "name": "Scout",
+    "perks": [
+      "Map discovery range doubled",
+      "Reduced encounter danger on roads",
+      "POIs revealed earlier"
+    ],
+    "shortDescription": "Eyes and ears of every expedition."
+  },
+  "skills": [
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 0,
+      "damage": 12,
+      "description": "A quick melee strike with a blade.",
+      "effectType": "physical",
+      "icon": "⚔️",
+      "id": "slash",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Slash",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Basic medical patch-up.",
+      "effectType": "support",
+      "healing": 15,
+      "icon": "🩹",
+      "id": "first-aid",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "First Aid",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Push an enemy back and potentially cause shock damage.",
+      "effectType": "physical",
+      "icon": "✋",
+      "id": "shove",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Shove",
+      "pushDistance": 2,
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Protect an ally for 1 turn. You tank damage redirected to them with reductions based on your Endurance vs Incoming Damage.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "PROTECTION_STANCE",
+          "value": 0
+        }
+      ],
+      "icon": "🛡️",
+      "id": "defend",
+      "maxRange": 2,
+      "minRange": 1,
+      "name": "Defend",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Become invisible to enemies. Any damage taken will reveal you. Duration increases with Wisdom.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "STEALTH",
+          "value": 0
+        }
+      ],
+      "icon": "👤",
+      "id": "hide",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Hide",
+      "targetType": "self"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Bother the enemy with your charisma, reducing their MP based on your Charisma vs target Wisdom.",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 1,
+          "target": "mp",
+          "type": "STAT_MODIFIER",
+          "value": 0
+        }
+      ],
+      "icon": "🎭",
+      "id": "distract",
+      "maxRange": 4,
+      "minRange": 1,
+      "name": "Distract",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Find weaknesses in the target, increasing critical chance for all attackers based on your Intelligence. (Max difference: 5 levels)",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 2,
+          "type": "ANALYZED",
+          "value": 0
+        }
+      ],
+      "icon": "🔍",
+      "id": "analyze",
+      "maxRange": 5,
+      "minRange": 1,
+      "name": "Analyze",
+      "targetType": "enemy"
+    }
+  ],
+  "stats": {
+    "agility": 5,
+    "charisma": 6,
+    "endurance": 5,
+    "intelligence": 7,
+    "strength": 6,
+    "wisdom": 6
+  },
+  "title": "The Nameless",
+  "traits": [
+    {
+      "cost": -5,
+      "description": "Hears voices in radio static. Random morale fluctuations.",
+      "id": "t-static-whispers",
+      "name": "Static Whispers",
+      "type": "negative"
+    },
+    {
+      "cost": -5,
+      "description": "10% chance to fail complex manual tasks and waste resources.",
+      "id": "t48",
+      "name": "Clumsy",
+      "type": "negative"
+    },
+    {
+      "cost": 9,
+      "description": "Instinct for forgotten routes. Travel encounters are 25% less likely, and map discovery range is increased.",
+      "id": "t-pathfinder",
+      "name": "Pathfinder",
+      "type": "positive"
+    },
+    {
+      "cost": 7,
+      "description": "Charisma that works even in the Ash. Better rates with all traders.",
+      "id": "t21",
+      "name": "Silver Tongue",
+      "type": "positive"
+    },
+    {
+      "cost": -7,
+      "description": "Careless with supplies. Ammo and tools are consumed 15% faster.",
+      "id": "t-reckless-loader",
+      "name": "Reckless Loader",
+      "type": "negative"
+    },
+    {
+      "cost": 6,
+      "description": "You speak the language of the low-life. Rumors you hear are 20% more likely to be accurate.",
+      "id": "t-streetwise",
+      "name": "Streetwise",
+      "type": "positive"
+    },
+    {
+      "cost": 9,
+      "description": "Deals 20% extra damage when initiating combat from stealth.",
+      "id": "t22",
+      "name": "Bushwhacker",
+      "type": "positive"
+    }
+  ],
+  "xp": 0
+}

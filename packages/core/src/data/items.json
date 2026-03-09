@@ -107,5 +107,76 @@
     "id": "item-1772541756003",
     "name": "griffe de sterling",
     "rarity": "relic"
+  },
+  {
+    "category": "weapon",
+    "cost": 2026,
+    "description": "A gun made for the C-Suite of Moebius",
+    "effects": [
+      {
+        "target": "charisma",
+        "type": "STAT_MODIFIER",
+        "value": 5
+      },
+      {
+        "target": "crit_rate",
+        "type": "STAT_MODIFIER",
+        "value": 10
+      },
+      {
+        "target": "intelligence",
+        "type": "STAT_MODIFIER",
+        "value": 10
+      },
+      {
+        "target": "intelligence",
+        "type": "STAT_MODIFIER",
+        "value": 10
+      }
+    ],
+    "equipSlot": "mainHand",
+    "icon": "📦",
+    "id": "item-1772901369456",
+    "name": "Moebius' Blaster",
+    "rarity": "specialized"
+  },
+  {
+    "category": "armor",
+    "cost": 2026,
+    "description": "A cap made for the C-Suite of Moebius",
+    "effects": [
+      {
+        "target": "wisdom",
+        "type": "STAT_MODIFIER",
+        "value": 10
+      }
+    ],
+    "equipSlot": "head",
+    "icon": "📦",
+    "id": "item-1772901546306",
+    "name": "Moebius' Cap",
+    "rarity": "relic"
+  },
+  {
+    "category": "armor",
+    "cost": 0,
+    "description": "A tuxedo made for the C-suite of Moebius.",
+    "effects": [
+      {
+        "target": "charisma",
+        "type": "STAT_MODIFIER",
+        "value": 10
+      },
+      {
+        "target": "agility",
+        "type": "STAT_MODIFIER",
+        "value": 10
+      }
+    ],
+    "equipSlot": "chest",
+    "icon": "📦",
+    "id": "item-1772901624775",
+    "name": "Moebius' Tuxedo",
+    "rarity": "specialized"
   }
 ]
