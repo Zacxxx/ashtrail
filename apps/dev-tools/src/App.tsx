@@ -10,8 +10,8 @@ const TOOLS = [
         color: "bg-purple-500",
     },
     {
-        id: "image-generator",
-        name: "Image Generator",
+        id: "asset-generator",
+        name: "Asset Generator",
         description: "AI-powered generation of icons and textures for game assets using Gemini.",
         icon: "🎨",
         status: "WIP",
@@ -69,7 +69,7 @@ const TOOLS = [
 
 export function App() {
     return (
-        <div className="bg-[#070b12] text-gray-300 font-sans p-8">
+        <div className="bg-[#070b12] text-gray-300 font-sans pt-24 px-8 pb-8">
             {/* Tools Grid */}
             <main className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl">
                 {TOOLS.map((tool) => (

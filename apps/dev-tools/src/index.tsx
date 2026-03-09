@@ -4,7 +4,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { App } from "./App";
 import { RootLayout } from "./components/RootLayout";
 import { WorldGenPage } from "./worldgeneration";
-import { IconGenPage as ImageGeneratorPage } from "./icongen";
+import { AssetGeneratorPage } from "./assetgen";
 import { TravelPage } from "./travel";
 import { GalleryPage } from "./gallery";
 import { GameplayEnginePage } from "./gameplay-engine";
@@ -19,7 +19,7 @@ const router = createBrowserRouter([
         children: [
             { path: "/", element: <App /> },
             { path: "/worldgen", element: <WorldGenPage /> },
-            { path: "/image-generator", element: <ImageGeneratorPage /> },
+            { path: "/asset-generator", element: <AssetGeneratorPage /> },
             { path: "/travel", element: <TravelPage /> },
             { path: "/gallery", element: <GalleryPage /> },
             { path: "/gameplay-engine", element: <GameplayEnginePage /> },

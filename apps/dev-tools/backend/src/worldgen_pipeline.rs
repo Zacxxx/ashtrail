@@ -13,12 +13,13 @@ use std::sync::{Arc, Mutex};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use tracing::{info, error};
+use base64::{engine::general_purpose, Engine as _};
 
 use worldgen_core::*;
 use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
 use worldgen_core::export::PipelineStatus;
 
-use crate::{AppState, JobRecord, JobStatus};
+use crate::{gemini, AppState, JobRecord, JobStatus};
 
 // ── Request / Response Types ──
 
@@ -55,6 +56,84 @@ pub struct ListIsolatedResponse {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteIsolatedResponse {
     pub success: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpscaledProvinceRequest {
+    pub province_id: u32,
+    pub prompt: Option<String>,
+    pub model_id: Option<String>,
+    pub temperature: Option<f32>,
+    pub padding_px: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyUpscaledRequest {
+    pub target_planet_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpscaledBoundingBox {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpscaledProvinceMetadata {
+    pub artifact_id: String,
+    pub province_id: u32,
+    pub source_planet_id: String,
+    pub bbox: UpscaledBoundingBox,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub model_id: String,
+    pub fallback_model_id: Option<String>,
+    pub prompt: String,
+    pub padding_px: u32,
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpscaledProvinceImage {
+    pub artifact_id: String,
+    pub planet_id: String,
+    pub province_id: u32,
+    pub model_id: String,
+    pub fallback_model_id: Option<String>,
+    pub prompt: String,
+    pub created_at: u64,
+    pub bbox: UpscaledBoundingBox,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub image_url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListUpscaledResponse {
+    pub images: Vec<UpscaledProvinceImage>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteUpscaledResponse {
+    pub success: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyUpscaledResponse {
+    pub history_item: serde_json::Value,
+    pub texture_url: String,
+    pub variant_id: String,
+    pub parent_id: String,
 }
 
 // ── Job Response Types ──
@@ -117,7 +196,49 @@ fn worldgen_dir(planets_dir: &std::path::Path, planet_id: &str) -> PathBuf {
 }
 
 fn base_image_path(planets_dir: &std::path::Path, planet_id: &str) -> PathBuf {
-    planets_dir.join(planet_id).join("textures").join("base.jpg")
+    let textures_dir = planets_dir.join(planet_id).join("textures");
+    let jpg = textures_dir.join("base.jpg");
+    if jpg.exists() {
+        return jpg;
+    }
+    textures_dir.join("base.png")
+}
+
+fn upscaled_dir(isolated_root_dir: &std::path::Path, planet_id: &str) -> PathBuf {
+    isolated_root_dir.join(planet_id).join("upscaled")
+}
+
+fn upscaled_png_path(isolated_root_dir: &std::path::Path, planet_id: &str, artifact_id: &str) -> PathBuf {
+    upscaled_dir(isolated_root_dir, planet_id).join(format!("{artifact_id}.png"))
+}
+
+fn upscaled_meta_path(isolated_root_dir: &std::path::Path, planet_id: &str, artifact_id: &str) -> PathBuf {
+    upscaled_dir(isolated_root_dir, planet_id).join(format!("{artifact_id}.json"))
+}
+
+fn is_valid_artifact_id(artifact_id: &str) -> bool {
+    !artifact_id.is_empty()
+        && artifact_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn artifact_id_for_province(province_id: u32) -> String {
+    let ts = now_unix_ms();
+    let short = Uuid::new_v4()
+        .simple()
+        .to_string()
+        .chars()
+        .take(8)
+        .collect::<String>();
+    format!("province_{province_id}_{ts}_{short}")
 }
 
 pub(crate) fn ensure_isolated_province_asset(
@@ -406,6 +527,169 @@ pub async fn delete_isolated_region(
     Ok(Json(DeleteIsolatedResponse { success: true }))
 }
 
+// ── POST /api/worldgen/{planet_id}/upscaled/province ──
+
+pub async fn start_upscaled_province_refine(
+    State(state): State<AppState>,
+    Path(planet_id): Path<String>,
+    Json(request): Json<UpscaledProvinceRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let out_dir = worldgen_dir(&state.planets_dir, &planet_id);
+    let province_map_path = out_dir.join("province_id.png");
+    if !province_map_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Hierarchy map not found. Run clustering first.".into()));
+    }
+    let base_path = base_image_path(&state.planets_dir, &planet_id);
+    if !base_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Base texture not found.".into()));
+    }
+
+    let refine_dir = upscaled_dir(&state.isolated_dir, &planet_id);
+    fs::create_dir_all(&refine_dir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create upscaled dir: {}", e)))?;
+
+    let padding_px = request.padding_px.unwrap_or(96).min(512);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string())
+        })?;
+        jobs.insert(
+            job_id.clone(),
+            JobRecord {
+                status: JobStatus::Queued,
+                progress: 0.0,
+                current_stage: "Queued for Province Refinement".to_string(),
+                result: None,
+                error: None,
+                cancel_requested: false,
+            },
+        );
+    }
+
+    let jobs = state.jobs.clone();
+    let planets_dir = state.planets_dir.clone();
+    let isolated_dir = state.isolated_dir.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        run_upscaled_province_job(
+            spawned_job_id,
+            jobs,
+            planets_dir,
+            isolated_dir,
+            planet_id,
+            request.province_id,
+            request.prompt,
+            request.model_id,
+            request.temperature,
+            padding_px,
+        )
+        .await;
+    });
+
+    Ok(Json(RunStageResponse { job_id }))
+}
+
+// ── GET /api/worldgen/{planet_id}/upscaled ──
+
+pub async fn list_upscaled_regions(
+    State(state): State<AppState>,
+    Path(planet_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let images = read_upscaled_images_for_planet(&state.isolated_dir, &planet_id)?;
+    Ok(Json(ListUpscaledResponse { images }))
+}
+
+// ── GET /api/worldgen/upscaled/all ──
+
+pub async fn list_all_upscaled_regions(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let mut images = Vec::new();
+    if state.isolated_dir.exists() {
+        let entries = fs::read_dir(&state.isolated_dir)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read isolated dir: {}", e)))?;
+        for entry in entries.flatten() {
+            if !entry.path().is_dir() {
+                continue;
+            }
+            let planet_id = entry.file_name().to_string_lossy().to_string();
+            images.extend(read_upscaled_images_for_planet(&state.isolated_dir, &planet_id)?);
+        }
+    }
+
+    images.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(Json(ListUpscaledResponse { images }))
+}
+
+// ── DELETE /api/worldgen/{planet_id}/upscaled/{artifact_id} ──
+
+pub async fn delete_upscaled_region(
+    State(state): State<AppState>,
+    Path((planet_id, artifact_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if !is_valid_artifact_id(&artifact_id) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid artifact id.".into()));
+    }
+    let png_path = upscaled_png_path(&state.isolated_dir, &planet_id, &artifact_id);
+    let meta_path = upscaled_meta_path(&state.isolated_dir, &planet_id, &artifact_id);
+    if !png_path.exists() && !meta_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Upscaled artifact not found.".into()));
+    }
+    if png_path.exists() {
+        fs::remove_file(&png_path).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to delete {}: {}", png_path.display(), e),
+            )
+        })?;
+    }
+    if meta_path.exists() {
+        fs::remove_file(&meta_path).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to delete {}: {}", meta_path.display(), e),
+            )
+        })?;
+    }
+
+    Ok(Json(DeleteUpscaledResponse { success: true }))
+}
+
+// ── POST /api/worldgen/{planet_id}/upscaled/{artifact_id}/apply ──
+
+pub async fn apply_upscaled_region(
+    State(state): State<AppState>,
+    Path((planet_id, artifact_id)): Path<(String, String)>,
+    Json(request): Json<ApplyUpscaledRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if !is_valid_artifact_id(&artifact_id) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid artifact id.".into()));
+    }
+
+    let target_planet_id = request.target_planet_id.unwrap_or_else(|| planet_id.clone());
+    let isolated_dir = state.isolated_dir.clone();
+    let planets_dir = state.planets_dir.clone();
+
+    let response = tokio::task::spawn_blocking(move || -> Result<ApplyUpscaledResponse, String> {
+        apply_upscaled_region_impl(&planets_dir, &isolated_dir, &planet_id, &artifact_id, &target_planet_id)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| {
+        let lower = e.to_lowercase();
+        if lower.contains("not found") {
+            (StatusCode::NOT_FOUND, e)
+        } else if lower.contains("dimensions") || lower.contains("bounds") {
+            (StatusCode::BAD_REQUEST, e)
+        } else {
+            (StatusCode::INTERNAL_SERVER_ERROR, e)
+        }
+    })?;
+
+    Ok(Json(response))
+}
+
 // ── POST /api/worldgen/{planet_id}/run/{stage_name} ──
 
 pub async fn run_pipeline_stage(
@@ -490,6 +774,587 @@ pub async fn get_worldgen_job_status(
         current_stage: job.current_stage.clone(),
         error: job.error.clone(),
     }))
+}
+
+#[derive(Clone)]
+struct PreparedUpscaledProvince {
+    source_width: u32,
+    source_height: u32,
+    bbox: UpscaledBoundingBox,
+    source_crop: image::RgbaImage,
+    mask: Vec<bool>,
+    masked_crop_b64: String,
+}
+
+async fn run_upscaled_province_job(
+    job_id: String,
+    jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
+    planets_dir: PathBuf,
+    isolated_dir: PathBuf,
+    planet_id: String,
+    province_id: u32,
+    prompt: Option<String>,
+    requested_model_id: Option<String>,
+    temperature: Option<f32>,
+    padding_px: u32,
+) {
+    set_job_stage(&jobs, &job_id, JobStatus::Running, 1.0, "Preparing province crop");
+
+    let prepared = match tokio::task::spawn_blocking({
+        let planets_dir = planets_dir.clone();
+        let planet_id = planet_id.clone();
+        move || prepare_upscaled_province(&planets_dir, &planet_id, province_id, padding_px)
+    })
+    .await
+    {
+        Ok(Ok(prepared)) => prepared,
+        Ok(Err(e)) => {
+            set_job_failed(&jobs, &job_id, &e);
+            return;
+        }
+        Err(e) => {
+            set_job_failed(&jobs, &job_id, &format!("Province prep task failed: {}", e));
+            return;
+        }
+    };
+
+    set_job_stage(&jobs, &job_id, JobStatus::Running, 20.0, "Calling image model");
+
+    let model_catalog = gemini::image_model_catalog();
+    let mut model_chain = Vec::new();
+    if let Some(preferred) = requested_model_id
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        model_chain.push(preferred);
+    } else if !model_catalog.default_model_id.is_empty() {
+        model_chain.push(model_catalog.default_model_id.clone());
+    }
+    for model in &model_catalog.fallback_chain {
+        if !model_chain.contains(model) {
+            model_chain.push(model.clone());
+        }
+    }
+    if model_chain.is_empty() {
+        set_job_failed(&jobs, &job_id, "No configured image models found.");
+        return;
+    }
+
+    let user_prompt = prompt.unwrap_or_default().trim().to_string();
+    let effective_prompt = if user_prompt.is_empty() {
+        "Enhance this province at higher detail while preserving coastline, terrain continuity, and existing map style. Keep geography unchanged.".to_string()
+    } else {
+        format!(
+            "Enhance this province at higher detail while preserving coastline, terrain continuity, and existing map style. {}",
+            user_prompt
+        )
+    };
+
+    let mut generated_image: Option<Vec<u8>> = None;
+    let mut used_model = String::new();
+    let mut primary_error = String::new();
+    for (index, model_id) in model_chain.iter().enumerate() {
+        let pct = 25.0 + (index as f32 * 15.0);
+        set_job_stage(
+            &jobs,
+            &job_id,
+            JobStatus::Running,
+            pct.min(75.0),
+            &format!("Refining via model {}", model_id),
+        );
+        match gemini::generate_image_edit_bytes_with_model(
+            &effective_prompt,
+            &prepared.masked_crop_b64,
+            "image/png",
+            temperature,
+            None,
+            model_id,
+        )
+        .await
+        {
+            Ok(bytes) => {
+                generated_image = Some(bytes);
+                used_model = model_id.clone();
+                break;
+            }
+            Err((_code, err)) => {
+                if index == 0 {
+                    primary_error = err.clone();
+                }
+                error!(
+                    "Province refine model '{}' failed for province {}: {}",
+                    model_id, province_id, err
+                );
+            }
+        }
+    }
+
+    let Some(generated_bytes) = generated_image else {
+        set_job_failed(
+            &jobs,
+            &job_id,
+            &format!("All image models failed. First error: {}", primary_error),
+        );
+        return;
+    };
+
+    set_job_stage(&jobs, &job_id, JobStatus::Running, 85.0, "Postprocessing artifact");
+
+    let artifact_id = artifact_id_for_province(province_id);
+    let created_at = now_unix_ms();
+    let fallback_model_id = if model_chain.first().map(|s| s.as_str()) == Some(used_model.as_str()) {
+        None
+    } else {
+        Some(used_model.clone())
+    };
+    let metadata = UpscaledProvinceMetadata {
+        artifact_id: artifact_id.clone(),
+        province_id,
+        source_planet_id: planet_id.clone(),
+        bbox: prepared.bbox.clone(),
+        source_width: prepared.source_width,
+        source_height: prepared.source_height,
+        model_id: used_model,
+        fallback_model_id,
+        prompt: effective_prompt,
+        padding_px,
+        created_at,
+    };
+
+    let finalize_result = tokio::task::spawn_blocking({
+        let isolated_dir = isolated_dir.clone();
+        let planet_id = planet_id.clone();
+        let artifact_id = artifact_id.clone();
+        move || -> Result<(), String> {
+            finalize_upscaled_artifact(
+                &isolated_dir,
+                &planet_id,
+                &artifact_id,
+                &prepared,
+                &generated_bytes,
+                &metadata,
+            )
+        }
+    })
+    .await;
+
+    match finalize_result {
+        Ok(Ok(())) => {
+            set_job_stage(&jobs, &job_id, JobStatus::Completed, 100.0, "Completed");
+        }
+        Ok(Err(e)) => set_job_failed(&jobs, &job_id, &e),
+        Err(e) => set_job_failed(&jobs, &job_id, &format!("Artifact finalize task failed: {}", e)),
+    }
+}
+
+fn set_job_stage(
+    jobs: &Arc<Mutex<HashMap<String, JobRecord>>>,
+    job_id: &str,
+    status: JobStatus,
+    progress: f32,
+    stage: &str,
+) {
+    if let Ok(mut store) = jobs.lock() {
+        if let Some(job) = store.get_mut(job_id) {
+            job.status = status;
+            job.progress = progress;
+            job.current_stage = stage.to_string();
+        }
+    }
+}
+
+fn set_job_failed(jobs: &Arc<Mutex<HashMap<String, JobRecord>>>, job_id: &str, err: &str) {
+    if let Ok(mut store) = jobs.lock() {
+        if let Some(job) = store.get_mut(job_id) {
+            job.status = JobStatus::Failed;
+            job.current_stage = "Failed".to_string();
+            job.error = Some(err.to_string());
+        }
+    }
+}
+
+fn prepare_upscaled_province(
+    planets_dir: &std::path::Path,
+    planet_id: &str,
+    province_id: u32,
+    padding_px: u32,
+) -> Result<PreparedUpscaledProvince, String> {
+    let out_dir = worldgen_dir(planets_dir, planet_id);
+    let (province_id_map, width, height) = load_province_id_map(&out_dir)?;
+    let base_img = load_base_texture(&base_image_path(planets_dir, planet_id))?;
+    let bbox = compute_province_bbox(&province_id_map, width, height, province_id, padding_px)?;
+
+    let mut masked_crop = image::RgbaImage::new(bbox.width, bbox.height);
+    let mut source_crop = image::RgbaImage::new(bbox.width, bbox.height);
+    let mut mask = vec![false; (bbox.width * bbox.height) as usize];
+
+    for local_y in 0..bbox.height {
+        for local_x in 0..bbox.width {
+            let world_x = bbox.x + local_x;
+            let world_y = bbox.y + local_y;
+            let global_idx = (world_y * width + world_x) as usize;
+            let local_idx = (local_y * bbox.width + local_x) as usize;
+            let src = base_img.get_pixel(world_x, world_y);
+            source_crop.put_pixel(local_x, local_y, image::Rgba([src[0], src[1], src[2], 255]));
+
+            if province_id_map[global_idx] == province_id {
+                mask[local_idx] = true;
+                masked_crop.put_pixel(local_x, local_y, image::Rgba([src[0], src[1], src[2], 255]));
+            } else {
+                masked_crop.put_pixel(local_x, local_y, image::Rgba([0, 0, 0, 0]));
+            }
+        }
+    }
+
+    let mut png_bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(masked_crop.clone())
+        .write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode province crop PNG: {}", e))?;
+
+    Ok(PreparedUpscaledProvince {
+        source_width: width,
+        source_height: height,
+        bbox,
+        source_crop,
+        mask,
+        masked_crop_b64: general_purpose::STANDARD.encode(png_bytes),
+    })
+}
+
+fn compute_province_bbox(
+    province_id_map: &[u32],
+    width: u32,
+    height: u32,
+    province_id: u32,
+    padding_px: u32,
+) -> Result<UpscaledBoundingBox, String> {
+    let mut min_x = width;
+    let mut min_y = height;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
+    let mut found = false;
+
+    for y in 0..height {
+        for x in 0..width {
+            let idx = (y * width + x) as usize;
+            if province_id_map[idx] == province_id {
+                found = true;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+
+    if !found {
+        return Err(format!("Province {} not found in province_id.png", province_id));
+    }
+
+    let x0 = min_x.saturating_sub(padding_px);
+    let y0 = min_y.saturating_sub(padding_px);
+    let x1 = (max_x + padding_px).min(width.saturating_sub(1));
+    let y1 = (max_y + padding_px).min(height.saturating_sub(1));
+    Ok(UpscaledBoundingBox {
+        x: x0,
+        y: y0,
+        width: x1.saturating_sub(x0) + 1,
+        height: y1.saturating_sub(y0) + 1,
+    })
+}
+
+fn finalize_upscaled_artifact(
+    isolated_root_dir: &std::path::Path,
+    planet_id: &str,
+    artifact_id: &str,
+    prepared: &PreparedUpscaledProvince,
+    generated_bytes: &[u8],
+    metadata: &UpscaledProvinceMetadata,
+) -> Result<(), String> {
+    let refine_dir = upscaled_dir(isolated_root_dir, planet_id);
+    fs::create_dir_all(&refine_dir)
+        .map_err(|e| format!("Failed to create upscaled directory: {}", e))?;
+
+    let mut generated = image::load_from_memory(generated_bytes)
+        .map_err(|e| format!("Failed to decode generated image: {}", e))?
+        .to_rgba8();
+
+    if generated.width() != prepared.bbox.width || generated.height() != prepared.bbox.height {
+        generated = image::imageops::resize(
+            &generated,
+            prepared.bbox.width,
+            prepared.bbox.height,
+            image::imageops::FilterType::Lanczos3,
+        );
+    }
+
+    let mut output = image::RgbaImage::new(prepared.bbox.width, prepared.bbox.height);
+    for y in 0..prepared.bbox.height {
+        for x in 0..prepared.bbox.width {
+            let idx = (y * prepared.bbox.width + x) as usize;
+            if prepared.mask[idx] {
+                let near_edge = is_near_mask_edge(&prepared.mask, prepared.bbox.width, prepared.bbox.height, x, y, 2);
+                if near_edge {
+                    output.put_pixel(x, y, *prepared.source_crop.get_pixel(x, y));
+                } else {
+                    let px = generated.get_pixel(x, y);
+                    output.put_pixel(x, y, image::Rgba([px[0], px[1], px[2], 255]));
+                }
+            } else {
+                output.put_pixel(x, y, image::Rgba([0, 0, 0, 0]));
+            }
+        }
+    }
+
+    let png_path = upscaled_png_path(isolated_root_dir, planet_id, artifact_id);
+    output
+        .save(&png_path)
+        .map_err(|e| format!("Failed to save {}: {}", png_path.display(), e))?;
+
+    let meta_path = upscaled_meta_path(isolated_root_dir, planet_id, artifact_id);
+    let meta_json = serde_json::to_string_pretty(metadata)
+        .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+    fs::write(&meta_path, meta_json)
+        .map_err(|e| format!("Failed to write {}: {}", meta_path.display(), e))?;
+
+    Ok(())
+}
+
+fn is_near_mask_edge(mask: &[bool], width: u32, height: u32, x: u32, y: u32, radius: u32) -> bool {
+    if width == 0 || height == 0 {
+        return false;
+    }
+    let x0 = x.saturating_sub(radius);
+    let y0 = y.saturating_sub(radius);
+    let x1 = (x + radius).min(width - 1);
+    let y1 = (y + radius).min(height - 1);
+
+    for ny in y0..=y1 {
+        for nx in x0..=x1 {
+            let idx = (ny * width + nx) as usize;
+            if !mask[idx] {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn read_upscaled_images_for_planet(
+    isolated_root_dir: &std::path::Path,
+    planet_id: &str,
+) -> Result<Vec<UpscaledProvinceImage>, (StatusCode, String)> {
+    let mut images = Vec::new();
+    let dir = upscaled_dir(isolated_root_dir, planet_id);
+    if !dir.exists() {
+        return Ok(images);
+    }
+
+    let entries = fs::read_dir(&dir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read upscaled dir: {}", e)))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let raw = fs::read_to_string(&path).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to read {}: {}", path.display(), e),
+            )
+        })?;
+        let meta: UpscaledProvinceMetadata = serde_json::from_str(&raw).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to parse {}: {}", path.display(), e),
+            )
+        })?;
+        let png_path = upscaled_png_path(isolated_root_dir, planet_id, &meta.artifact_id);
+        if !png_path.exists() {
+            continue;
+        }
+
+        images.push(UpscaledProvinceImage {
+            artifact_id: meta.artifact_id.clone(),
+            planet_id: planet_id.to_string(),
+            province_id: meta.province_id,
+            model_id: meta.model_id.clone(),
+            fallback_model_id: meta.fallback_model_id.clone(),
+            prompt: meta.prompt.clone(),
+            created_at: meta.created_at,
+            bbox: meta.bbox.clone(),
+            source_width: meta.source_width,
+            source_height: meta.source_height,
+            image_url: format!(
+                "/api/isolated-assets/{}/upscaled/{}.png",
+                planet_id, meta.artifact_id
+            ),
+        });
+    }
+
+    images.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(images)
+}
+
+fn resolve_planet_texture_path(
+    planets_dir: &std::path::Path,
+    planet_id: &str,
+    metadata: &serde_json::Value,
+) -> PathBuf {
+    let base_dir = planets_dir.join(planet_id).join("textures");
+    if let Some(texture_url) = metadata.get("textureUrl").and_then(|v| v.as_str()) {
+        if let Some(filename) = texture_url.split('/').next_back() {
+            let candidate = base_dir.join(filename);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+    let png = base_dir.join("base.png");
+    if png.exists() {
+        return png;
+    }
+    base_dir.join("base.jpg")
+}
+
+fn apply_upscaled_region_impl(
+    planets_dir: &std::path::Path,
+    isolated_root_dir: &std::path::Path,
+    source_planet_id: &str,
+    artifact_id: &str,
+    target_planet_id: &str,
+) -> Result<ApplyUpscaledResponse, String> {
+    let meta_path = upscaled_meta_path(isolated_root_dir, source_planet_id, artifact_id);
+    if !meta_path.exists() {
+        return Err(format!("Upscaled artifact metadata not found: {}", meta_path.display()));
+    }
+    let png_path = upscaled_png_path(isolated_root_dir, source_planet_id, artifact_id);
+    if !png_path.exists() {
+        return Err(format!("Upscaled artifact image not found: {}", png_path.display()));
+    }
+
+    let meta_raw = fs::read_to_string(&meta_path)
+        .map_err(|e| format!("Failed to read {}: {}", meta_path.display(), e))?;
+    let meta: UpscaledProvinceMetadata = serde_json::from_str(&meta_raw)
+        .map_err(|e| format!("Failed to parse {}: {}", meta_path.display(), e))?;
+
+    let target_planet_dir = planets_dir.join(target_planet_id);
+    let target_metadata_path = target_planet_dir.join("metadata.json");
+    let mut target_metadata = if target_metadata_path.exists() {
+        let raw = fs::read_to_string(&target_metadata_path)
+            .map_err(|e| format!("Failed to read target metadata: {}", e))?;
+        serde_json::from_str::<serde_json::Value>(&raw)
+            .map_err(|e| format!("Failed to parse target metadata: {}", e))?
+    } else {
+        serde_json::json!({})
+    };
+
+    let target_texture_path = resolve_planet_texture_path(planets_dir, target_planet_id, &target_metadata);
+    if !target_texture_path.exists() {
+        return Err(format!("Target texture not found: {}", target_texture_path.display()));
+    }
+
+    let mut target_img = image::open(&target_texture_path)
+        .map_err(|e| format!("Failed to open target texture: {}", e))?
+        .to_rgba8();
+    let tile = image::open(&png_path)
+        .map_err(|e| format!("Failed to open upscaled tile: {}", e))?
+        .to_rgba8();
+
+    if target_img.width() != meta.source_width || target_img.height() != meta.source_height {
+        return Err(format!(
+            "Target texture dimensions {}x{} do not match artifact source {}x{}",
+            target_img.width(),
+            target_img.height(),
+            meta.source_width,
+            meta.source_height
+        ));
+    }
+    if tile.width() != meta.bbox.width || tile.height() != meta.bbox.height {
+        return Err("Upscaled tile dimensions do not match metadata bbox.".to_string());
+    }
+
+    if meta.bbox.x + meta.bbox.width > target_img.width() || meta.bbox.y + meta.bbox.height > target_img.height() {
+        return Err("Upscaled tile bbox is outside target texture bounds.".to_string());
+    }
+
+    for y in 0..meta.bbox.height {
+        for x in 0..meta.bbox.width {
+            let src = tile.get_pixel(x, y);
+            let alpha = src[3] as f32 / 255.0;
+            if alpha <= 0.0 {
+                continue;
+            }
+            let dst_x = meta.bbox.x + x;
+            let dst_y = meta.bbox.y + y;
+            let dst = target_img.get_pixel(dst_x, dst_y);
+            let blended = image::Rgba([
+                ((src[0] as f32 * alpha) + (dst[0] as f32 * (1.0 - alpha))) as u8,
+                ((src[1] as f32 * alpha) + (dst[1] as f32 * (1.0 - alpha))) as u8,
+                ((src[2] as f32 * alpha) + (dst[2] as f32 * (1.0 - alpha))) as u8,
+                255,
+            ]);
+            target_img.put_pixel(dst_x, dst_y, blended);
+        }
+    }
+
+    let variant_id = Uuid::new_v4().to_string();
+    let variant_dir = planets_dir.join(&variant_id);
+    let variant_textures_dir = variant_dir.join("textures");
+    fs::create_dir_all(&variant_textures_dir)
+        .map_err(|e| format!("Failed to create variant texture dir: {}", e))?;
+    let output_filename = "base.png";
+    let output_path = variant_textures_dir.join(output_filename);
+    target_img
+        .save(&output_path)
+        .map_err(|e| format!("Failed to save variant texture {}: {}", output_path.display(), e))?;
+
+    let texture_url = format!("/api/planets/{}/textures/{}", variant_id, output_filename);
+    let now = now_unix_ms();
+
+    let parent_name = target_metadata
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "World".to_string());
+    if let Some(obj) = target_metadata.as_object_mut() {
+        obj.insert("id".to_string(), serde_json::Value::String(variant_id.clone()));
+        obj.insert(
+            "timestamp".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(now)),
+        );
+        obj.insert(
+            "textureUrl".to_string(),
+            serde_json::Value::String(texture_url.clone()),
+        );
+        obj.insert(
+            "parentId".to_string(),
+            serde_json::Value::String(target_planet_id.to_string()),
+        );
+        obj.insert("isUpscaled".to_string(), serde_json::Value::Bool(false));
+        obj.insert(
+            "variantKind".to_string(),
+            serde_json::Value::String("provinceRefine".to_string()),
+        );
+        obj.insert(
+            "name".to_string(),
+            serde_json::Value::String(format!("{} • Province {}", parent_name, meta.province_id)),
+        );
+    }
+
+    let variant_metadata_path = variant_dir.join("metadata.json");
+    fs::write(
+        &variant_metadata_path,
+        serde_json::to_string_pretty(&target_metadata).unwrap_or_default(),
+    )
+    .map_err(|e| format!("Failed to write variant metadata: {}", e))?;
+
+    Ok(ApplyUpscaledResponse {
+        history_item: target_metadata,
+        texture_url,
+        variant_id,
+        parent_id: target_planet_id.to_string(),
+    })
 }
 
 // ── Blocking Stage Runner ──
@@ -1074,4 +1939,65 @@ fn build_continents(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compute_province_bbox_with_padding() {
+        let width = 6;
+        let height = 5;
+        let mut ids = vec![0u32; (width * height) as usize];
+        ids[(1 * width + 2) as usize] = 7;
+        ids[(2 * width + 3) as usize] = 7;
+
+        let bbox = compute_province_bbox(&ids, width, height, 7, 1).expect("bbox");
+        assert_eq!(bbox.x, 1);
+        assert_eq!(bbox.y, 0);
+        assert_eq!(bbox.width, 4);
+        assert_eq!(bbox.height, 4);
+    }
+
+    #[test]
+    fn near_mask_edge_detects_boundary_pixels() {
+        let width = 5;
+        let height = 5;
+        let mut mask = vec![false; (width * height) as usize];
+        for y in 1..4 {
+            for x in 1..4 {
+                mask[(y * width + x) as usize] = true;
+            }
+        }
+        assert!(is_near_mask_edge(&mask, width, height, 1, 1, 1));
+        assert!(!is_near_mask_edge(&mask, width, height, 2, 2, 1));
+    }
+
+    #[test]
+    fn upscaled_metadata_roundtrip() {
+        let meta = UpscaledProvinceMetadata {
+            artifact_id: "province_12_1_abcd1234".to_string(),
+            province_id: 12,
+            source_planet_id: "world-a".to_string(),
+            bbox: UpscaledBoundingBox {
+                x: 10,
+                y: 20,
+                width: 128,
+                height: 96,
+            },
+            source_width: 4096,
+            source_height: 2048,
+            model_id: "gemini-3.1-flash-image-preview".to_string(),
+            fallback_model_id: None,
+            prompt: "Enhance detail".to_string(),
+            padding_px: 96,
+            created_at: 123456,
+        };
+
+        let raw = serde_json::to_string(&meta).expect("serialize");
+        let parsed: UpscaledProvinceMetadata = serde_json::from_str(&raw).expect("parse");
+        assert_eq!(parsed.artifact_id, meta.artifact_id);
+        assert_eq!(parsed.bbox.width, 128);
+    }
 }

@@ -49,42 +49,36 @@ export function GameplayEnginePage() {
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
             <div className="absolute inset-0 z-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-orange-900/20 via-[#030508] to-[#030508]" />
 
-            {/* ══ Header ══ */}
-            <header className="absolute top-0 left-0 right-0 z-30 bg-[#030508]/90 backdrop-blur-md border-b border-white/5 pointer-events-auto">
-                <div className="h-16 flex items-center justify-between px-6 w-full">
-                    {/* Left: Logo */}
-                    <div className="flex items-center gap-6">
-                        <Link to="/" className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 hover:text-white transition-all">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                        </Link>
-                        <h1 className="text-xs font-black tracking-[0.3em] text-white">GAMEPLAY ENGINE</h1>
-                    </div>
+            {/* ══ Tool-Specific Sub-Header ══ */}
+            <div className="fixed top-16 left-0 right-0 z-30 bg-[#030508]/60 backdrop-blur-md border-b border-white/5 pointer-events-auto flex items-center justify-between px-6 h-12 shadow-2xl">
+                <div className="flex items-center gap-4">
+                    <h1 className="text-[10px] font-black tracking-[0.3em] text-white uppercase">GAMEPLAY ENGINE</h1>
+                </div>
 
-                    {/* Center: Stage Navigation */}
-                    <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center">
-                        <div className="flex bg-[#1e1e1e]/60 border border-white/5 rounded-full p-1 shadow-lg backdrop-blur-md">
-                            {(["RULES", "EXPLORATION", "EVENTS", "COMBAT", "CHARACTER", "SKILLS"] as GameplayStep[]).map((step) => (
-                                <button
-                                    key={step}
-                                    onClick={() => setActiveStep(step)}
-                                    className={`relative px-6 py-2 text-[10px] font-black tracking-[0.2em] rounded-full transition-all duration-300 overflow-hidden ${activeStep === step
-                                        ? "text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
-                                        : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
-                                        }`}
-                                >
-                                    {activeStep === step && (
-                                        <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent pointer-events-none" />
-                                    )}
-                                    <span className="relative z-10">{step}</span>
-                                </button>
-                            ))}
-                        </div>
+                {/* Center: Stage Navigation */}
+                <div className="flex items-center justify-center scale-90">
+                    <div className="flex bg-[#1e1e1e]/40 border border-white/5 rounded-full p-1 shadow-lg backdrop-blur-md">
+                        {(["RULES", "EXPLORATION", "EVENTS", "COMBAT", "CHARACTER", "SKILLS"] as GameplayStep[]).map((step) => (
+                            <button
+                                key={step}
+                                onClick={() => setActiveStep(step)}
+                                className={`relative px-4 py-1.5 text-[9px] font-black tracking-[0.2em] rounded-full transition-all duration-300 overflow-hidden ${activeStep === step
+                                    ? "text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
+                                    : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                                    }`}
+                            >
+                                {activeStep === step && (
+                                    <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent pointer-events-none" />
+                                )}
+                                <span className="relative z-10">{step}</span>
+                            </button>
+                        ))}
                     </div>
                 </div>
-            </header>
+            </div>
 
             {/* ══ Main Layout ══ */}
-            <div className="flex-1 flex overflow-hidden relative z-10 pt-[80px] pb-12 px-6 gap-6">
+            <div className="flex-1 flex overflow-hidden relative z-10 pt-28 pb-12 px-6 gap-6">
                 {/* Left Sidebar Flow */}
                 {activeStep === "CHARACTER" && (
                     <aside className="w-[360px] h-full flex flex-col gap-4 shrink-0 transition-transform duration-500 ease-in-out">

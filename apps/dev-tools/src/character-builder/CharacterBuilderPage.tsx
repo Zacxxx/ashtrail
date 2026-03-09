@@ -815,7 +815,7 @@ export function CharacterBuilderPage() {
                 </div>
 
                 {/* ══ Main Layout ══ */}
-                < div className="flex-1 flex overflow-hidden relative z-10 pt-[80px] pb-6 px-6 gap-6" >
+                < div className="flex-1 flex overflow-hidden relative z-10 pt-28 pb-6 px-6 gap-6" >
                     <style>{`
                     @keyframes dustSweep {
                         0% { transform: translateX(-100%) skewX(-20deg); opacity: 0; }

@@ -242,6 +242,22 @@ export function WorldGenPage() {
                                         planetId={activeHistoryId}
                                         selectedId={geoSelectedId}
                                         activeLayer={inspectorLayer}
+                                        onAppliedVariant={({ historyItem, variantId, textureUrl }) => {
+                                            const normalizedItem = {
+                                                ...(historyItem || {}),
+                                                id: historyItem?.id || variantId,
+                                                timestamp: historyItem?.timestamp || Date.now(),
+                                                prompt: historyItem?.prompt || prompt,
+                                                config: historyItem?.config || config,
+                                                textureUrl: historyItem?.textureUrl || textureUrl,
+                                            };
+                                            saveToHistory(normalizedItem as any).catch(console.error);
+                                            setActiveHistoryId(normalizedItem.id);
+                                            setActiveWorldId(normalizedItem.id);
+                                            setGlobeWorld(prev => prev
+                                                ? { ...prev, textureUrl: normalizedItem.textureUrl }
+                                                : { cols: 512, rows: 256, cellData: [], textureUrl: normalizedItem.textureUrl });
+                                        }}
                                     />
                                 )}
                             </div>

@@ -35,6 +35,15 @@ interface IsolatedImageItem {
     filename: string;
 }
 
+interface UpscaledIsolatedItem {
+    id: string;
+    url: string;
+    artifactId: string;
+    provinceId: number;
+    modelId: string;
+    createdAt: number;
+}
+
 interface TextureImageItem {
     id: string;
     url: string;
@@ -57,6 +66,8 @@ export function HistoryGallery({
     const [textureImages, setTextureImages] = useState<TextureImageItem[]>([]);
     const [characterPortraits, setCharacterPortraits] = useState<CharacterPortraitItem[]>([]);
     const [isolatedImages, setIsolatedImages] = useState<IsolatedImageItem[]>([]);
+    const [upscaledImages, setUpscaledImages] = useState<UpscaledIsolatedItem[]>([]);
+    const [isolatedSection, setIsolatedSection] = useState<"isolated" | "upscaled">("isolated");
     const [isLoadingExtended, setIsLoadingExtended] = useState(false);
     const [extendedError, setExtendedError] = useState<string | null>(null);
     const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -163,11 +174,23 @@ export function HistoryGallery({
                     filename: img.filename,
                 } as IsolatedImageItem));
 
+                const upscaledRes = await fetch("/api/worldgen/upscaled/all");
+                const upscaledRaw = upscaledRes.ok ? await upscaledRes.json() : { images: [] };
+                const upscaledItems = (upscaledRaw.images || []).map((img: any, index: number) => ({
+                    id: `upscaled-${img.artifactId || index}-${index}`,
+                    url: img.imageUrl,
+                    artifactId: img.artifactId,
+                    provinceId: img.provinceId,
+                    modelId: img.modelId,
+                    createdAt: img.createdAt || 0,
+                } as UpscaledIsolatedItem));
+
                 if (!isCancelled) {
                     setIconImages(iconGroups.flat());
                     setTextureImages(textureGroups);
                     setCharacterPortraits(portraits);
                     setIsolatedImages(isolatedItems);
+                    setUpscaledImages(upscaledItems);
                 }
             } catch (e) {
                 if (!isCancelled) {
@@ -393,10 +416,31 @@ export function HistoryGallery({
                 {activeTab === "isolated" && showExtendedTabs && isLoadingExtended && (
                     <div className="col-span-full text-xs text-gray-500">Loading isolated regions...</div>
                 )}
-                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedImages.length === 0 && (
+                {activeTab === "isolated" && showExtendedTabs && (
+                    <div className="col-span-full flex items-center justify-center mb-2">
+                        <div className="inline-flex items-center rounded-full border border-white/10 bg-black/40 p-1">
+                            <button
+                                onClick={() => setIsolatedSection("isolated")}
+                                className={`px-3 py-1 rounded-full text-[9px] font-black tracking-widest transition-all ${isolatedSection === "isolated" ? "bg-white/10 text-purple-300" : "text-gray-500 hover:text-gray-300"}`}
+                            >
+                                ISOLATED
+                            </button>
+                            <button
+                                onClick={() => setIsolatedSection("upscaled")}
+                                className={`px-3 py-1 rounded-full text-[9px] font-black tracking-widest transition-all ${isolatedSection === "upscaled" ? "bg-white/10 text-indigo-300" : "text-gray-500 hover:text-gray-300"}`}
+                            >
+                                UPSCALED
+                            </button>
+                        </div>
+                    </div>
+                )}
+                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedSection === "isolated" && isolatedImages.length === 0 && (
                     <div className="col-span-full text-xs text-gray-500">No isolated regions found yet.</div>
                 )}
-                {activeTab === "isolated" && showExtendedTabs && isolatedImages.map((img) => (
+                {activeTab === "isolated" && showExtendedTabs && !isLoadingExtended && isolatedSection === "upscaled" && upscaledImages.length === 0 && (
+                    <div className="col-span-full text-xs text-gray-500">No upscaled province artifacts found yet.</div>
+                )}
+                {activeTab === "isolated" && showExtendedTabs && isolatedSection === "isolated" && isolatedImages.map((img) => (
                     <div
                         key={img.id}
                         className="bg-black/40 border border-white/10 rounded-xl overflow-hidden group cursor-pointer hover:border-purple-400/40 transition-all shadow-lg"
@@ -412,6 +456,25 @@ export function HistoryGallery({
                         <div className="p-2 border-t border-white/5 bg-black/60">
                             <p className="text-[9px] text-cyan-400 font-black tracking-widest uppercase">{img.entityType}</p>
                             <p className="text-[10px] text-gray-400 font-mono">ID: {img.entityId}</p>
+                        </div>
+                    </div>
+                ))}
+                {activeTab === "isolated" && showExtendedTabs && isolatedSection === "upscaled" && upscaledImages.map((img) => (
+                    <div
+                        key={img.id}
+                        className="bg-black/40 border border-white/10 rounded-xl overflow-hidden group cursor-pointer hover:border-indigo-400/40 transition-all shadow-lg"
+                        onClick={() => onSelectTexture("upscaled", img.url)}
+                    >
+                        <div className="aspect-square bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiMzMzMiLz48cGF0aCBkPSJNMCAwdjRoNHYtNEh6IiBmaWxsPSIjNDQ0Ii8+PHBvbHlnb24gcG9pbnRzPSI0IDggOCA4IDggNCA0IDQiIGZpbGw9IiM0NDQiLz48L3N2Zz+')] relative">
+                            <img
+                                src={img.url}
+                                className="absolute inset-0 w-full h-full object-contain p-2 group-hover:scale-105 transition-transform"
+                                alt={img.artifactId}
+                            />
+                        </div>
+                        <div className="p-2 border-t border-white/5 bg-black/60">
+                            <p className="text-[9px] text-indigo-300 font-black tracking-widest uppercase">Province {img.provinceId}</p>
+                            <p className="text-[9px] text-gray-500 font-mono truncate">{img.modelId}</p>
                         </div>
                     </div>
                 ))}

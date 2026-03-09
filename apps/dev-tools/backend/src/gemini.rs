@@ -84,6 +84,141 @@ struct GeminiError {
     message: String,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageModelInfo {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageModelStatus {
+    pub id: String,
+    pub label: String,
+    pub available: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageModelCatalog {
+    pub models: Vec<ImageModelStatus>,
+    pub default_model_id: String,
+    pub fallback_chain: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct ImageModelConfig {
+    pub models: Vec<ImageModelInfo>,
+    pub default_model_id: String,
+    pub fallback_chain: Vec<String>,
+}
+
+fn default_image_models() -> Vec<ImageModelInfo> {
+    vec![
+        ImageModelInfo {
+            id: "gemini-3.1-flash-image-preview".to_string(),
+            label: "Nano Banana 2".to_string(),
+        },
+        ImageModelInfo {
+            id: "gemini-3-pro-image-preview".to_string(),
+            label: "Gemini 3 Pro Image Preview".to_string(),
+        },
+        ImageModelInfo {
+            id: "gemini-2.5-flash-image".to_string(),
+            label: "Gemini 2.5 Flash Image".to_string(),
+        },
+    ]
+}
+
+fn parse_image_models_env(raw: &str) -> Vec<ImageModelInfo> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|entry| {
+            let mut parts = entry.splitn(2, '|');
+            let id = parts.next().unwrap_or("").trim().to_string();
+            let label = parts
+                .next()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToString::to_string)
+                .unwrap_or_else(|| id.clone());
+            ImageModelInfo { id, label }
+        })
+        .filter(|m| !m.id.is_empty())
+        .collect()
+}
+
+fn parse_fallback_env(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+pub fn image_model_config() -> ImageModelConfig {
+    let models = env::var("AI_IMAGE_MODELS")
+        .ok()
+        .map(|raw| parse_image_models_env(&raw))
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(default_image_models);
+
+    let fallback_chain_from_env = env::var("AI_IMAGE_FALLBACK_CHAIN")
+        .ok()
+        .map(|raw| parse_fallback_env(&raw))
+        .unwrap_or_default();
+
+    let mut default_model_id = env::var("AI_IMAGE_DEFAULT_MODEL")
+        .ok()
+        .filter(|id| models.iter().any(|m| m.id == *id))
+        .unwrap_or_else(|| models.first().map(|m| m.id.clone()).unwrap_or_default());
+
+    if default_model_id.is_empty() && !models.is_empty() {
+        default_model_id = models[0].id.clone();
+    }
+
+    let fallback_chain = if fallback_chain_from_env.is_empty() {
+        models
+            .iter()
+            .map(|m| m.id.clone())
+            .filter(|id| id != &default_model_id)
+            .collect::<Vec<_>>()
+    } else {
+        fallback_chain_from_env
+            .into_iter()
+            .filter(|id| id != &default_model_id)
+            .collect::<Vec<_>>()
+    };
+
+    ImageModelConfig {
+        models,
+        default_model_id,
+        fallback_chain,
+    }
+}
+
+pub fn image_model_catalog() -> ImageModelCatalog {
+    let cfg = image_model_config();
+    let has_api_key = env::var("GEMINI_API_KEY").is_ok();
+    let models = cfg
+        .models
+        .into_iter()
+        .map(|m| ImageModelStatus {
+            id: m.id,
+            label: m.label,
+            available: has_api_key,
+        })
+        .collect::<Vec<_>>();
+
+    ImageModelCatalog {
+        models,
+        default_model_id: cfg.default_model_id,
+        fallback_chain: cfg.fallback_chain,
+    }
+}
+
 pub async fn generate_image_bytes(prompt: &str, temperature: Option<f32>, cols: u32, rows: u32, aspect_ratio: Option<&str>) -> Result<Vec<u8>, (StatusCode, String)> {
     let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
         let msg = "GEMINI_API_KEY environment variable not set";
@@ -334,17 +469,23 @@ pub async fn generate_text_with_inline_image(
     ))
 }
 
-pub async fn generate_image_edit_bytes(prompt: &str, image_base64: &str, mime_type: &str, temperature: Option<f32>, aspect_ratio: Option<&str>) -> Result<Vec<u8>, (StatusCode, String)> {
+pub async fn generate_image_edit_bytes_with_model(
+    prompt: &str,
+    image_base64: &str,
+    mime_type: &str,
+    temperature: Option<f32>,
+    aspect_ratio: Option<&str>,
+    model_id: &str,
+) -> Result<Vec<u8>, (StatusCode, String)> {
     let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
         let msg = "GEMINI_API_KEY environment variable not set";
         error!(msg);
         (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string())
     })?;
 
-    // Use the 3 pro active image preview model (or edit endpoint if we want)
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={}",
-        api_key
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        model_id, api_key
     );
 
     let client = Client::new();
@@ -374,7 +515,10 @@ pub async fn generate_image_edit_bytes(prompt: &str, image_base64: &str, mime_ty
         },
     };
 
-    info!("Calling Gemini Imagen API with vision input + prompt: {}", prompt);
+    info!(
+        "Calling Gemini image edit API model={} with vision input + prompt: {}",
+        model_id, prompt
+    );
 
     let res = client
         .post(&url)
@@ -425,4 +569,22 @@ pub async fn generate_image_edit_bytes(prompt: &str, image_base64: &str, mime_ty
         StatusCode::INTERNAL_SERVER_ERROR,
         "No predictions returned".to_string(),
     ))
+}
+
+pub async fn generate_image_edit_bytes(
+    prompt: &str,
+    image_base64: &str,
+    mime_type: &str,
+    temperature: Option<f32>,
+    aspect_ratio: Option<&str>,
+) -> Result<Vec<u8>, (StatusCode, String)> {
+    generate_image_edit_bytes_with_model(
+        prompt,
+        image_base64,
+        mime_type,
+        temperature,
+        aspect_ratio,
+        "gemini-3-pro-image-preview",
+    )
+    .await
 }

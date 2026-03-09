@@ -191,7 +191,7 @@ export function EcologyPage() {
     }
 
     return (
-        <div className="h-screen overflow-hidden bg-[#070b12] text-gray-300 font-sans p-8 flex flex-col">
+        <div className="h-screen overflow-hidden bg-[#070b12] text-gray-300 font-sans pt-28 flex flex-col">
             {/* ══ Tool-Specific Sub-Header ══ */}
             <header className="fixed top-16 left-0 right-0 z-50 bg-[#070b12]/80 backdrop-blur-md border-b border-white/5 h-12 flex items-center justify-between px-6 shadow-xl">
                 <div className="flex items-center gap-4">
@@ -525,8 +525,8 @@ function LibraryTab<T extends { id: string }>({
                             type="button"
                             onClick={() => setSelectedId(item.id)}
                             className={`w-full rounded-lg border p-3 text-left transition-all ${selectedId === item.id
-                                    ? "border-cyan-500/40 bg-cyan-500/10"
-                                    : "border-white/10 bg-black/20 hover:border-white/20"
+                                ? "border-cyan-500/40 bg-cyan-500/10"
+                                : "border-white/10 bg-black/20 hover:border-white/20"
                                 }`}
                         >
                             <p className="text-sm font-bold text-gray-100">{renderLabel(item)}</p>
