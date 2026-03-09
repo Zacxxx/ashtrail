@@ -80,3 +80,4 @@ game-assets/assets/Icons/security/005.png
 # Gallery-synced textures are stored in Supabase bucket, not in Git
 game-assets/assets/Textures/
 game-assets/assets/IsolatedRegions/
+game-assets/assets/IsolatedRegions/*
