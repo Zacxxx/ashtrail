@@ -10,6 +10,7 @@ import { CombatSimulator } from "./combat/CombatSimulator";
 import { SkillBuilder } from "./SkillBuilder";
 import { GameRulesView } from "./GameRulesView";
 import { EventsView } from "./EventsView";
+import { ExplorationView } from "./ExplorationView";
 import { GameRegistry, Trait, Occupation, Character, Item } from "@ashtrail/core";
 
 export type GameplayStep = "RULES" | "EXPLORATION" | "EVENTS" | "COMBAT" | "CHARACTER" | "SKILLS";
@@ -145,6 +146,12 @@ export function GameplayEnginePage() {
                     {activeStep === "SKILLS" && (
                         <div className="w-full h-full">
                             <SkillBuilder />
+                        </div>
+                    )}
+
+                    {activeStep === "EXPLORATION" && (
+                        <div className="w-full h-full">
+                            <ExplorationView />
                         </div>
                     )}
 

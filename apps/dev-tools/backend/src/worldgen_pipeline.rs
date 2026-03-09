@@ -10,10 +10,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use tracing::{info, error};
 use base64::{engine::general_purpose, Engine as _};
+use tokio::sync::OwnedSemaphorePermit;
 
 use worldgen_core::*;
 use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
@@ -66,6 +68,7 @@ pub struct UpscaledProvinceRequest {
     pub model_id: Option<String>,
     pub temperature: Option<f32>,
     pub padding_px: Option<u32>,
+    pub scale: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -96,6 +99,9 @@ pub struct UpscaledProvinceMetadata {
     pub fallback_model_id: Option<String>,
     pub prompt: String,
     pub padding_px: u32,
+    pub scale: u32,
+    pub artifact_width: u32,
+    pub artifact_height: u32,
     pub created_at: u64,
 }
 
@@ -109,9 +115,12 @@ pub struct UpscaledProvinceImage {
     pub fallback_model_id: Option<String>,
     pub prompt: String,
     pub created_at: u64,
+    pub scale: u32,
     pub bbox: UpscaledBoundingBox,
     pub source_width: u32,
     pub source_height: u32,
+    pub artifact_width: u32,
+    pub artifact_height: u32,
     pub image_url: String,
 }
 
@@ -134,6 +143,8 @@ pub struct ApplyUpscaledResponse {
     pub texture_url: String,
     pub variant_id: String,
     pub parent_id: String,
+    pub apply_mode: String,
+    pub overlay_count: usize,
 }
 
 // ── Job Response Types ──
@@ -239,6 +250,38 @@ fn artifact_id_for_province(province_id: u32) -> String {
         .take(8)
         .collect::<String>();
     format!("province_{province_id}_{ts}_{short}")
+}
+
+#[derive(Clone)]
+struct RefineQueueReservation {
+    limiter: crate::RefineLimiter,
+}
+
+impl Drop for RefineQueueReservation {
+    fn drop(&mut self) {
+        self.limiter.outstanding.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+fn try_reserve_refine_capacity(limiter: &crate::RefineLimiter) -> Option<RefineQueueReservation> {
+    let max_total = limiter
+        .max_concurrent
+        .saturating_add(limiter.max_queue);
+    loop {
+        let current = limiter.outstanding.load(Ordering::SeqCst);
+        if current >= max_total {
+            return None;
+        }
+        if limiter
+            .outstanding
+            .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            return Some(RefineQueueReservation {
+                limiter: limiter.clone(),
+            });
+        }
+    }
 }
 
 pub(crate) fn ensure_isolated_province_asset(
@@ -534,7 +577,8 @@ pub async fn start_upscaled_province_refine(
     Path(planet_id): Path<String>,
     Json(request): Json<UpscaledProvinceRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let out_dir = worldgen_dir(&state.planets_dir, &planet_id);
+    let source_planet_id = resolve_worldgen_source_planet(&state.planets_dir, &planet_id);
+    let out_dir = worldgen_dir(&state.planets_dir, &source_planet_id);
     let province_map_path = out_dir.join("province_id.png");
     if !province_map_path.exists() {
         return Err((StatusCode::NOT_FOUND, "Hierarchy map not found. Run clustering first.".into()));
@@ -544,11 +588,28 @@ pub async fn start_upscaled_province_refine(
         return Err((StatusCode::NOT_FOUND, "Base texture not found.".into()));
     }
 
-    let refine_dir = upscaled_dir(&state.isolated_dir, &planet_id);
+    let Some(queue_reservation) = try_reserve_refine_capacity(&state.refine_limiter) else {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Province refine queue is full. Please wait for running jobs to finish.".to_string(),
+        ));
+    };
+
+    let refine_dir = upscaled_dir(&state.isolated_dir, &source_planet_id);
     fs::create_dir_all(&refine_dir)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create upscaled dir: {}", e)))?;
 
     let padding_px = request.padding_px.unwrap_or(96).min(512);
+    let scale = match request.scale.unwrap_or(2) {
+        2 => 2,
+        4 => 4,
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Invalid scale '{}'. Allowed values are 2 or 4.", other),
+            ))
+        }
+    };
     let job_id = Uuid::new_v4().to_string();
     {
         let mut jobs = state.jobs.lock().map_err(|_| {
@@ -570,19 +631,24 @@ pub async fn start_upscaled_province_refine(
     let jobs = state.jobs.clone();
     let planets_dir = state.planets_dir.clone();
     let isolated_dir = state.isolated_dir.clone();
+    let refine_limiter = state.refine_limiter.clone();
     let spawned_job_id = job_id.clone();
     tokio::spawn(async move {
+        let _reservation = queue_reservation;
         run_upscaled_province_job(
             spawned_job_id,
             jobs,
             planets_dir,
             isolated_dir,
+            source_planet_id,
             planet_id,
             request.province_id,
             request.prompt,
             request.model_id,
             request.temperature,
             padding_px,
+            scale,
+            refine_limiter,
         )
         .await;
     });
@@ -596,7 +662,8 @@ pub async fn list_upscaled_regions(
     State(state): State<AppState>,
     Path(planet_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let images = read_upscaled_images_for_planet(&state.isolated_dir, &planet_id)?;
+    let source_planet_id = resolve_worldgen_source_planet(&state.planets_dir, &planet_id);
+    let images = read_upscaled_images_for_planet(&state.isolated_dir, &source_planet_id)?;
     Ok(Json(ListUpscaledResponse { images }))
 }
 
@@ -631,8 +698,9 @@ pub async fn delete_upscaled_region(
     if !is_valid_artifact_id(&artifact_id) {
         return Err((StatusCode::BAD_REQUEST, "Invalid artifact id.".into()));
     }
-    let png_path = upscaled_png_path(&state.isolated_dir, &planet_id, &artifact_id);
-    let meta_path = upscaled_meta_path(&state.isolated_dir, &planet_id, &artifact_id);
+    let source_planet_id = resolve_worldgen_source_planet(&state.planets_dir, &planet_id);
+    let png_path = upscaled_png_path(&state.isolated_dir, &source_planet_id, &artifact_id);
+    let meta_path = upscaled_meta_path(&state.isolated_dir, &source_planet_id, &artifact_id);
     if !png_path.exists() && !meta_path.exists() {
         return Err((StatusCode::NOT_FOUND, "Upscaled artifact not found.".into()));
     }
@@ -670,9 +738,16 @@ pub async fn apply_upscaled_region(
     let target_planet_id = request.target_planet_id.unwrap_or_else(|| planet_id.clone());
     let isolated_dir = state.isolated_dir.clone();
     let planets_dir = state.planets_dir.clone();
+    let source_planet_id = resolve_worldgen_source_planet(&state.planets_dir, &planet_id);
 
     let response = tokio::task::spawn_blocking(move || -> Result<ApplyUpscaledResponse, String> {
-        apply_upscaled_region_impl(&planets_dir, &isolated_dir, &planet_id, &artifact_id, &target_planet_id)
+        apply_upscaled_region_impl(
+            &planets_dir,
+            &isolated_dir,
+            &source_planet_id,
+            &artifact_id,
+            &target_planet_id,
+        )
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -776,14 +851,92 @@ pub async fn get_worldgen_job_status(
     }))
 }
 
+// ── DELETE /api/worldgen/{planet_id}/job/{job_id} ──
+
+pub async fn cancel_worldgen_job(
+    State(state): State<AppState>,
+    Path((_planet_id, job_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let mut jobs = state.jobs.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "job store lock poisoned".to_string(),
+        )
+    })?;
+
+    let Some(job) = jobs.get_mut(&job_id) else {
+        return Err((StatusCode::NOT_FOUND, "Job not found".to_string()));
+    };
+
+    job.cancel_requested = true;
+    if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
+        job.current_stage = "Cancellation requested".to_string();
+    }
+
+    Ok(StatusCode::ACCEPTED)
+}
+
 #[derive(Clone)]
 struct PreparedUpscaledProvince {
     source_width: u32,
     source_height: u32,
+    scale: u32,
     bbox: UpscaledBoundingBox,
+    artifact_width: u32,
+    artifact_height: u32,
     source_crop: image::RgbaImage,
     mask: Vec<bool>,
     masked_crop_b64: String,
+}
+
+fn is_job_cancel_requested(jobs: &Arc<Mutex<HashMap<String, JobRecord>>>, job_id: &str) -> bool {
+    if let Ok(store) = jobs.lock() {
+        if let Some(job) = store.get(job_id) {
+            return job.cancel_requested;
+        }
+    }
+    false
+}
+
+fn set_job_cancelled(jobs: &Arc<Mutex<HashMap<String, JobRecord>>>, job_id: &str, stage: &str) {
+    if let Ok(mut store) = jobs.lock() {
+        if let Some(job) = store.get_mut(job_id) {
+            job.status = JobStatus::Cancelled;
+            job.current_stage = stage.to_string();
+            job.error = None;
+        }
+    }
+}
+
+async fn wait_for_refine_permit(
+    job_id: &str,
+    jobs: &Arc<Mutex<HashMap<String, JobRecord>>>,
+    limiter: &crate::RefineLimiter,
+) -> Result<OwnedSemaphorePermit, String> {
+    set_job_stage(
+        jobs,
+        job_id,
+        JobStatus::Queued,
+        0.0,
+        "Queued for refine slot",
+    );
+
+    loop {
+        if is_job_cancel_requested(jobs, job_id) {
+            return Err("cancelled".to_string());
+        }
+
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(250),
+            limiter.semaphore.clone().acquire_owned(),
+        )
+        .await
+        {
+            Ok(Ok(permit)) => return Ok(permit),
+            Ok(Err(_)) => return Err("Refine queue is unavailable.".to_string()),
+            Err(_) => continue,
+        }
+    }
 }
 
 async fn run_upscaled_province_job(
@@ -791,23 +944,58 @@ async fn run_upscaled_province_job(
     jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
     planets_dir: PathBuf,
     isolated_dir: PathBuf,
-    planet_id: String,
+    source_planet_id: String,
+    texture_planet_id: String,
     province_id: u32,
     prompt: Option<String>,
     requested_model_id: Option<String>,
     temperature: Option<f32>,
     padding_px: u32,
+    scale: u32,
+    refine_limiter: crate::RefineLimiter,
 ) {
+    let permit = match wait_for_refine_permit(&job_id, &jobs, &refine_limiter).await {
+        Ok(permit) => permit,
+        Err(err) if err == "cancelled" => {
+            set_job_cancelled(&jobs, &job_id, "Cancelled");
+            return;
+        }
+        Err(err) => {
+            set_job_failed(&jobs, &job_id, &err);
+            return;
+        }
+    };
+    let _permit = permit;
+
+    if is_job_cancel_requested(&jobs, &job_id) {
+        set_job_cancelled(&jobs, &job_id, "Cancelled");
+        return;
+    }
+
     set_job_stage(&jobs, &job_id, JobStatus::Running, 1.0, "Preparing province crop");
 
     let prepared = match tokio::task::spawn_blocking({
         let planets_dir = planets_dir.clone();
-        let planet_id = planet_id.clone();
-        move || prepare_upscaled_province(&planets_dir, &planet_id, province_id, padding_px)
+        let source_planet_id = source_planet_id.clone();
+        let texture_planet_id = texture_planet_id.clone();
+        move || {
+            prepare_upscaled_province(
+                &planets_dir,
+                &source_planet_id,
+                &texture_planet_id,
+                province_id,
+                padding_px,
+                scale,
+            )
+        }
     })
     .await
     {
         Ok(Ok(prepared)) => prepared,
+        Ok(Err(e)) if e == "cancelled" => {
+            set_job_cancelled(&jobs, &job_id, "Cancelled");
+            return;
+        }
         Ok(Err(e)) => {
             set_job_failed(&jobs, &job_id, &e);
             return;
@@ -817,6 +1005,11 @@ async fn run_upscaled_province_job(
             return;
         }
     };
+
+    if is_job_cancel_requested(&jobs, &job_id) {
+        set_job_cancelled(&jobs, &job_id, "Cancelled");
+        return;
+    }
 
     set_job_stage(&jobs, &job_id, JobStatus::Running, 20.0, "Calling image model");
 
@@ -854,6 +1047,10 @@ async fn run_upscaled_province_job(
     let mut used_model = String::new();
     let mut primary_error = String::new();
     for (index, model_id) in model_chain.iter().enumerate() {
+        if is_job_cancel_requested(&jobs, &job_id) {
+            set_job_cancelled(&jobs, &job_id, "Cancelled");
+            return;
+        }
         let pct = 25.0 + (index as f32 * 15.0);
         set_job_stage(
             &jobs,
@@ -910,7 +1107,7 @@ async fn run_upscaled_province_job(
     let metadata = UpscaledProvinceMetadata {
         artifact_id: artifact_id.clone(),
         province_id,
-        source_planet_id: planet_id.clone(),
+        source_planet_id: source_planet_id.clone(),
         bbox: prepared.bbox.clone(),
         source_width: prepared.source_width,
         source_height: prepared.source_height,
@@ -918,17 +1115,25 @@ async fn run_upscaled_province_job(
         fallback_model_id,
         prompt: effective_prompt,
         padding_px,
+        scale: prepared.scale,
+        artifact_width: prepared.artifact_width,
+        artifact_height: prepared.artifact_height,
         created_at,
     };
 
+    if is_job_cancel_requested(&jobs, &job_id) {
+        set_job_cancelled(&jobs, &job_id, "Cancelled");
+        return;
+    }
+
     let finalize_result = tokio::task::spawn_blocking({
         let isolated_dir = isolated_dir.clone();
-        let planet_id = planet_id.clone();
+        let source_planet_id = source_planet_id.clone();
         let artifact_id = artifact_id.clone();
         move || -> Result<(), String> {
             finalize_upscaled_artifact(
                 &isolated_dir,
-                &planet_id,
+                &source_planet_id,
                 &artifact_id,
                 &prepared,
                 &generated_bytes,
@@ -942,6 +1147,7 @@ async fn run_upscaled_province_job(
         Ok(Ok(())) => {
             set_job_stage(&jobs, &job_id, JobStatus::Completed, 100.0, "Completed");
         }
+        Ok(Err(e)) if e == "cancelled" => set_job_cancelled(&jobs, &job_id, "Cancelled"),
         Ok(Err(e)) => set_job_failed(&jobs, &job_id, &e),
         Err(e) => set_job_failed(&jobs, &job_id, &format!("Artifact finalize task failed: {}", e)),
     }

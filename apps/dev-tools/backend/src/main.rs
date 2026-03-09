@@ -28,7 +28,9 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
+    sync::atomic::AtomicUsize,
 };
+use tokio::sync::Semaphore;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use base64::Engine as _;
@@ -47,7 +49,16 @@ struct AppState {
     textures_dir: PathBuf,
     textures_export_dir: PathBuf,
     isolated_dir: PathBuf,
+    refine_limiter: RefineLimiter,
     supabase: Option<SupabaseStorageConfig>,
+}
+
+#[derive(Clone)]
+struct RefineLimiter {
+    semaphore: Arc<Semaphore>,
+    max_concurrent: usize,
+    max_queue: usize,
+    outstanding: Arc<AtomicUsize>,
 }
 
 #[derive(Clone)]
@@ -406,6 +417,16 @@ async fn main() {
     let isolated_dir = PathBuf::from("../../game-assets/assets/IsolatedRegions");
     std::fs::create_dir_all(&isolated_dir).expect("failed to create game-assets/assets/IsolatedRegions directory");
 
+    let refine_max_concurrent = std::env::var("WORLDGEN_REFINE_MAX_CONCURRENT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(1);
+    let refine_max_queue = std::env::var("WORLDGEN_REFINE_MAX_QUEUE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(3);
+
     let supabase = load_supabase_storage_config();
     if supabase.is_none() {
         warn!("Supabase storage sync disabled (missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)");
@@ -420,6 +441,12 @@ async fn main() {
         textures_dir: textures_dir.clone(),
         textures_export_dir,
         isolated_dir: isolated_dir.clone(),
+        refine_limiter: RefineLimiter {
+            semaphore: Arc::new(Semaphore::new(refine_max_concurrent)),
+            max_concurrent: refine_max_concurrent,
+            max_queue: refine_max_queue,
+            outstanding: Arc::new(AtomicUsize::new(0)),
+        },
         supabase,
     };
 
@@ -486,7 +513,10 @@ async fn main() {
         // ── Worldgen Pipeline ──
         .route("/api/worldgen/{planet_id}/status", get(worldgen_pipeline::get_pipeline_status))
         .route("/api/worldgen/{planet_id}/run/{stage_name}", post(worldgen_pipeline::run_pipeline_stage))
-        .route("/api/worldgen/{planet_id}/job/{job_id}", get(worldgen_pipeline::get_worldgen_job_status))
+        .route(
+            "/api/worldgen/{planet_id}/job/{job_id}",
+            get(worldgen_pipeline::get_worldgen_job_status).delete(worldgen_pipeline::cancel_worldgen_job),
+        )
         .route("/api/worldgen/{planet_id}/clear", delete(worldgen_pipeline::clear_pipeline))
         .route("/api/worldgen/{planet_id}/hierarchy/reassign", post(reassign_worldgen_hierarchy))
         .route("/api/worldgen/{planet_id}/hierarchy/rename", post(rename_worldgen_hierarchy))

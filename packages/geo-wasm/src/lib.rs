@@ -18,3 +18,44 @@ pub fn generate_world_wasm(
 
     Ok(serde_wasm_bindgen::to_value(&result)?)
 }
+
+#[wasm_bindgen]
+pub fn find_path_wasm(
+    start_x: i32,
+    start_y: i32,
+    goal_x: i32,
+    goal_y: i32,
+    width: i32,
+    height: i32,
+    walkable_grid_js: JsValue,
+) -> Result<JsValue, JsValue> {
+    use geo_core::pathfinding::{astar, Point};
+
+    let start = Point {
+        x: start_x,
+        y: start_y,
+    };
+    let goal = Point {
+        x: goal_x,
+        y: goal_y,
+    };
+
+    let walkable_grid: Vec<bool> = serde_wasm_bindgen::from_value(walkable_grid_js)?;
+
+    let is_walkable = |p: Point| {
+        let idx = (p.y * width + p.x) as usize;
+        walkable_grid.get(idx).copied().unwrap_or(false)
+    };
+
+    let get_cost = |_p1: Point, _p2: Point| 1.0f32;
+
+    let path = astar(start, goal, width, height, is_walkable, get_cost);
+
+    match path {
+        Some(p) => {
+            let pts: Vec<[i32; 2]> = p.into_iter().map(|pt| [pt.x, pt.y]).collect();
+            Ok(serde_wasm_bindgen::to_value(&pts)?)
+        }
+        None => Ok(JsValue::NULL),
+    }
+}
