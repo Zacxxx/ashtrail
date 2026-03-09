@@ -47,6 +47,11 @@
       "note": "Tristan's bestfriend and associate at moebius",
       "targetId": "char-1772898495176",
       "type": "best_friend"
+    },
+    {
+      "note": "AF is a loved friend of tristan",
+      "targetId": "char-1772210022882",
+      "type": "protégé"
     }
   ],
   "skills": [

@@ -1196,9 +1196,100 @@ export function CharacterBuilderPage() {
                                             grouped[cat].push(r);
                                         });
 
+                                        const RELATIONSHIP_MIRRORS: Record<RelationshipType, (gender: string) => RelationshipType> = {
+                                            father: (g) => g === "Male" ? "son" : "daughter",
+                                            mother: (g) => g === "Male" ? "son" : "daughter",
+                                            son: (g) => g === "Male" ? "father" : "mother",
+                                            daughter: (g) => g === "Male" ? "father" : "mother",
+                                            brother: (g) => g === "Male" ? "brother" : "sister",
+                                            sister: (g) => g === "Male" ? "brother" : "sister",
+                                            grandfather: (g) => g === "Male" ? "grandson" : "granddaughter",
+                                            grandmother: (g) => g === "Male" ? "grandson" : "granddaughter",
+                                            grandson: (g) => g === "Male" ? "grandfather" : "grandmother",
+                                            granddaughter: (g) => g === "Male" ? "grandfather" : "grandmother",
+                                            uncle: (g) => g === "Male" ? "nephew" : "niece",
+                                            aunt: (g) => g === "Male" ? "nephew" : "niece",
+                                            nephew: (g) => g === "Male" ? "uncle" : "aunt",
+                                            niece: (g) => g === "Male" ? "uncle" : "aunt",
+                                            cousin: () => "cousin",
+                                            spouse: () => "spouse",
+                                            partner: () => "partner",
+                                            fiancé: () => "fiancé",
+                                            adoptive_parent: () => "adoptive_child",
+                                            adoptive_child: () => "adoptive_parent",
+                                            step_parent: () => "step_child",
+                                            step_child: () => "step_parent",
+                                            step_sibling: () => "step_sibling",
+                                            friend: () => "friend",
+                                            best_friend: () => "best_friend",
+                                            ally: () => "ally",
+                                            mentor: () => "protégé",
+                                            protégé: () => "mentor",
+                                            companion: () => "companion",
+                                            enemy: () => "enemy",
+                                            rival: () => "rival",
+                                            nemesis: () => "nemesis",
+                                            lover: () => "lover",
+                                            ex: () => "ex",
+                                            ward: () => "guardian",
+                                            guardian: () => "ward",
+                                            servant: () => "master",
+                                            master: () => "servant",
+                                            liege: () => "vassal",
+                                            vassal: () => "liege",
+                                        };
+
                                         const addRelationship = (type: RelationshipType, targetId: string) => {
                                             if (!targetId || relationships.some(r => r.targetId === targetId && r.type === type)) return;
+
+                                            const targetCharacter = savedCharacters.find(c => c.id === targetId);
+                                            if (targetCharacter) {
+                                                const myAge = age;
+                                                const theirAge = targetCharacter.age;
+
+                                                // 0. Age Coherence Validation
+                                                const PARENT_TYPES: RelationshipType[] = ['father', 'mother', 'adoptive_parent', 'step_parent'];
+                                                const CHILD_TYPES: RelationshipType[] = ['son', 'daughter', 'adoptive_child', 'step_child'];
+                                                const GRANDPARENT_TYPES: RelationshipType[] = ['grandfather', 'grandmother'];
+                                                const GRANDCHILD_TYPES: RelationshipType[] = ['grandson', 'granddaughter'];
+
+                                                if (PARENT_TYPES.includes(type) && myAge < theirAge + 15) {
+                                                    alert(`Incoherent Age: You (${myAge}y) are too young to be ${targetCharacter.name}'s (${theirAge}y) parent. A minimum gap of 15 years is required.`);
+                                                    return;
+                                                }
+                                                if (CHILD_TYPES.includes(type) && theirAge < myAge + 15) {
+                                                    alert(`Incoherent Age: ${targetCharacter.name} (${theirAge}y) is too young to be your (${myAge}y) parent.`);
+                                                    return;
+                                                }
+                                                if (GRANDPARENT_TYPES.includes(type) && myAge < theirAge + 30) {
+                                                    alert(`Incoherent Age: You (${myAge}y) are too young to be ${targetCharacter.name}'s (${theirAge}y) grandparent. A minimum gap of 30 years is required.`);
+                                                    return;
+                                                }
+                                                if (GRANDCHILD_TYPES.includes(type) && theirAge < myAge + 30) {
+                                                    alert(`Incoherent Age: ${targetCharacter.name} (${theirAge}y) is too young to be your (${myAge}y) grandparent.`);
+                                                    return;
+                                                }
+                                            }
+
+                                            // 1. Add locally to current character
                                             setRelationships(prev => [...prev, { targetId, type }]);
+
+                                            // 2. Mirroring logic for the target character
+                                            const mirrorType = RELATIONSHIP_MIRRORS[type]?.(gender) || type;
+
+                                            setSavedCharacters(prev => prev.map(c => {
+                                                if (c.id === targetId) {
+                                                    const existingRels = c.relationships || [];
+                                                    // Only add if doesn't exist
+                                                    if (!existingRels.some(r => r.targetId === charId && r.type === mirrorType)) {
+                                                        return {
+                                                            ...c,
+                                                            relationships: [...existingRels, { targetId: charId, type: mirrorType, note: `Mirrored from ${name || 'Unknown'}` }]
+                                                        };
+                                                    }
+                                                }
+                                                return c;
+                                            }));
                                         };
                                         const removeRelationship = (index: number) => {
                                             setRelationships(prev => prev.filter((_, i) => i !== index));
