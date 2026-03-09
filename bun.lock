@@ -21,6 +21,7 @@
         "@ashtrail/ui": "workspace:*",
         "@google/genai": "^1.41.0",
         "@xyflow/react": "^12.10.1",
+        "lucide-react": "^0.577.0",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
         "react-router-dom": "6",
@@ -66,6 +67,10 @@
         "@google/genai": "^1.41.0",
       },
     },
+    "packages/geo-wasm/pkg": {
+      "name": "@ashtrail/geo-wasm",
+      "version": "0.1.0",
+    },
     "packages/ui": {
       "name": "@ashtrail/ui",
       "version": "0.0.0",
@@ -81,6 +86,8 @@
     "@ashtrail/core": ["@ashtrail/core@workspace:packages/core"],
 
     "@ashtrail/dev-tools": ["@ashtrail/dev-tools@workspace:apps/dev-tools"],
+
+    "@ashtrail/geo-wasm": ["@ashtrail/geo-wasm@workspace:packages/geo-wasm/pkg"],
 
     "@ashtrail/server": ["@ashtrail/server@workspace:apps/server"],
 
@@ -505,6 +512,8 @@
     "long": ["long@5.3.2", "", {}, "sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA=="],
 
     "lru-cache": ["lru-cache@5.1.1", "", { "dependencies": { "yallist": "^3.0.2" } }, "sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w=="],
+
+    "lucide-react": ["lucide-react@0.577.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-4LjoFv2eEPwYDPg/CUdBJQSDfPyzXCRrVW1X7jrx/trgxnxkHFjnVZINbzvzxjN70dxychOfg+FTYwBiS3pQ5A=="],
 
     "magic-string": ["magic-string@0.30.21", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ=="],
 

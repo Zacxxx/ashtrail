@@ -140,6 +140,7 @@ export function CharacterBuilderPage() {
 
     // Relationships
     const [relationships, setRelationships] = useState<CharacterRelationship[]>([]);
+    const [isAlignmentOpen, setIsAlignmentOpen] = useState(false);
 
     // World Picker
     const { history: generationHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
@@ -916,7 +917,7 @@ export function CharacterBuilderPage() {
                             <aside className="w-[260px] flex flex-col gap-4 shrink-0">
                                 <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
                                     <div className="flex flex-col gap-2 border-b border-indigo-900/30 pb-2">
-                                        <h3 className="text-[10px] font-black text-indigo-500/70 uppercase tracking-widest">
+                                        <h3 className="text-xs font-black text-indigo-500/70 uppercase tracking-widest">
                                             Saved Entities ({savedCharacters.length})
                                         </h3>
                                         <div className="flex gap-2">
@@ -990,7 +991,7 @@ export function CharacterBuilderPage() {
                                     {/* Base Type Select */}
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Base Type</label>
+                                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Base Type</label>
                                             <select
                                                 value={characterType}
                                                 onChange={e => {
@@ -1035,8 +1036,8 @@ export function CharacterBuilderPage() {
                                     {/* NPC Toggle */}
                                     <div className="flex items-center justify-between bg-black/40 p-4 rounded-xl border border-white/5">
                                         <div>
-                                            <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Character Type</span>
-                                            <p className="text-[10px] text-gray-500 mt-0.5">NPCs/Archetypes are templates used by the game engine, not playable characters.</p>
+                                            <span className="text-sm font-bold text-gray-300 uppercase tracking-wider">Character Type</span>
+                                            <p className="text-xs text-gray-500 mt-1">NPCs/Archetypes are templates used by the game engine, not playable characters.</p>
                                         </div>
                                         <button
                                             onClick={() => setIsNPC(!isNPC)}
@@ -1051,21 +1052,21 @@ export function CharacterBuilderPage() {
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Name</label>
+                                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Name</label>
                                             <input value={name} onChange={e => setName(e.target.value)} placeholder="Enter name..." className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                         </div>
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Age</label>
+                                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Age</label>
                                                 <input type="number" value={age} onChange={e => setAge(Math.max(18, parseInt(e.target.value) || 18))} min={18} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="space-y-1">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Level</label>
+                                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Level</label>
                                                     <input type="number" value={level} onChange={e => updateLevel(Math.max(1, parseInt(e.target.value) || 1), true)} min={1} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                                 </div>
                                                 <div className="space-y-1">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Gender</label>
+                                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Gender</label>
                                                     <select value={gender} onChange={e => setGender(e.target.value)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all">
                                                         <option>Male</option>
                                                         <option>Female</option>
@@ -1282,7 +1283,7 @@ export function CharacterBuilderPage() {
                                     })()}
 
                                     <div className="space-y-1">
-                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Brief Backstory</label>
+                                        <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Brief Backstory</label>
                                         <textarea value={backstory} onChange={e => setBackstory(e.target.value)} placeholder="Ex: 'I was a neurosurgeon in 20th century London'..." rows={2} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all resize-none" />
                                     </div>
                                 </div>
@@ -1298,218 +1299,234 @@ export function CharacterBuilderPage() {
                                             <div className="bg-[#1a1a1a]/80 border border-orange-950/30 p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] backdrop-blur-xl relative overflow-hidden">
                                                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-orange-500/40 to-transparent" />
 
-                                                <div className="flex items-center justify-between mb-8">
-                                                    <div className="space-y-1">
-                                                        <h3 className="text-[12px] font-black text-white uppercase tracking-[0.4em] flex items-center gap-3">
-                                                            <div className="w-2 h-2 bg-orange-500 shadow-[0_0_10px_#f97316]" />
-                                                            LORE
-                                                        </h3>
-                                                        <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest italic">ASH-4: PRESENT DAY</p>
-                                                    </div>
+                                                <div className="flex items-center justify-between mb-10">
+                                                    <h3 className="text-lg font-black text-white uppercase tracking-[0.5em] flex items-center gap-4">
+                                                        <div className="w-2.5 h-2.5 bg-orange-500 shadow-[0_0_15px_#f97316]" />
+                                                        CHARACTER LORE
+                                                    </h3>
                                                 </div>
 
-                                                <div className="grid grid-cols-[300px_1fr] gap-8">
-                                                    <div className="space-y-4">
-                                                        <div className="p-5 bg-orange-500/[0.03] border border-orange-500/10 rounded-xl">
-                                                            <div className="text-[8px] text-orange-500/70 font-black uppercase tracking-[0.2em] mb-3">DEBRIEFING</div>
-                                                            <p className="text-[10px] text-gray-400 leading-relaxed italic font-medium">
+                                                <div className="grid grid-cols-[380px_1fr] grid-rows-[auto_1fr_auto] gap-x-12">
+                                                    {/* ROW 1: LABELS */}
+                                                    <div className="text-xs font-black text-orange-500/50 uppercase tracking-[0.3em] px-2 mb-4">WORLD STATE</div>
+                                                    <div className="text-xs font-black text-orange-500/50 uppercase tracking-[0.3em] px-2 mb-4">WRITE YOUR BACKSTORY</div>
+
+                                                    {/* ROW 2: CONTENT */}
+                                                    <div className="flex flex-col">
+                                                        <div className="flex-1 p-8 bg-orange-500/[0.03] border border-orange-500/10 rounded-3xl flex flex-col">
+                                                            <p className="text-base text-gray-400 leading-relaxed italic font-medium flex-1">
                                                                 {ASH_TRAIL_CHRONICLES.find(c => c.id === "ASH-4")?.event}
                                                             </p>
                                                         </div>
-                                                        <div className="p-4 bg-black/40 border border-white/5 rounded-xl">
-                                                            <div className="text-[8px] text-gray-500 font-black uppercase tracking-widest mb-2">Lore Chronology</div>
-                                                            <div className="space-y-2 opacity-50">
-                                                                {ASH_TRAIL_CHRONICLES.slice(0, 4).map(era => (
-                                                                    <div key={era.id} className="text-[8px] hover:opacity-100 transition-opacity flex gap-1.5 items-baseline">
-                                                                        <span className="text-orange-500/60 font-black shrink-0">{era.id}:</span>
-                                                                        <span className="text-gray-500">{era.label.split(': ')[1]}</span>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </div>
                                                     </div>
 
-                                                    <div className="space-y-6">
-                                                        <div className="space-y-2">
-                                                            <div className="text-[9px] font-black text-orange-500/50 uppercase tracking-[0.2em] px-2">Draft Input</div>
-                                                            <textarea
-                                                                value={backstory}
-                                                                onChange={e => setBackstory(e.target.value)}
-                                                                placeholder="Ex: 'I was a neurosurgeon in 20th century London' or 'I was a simple farmer in the Midwest'..."
-                                                                className="w-full h-[240px] bg-black/60 border border-white/10 text-[12px] text-gray-200 px-6 py-5 rounded-2xl outline-none focus:border-orange-500/40 transition-all font-mono leading-loose shadow-inner placeholder:text-gray-800"
-                                                            />
-                                                        </div>
+                                                    <textarea
+                                                        value={backstory}
+                                                        onChange={e => setBackstory(e.target.value)}
+                                                        placeholder="Ex: 'I was a neurosurgeon in 20th century London' or 'I was a simple farmer in the Midwest'..."
+                                                        className="w-full h-full min-h-[420px] bg-black/60 border border-white/10 text-base text-gray-200 px-8 py-7 rounded-3xl outline-none focus:border-orange-500/40 transition-all font-mono leading-loose shadow-inner placeholder:text-gray-800"
+                                                    />
 
-                                                        <div className="flex justify-end pt-2">
-                                                            <button
-                                                                onClick={() => {
-                                                                    setIsGeneratingStory(true);
-                                                                    setTimeout(() => {
-                                                                        const currentName = name || "This unit";
-                                                                        const soulContext = (backstory || "").toLowerCase();
-                                                                        const occupation = selectedOccupation?.name || 'Wanderer';
+                                                    {/* ROW 3: ACTIONS */}
+                                                    <div></div>
+                                                    <div className="flex justify-end pt-8">
+                                                        <button
+                                                            onClick={() => {
+                                                                setIsGeneratingStory(true);
+                                                                setTimeout(() => {
+                                                                    const currentName = name || "This unit";
+                                                                    const soulContext = (backstory || "").toLowerCase();
+                                                                    const occupation = selectedOccupation?.name || 'Wanderer';
 
-                                                                        // Dynamic Story Component Pools
-                                                                        const isScience = soulContext.includes("doctor") || soulContext.includes("surgeon") || soulContext.includes("hospital") || soulContext.includes("lab") || soulContext.includes("medical");
-                                                                        const isRural = soulContext.includes("farmer") || soulContext.includes("farm") || soulContext.includes("nature") || soulContext.includes("midwest");
-                                                                        const isUrban = soulContext.includes("london") || soulContext.includes("paris") || soulContext.includes("city") || soulContext.includes("street");
+                                                                    // Dynamic Story Component Pools
+                                                                    const isScience = soulContext.includes("doctor") || soulContext.includes("surgeon") || soulContext.includes("hospital") || soulContext.includes("lab") || soulContext.includes("medical");
+                                                                    const isRural = soulContext.includes("farmer") || soulContext.includes("farm") || soulContext.includes("nature") || soulContext.includes("midwest");
+                                                                    const isUrban = soulContext.includes("london") || soulContext.includes("paris") || soulContext.includes("city") || soulContext.includes("street");
 
-                                                                        const isHeroic = soulContext.includes("save") || soulContext.includes("help") || soulContext.includes("protect") || soulContext.includes("hero") || soulContext.includes("loyalty");
-                                                                        const isVillainous = soulContext.includes("kill") || soulContext.includes("bastard") || soulContext.includes("ruthless") || soulContext.includes("experiment") || soulContext.includes("betray");
+                                                                    const isHeroic = soulContext.includes("save") || soulContext.includes("help") || soulContext.includes("protect") || soulContext.includes("hero") || soulContext.includes("loyalty");
+                                                                    const isVillainous = soulContext.includes("kill") || soulContext.includes("bastard") || soulContext.includes("ruthless") || soulContext.includes("experiment") || soulContext.includes("betray");
 
-                                                                        // Segment 1: The Old World Origin
-                                                                        let p1 = `Before the heavens suffocated under a permanent blanket of soot, ${currentName} was defined by a different life. `;
-                                                                        if (isScience) p1 += `In the sanitized, ultra-sterile halls of the world's leading medical facilities, they navigated complex biological architectures, dedicating their days to the precision of the scalpel and the hope of recovery.`;
-                                                                        else if (isRural) p1 += `Existing in the quiet rhythms of the countryside, they lived through the last golden harvests, watching the horizons for seasons that would eventually cease to arrive.`;
-                                                                        else if (isUrban) p1 += `They were a permanent fixture of a bustling metropolis, navigating streets of glass and steel during the final, shimmering years of a civilization that believed its progress was infinite.`;
-                                                                        else p1 += `Built on the legacy of ${backstory || "a simple, long-forgotten life"}, they participated in the shimmering final years of the 20th century, before the sky darkened and the world dissolved.`;
+                                                                    // Segment 1: The Old World Origin
+                                                                    let p1 = `Before the heavens suffocated under a permanent blanket of soot, ${currentName} was defined by a different life. `;
+                                                                    if (isScience) p1 += `In the sanitized, ultra-sterile halls of the world's leading medical facilities, they navigated complex biological architectures, dedicating their days to the precision of the scalpel and the hope of recovery.`;
+                                                                    else if (isRural) p1 += `Existing in the quiet rhythms of the countryside, they lived through the last golden harvests, watching the horizons for seasons that would eventually cease to arrive.`;
+                                                                    else if (isUrban) p1 += `They were a permanent fixture of a bustling metropolis, navigating streets of glass and steel during the final, shimmering years of a civilization that believed its progress was infinite.`;
+                                                                    else p1 += `Built on the legacy of ${backstory || "a simple, long-forgotten life"}, they participated in the shimmering final years of the 20th century, before the sky darkened and the world dissolved.`;
 
-                                                                        // Segment 2: The Fall
-                                                                        let p2 = `The end did not arrive with a scream, but with the silent, creeping advance of the Great Fog. `;
-                                                                        if (isVillainous) p2 += `While others succumbed to panic, ${currentName} recognized the coming chaos as a laboratory for their own ambitions. They survived the Resource Wars by discarding the moral weights that held others back, learning the cold math of survival where the life of another was merely a variable to be managed.`;
-                                                                        else if (isHeroic) p2 += `As the Atmosphere turned toxic and the world ignited in the Resource Wars, ${currentName} stood as a flicker of light in the growing dark, exhaustion their only constant companion as they fought to save those who could not save themselves.`;
-                                                                        else p2 += `${currentName} witnessed the terrifying transition as the horizon vanished and the sun became a pale, dying ember. They navigated the frantic desperation of the era, where the last vestiges of sovereignty were traded for drops of fuel.`;
+                                                                    // Segment 2: The Fall
+                                                                    let p2 = `The end did not arrive with a scream, but with the silent, creeping advance of the Great Fog. `;
+                                                                    if (isVillainous) p2 += `While others succumbed to panic, ${currentName} recognized the coming chaos as a laboratory for their own ambitions. They survived the Resource Wars by discarding the moral weights that held others back, learning the cold math of survival where the life of another was merely a variable to be managed.`;
+                                                                    else if (isHeroic) p2 += `As the Atmosphere turned toxic and the world ignited in the Resource Wars, ${currentName} stood as a flicker of light in the growing dark, exhaustion their only constant companion as they fought to save those who could not save themselves.`;
+                                                                    else p2 += `${currentName} witnessed the terrifying transition as the horizon vanished and the sun became a pale, dying ember. They navigated the frantic desperation of the era, where the last vestiges of sovereignty were traded for drops of fuel.`;
 
-                                                                        // Segment 3: The Vault Years
-                                                                        let p3 = `When the surface finally became uninhabitable, the migration into the deep began. `;
-                                                                        if (isVillainous) p3 += `${currentName} spent the long years of the Great Dark in the shadows of the lead-lined vaults, conducting clandestine operations and consolidating power while the rest of humanity shivered in fear.`;
-                                                                        else if (isHeroic) p3 += `Within the claustrophobic silence of the underground vaults, ${currentName} became a cornerstone of their community, maintaining the fragile threads of order and hope while the Ash-storms reshaped the continents above.`;
-                                                                        else p3 += `${currentName} lived through the agonizing silence of the underground vaults, surviving for years behind reinforced structural shells as the world they remembered slowly turned to dust.`;
+                                                                    // Segment 3: The Vault Years
+                                                                    let p3 = `When the surface finally became uninhabitable, the migration into the deep began. `;
+                                                                    if (isVillainous) p3 += `${currentName} spent the long years of the Great Dark in the shadows of the lead-lined vaults, conducting clandestine operations and consolidating power while the rest of humanity shivered in fear.`;
+                                                                    else if (isHeroic) p3 += `Within the claustrophobic silence of the underground vaults, ${currentName} became a cornerstone of their community, maintaining the fragile threads of order and hope while the Ash-storms reshaped the continents above.`;
+                                                                    else p3 += `${currentName} lived through the agonizing silence of the underground vaults, surviving for years behind reinforced structural shells as the world they remembered slowly turned to dust.`;
 
-                                                                        // Segment 4: The Re-Emergence
-                                                                        let p4 = `Emerging from the vaults, ${currentName} found a planet that no longer recognized its masters. `;
-                                                                        p4 += `They became a scavenger of the wastes, reclaiming artifacts of the past to build the foundations of a new, fractured society, proving to be a vital component in the machinery of reclamation.`;
+                                                                    // Segment 4: The Re-Emergence
+                                                                    let p4 = `Emerging from the vaults, ${currentName} found a planet that no longer recognized its masters. `;
+                                                                    p4 += `They became a scavenger of the wastes, reclaiming artifacts of the past to build the foundations of a new, fractured society, proving to be a vital component in the machinery of reclamation.`;
 
-                                                                        // Segment 5: The Present Day
-                                                                        const p5 = `Today, as a specialized ${occupation}, ${currentName} has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Each step is a testament to a spirit for whom the Ash has finally become home.`;
+                                                                    // Segment 5: The Present Day
+                                                                    const p5 = `Today, as a specialized ${occupation}, ${currentName} has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Each step is a testament to a spirit for whom the Ash has finally become home.`;
 
-                                                                        const fullHistory = `${p1}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5}`;
-                                                                        setHistory(fullHistory);
+                                                                    const fullHistory = `${p1}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5}`;
+                                                                    setHistory(fullHistory);
 
-                                                                        // Refined Moral Sentiment Analysis
-                                                                        const h = fullHistory.toLowerCase();
-                                                                        const s = soulContext;
+                                                                    // Refined Moral Sentiment Analysis
+                                                                    const h = fullHistory.toLowerCase();
+                                                                    const s = soulContext;
 
-                                                                        // 1. Scoring System
-                                                                        let moralScore = 0; // Negative = Evil, Positive = Good
-                                                                        let orderScore = 0; // Negative = Chaotic, Positive = Lawful
+                                                                    // 1. Scoring System
+                                                                    let moralScore = 0; // Negative = Evil, Positive = Good
+                                                                    let orderScore = 0; // Negative = Chaotic, Positive = Lawful
 
-                                                                        // GOOD signals (+pts)
-                                                                        if (isHeroic) moralScore += 3;
-                                                                        if (h.includes("flicker of light") || h.includes("cornerstone")) moralScore += 2;
-                                                                        if (s.includes("doctor") || s.includes("help") || s.includes("save") || s.includes("protect") || s.includes("hero")) moralScore += 1;
+                                                                    // GOOD signals (+pts)
+                                                                    if (isHeroic) moralScore += 3;
+                                                                    if (h.includes("flicker of light") || h.includes("cornerstone")) moralScore += 2;
+                                                                    if (s.includes("doctor") || s.includes("help") || s.includes("save") || s.includes("protect") || s.includes("hero")) moralScore += 1;
 
-                                                                        // EVIL signals (-pts)
-                                                                        if (isVillainous) moralScore -= 3;
-                                                                        if (h.includes("discarding the moral weights") || h.includes("clandestine")) moralScore -= 2;
-                                                                        if (s.includes("kill") || s.includes("bastard") || s.includes("murder") || s.includes("betray") || s.includes("ruthless")) moralScore -= 1;
+                                                                    // EVIL signals (-pts)
+                                                                    if (isVillainous) moralScore -= 3;
+                                                                    if (h.includes("discarding the moral weights") || h.includes("clandestine")) moralScore -= 2;
+                                                                    if (s.includes("kill") || s.includes("bastard") || s.includes("murder") || s.includes("betray") || s.includes("ruthless")) moralScore -= 1;
 
-                                                                        // LAWFUL signals (+pts)
-                                                                        if (s.includes("law") || s.includes("order") || s.includes("officer") || s.includes("solid") || s.includes("regiment") || s.includes("security")) orderScore += 3;
-                                                                        if (h.includes("maintaining the fragile threads of order")) orderScore += 2;
+                                                                    // LAWFUL signals (+pts)
+                                                                    if (s.includes("law") || s.includes("order") || s.includes("officer") || s.includes("solid") || s.includes("regiment") || s.includes("security")) orderScore += 3;
+                                                                    if (h.includes("maintaining the fragile threads of order")) orderScore += 2;
 
-                                                                        // CHAOTIC signals (-pts)
-                                                                        if (s.includes("chaos") || s.includes("thief") || s.includes("rogue") || s.includes("freedom") || s.includes("anarchy") || s.includes("radical")) orderScore -= 3;
-                                                                        if (h.includes("recognized the coming chaos as an opportunity")) orderScore -= 2;
+                                                                    // CHAOTIC signals (-pts)
+                                                                    if (s.includes("chaos") || s.includes("thief") || s.includes("rogue") || s.includes("freedom") || s.includes("anarchy") || s.includes("radical")) orderScore -= 3;
+                                                                    if (h.includes("recognized the coming chaos as an opportunity")) orderScore -= 2;
 
-                                                                        // MUNDANE/NEUTRAL signals (Resets scores toward 0)
-                                                                        const isMundane = s.includes("student") || s.includes("average") || s.includes("normal") || s.includes("nothing special") || s.includes("random") || s.includes("simple") || s.includes("worker") || s.includes("faculty") || s.includes("faculty member");
-                                                                        if (isMundane) {
-                                                                            moralScore = moralScore > 0 ? Math.max(0, moralScore - 2) : Math.min(0, moralScore + 2);
-                                                                            orderScore = orderScore > 0 ? Math.max(0, orderScore - 2) : Math.min(0, orderScore + 2);
-                                                                        }
+                                                                    // MUNDANE/NEUTRAL signals (Resets scores toward 0)
+                                                                    const isMundane = s.includes("student") || s.includes("average") || s.includes("normal") || s.includes("nothing special") || s.includes("random") || s.includes("simple") || s.includes("worker") || s.includes("faculty") || s.includes("faculty member");
+                                                                    if (isMundane) {
+                                                                        moralScore = moralScore > 0 ? Math.max(0, moralScore - 2) : Math.min(0, moralScore + 2);
+                                                                        orderScore = orderScore > 0 ? Math.max(0, orderScore - 2) : Math.min(0, orderScore + 2);
+                                                                    }
 
-                                                                        // 2. Alignment Logic based on scores
-                                                                        let finalAlign = "True Neutral";
-                                                                        if (moralScore >= 3 && orderScore >= 3) finalAlign = "Lawful Good";
-                                                                        else if (moralScore >= 3 && orderScore <= -3) finalAlign = "Chaotic Good";
-                                                                        else if (moralScore >= 3) finalAlign = "Neutral Good";
-                                                                        else if (moralScore <= -3 && orderScore >= 3) finalAlign = "Lawful Evil";
-                                                                        else if (moralScore <= -3 && orderScore <= -3) finalAlign = "Chaotic Evil";
-                                                                        else if (moralScore <= -3) finalAlign = "Neutral Evil";
-                                                                        else if (orderScore >= 3) finalAlign = "Lawful Neutral";
-                                                                        else if (orderScore <= -3) finalAlign = "Chaotic Neutral";
-                                                                        else finalAlign = "True Neutral";
+                                                                    // 2. Alignment Logic based on scores
+                                                                    let finalAlign = "True Neutral";
+                                                                    if (moralScore >= 3 && orderScore >= 3) finalAlign = "Lawful Good";
+                                                                    else if (moralScore >= 3 && orderScore <= -3) finalAlign = "Chaotic Good";
+                                                                    else if (moralScore >= 3) finalAlign = "Neutral Good";
+                                                                    else if (moralScore <= -3 && orderScore >= 3) finalAlign = "Lawful Evil";
+                                                                    else if (moralScore <= -3 && orderScore <= -3) finalAlign = "Chaotic Evil";
+                                                                    else if (moralScore <= -3) finalAlign = "Neutral Evil";
+                                                                    else if (orderScore >= 3) finalAlign = "Lawful Neutral";
+                                                                    else if (orderScore <= -3) finalAlign = "Chaotic Neutral";
+                                                                    else finalAlign = "True Neutral";
 
-                                                                        setAlignment(finalAlign);
+                                                                    setAlignment(finalAlign);
 
-                                                                        setIsGeneratingStory(false);
-                                                                    }, 1200);
-                                                                }}
-                                                                disabled={!backstory || isGeneratingStory}
-                                                                className={`group relative px-12 py-4 ${isGeneratingStory ? 'bg-orange-950/40' : 'bg-orange-600 hover:bg-orange-500'} text-white text-[11px] font-black uppercase tracking-[0.3em] rounded-xl transition-all shadow-[0_10px_30px_rgba(234,88,12,0.3)] disabled:opacity-50 flex items-center gap-3 overflow-hidden`}
-                                                            >
-                                                                {isGeneratingStory ? (
-                                                                    <>
-                                                                        <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                                                                        SYNCHRONIZING NEURAL LOG...
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
-                                                                        GENERATE YOUR LORE
-                                                                    </>
-                                                                )}
-                                                            </button>
-                                                        </div>
+                                                                    setIsGeneratingStory(false);
+                                                                }, 1200);
+                                                            }}
+                                                            disabled={!backstory || isGeneratingStory}
+                                                            className={`px-10 py-3.5 w-fit ${isGeneratingStory ? 'bg-orange-950/40' : 'bg-orange-600 hover:bg-orange-500'} text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all shadow-[0_10px_30px_rgba(234,88,12,0.2)] disabled:opacity-50 flex items-center gap-3 group relative overflow-hidden`}
+                                                        >
+                                                            {isGeneratingStory ? (
+                                                                <>
+                                                                    <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                                                    SYNCHRONIZING...
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+                                                                    GENERATE YOUR LORE
+                                                                </>
+                                                            )}
+                                                        </button>
                                                     </div>
                                                 </div>
                                             </div>
                                         ) : (
                                             /* PHASE 2: FINALIZED VIEW */
-                                            <div className="grid grid-cols-[1fr_320px] gap-6 items-start">
+                                            <div className="grid grid-cols-[1fr_380px] gap-8 items-start">
                                                 {/* Integrated History (Large Container) */}
-                                                <div className="bg-black/40 border border-white/5 p-8 rounded-2xl shadow-2xl relative group min-h-[600px] flex flex-col">
-                                                    <div className="flex items-center justify-between mb-6">
-                                                        <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em] flex items-center gap-3">
-                                                            <div className="w-1.5 h-1.5 bg-indigo-500 shadow-[0_0_10px_#6366f1]" />
-                                                            SYNCHRONIZED HISTORY
+                                                <div className="bg-black/40 border border-white/5 p-10 rounded-3xl shadow-2xl relative group min-h-[700px] flex flex-col">
+                                                    <div className="flex items-center justify-between mb-8">
+                                                        <h3 className="text-xs font-black text-orange-500 uppercase tracking-[0.4em] flex items-center gap-3">
+                                                            <div className="w-2 h-2 bg-orange-500 shadow-[0_0_10px_#f97316]" />
+                                                            STORY
                                                         </h3>
-                                                        <button onClick={() => setHistory("")} className="text-[8px] text-orange-500 hover:text-red-500 font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 opacity-0 group-hover:opacity-100 italic">
-                                                            <div className="w-1 h-1 bg-current rounded-full" />
+                                                        <button onClick={() => setHistory("")} className="text-[10px] text-orange-500 hover:text-red-500 font-black uppercase tracking-widest transition-colors flex items-center gap-2 opacity-0 group-hover:opacity-100 italic">
+                                                            <div className="w-1.5 h-1.5 bg-current rounded-full" />
                                                             RE-GENERATE FROM DRAFT ✕
                                                         </button>
                                                     </div>
                                                     <textarea
                                                         value={history}
                                                         onChange={e => setHistory(e.target.value)}
-                                                        className="flex-1 bg-transparent border-none text-[13px] text-gray-300 font-mono leading-relaxed outline-none resize-none custom-scrollbar p-0"
+                                                        className="flex-1 bg-transparent border-none text-base text-gray-300 font-mono leading-relaxed outline-none resize-none custom-scrollbar p-0"
                                                     />
                                                 </div>
 
                                                 {/* Sidebar: Current & Alignment */}
-                                                <div className="space-y-6">
+                                                <div className="space-y-8">
                                                     {/* Alignment - Dedicated Interactable Box */}
-                                                    <div className="bg-[#111] border border-orange-500/20 p-6 rounded-2xl shadow-xl group">
-                                                        <div className="text-[8px] text-orange-500/60 font-black uppercase tracking-[0.3em] mb-4 text-center">ALIGNMENT</div>
+                                                    <div className="bg-[#111] border border-orange-500/20 p-8 rounded-3xl shadow-xl">
+                                                        <div className="text-[10px] text-orange-500 font-black uppercase tracking-[0.3em] mb-5 text-center">ALIGNMENT</div>
                                                         <div className="relative">
-                                                            <select
-                                                                value={alignment}
-                                                                onChange={e => setAlignment(e.target.value)}
-                                                                className="w-full bg-black/60 border border-white/5 text-[12px] text-white font-black p-4 rounded-xl outline-none cursor-pointer hover:border-orange-500/40 transition-all text-center appearance-none shadow-inner"
+                                                            <button
+                                                                onClick={() => setIsAlignmentOpen(!isAlignmentOpen)}
+                                                                className="w-full bg-black/60 border border-white/5 text-sm text-white font-black p-5 rounded-2xl outline-none cursor-pointer hover:border-orange-500/40 transition-all text-center shadow-inner flex items-center justify-center gap-3"
                                                             >
-                                                                {["Lawful Good", "Neutral Good", "Chaotic Good", "Lawful Neutral", "True Neutral", "Chaotic Neutral", "Lawful Evil", "Neutral Evil", "Chaotic Evil"].map(a => (
-                                                                    <option key={a} value={a} className="bg-[#111]">{a}</option>
-                                                                ))}
-                                                            </select>
-                                                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-20">▼</div>
+                                                                <span>{alignment || "True Neutral"}</span>
+                                                                <span className={`text-[10px] transition-transform duration-300 ${isAlignmentOpen ? 'rotate-180' : ''}`}>▼</span>
+                                                            </button>
+
+                                                            {isAlignmentOpen && (
+                                                                <div className="absolute top-full left-0 right-0 mt-2 bg-[#111] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl max-h-[300px] overflow-y-auto custom-scrollbar animate-ash-settling">
+                                                                    {["Lawful Good", "Neutral Good", "Chaotic Good", "Lawful Neutral", "True Neutral", "Chaotic Neutral", "Lawful Evil", "Neutral Evil", "Chaotic Evil"].map(a => (
+                                                                        <button
+                                                                            key={a}
+                                                                            onClick={() => {
+                                                                                setAlignment(a);
+                                                                                setIsAlignmentOpen(false);
+                                                                            }}
+                                                                            className={`w-full p-4 text-xs font-bold uppercase tracking-widest text-left transition-all hover:bg-orange-500/20 ${alignment === a ? 'bg-orange-500/10 text-orange-400' : 'text-gray-400 hover:text-white'}`}
+                                                                        >
+                                                                            {a}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
 
-                                                    {/* Current Activities - Compact Box */}
-                                                    <div className="bg-[#111] border border-teal-500/10 p-6 rounded-2xl flex flex-col gap-4">
+                                                    {/* Live Journal - Non-editable chronicle */}
+                                                    <div className="bg-[#111] border border-orange-500/10 p-8 rounded-3xl flex flex-col gap-6 h-[400px]">
                                                         <div className="flex items-center justify-between">
-                                                            <h3 className="text-[9px] font-black text-teal-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                                                                <div className="w-1 h-1 bg-teal-500 rounded-full animate-pulse" />
-                                                                ACTIVITIES
+                                                            <h3 className="text-[11px] font-black text-orange-500 uppercase tracking-[0.2em] flex items-center gap-3">
+                                                                <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
+                                                                LIVE JOURNAL
                                                             </h3>
                                                         </div>
-                                                        <textarea
-                                                            value={currentStory}
-                                                            onChange={e => setCurrentStory(e.target.value)}
-                                                            placeholder="What is happening now..."
-                                                            className="w-full h-[120px] bg-transparent border-none text-[10px] text-teal-100/40 font-mono leading-relaxed outline-none resize-none custom-scrollbar p-0 italic"
-                                                        />
+                                                        <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2">
+                                                            {currentStory ? (
+                                                                currentStory.split('\n').filter(line => line.trim()).map((line, idx) => (
+                                                                    <div key={idx} className="flex gap-3 group/entry">
+                                                                        <div className="w-1 h-1 rounded-full bg-orange-500/40 mt-2 shrink-0 group-hover/entry:bg-orange-500 transition-colors" />
+                                                                        <p className="text-sm text-orange-100/60 font-mono leading-relaxed italic group-hover/entry:text-orange-100/90 transition-colors">
+                                                                            {line}
+                                                                        </p>
+                                                                    </div>
+                                                                ))
+                                                            ) : (
+                                                                <div className="h-full flex flex-col items-center justify-center opacity-20 text-center space-y-3">
+                                                                    <div className="w-8 h-[1px] bg-orange-500" />
+                                                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-500">
+                                                                        The story is waiting...<br />
+                                                                        <span className="text-[8px] opacity-60">Chronicles begin upon departure</span>
+                                                                    </p>
+                                                                    <div className="w-8 h-[1px] bg-orange-500" />
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
