@@ -443,6 +443,7 @@ async fn main() {
         .route("/api/events/resolve", post(ai_events::resolve_event_handler))
         .route("/api/events/rethink", post(ai_events::rethink_event_handler))
         .route("/api/characters/generate", post(ai_characters::generate_character_handler))
+        .route("/api/ai/character-story", post(ai_characters::generate_story_handler))
         .route("/api/planet/ecology", post(start_ecology_job))
         .route("/api/planet/ecology/{job_id}", get(get_job_status))
         .route("/api/planet/ecology-data/{world_id}", get(ecology::get_ecology_data).post(ecology::save_ecology_data))

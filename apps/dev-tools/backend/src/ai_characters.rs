@@ -106,3 +106,64 @@ Keep 'history' and 'backstory' detailed and flavorful.
         raw_json: clean_text,
     }))
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateStoryRequest {
+    pub name: String,
+    pub age: u32,
+    pub gender: String,
+    pub occupation: String,
+    pub draft: String,
+    pub relationships: Option<Vec<String>>,
+    pub world_lore: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateStoryResponse {
+    pub story: String,
+}
+
+pub async fn generate_story_handler(
+    Json(req): Json<GenerateStoryRequest>,
+) -> Result<Json<GenerateStoryResponse>, (StatusCode, String)> {
+    let mut prompt = String::new();
+    prompt.push_str("ASHTRAIL HISTORIAN PROTOCOL: You are the narrator of a dark, gritty sci-fi/fantasy post-apocalyptic world.\n");
+    prompt.push_str(&format!("Generate a detailed, evocative 5-paragraph character story for: {}, Age: {}, Gender: {}, current Occupation: {}.\n\n", 
+        req.name, req.age, req.gender, req.occupation));
+        
+    if !req.draft.is_empty() {
+        prompt.push_str(&format!("User's provided backstory draft / context:\n{}\n\n", req.draft));
+    }
+    
+    if let Some(rels) = &req.relationships {
+        if !rels.is_empty() {
+            prompt.push_str(&format!("Known relationships (incorporate if relevant):\n{}\n\n", rels.join(", ")));
+        }
+    }
+
+    if let Some(lore) = &req.world_lore {
+        if !lore.is_empty() {
+            prompt.push_str(&format!("Current World Context (Synchronize with this era):\n{}\n\n", lore));
+        }
+    }
+
+    prompt.push_str("CHRONOLOGICAL REQUIREMENTS (One paragraph for each phase):\n");
+    prompt.push_str("1. ORIGINE: Life in the Old World before the heavens suffocated under the Great Fog. Focus on their previous situation or dreams.\n");
+    prompt.push_str("2. LA CHUTE: The terrifying transition as the horizon vanished and the sun became a dying ember. The moment civilization broke.\n");
+    prompt.push_str("3. SURVIE: The immediate struggle to survive the resource wars and the descent into the deep vaults or the shadows of the ruins.\n");
+    prompt.push_str("4. ADAPTATION: The long years of hardening inside the structural shells or the wastes. How they became what they are now.\n");
+    prompt.push_str("5. ÉTAT ACTUEL: Their current standing in the City-States or the Ash-Trail. Why they are starting their journey today as a survivor.\n\n");
+    
+    prompt.push_str("TONE: Objective but dramatic, emphasizing consequences and power dynamics. Avoid moralizing; focus on survival math.\n");
+    prompt.push_str("Return ONLY the story text. No markdown blocks, no titles, just formatting with double newlines between paragraphs.");
+
+    let text = gemini::generate_text(&prompt).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("Gemini API error: {:?}", e))
+    })?;
+
+    Ok(Json(GenerateStoryResponse {
+        story: text.trim().to_string(),
+    }))
+}

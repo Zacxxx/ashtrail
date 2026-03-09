@@ -137,6 +137,7 @@ export function CharacterBuilderPage() {
     const [alignment, setAlignment] = useState("");
     const [showSelectionModal, setShowSelectionModal] = useState<"title" | "badge" | null>(null);
     const [isGeneratingStory, setIsGeneratingStory] = useState(false);
+    const [hasStartedGeneration, setHasStartedGeneration] = useState(false);
 
     // Relationships
     const [relationships, setRelationships] = useState<CharacterRelationship[]>([]);
@@ -144,6 +145,7 @@ export function CharacterBuilderPage() {
     const [worldSnippets, setWorldSnippets] = useState<{ id: string; content: string; date: any }[]>([]);
     const [targetHistory, setTargetHistory] = useState("");
     const [isTyping, setIsTyping] = useState(false);
+    const [genProgress, setGenProgress] = useState(0);
 
     // Typing effect for lore
     useEffect(() => {
@@ -168,6 +170,25 @@ export function CharacterBuilderPage() {
 
         return () => clearInterval(timer);
     }, [targetHistory]);
+
+    // Simulated progress for AI generation
+    useEffect(() => {
+        if (!isGeneratingStory) {
+            setGenProgress(0);
+            return;
+        }
+
+        const interval = setInterval(() => {
+            setGenProgress(prev => {
+                if (prev >= 98) return 98;
+                // Faster at start, slower at end
+                const inc = prev < 50 ? 5 : prev < 80 ? 2 : 1;
+                return prev + inc;
+            });
+        }, 150);
+
+        return () => clearInterval(interval);
+    }, [isGeneratingStory]);
 
     // Fetch world's lore snippets
     useEffect(() => {
@@ -1334,7 +1355,7 @@ export function CharacterBuilderPage() {
                                 <div className="flex flex-col h-full relative font-mono overflow-hidden py-2 px-2 gap-4 animate-ash-settling">
                                     <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pt-2 pb-6 max-w-6xl mx-auto w-full">
 
-                                        {!history ? (
+                                        {!history && !hasStartedGeneration ? (
                                             /* PHASE 1: DRAFTING & ERA SELECTION */
                                             <div className="bg-[#1a1a1a]/80 border border-orange-950/30 p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] backdrop-blur-xl relative overflow-hidden">
                                                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-orange-500/40 to-transparent" />
@@ -1375,99 +1396,62 @@ export function CharacterBuilderPage() {
                                                     <div></div>
                                                     <div className="flex justify-end pt-8">
                                                         <button
-                                                            onClick={() => {
+                                                            onClick={async () => {
                                                                 setIsGeneratingStory(true);
-                                                                setTimeout(() => {
-                                                                    const currentName = name || "This unit";
-                                                                    const soulContext = (backstory || "").toLowerCase();
-                                                                    const occupation = selectedOccupation?.name || 'Wanderer';
+                                                                setHasStartedGeneration(true);
+                                                                try {
+                                                                    const resp = await fetch("http://localhost:8787/api/ai/character-story", {
+                                                                        method: "POST",
+                                                                        headers: { "Content-Type": "application/json" },
+                                                                        body: JSON.stringify({
+                                                                            name: name || "This unit",
+                                                                            age: age,
+                                                                            gender: gender,
+                                                                            occupation: selectedOccupation?.name || "Wanderer",
+                                                                            draft: backstory || "",
+                                                                            relationships: relationships.map(r => `${r.type} (${r.targetId})`),
+                                                                            worldLore: worldSnippets.length > 0 ? worldSnippets[worldSnippets.length - 1].content : ""
+                                                                        })
+                                                                    });
 
-                                                                    // Dynamic Story Component Pools
-                                                                    const isScience = soulContext.includes("doctor") || soulContext.includes("surgeon") || soulContext.includes("hospital") || soulContext.includes("lab") || soulContext.includes("medical");
-                                                                    const isRural = soulContext.includes("farmer") || soulContext.includes("farm") || soulContext.includes("nature") || soulContext.includes("midwest");
-                                                                    const isUrban = soulContext.includes("london") || soulContext.includes("paris") || soulContext.includes("city") || soulContext.includes("street");
+                                                                    if (resp.ok) {
+                                                                        const data = await resp.json();
+                                                                        const fullHistory = data.story;
+                                                                        setTargetHistory(fullHistory);
 
-                                                                    const isHeroic = soulContext.includes("save") || soulContext.includes("help") || soulContext.includes("protect") || soulContext.includes("hero") || soulContext.includes("loyalty");
-                                                                    const isVillainous = soulContext.includes("kill") || soulContext.includes("bastard") || soulContext.includes("ruthless") || soulContext.includes("experiment") || soulContext.includes("betray");
+                                                                        // Refined Moral Sentiment Analysis based on AI output
+                                                                        const h = fullHistory.toLowerCase();
+                                                                        const soulContext = (backstory || "").toLowerCase();
 
-                                                                    // Segment 1: The Old World Origin
-                                                                    let p1 = `Before the heavens suffocated under a permanent blanket of soot, ${currentName} was defined by a different life. `;
-                                                                    if (isScience) p1 += `In the sanitized, ultra-sterile halls of the world's leading medical facilities, they navigated complex biological architectures, dedicating their days to the precision of the scalpel and the hope of recovery.`;
-                                                                    else if (isRural) p1 += `Existing in the quiet rhythms of the countryside, they lived through the last golden harvests, watching the horizons for seasons that would eventually cease to arrive.`;
-                                                                    else if (isUrban) p1 += `They were a permanent fixture of a bustling metropolis, navigating streets of glass and steel during the final, shimmering years of a civilization that believed its progress was infinite.`;
-                                                                    else p1 += `Built on the legacy of ${backstory || "a simple, long-forgotten life"}, they participated in the shimmering final years of the 20th century, before the sky darkened and the world dissolved.`;
+                                                                        // 1. Scoring System
+                                                                        let moralScore = 0;
+                                                                        let orderScore = 0;
 
-                                                                    // Segment 2: The Fall
-                                                                    let p2 = `The end did not arrive with a scream, but with the silent, creeping advance of the Great Fog. `;
-                                                                    if (isVillainous) p2 += `While others succumbed to panic, ${currentName} recognized the coming chaos as a laboratory for their own ambitions. They survived the Resource Wars by discarding the moral weights that held others back, learning the cold math of survival where the life of another was merely a variable to be managed.`;
-                                                                    else if (isHeroic) p2 += `As the Atmosphere turned toxic and the world ignited in the Resource Wars, ${currentName} stood as a flicker of light in the growing dark, exhaustion their only constant companion as they fought to save those who could not save themselves.`;
-                                                                    else p2 += `${currentName} witnessed the terrifying transition as the horizon vanished and the sun became a pale, dying ember. They navigated the frantic desperation of the era, where the last vestiges of sovereignty were traded for drops of fuel.`;
+                                                                        // Analysis logic (Detecting markers in the AI's complex prose)
+                                                                        if (h.includes("save") || h.includes("protect") || h.includes("help") || h.includes("sacrifice")) moralScore += 3;
+                                                                        if (h.includes("kill") || h.includes("murder") || h.includes("ruthless") || h.includes("discard")) moralScore -= 3;
+                                                                        if (h.includes("order") || h.includes("law") || h.includes("duty") || h.includes("structure")) orderScore += 3;
+                                                                        if (h.includes("chaos") || h.includes("anarchy") || h.includes("theft") || h.includes("rogue")) orderScore -= 3;
 
-                                                                    // Segment 3: The Vault Years
-                                                                    let p3 = `When the surface finally became uninhabitable, the migration into the deep began. `;
-                                                                    if (isVillainous) p3 += `${currentName} spent the long years of the Great Dark in the shadows of the lead-lined vaults, conducting clandestine operations and consolidating power while the rest of humanity shivered in fear.`;
-                                                                    else if (isHeroic) p3 += `Within the claustrophobic silence of the underground vaults, ${currentName} became a cornerstone of their community, maintaining the fragile threads of order and hope while the Ash-storms reshaped the continents above.`;
-                                                                    else p3 += `${currentName} lived through the agonizing silence of the underground vaults, surviving for years behind reinforced structural shells as the world they remembered slowly turned to dust.`;
+                                                                        // 2. Alignment Logic
+                                                                        let finalAlign = "True Neutral";
+                                                                        if (moralScore >= 3 && orderScore >= 3) finalAlign = "Lawful Good";
+                                                                        else if (moralScore >= 3 && orderScore <= -3) finalAlign = "Chaotic Good";
+                                                                        else if (moralScore >= 3) finalAlign = "Neutral Good";
+                                                                        else if (moralScore <= -3 && orderScore >= 3) finalAlign = "Lawful Evil";
+                                                                        else if (moralScore <= -3 && orderScore <= -3) finalAlign = "Chaotic Evil";
+                                                                        else if (moralScore <= -3) finalAlign = "Neutral Evil";
+                                                                        else if (orderScore >= 3) finalAlign = "Lawful Neutral";
+                                                                        else if (orderScore <= -3) finalAlign = "Chaotic Neutral";
+                                                                        else finalAlign = "True Neutral";
 
-                                                                    // Segment 4: The Re-Emergence
-                                                                    let p4 = `Emerging from the vaults, ${currentName} found a planet that no longer recognized its masters. `;
-                                                                    p4 += `They became a scavenger of the wastes, reclaiming artifacts of the past to build the foundations of a new, fractured society, proving to be a vital component in the machinery of reclamation.`;
-
-                                                                    // Segment 5: The Present Day
-                                                                    const p5 = `Today, as a specialized ${occupation}, ${currentName} has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Each step is a testament to a spirit for whom the Ash has finally become home.`;
-
-                                                                    const fullHistory = `${p1}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5}`;
-                                                                    setTargetHistory(fullHistory);
-
-                                                                    // Refined Moral Sentiment Analysis
-                                                                    const h = fullHistory.toLowerCase();
-                                                                    const s = soulContext;
-
-                                                                    // 1. Scoring System
-                                                                    let moralScore = 0; // Negative = Evil, Positive = Good
-                                                                    let orderScore = 0; // Negative = Chaotic, Positive = Lawful
-
-                                                                    // GOOD signals (+pts)
-                                                                    if (isHeroic) moralScore += 3;
-                                                                    if (h.includes("flicker of light") || h.includes("cornerstone")) moralScore += 2;
-                                                                    if (s.includes("doctor") || s.includes("help") || s.includes("save") || s.includes("protect") || s.includes("hero")) moralScore += 1;
-
-                                                                    // EVIL signals (-pts)
-                                                                    if (isVillainous) moralScore -= 3;
-                                                                    if (h.includes("discarding the moral weights") || h.includes("clandestine")) moralScore -= 2;
-                                                                    if (s.includes("kill") || s.includes("bastard") || s.includes("murder") || s.includes("betray") || s.includes("ruthless")) moralScore -= 1;
-
-                                                                    // LAWFUL signals (+pts)
-                                                                    if (s.includes("law") || s.includes("order") || s.includes("officer") || s.includes("solid") || s.includes("regiment") || s.includes("security")) orderScore += 3;
-                                                                    if (h.includes("maintaining the fragile threads of order")) orderScore += 2;
-
-                                                                    // CHAOTIC signals (-pts)
-                                                                    if (s.includes("chaos") || s.includes("thief") || s.includes("rogue") || s.includes("freedom") || s.includes("anarchy") || s.includes("radical")) orderScore -= 3;
-                                                                    if (h.includes("recognized the coming chaos as an opportunity")) orderScore -= 2;
-
-                                                                    // MUNDANE/NEUTRAL signals (Resets scores toward 0)
-                                                                    const isMundane = s.includes("student") || s.includes("average") || s.includes("normal") || s.includes("nothing special") || s.includes("random") || s.includes("simple") || s.includes("worker") || s.includes("faculty") || s.includes("faculty member");
-                                                                    if (isMundane) {
-                                                                        moralScore = moralScore > 0 ? Math.max(0, moralScore - 2) : Math.min(0, moralScore + 2);
-                                                                        orderScore = orderScore > 0 ? Math.max(0, orderScore - 2) : Math.min(0, orderScore + 2);
+                                                                        setAlignment(finalAlign);
                                                                     }
-
-                                                                    // 2. Alignment Logic based on scores
-                                                                    let finalAlign = "True Neutral";
-                                                                    if (moralScore >= 3 && orderScore >= 3) finalAlign = "Lawful Good";
-                                                                    else if (moralScore >= 3 && orderScore <= -3) finalAlign = "Chaotic Good";
-                                                                    else if (moralScore >= 3) finalAlign = "Neutral Good";
-                                                                    else if (moralScore <= -3 && orderScore >= 3) finalAlign = "Lawful Evil";
-                                                                    else if (moralScore <= -3 && orderScore <= -3) finalAlign = "Chaotic Evil";
-                                                                    else if (moralScore <= -3) finalAlign = "Neutral Evil";
-                                                                    else if (orderScore >= 3) finalAlign = "Lawful Neutral";
-                                                                    else if (orderScore <= -3) finalAlign = "Chaotic Neutral";
-                                                                    else finalAlign = "True Neutral";
-
-                                                                    setAlignment(finalAlign);
-
+                                                                } catch (e) {
+                                                                    console.error("AI Lore Generation Failed:", e);
+                                                                } finally {
                                                                     setIsGeneratingStory(false);
-                                                                }, 1200);
+                                                                }
                                                             }}
                                                             disabled={!backstory || isGeneratingStory}
                                                             className={`px-10 py-3.5 w-fit ${isGeneratingStory ? 'bg-orange-950/40' : 'bg-orange-600 hover:bg-orange-500'} text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all shadow-[0_10px_30px_rgba(234,88,12,0.2)] disabled:opacity-50 flex items-center gap-3 group relative overflow-hidden`}
@@ -1498,7 +1482,10 @@ export function CharacterBuilderPage() {
                                                             STORY
                                                         </h3>
                                                         <button
-                                                            onClick={() => setHistory("")}
+                                                            onClick={() => {
+                                                                setHistory("");
+                                                                setHasStartedGeneration(false);
+                                                            }}
                                                             disabled={isTyping}
                                                             className={`text-[10px] text-orange-500 hover:text-red-500 font-black uppercase tracking-widest transition-colors flex items-center gap-2 ${isTyping ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'} italic disabled:cursor-not-allowed`}
                                                         >
@@ -1506,11 +1493,54 @@ export function CharacterBuilderPage() {
                                                             RE-GENERATE FROM DRAFT ✕
                                                         </button>
                                                     </div>
-                                                    <textarea
-                                                        value={history}
-                                                        onChange={e => setHistory(e.target.value)}
-                                                        className="flex-1 bg-transparent border-none text-base text-gray-300 font-mono leading-relaxed outline-none resize-none custom-scrollbar p-0"
-                                                    />
+                                                    {isGeneratingStory ? (
+                                                        <div className="flex-1 flex flex-col items-center justify-center space-y-8 animate-pulse">
+                                                            <div className="relative w-48 h-48">
+                                                                {/* Circular Progress SVG */}
+                                                                <svg className="w-full h-full -rotate-90">
+                                                                    <circle
+                                                                        cx="96" cy="96" r="80"
+                                                                        fill="transparent"
+                                                                        stroke="rgba(249, 115, 22, 0.1)"
+                                                                        strokeWidth="4"
+                                                                    />
+                                                                    <circle
+                                                                        cx="96" cy="96" r="80"
+                                                                        fill="transparent"
+                                                                        stroke="#f97316"
+                                                                        strokeWidth="4"
+                                                                        strokeDasharray={2 * Math.PI * 80}
+                                                                        strokeDashoffset={2 * Math.PI * 80 * (1 - genProgress / 100)}
+                                                                        strokeLinecap="round"
+                                                                        className="transition-all duration-300 ease-out shadow-[0_0_20px_#f97316]"
+                                                                    />
+                                                                </svg>
+                                                                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                                                    <span className="text-4xl font-black text-white font-mono tracking-tighter">
+                                                                        {genProgress}%
+                                                                    </span>
+                                                                    <span className="text-[10px] font-black text-orange-500 uppercase tracking-[0.4em] mt-2">
+                                                                        LOADING
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex flex-col items-center gap-2">
+                                                                <p className="text-xs font-black text-orange-100/40 uppercase tracking-[0.6em]">WRITING {name || "Character"}'S STORY</p>
+                                                                <div className="flex gap-1">
+                                                                    {[0, 1, 2].map(i => (
+                                                                        <div key={i} className="w-1 h-3 bg-orange-500/40 animate-bounce" style={{ animationDelay: `${i * 0.1}s` }} />
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <textarea
+                                                            value={history}
+                                                            onChange={e => setHistory(e.target.value)}
+                                                            readOnly={isTyping}
+                                                            className="flex-1 bg-transparent border-none text-base text-gray-300 font-mono leading-relaxed outline-none resize-none custom-scrollbar p-0"
+                                                        />
+                                                    )}
                                                 </div>
 
                                                 {/* Sidebar: Current & Alignment */}
