@@ -83,7 +83,7 @@ export function TacticalArena({
 
     const displayGrid = useMemo(() => {
         // Create a shallow copy of the grid rows/cells to inject highlights
-        const newGrid = grid.map(row => row.map(cell => ({ ...cell, highlight: null as 'move' | 'attack' | 'path' | null })));
+        const newGrid = grid.map(row => row.map(cell => ({ ...cell, highlight: null as 'move' | 'attack' | 'attack-blocked' | 'path' | null })));
 
         if (!activeEntity || phase !== 'combat' || !isPlayerTurn) return newGrid;
 
@@ -107,8 +107,11 @@ export function TacticalArena({
             }
         } else if (playerAction === 'targeting_skill' && selectedSkill) {
             const attackable = getAttackableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, selectedSkill.minRange, selectedSkill.maxRange);
-            attackable.forEach(c => {
+            attackable.valid.forEach(c => {
                 newGrid[c.row][c.col].highlight = 'attack';
+            });
+            attackable.blocked.forEach(c => {
+                newGrid[c.row][c.col].highlight = 'attack-blocked';
             });
         }
 
@@ -568,14 +571,22 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
         strokeWidth = 2;
     }
     if (cell.highlight === 'attack') {
-        fillColor = 'rgba(244, 63, 94, 0.25)';
+        fillColor = 'rgba(244, 63, 94, 0.45)';
         strokeColor = 'rgba(255,255,255,0.4)';
+    }
+    if (cell.highlight === 'attack-blocked') {
+        fillColor = 'rgba(244, 63, 94, 0.15)';
+        strokeColor = 'rgba(255,255,255,0.05)';
     }
     if (cell.highlight === 'path') {
         fillColor = 'rgba(45, 212, 191, 0.6)';
     }
     if (isAoe) {
-        fillColor = 'rgba(251, 146, 60, 0.35)';
+        fillColor = 'rgba(251, 146, 60, 0.35)'; // Keep standard AoE color overlay
+        // Make the stroke slightly harder to stand out in the AoE blast
+        if (cell.highlight !== 'attack-blocked') {
+            strokeColor = 'rgba(255,200,100,0.6)';
+        }
     }
 
     const showAnalyzed = entity?.activeEffects?.some(e => e.type === 'ANALYZED' as any);
@@ -611,7 +622,7 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
             )}
 
             {/* Damage Preview Badge */}
-            {isHovered && damagePreview && !isDead && (
+            {(isHovered || isAoe) && damagePreview && !isDead && (
                 <div className="absolute -top-20 left-1/2 -translate-x-1/2 bg-black/90 border border-red-500/50 p-1.5 rounded shadow-xl z-50 min-w-[90px] pointer-events-none">
                     <div className="text-[8px] uppercase font-black text-red-500/70 mb-0.5 tracking-tighter">Est. Impact</div>
                     <div className="flex flex-col gap-0.5">

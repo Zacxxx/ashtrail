@@ -176,5 +176,31 @@
     "name": "Gros Gourdin Fait Bonk",
     "pushDistance": 1,
     "targetType": "cell"
+  },
+  {
+    "apCost": 2,
+    "areaSize": 0,
+    "areaType": "single",
+    "category": "base",
+    "cooldown": 2,
+    "description": "A quick burst of speed. +3 Movement Points for the current turn.",
+    "effects": [
+      {
+        "description": "Increases Movement Points.",
+        "duration": 1,
+        "id": "effect-sprint-mp",
+        "name": "Sprint Bonus",
+        "target": "mp",
+        "trigger": "passive",
+        "type": "STAT_MODIFIER",
+        "value": 3
+      }
+    ],
+    "icon": "👟",
+    "id": "sprint",
+    "maxRange": 0,
+    "minRange": 0,
+    "name": "Sprint",
+    "targetType": "self"
   }
 ]

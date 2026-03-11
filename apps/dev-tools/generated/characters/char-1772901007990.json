@@ -64,10 +64,10 @@
       ],
       "equipSlot": "mainHand",
       "icon": "📦",
-      "id": "item-1773235390183-1773247535751",
+      "id": "item-1773235390183-1773252044414",
       "name": "Old fkcin bazooka",
       "rarity": "relic",
-      "weaponAreaSize": 3,
+      "weaponAreaSize": 2,
       "weaponAreaType": "splash",
       "weaponRange": 5,
       "weaponType": "ranged"
@@ -115,22 +115,6 @@
     }
   ],
   "skills": [
-    {
-      "apCost": 3,
-      "areaSize": 0,
-      "areaType": "single",
-      "category": "base",
-      "cooldown": 0,
-      "damage": 12,
-      "description": "A quick melee strike with a blade.",
-      "effectType": "physical",
-      "icon": "⚔️",
-      "id": "slash",
-      "maxRange": 1,
-      "minRange": 1,
-      "name": "Slash",
-      "targetType": "enemy"
-    },
     {
       "apCost": 4,
       "areaSize": 0,
@@ -278,6 +262,32 @@
       "minRange": 1,
       "name": "Use Weapon",
       "targetType": "enemy"
+    },
+    {
+      "apCost": 2,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 2,
+      "description": "A quick burst of speed. +3 Movement Points for the current turn.",
+      "effects": [
+        {
+          "description": "Increases Movement Points.",
+          "duration": 1,
+          "id": "effect-sprint-mp",
+          "name": "Sprint Bonus",
+          "target": "mp",
+          "trigger": "passive",
+          "type": "STAT_MODIFIER",
+          "value": 3
+        }
+      ],
+      "icon": "👟",
+      "id": "sprint",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Sprint",
+      "targetType": "self"
     }
   ],
   "stats": {

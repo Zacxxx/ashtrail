@@ -35,12 +35,22 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
     const mainHandWeapon = resolvedEquipped.mainHand || null;
 
     // ── 2. Resolve skills (char.skills may be stale snapshots) ──
-    let skills: Skill[];
+    let skills: Skill[] = [];
     if (char.skills && char.skills.length > 0) {
-        skills = char.skills.map(s => {
+        // Filter out legacy "slash" skill
+        const filtered = char.skills.filter(s => s.id !== 'slash');
+        skills = filtered.map(s => {
             // Always pull fresh skill data from registry
             const fresh = GameRegistry.getSkill(s.id);
             return fresh || s;
+        });
+
+        // Ensure all 'base' skills are present (e.g. newly added Sprint)
+        const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === 'base');
+        baseSkills.forEach(bs => {
+            if (!skills.some(ms => ms.id === bs.id)) {
+                skills.push(bs);
+            }
         });
     } else {
         skills = isPlayer ? defaultPlayerSkills : defaultEnemySkills;

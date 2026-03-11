@@ -231,7 +231,12 @@ export function useTacticalCombat(
         if (phase !== 'combat' || !activeEntity || !isPlayerTurn || !selectedSkill) return;
         if (playerAction === 'targeting_skill') {
             const attackable = getAttackableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, selectedSkill.minRange, selectedSkill.maxRange);
-            setGrid(prev => highlightCells(prev, attackable, 'attack'));
+            setGrid(prev => {
+                let newGrid = clearHighlights(prev);
+                newGrid = highlightCells(newGrid, attackable.valid, 'attack', false);
+                newGrid = highlightCells(newGrid, attackable.blocked, 'attack-blocked', false);
+                return newGrid;
+            });
         }
     }, [selectedSkill, playerAction]);
 
@@ -1073,7 +1078,7 @@ export function useTacticalCombat(
                         }
                     } else if (updatedAi.ap >= MELEE_ATTACK_COST && closestDist <= MELEE_RANGE) {
                         addLog(`🎯 ${updatedAi.name} swings blindly around!`, 'info');
-                        executeSkill(updatedAi.id, targetPos.row, targetPos.col, { id: 'basic', name: 'Slash', apCost: 3, damage: 10, icon: '⚔️' } as Skill);
+                        executeSkill(updatedAi.id, targetPos.row, targetPos.col, { id: 'use-weapon', name: 'Attack', apCost: 3, damage: 10, icon: '⚔️' } as Skill);
                     }
                 } else if (targetId) {
                     const updatedTarget = entitiesRef.current.get(targetId);

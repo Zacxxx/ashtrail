@@ -601,12 +601,12 @@ export function CharacterBuilderPage() {
             const skills = GameRegistry.getAllSkills();
             const baseSkills = skills.filter(s => s.category === "base");
 
-            // Enrich all characters with base skills immediately
+            // Enrich all characters with base skills immediately and filter out legacy slash
             const enriched = rawCharacters.map(c => ({
                 ...c,
                 skills: [
-                    ...(c.skills || []),
-                    ...baseSkills.filter(bs => !(c.skills || []).some(ms => ms.id === bs.id))
+                    ...(c.skills || []).filter(s => s.id !== 'slash'),
+                    ...baseSkills.filter(bs => !(c.skills || []).some(ms => ms.id === bs.id && ms.id !== 'slash'))
                 ]
             }));
 
@@ -792,7 +792,7 @@ export function CharacterBuilderPage() {
         }));
         setSelectedSkills(prev => {
             const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
-            const loadedSkills = char.skills || [];
+            const loadedSkills = (char.skills || []).filter(s => s.id !== 'slash');
             // Merge char skills with base skills, avoiding duplicates
             const merged = [...loadedSkills];
             baseSkills.forEach(bs => {
