@@ -62,6 +62,52 @@ export function TacticalArena({
     }, [grid]);
 
     const [hoveredCell, setHoveredCell] = useState<{ row: number, col: number } | null>(null);
+    const [isHotbarUnlocked, setIsHotbarUnlocked] = useState(false);
+    const [skillOrders, setSkillOrders] = useState<Record<string, (Skill | null)[]>>({});
+    const [hoveredDragSlot, setHoveredDragSlot] = useState<number | null>(null);
+
+    const currentSkills = useMemo(() => {
+        if (!activeEntity) return Array.from({ length: 20 }, () => null);
+        if (skillOrders[activeEntity.id]) return skillOrders[activeEntity.id];
+        const arr = Array.from({ length: 20 }, () => null) as (Skill | null)[];
+        activeEntity.skills.forEach((s, idx) => { if (idx < 20) arr[idx] = s; });
+        return arr;
+    }, [activeEntity, skillOrders]);
+
+    const handleSwapSkills = (idx1: number, idx2: number) => {
+        if (!activeEntity) return;
+        setSkillOrders(prev => {
+            const current = [...(prev[activeEntity.id] || currentSkills)];
+            const temp = current[idx1];
+            current[idx1] = current[idx2];
+            current[idx2] = temp;
+            return { ...prev, [activeEntity.id]: current };
+        });
+    };
+
+    const handleDragStart = (e: React.DragEvent, idx: number) => {
+        if (!isHotbarUnlocked) {
+            e.preventDefault();
+            return;
+        }
+        e.dataTransfer.setData('text/plain', idx.toString());
+    };
+
+    const handleDrop = (e: React.DragEvent, idx2: number) => {
+        if (!isHotbarUnlocked) return;
+        e.preventDefault();
+        const idx1Str = e.dataTransfer.getData('text/plain');
+        if (idx1Str) {
+            const idx1 = parseInt(idx1Str, 10);
+            if (idx1 !== idx2 && !isNaN(idx1)) handleSwapSkills(idx1, idx2);
+        }
+        setHoveredDragSlot(null);
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        if (!isHotbarUnlocked) return;
+        e.preventDefault();
+    };
 
     const aoeSet = useMemo(() => {
         if (!selectedSkill || !hoveredCell || !activeEntity || phase !== 'combat' || playerAction !== 'targeting_skill') return new Set<string>();
@@ -301,179 +347,209 @@ export function TacticalArena({
                             {/* Hotbar */}
                             <div className="flex items-center gap-6 w-full justify-center">
                                 {/* Skills */}
-                                <div className="grid grid-cols-10 grid-rows-2 gap-2 bg-black/40 p-3 rounded-2xl border border-white/10 shadow-inner backdrop-blur-md">
-                                    {Array.from({ length: 20 }).map((_, idx) => {
-                                        const skill = activeEntity.skills[idx];
+                                <div className="relative group/hotbar">
+                                    <button
+                                        onClick={() => setIsHotbarUnlocked(!isHotbarUnlocked)}
+                                        className={`absolute -left-3 -top-3 w-6 h-6 rounded-full border-2 flex items-center justify-center text-[10px] z-[60] transition-all shadow-lg ${isHotbarUnlocked
+                                            ? 'bg-orange-500 border-orange-300 text-black animate-pulse'
+                                            : 'bg-gray-700 border-gray-500 text-gray-400 hover:bg-gray-600 hover:text-white'}`}
+                                        title={isHotbarUnlocked ? "Lock Hotbar" : "Unlock Hotbar"}
+                                    >
+                                        {isHotbarUnlocked ? '🔓' : '🔒'}
+                                    </button>
+                                    <div className={`grid grid-cols-10 grid-rows-2 gap-2 bg-black/40 p-3 rounded-2xl border transition-colors shadow-inner backdrop-blur-md ${isHotbarUnlocked ? 'border-orange-500/50 outline-dashed outline-1 outline-orange-500/50 outline-offset-4' : 'border-white/10'}`}>
+                                        {currentSkills.map((skill, idx) => {
+                                            const isDragHovered = hoveredDragSlot === idx;
 
-                                        // Empty slot
-                                        if (!skill) {
-                                            return <div key={`empty-${idx}`} className="w-12 h-12 rounded-lg border-2 border-white/5 bg-black/20 shadow-inner" />;
-                                        }
+                                            // Empty slot
+                                            if (!skill) {
+                                                return (
+                                                    <div
+                                                        key={`empty-${idx}`}
+                                                        onDragOver={handleDragOver}
+                                                        onDrop={(e) => handleDrop(e, idx)}
+                                                        onDragEnter={(e) => { if (isHotbarUnlocked) { e.preventDefault(); setHoveredDragSlot(idx); } }}
+                                                        onDragLeave={(e) => { if (isHotbarUnlocked) { e.preventDefault(); setHoveredDragSlot(null); } }}
+                                                        className={`w-12 h-12 rounded-lg border-2 transition-colors duration-200 ${isDragHovered ? 'border-orange-500 bg-orange-500/20' : 'border-white/5 bg-black/20'} shadow-inner`}
+                                                    />
+                                                );
+                                            }
 
-                                        const cd = activeEntity.skillCooldowns[skill.id] || 0;
-                                        const canUse = activeEntity.ap >= skill.apCost && cd === 0;
-                                        const isSelected = selectedSkill?.id === skill.id;
-                                        return (
-                                            <button
-                                                key={skill.id}
-                                                onClick={() => onSelectSkill(isSelected ? null : skill)}
-                                                disabled={!canUse}
-                                                className={`relative group w-12 h-12 rounded-lg border-2 flex items-center justify-center text-xl transition-all ${isSelected
-                                                    ? 'bg-orange-500/40 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] scale-110 z-10'
-                                                    : canUse
-                                                        ? 'bg-gradient-to-br from-slate-700 to-slate-900 border-slate-600 hover:border-slate-400 hover:scale-110 z-0 hover:z-20'
-                                                        : 'bg-slate-900/50 border-slate-800 opacity-50 grayscale'
-                                                    }`}
-                                            >
-                                                {skill.icon || '✨'}
+                                            const cd = activeEntity.skillCooldowns[skill.id] || 0;
+                                            const canUse = activeEntity.ap >= skill.apCost && cd === 0;
+                                            const isSelected = selectedSkill?.id === skill.id;
+                                            return (
+                                                <button
+                                                    key={`${skill.id}-${idx}`}
+                                                    onClick={() => !isHotbarUnlocked && onSelectSkill(isSelected ? null : skill)}
+                                                    disabled={!isHotbarUnlocked && !canUse}
+                                                    draggable={isHotbarUnlocked}
+                                                    onDragStart={(e) => handleDragStart(e, idx)}
+                                                    onDragOver={handleDragOver}
+                                                    onDrop={(e) => handleDrop(e, idx)}
+                                                    onDragEnter={(e) => { if (isHotbarUnlocked) { e.preventDefault(); setHoveredDragSlot(idx); } }}
+                                                    onDragLeave={(e) => { if (isHotbarUnlocked) { e.preventDefault(); setHoveredDragSlot(null); } }}
+                                                    className={`relative group/skill w-12 h-12 rounded-lg border-2 flex items-center justify-center text-xl transition-all duration-200 
+                                                        ${isDragHovered ? 'border-orange-500 scale-105 z-20' : ''}
+                                                        ${isSelected && !isHotbarUnlocked
+                                                            ? 'bg-orange-500/40 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)] scale-110 z-10'
+                                                            : (canUse || isHotbarUnlocked)
+                                                                ? 'bg-gradient-to-br from-slate-700 to-slate-900 border-slate-600 hover:border-slate-400 hover:scale-110 z-0 hover:z-20'
+                                                                : 'bg-slate-900/50 border-slate-800 opacity-50 grayscale'
+                                                        }
+                                                        ${isHotbarUnlocked ? 'cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-orange-500/50' : ''}
+                                                    `}
+                                                >
+                                                    {skill.icon || '✨'}
 
-                                                {/* AP Cost Badge */}
-                                                <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 bg-blue-600 rounded-full border-2 border-black flex items-center justify-center text-[9px] font-black text-white shadow-md">
-                                                    {skill.apCost}
-                                                </div>
-
-                                                {/* Cooldown Overlay */}
-                                                {cd > 0 && (
-                                                    <div className="absolute inset-0 bg-black/70 rounded-md flex items-center justify-center font-black text-yellow-500 text-lg backdrop-blur-[1px]">
-                                                        {cd}
+                                                    {/* AP Cost Badge */}
+                                                    <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 bg-blue-600 rounded-full border-2 border-black flex items-center justify-center text-[9px] font-black text-white shadow-md">
+                                                        {skill.apCost}
                                                     </div>
-                                                )}
 
-                                                {/* Dofus Style Tooltip (Hover) */}
-                                                <div className="absolute bottom-[110%] mb-2 left-1/2 -translate-x-1/2 w-48 p-2.5 bg-slate-900/95 backdrop-blur-md border border-slate-600 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 translate-y-2 group-hover:translate-y-0 z-[100] flex flex-col gap-1.5">
-                                                    <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 border-b border-r border-slate-600 rotate-45"></div>
-                                                    <div className="font-bold text-white text-xs text-center border-b border-slate-700 pb-1.5">{skill.name}</div>
-                                                    <div className="text-[10px] text-gray-400 text-center leading-snug mb-1">{skill.description}</div>
-                                                    <div className="flex justify-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono bg-black/50 py-1.5 px-2 rounded-lg border border-white/5">
-                                                        {(() => {
-                                                            const rules = GameRulesManager.get();
-                                                            const hasWeaponScaling = skill.effects?.some(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT' as any);
-                                                            const weapon = activeEntity?.equipped?.mainHand;
+                                                    {/* Cooldown Overlay */}
+                                                    {cd > 0 && (
+                                                        <div className="absolute inset-0 bg-black/70 rounded-md flex items-center justify-center font-black text-yellow-500 text-lg backdrop-blur-[1px]">
+                                                            {cd}
+                                                        </div>
+                                                    )}
 
-                                                            let strBonus = 0;
-                                                            if (skill.pushDistance && skill.pushDistance > 0) {
-                                                                strBonus = activeEntity ? Math.floor(activeEntity.strength * (rules.combat.shovePushDamageRatio || 0.1)) : 0;
-                                                            } else {
-                                                                strBonus = activeEntity ? Math.floor(activeEntity.strength * 0.3) : 0;
-                                                            }
+                                                    {/* Dofus Style Tooltip (Hover) */}
+                                                    <div className="absolute bottom-[110%] mb-2 left-1/2 -translate-x-1/2 w-48 p-2.5 bg-slate-900/95 backdrop-blur-md border border-slate-600 rounded-xl shadow-2xl opacity-0 group-hover/skill:opacity-100 pointer-events-none transition-all duration-200 translate-y-2 group-hover/skill:translate-y-0 z-[100] flex flex-col gap-1.5">
+                                                        <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 border-b border-r border-slate-600 rotate-45"></div>
+                                                        <div className="font-bold text-white text-xs text-center border-b border-slate-700 pb-1.5">{skill.name}</div>
+                                                        <div className="text-[10px] text-gray-400 text-center leading-snug mb-1">{skill.description}</div>
+                                                        <div className="flex justify-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono bg-black/50 py-1.5 px-2 rounded-lg border border-white/5">
+                                                            {(() => {
+                                                                const rules = GameRulesManager.get();
+                                                                const hasWeaponScaling = skill.effects?.some(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT' as any);
+                                                                const weapon = activeEntity?.equipped?.mainHand;
 
-                                                            let baseVal = skill.damage || 0;
-                                                            if (hasWeaponScaling && weapon) {
-                                                                const weaponDmgEffect = weapon.effects?.find((e: any) =>
-                                                                    e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS' as any
-                                                                );
-                                                                if (weaponDmgEffect) baseVal = weaponDmgEffect.value;
-                                                            }
+                                                                let strBonus = 0;
+                                                                if (skill.pushDistance && skill.pushDistance > 0) {
+                                                                    strBonus = activeEntity ? Math.floor(activeEntity.strength * (rules.combat.shovePushDamageRatio || 0.1)) : 0;
+                                                                } else {
+                                                                    strBonus = activeEntity ? Math.floor(activeEntity.strength * 0.3) : 0;
+                                                                }
 
-                                                            const total = (skill.damage || 0) + strBonus;
-                                                            const isDistract = skill.id === 'distract';
-                                                            const isAnalyze = skill.id === 'analyze';
-                                                            const isStealth = skill.effects?.some(e => e.type === 'STEALTH' as any);
-                                                            const isProtection = skill.effects?.some(e => e.type === 'PROTECTION_STANCE' as any);
+                                                                let baseVal = skill.damage || 0;
+                                                                if (hasWeaponScaling && weapon) {
+                                                                    const weaponDmgEffect = weapon.effects?.find((e: any) =>
+                                                                        e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS' as any
+                                                                    );
+                                                                    if (weaponDmgEffect) baseVal = weaponDmgEffect.value;
+                                                                }
 
-                                                            if (isAnalyze) {
-                                                                const scale = rules.combat.analyzeIntelScale || 0.6;
-                                                                const base = rules.combat.analyzeBaseCrit || 30;
-                                                                const bonus = base + Math.floor(scale * Math.log((activeEntity?.intelligence || 0) + 1) * 10);
-                                                                return (
-                                                                    <div className="flex flex-col gap-1 w-full text-indigo-300">
-                                                                        <div className="flex items-center justify-between">
-                                                                            <span className="font-black uppercase">Crit Bonus</span>
-                                                                            <span className="font-mono">+{bonus}%</span>
-                                                                        </div>
-                                                                        <div className="text-[8px] text-indigo-300/60 italic leading-snug">
-                                                                            {base}% + floor({scale} × ln(Int {activeEntity?.intelligence}))
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            }
+                                                                const total = (skill.damage || 0) + strBonus;
+                                                                const isDistract = skill.id === 'distract';
+                                                                const isAnalyze = skill.id === 'analyze';
+                                                                const isStealth = skill.effects?.some(e => e.type === 'STEALTH' as any);
+                                                                const isProtection = skill.effects?.some(e => e.type === 'PROTECTION_STANCE' as any);
 
-                                                            if (isDistract) {
-                                                                const scale = rules.combat.distractCharismaScale || 0.42;
-                                                                const mpReduction = 1 + Math.floor(scale * Math.log((activeEntity?.charisma || 0) + 1));
-                                                                return (
-                                                                    <div className="flex flex-col gap-1 w-full text-rose-300">
-                                                                        <div className="flex items-center justify-between">
-                                                                            <span className="font-black uppercase">Stat Check</span>
-                                                                            <span className="font-mono">Cha vs Wis</span>
-                                                                        </div>
-                                                                        <div className="flex items-center justify-between border-t border-rose-300/10 pt-1 mt-0.5">
-                                                                            <span className="font-black uppercase">MP Loss</span>
-                                                                            <span className="font-mono">-{mpReduction} MP</span>
-                                                                        </div>
-                                                                        <div className="text-[8px] text-rose-300/60 italic leading-snug">
-                                                                            1 + floor({scale} × ln(Cha {activeEntity?.charisma}))
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            }
-
-                                                            if (isStealth) {
-                                                                const baseDur = rules.combat.stealthBaseDuration || 1;
-                                                                const factor = rules.combat.stealthScaleFactor || 1.4;
-                                                                const bonus = activeEntity ? Math.floor(factor * Math.log(activeEntity.wisdom + 1)) : 0;
-                                                                const totalDur = baseDur + bonus;
-                                                                return (
-                                                                    <div className="flex flex-col gap-1 w-full">
-                                                                        <div className="flex items-center justify-between">
-                                                                            <span className="text-indigo-400 font-black uppercase">Duration</span>
-                                                                            <span className="text-white font-mono">{totalDur} turns</span>
-                                                                        </div>
-                                                                        <div className="text-[8px] text-gray-500 italic">
-                                                                            Base {baseDur} + floor({factor} × ln(Wisdom {activeEntity?.wisdom}))
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            }
-
-                                                            if (isProtection) {
-                                                                return (
-                                                                    <div className="flex flex-col gap-1 w-full">
-                                                                        <div className="flex items-center justify-between">
-                                                                            <span className="text-blue-400 font-black uppercase">Protection</span>
-                                                                            <span className="text-white font-mono">1 turn</span>
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            }
-
-                                                            if (skill.damage || strBonus > 0 || skill.pushDistance) {
-                                                                // Only show damage block if the skill ACTUALLY has a damage property or is a push skill
-                                                                if (!skill.damage && !skill.pushDistance) return null;
-                                                                return (
-                                                                    <div className="flex flex-col gap-1 w-full">
-                                                                        <div className="flex items-center gap-1.5">
-                                                                            <span className="text-red-400 font-black">{total} dmg</span>
-                                                                            <span className="text-[8px] text-gray-500">
-                                                                                ({hasWeaponScaling ? (weapon ? '⚔️' : '👊') : ''}{baseVal} + 💪{strBonus})
-                                                                            </span>
-                                                                        </div>
-                                                                        {skill.pushDistance && (
-                                                                            <div className="flex flex-col gap-0.5 border-t border-white/5 pt-1 mt-0.5">
-                                                                                <div className="flex items-center justify-between text-[9px]">
-                                                                                    <span className="text-indigo-400 font-bold uppercase">Pushback</span>
-                                                                                    <span className="text-white font-mono">{skill.pushDistance} cells</span>
-                                                                                </div>
-                                                                                <div className="flex items-center justify-between text-[9px]">
-                                                                                    <span className="text-indigo-400/70 italic">Shock Potential</span>
-                                                                                    <span className="text-indigo-300 font-mono">
-                                                                                        ~{activeEntity ? Math.floor(1 * activeEntity.strength * (rules.combat.shoveShockDamageRatio || 0.3)) : 0}/cell
-                                                                                    </span>
-                                                                                </div>
+                                                                if (isAnalyze) {
+                                                                    const scale = rules.combat.analyzeIntelScale || 0.6;
+                                                                    const base = rules.combat.analyzeBaseCrit || 30;
+                                                                    const bonus = base + Math.floor(scale * Math.log((activeEntity?.intelligence || 0) + 1) * 10);
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full text-indigo-300">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="font-black uppercase">Crit Bonus</span>
+                                                                                <span className="font-mono">+{bonus}%</span>
                                                                             </div>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            }
-                                                            return null;
-                                                        })()}
-                                                        {skill.healing && <span className="text-green-400 font-black">{skill.healing} heal</span>}
-                                                        <span className="text-gray-400 font-bold border-l border-white/10 pl-2 ml-1">R: {skill.minRange}-{skill.maxRange}</span>
+                                                                            <div className="text-[8px] text-indigo-300/60 italic leading-snug">
+                                                                                {base}% + floor({scale} × ln(Int {activeEntity?.intelligence}))
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                if (isDistract) {
+                                                                    const scale = rules.combat.distractCharismaScale || 0.42;
+                                                                    const mpReduction = 1 + Math.floor(scale * Math.log((activeEntity?.charisma || 0) + 1));
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full text-rose-300">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="font-black uppercase">Stat Check</span>
+                                                                                <span className="font-mono">Cha vs Wis</span>
+                                                                            </div>
+                                                                            <div className="flex items-center justify-between border-t border-rose-300/10 pt-1 mt-0.5">
+                                                                                <span className="font-black uppercase">MP Loss</span>
+                                                                                <span className="font-mono">-{mpReduction} MP</span>
+                                                                            </div>
+                                                                            <div className="text-[8px] text-rose-300/60 italic leading-snug">
+                                                                                1 + floor({scale} × ln(Cha {activeEntity?.charisma}))
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                if (isStealth) {
+                                                                    const baseDur = rules.combat.stealthBaseDuration || 1;
+                                                                    const factor = rules.combat.stealthScaleFactor || 1.4;
+                                                                    const bonus = activeEntity ? Math.floor(factor * Math.log(activeEntity.wisdom + 1)) : 0;
+                                                                    const totalDur = baseDur + bonus;
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="text-indigo-400 font-black uppercase">Duration</span>
+                                                                                <span className="text-white font-mono">{totalDur} turns</span>
+                                                                            </div>
+                                                                            <div className="text-[8px] text-gray-500 italic">
+                                                                                Base {baseDur} + floor({factor} × ln(Wisdom {activeEntity?.wisdom}))
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                if (isProtection) {
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="text-blue-400 font-black uppercase">Protection</span>
+                                                                                <span className="text-white font-mono">1 turn</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                if (skill.damage || strBonus > 0 || skill.pushDistance) {
+                                                                    // Only show damage block if the skill ACTUALLY has a damage property or is a push skill
+                                                                    if (!skill.damage && !skill.pushDistance) return null;
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full">
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <span className="text-red-400 font-black">{total} dmg</span>
+                                                                                <span className="text-[8px] text-gray-500">
+                                                                                    ({hasWeaponScaling ? (weapon ? '⚔️' : '👊') : ''}{baseVal} + 💪{strBonus})
+                                                                                </span>
+                                                                            </div>
+                                                                            {skill.pushDistance && (
+                                                                                <div className="flex flex-col gap-0.5 border-t border-white/5 pt-1 mt-0.5">
+                                                                                    <div className="flex items-center justify-between text-[9px]">
+                                                                                        <span className="text-indigo-400 font-bold uppercase">Pushback</span>
+                                                                                        <span className="text-white font-mono">{skill.pushDistance} cells</span>
+                                                                                    </div>
+                                                                                    <div className="flex items-center justify-between text-[9px]">
+                                                                                        <span className="text-indigo-400/70 italic">Shock Potential</span>
+                                                                                        <span className="text-indigo-300 font-mono">
+                                                                                            ~{activeEntity ? Math.floor(1 * activeEntity.strength * (rules.combat.shoveShockDamageRatio || 0.3)) : 0}/cell
+                                                                                        </span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                return null;
+                                                            })()}
+                                                            {skill.healing && <span className="text-green-400 font-black">{skill.healing} heal</span>}
+                                                            <span className="text-gray-400 font-bold border-l border-white/10 pl-2 ml-1">R: {skill.minRange}-{skill.maxRange}</span>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
 
                                 {/* End Turn Button */}
