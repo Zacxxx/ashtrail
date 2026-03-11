@@ -29,7 +29,9 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     const [availableStructures, setAvailableStructures] = useState<any[]>([]);
     const [selectedBiomeName, setSelectedBiomeName] = useState<string | null>(null);
     const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
+    const [isPackMode, setIsPackMode] = useState(false); // Whether selectedPackId is a Manual Pack or a Batch
     const [selectedStructureIds, setSelectedStructureIds] = useState<string[]>([]);
+    const [structureSourceMap, setStructureSourceMap] = useState<Record<string, "batch" | "pack">>({});
 
     const allCharacters = GameRegistry.getAllCharacters();
 
@@ -43,20 +45,38 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     useEffect(() => {
         async function fetchAssets() {
             try {
-                const res = await fetch("/api/textures/batches");
-                if (res.ok) {
-                    const batches: any[] = await res.json();
-                    const biomes = batches.filter(b => b.gameAsset?.grouping?.type === "biome");
-                    const structures = batches.filter(b => b.gameAsset?.grouping?.type === "structure");
-                    setAvailableBiomes(biomes);
-                    setAvailableStructures(structures);
+                const [batchRes, packRes] = await Promise.all([
+                    fetch("/api/textures/batches"),
+                    fetch("/api/packs")
+                ]);
 
-                    // Pre-select first biome if available
-                    if (biomes.length > 0) {
-                        const firstBiomeName = biomes[0].gameAsset.grouping.name;
-                        setSelectedBiomeName(firstBiomeName);
-                        setSelectedPackId(biomes[0].batchId);
-                    }
+                let batches: any[] = [];
+                let packs: any[] = [];
+
+                if (batchRes.ok) batches = await batchRes.json();
+                if (packRes.ok) packs = await packRes.json();
+
+                // Combine into available options
+                const biomeOptions = [
+                    ...batches.filter(b => b.gameAsset?.grouping?.type === "biome").map(b => ({ ...b, source: "batch" })),
+                    ...packs.filter(p => p.grouping?.type === "biome").map(p => ({ ...p, source: "pack", batchId: p.packId, batchName: p.name }))
+                ];
+
+                const structureOptions = [
+                    ...batches.filter(b => b.gameAsset?.grouping?.type === "structure").map(b => ({ ...b, source: "batch" })),
+                    ...packs.filter(p => p.grouping?.type === "structure").map(p => ({ ...p, source: "pack", batchId: p.packId, batchName: p.name }))
+                ];
+
+                setAvailableBiomes(biomeOptions);
+                setAvailableStructures(structureOptions);
+
+                // Pre-select first biome if available
+                if (biomeOptions.length > 0) {
+                    const firstOption = biomeOptions[0];
+                    const name = firstOption.source === "pack" ? firstOption.grouping.name : firstOption.gameAsset.grouping.name;
+                    setSelectedBiomeName(name);
+                    setSelectedPackId(firstOption.batchId);
+                    setIsPackMode(firstOption.source === "pack");
                 }
             } catch (err) {
                 console.error("Failed to fetch biome/structure assets:", err);
@@ -110,15 +130,18 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     const handleLaunch = async () => {
         let mapToUse = generatedMap || generateExplorationGrid(rows, cols);
 
-        // Attach Biome and Structure info to map metadata if needed for rendering
         const selectedBiome = availableBiomes.find(b => b.batchId === selectedPackId);
         const selectedStructures = availableStructures.filter(s => selectedStructureIds.includes(s.batchId));
 
-        // Note: The core ExplorationMap type might need extensions to store these IDs if we want to fetch textures later
-        // But for now we can just store them as arbitrary metadata if needed, or rely on them being part of the 'grid'
-        // For rendering, we'll need to know which Pack to use.
+        // Attach Biome and Structure info to map metadata
         (mapToUse as any).biomePackId = selectedPackId;
+        (mapToUse as any).biomeSource = isPackMode ? "pack" : "batch";
+        (mapToUse as any).biomeName = selectedBiomeName;
         (mapToUse as any).structurePackIds = selectedStructureIds;
+        (mapToUse as any).structureSourceMap = structureSourceMap;
+        (mapToUse as any).structureNames = selectedStructures.map((s: any) =>
+            s.source === "pack" ? (s.grouping?.name || "Unknown") : (s.gameAsset?.grouping?.name || "Unknown")
+        );
 
         // Add selected pawns to map
         const pawns: ExplorationPawn[] = selectedCharIds.map(id => {
@@ -201,13 +224,14 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                                 <div className="space-y-4">
                                     {/* Level 1: Biome Names */}
                                     <div className="flex flex-wrap gap-2">
-                                        {Array.from(new Set(availableBiomes.map(b => b.gameAsset.grouping.name))).map(name => (
+                                        {Array.from(new Set(availableBiomes.map(b => b.source === "pack" ? b.grouping?.name : b.gameAsset?.grouping?.name))).filter(Boolean).map(name => (
                                             <button
                                                 key={name}
                                                 onClick={() => {
                                                     setSelectedBiomeName(name);
-                                                    const firstPack = availableBiomes.find(b => b.gameAsset.grouping.name === name);
+                                                    const firstPack = availableBiomes.find(b => (b.source === "pack" ? b.grouping?.name : b.gameAsset?.grouping?.name) === name);
                                                     setSelectedPackId(firstPack?.batchId || null);
+                                                    setIsPackMode(firstPack?.source === "pack");
                                                 }}
                                                 className={`px-4 py-2 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all ${selectedBiomeName === name ? "bg-emerald-500 text-black border-emerald-500 shadow-lg shadow-emerald-500/20" : "bg-black/20 border-white/5 text-gray-500 hover:border-white/20"}`}
                                             >
@@ -216,21 +240,29 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                                         ))}
                                     </div>
 
-                                    {/* Level 2: Specific Packs (Batches) */}
+                                    {/* Level 2: Specific Packs (Batches or Manual Packs) */}
                                     {selectedBiomeName && (
                                         <div className="grid grid-cols-2 gap-3 p-4 bg-black/20 rounded-2xl border border-white/5">
-                                            {availableBiomes.filter(b => b.gameAsset.grouping.name === selectedBiomeName).map(pack => (
+                                            {availableBiomes.filter(b => (b.source === "pack" ? b.grouping?.name : b.gameAsset?.grouping?.name) === selectedBiomeName).map(pack => (
                                                 <button
                                                     key={pack.batchId}
-                                                    onClick={() => setSelectedPackId(pack.batchId)}
+                                                    onClick={() => {
+                                                        setSelectedPackId(pack.batchId);
+                                                        setIsPackMode(pack.source === "pack");
+                                                    }}
                                                     className={`p-3 rounded-xl border transition-all text-left flex flex-col gap-1 ${selectedPackId === pack.batchId ? "bg-emerald-500/10 border-emerald-500/40" : "bg-black/20 border-white/5 hover:border-white/10"}`}
                                                 >
                                                     <div className="flex items-center justify-between">
-                                                        <span className="text-[10px] font-bold text-white tracking-wide truncate">{pack.batchName || `Batch ${pack.batchId.substring(0, 6)}`}</span>
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span className="text-[10px] font-bold text-white tracking-wide truncate">{pack.batchName || `Batch ${pack.batchId.substring(0, 6)}`}</span>
+                                                            {pack.source === "pack" && (
+                                                                <span className="shrink-0 px-1 border border-purple-500/30 bg-purple-500/10 text-purple-400 text-[6px] font-black uppercase tracking-tighter rounded">MANUAL PACK</span>
+                                                            )}
+                                                        </div>
                                                         {selectedPackId === pack.batchId && <span className="text-emerald-500 text-[8px] font-black italic">SELECTED</span>}
                                                     </div>
                                                     <span className="text-[8px] text-gray-600 uppercase">
-                                                        {pack.textureCount} Textures · {new Date(pack.createdAt).toLocaleDateString()}
+                                                        {pack.source === "pack" ? `${pack.textures.length} Textures · ${pack.sprites.length} Sprites` : `${pack.textureCount} Textures`} · {new Date(pack.createdAt).toLocaleDateString()}
                                                     </span>
                                                 </button>
                                             ))}
@@ -251,20 +283,36 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                                     {availableStructures.map(struct => (
                                         <button
                                             key={struct.batchId}
-                                            onClick={() => setSelectedStructureIds(prev => prev.includes(struct.batchId) ? prev.filter(id => id !== struct.batchId) : [...prev, struct.batchId])}
+                                            onClick={() => {
+                                                const isSelected = selectedStructureIds.includes(struct.batchId);
+                                                if (isSelected) {
+                                                    setSelectedStructureIds(prev => prev.filter(id => id !== struct.batchId));
+                                                    setStructureSourceMap(prev => {
+                                                        const next = { ...prev };
+                                                        delete next[struct.batchId];
+                                                        return next;
+                                                    });
+                                                } else {
+                                                    setSelectedStructureIds(prev => [...prev, struct.batchId]);
+                                                    setStructureSourceMap(prev => ({ ...prev, [struct.batchId]: struct.source }));
+                                                }
+                                            }}
                                             className={`p-4 rounded-2xl border transition-all text-left flex items-start gap-4 ${selectedStructureIds.includes(struct.batchId) ? "bg-amber-500/10 border-amber-500/40 shadow-lg shadow-amber-500/5" : "bg-black/20 border-white/5 hover:border-white/10"}`}
                                         >
                                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border transition-all ${selectedStructureIds.includes(struct.batchId) ? "bg-amber-500 border-amber-400 text-black" : "bg-white/5 border-white/10 text-gray-500"}`}>
-                                                🏛️
+                                                {struct.source === "pack" ? "📦" : "🏛️"}
                                             </div>
                                             <div className="flex flex-col min-w-0">
                                                 <div className="flex items-center gap-2 mb-1">
-                                                    <span className="text-[11px] font-bold text-white tracking-wide uppercase truncate">{struct.gameAsset.grouping.name}</span>
+                                                    <span className="text-[11px] font-bold text-white tracking-wide uppercase truncate">{struct.source === "pack" ? struct.name : struct.gameAsset.grouping.name}</span>
                                                     {selectedStructureIds.includes(struct.batchId) && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />}
                                                 </div>
                                                 <span className="text-[9px] text-gray-500 font-medium leading-relaxed line-clamp-2 italic">
-                                                    {struct.gameAsset.grouping.description || "No architectural description provided."}
+                                                    {struct.source === "pack" ? struct.description : (struct.gameAsset.grouping.description || "No architectural description provided.")}
                                                 </span>
+                                                {struct.source === "pack" && (
+                                                    <span className="mt-2 w-fit px-1.5 py-0.5 border border-purple-500/30 bg-purple-500/10 text-purple-400 text-[7px] font-black uppercase tracking-tighter rounded">MANUAL PACK</span>
+                                                )}
                                             </div>
                                         </button>
                                     ))}

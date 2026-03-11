@@ -154,6 +154,9 @@ export function WorldGenPage() {
     }, []);
 
     const selectedWorld = history.find(h => h.id === activeWorldId);
+    const sidebarWidth = 340;
+    const sidebarOffset = 370;
+    const sidebarHiddenOffset = 400;
 
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
@@ -169,6 +172,16 @@ export function WorldGenPage() {
                                 tabs={["base", "world", "continents", "geology", "climate"]}
                                 activeTab={inspectorTab}
                                 onTabChange={(tab) => setInspectorTab(tab as InspectorTab)}
+                                className="h-8"
+                            />
+                        </div>
+                    )}
+                    {activeStep === "GEOGRAPHY" && (
+                        <div className="flex items-center">
+                            <TabBar
+                                tabs={["pipeline", "inspector", "isolator", "refinement"]}
+                                activeTab={geographyTab}
+                                onTabChange={(tab) => setGeographyTab(tab as any)}
                                 className="h-8"
                             />
                         </div>
@@ -205,7 +218,11 @@ export function WorldGenPage() {
 
                 {/* Left Sidebar Flow */}
                 <aside
-                    className={`absolute left-4 top-28 bottom-12 w-[340px] z-20 flex flex-col gap-4 overflow-y-auto scrollbar-none transition-transform duration-500 ease-in-out ${isMaxView ? '-translate-x-[400px]' : 'translate-x-0'}`}
+                    className="absolute left-4 top-28 bottom-12 z-20 flex flex-col gap-4 overflow-y-auto scrollbar-none transition-transform duration-500 ease-in-out"
+                    style={{
+                        width: `${sidebarWidth}px`,
+                        transform: isMaxView ? `translateX(-${sidebarHiddenOffset}px)` : "translateX(0)",
+                    }}
                 >
                     {activeStep === "GEO" && showConfigPanel && (
                         <GeologyPanel
@@ -222,14 +239,7 @@ export function WorldGenPage() {
                         />
                     )}
                     {activeStep === "GEOGRAPHY" && (
-                        <div className="flex flex-col gap-4 h-full">
-                            <div className="shrink-0 flex items-center justify-center p-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md">
-                                <TabBar
-                                    tabs={["pipeline", "inspector", "isolator", "refinement"]}
-                                    activeTab={geographyTab}
-                                    onTabChange={(t) => setGeographyTab(t as any)}
-                                />
-                            </div>
+                        <div className="flex flex-col h-full">
                             <div className="flex-1 overflow-y-auto scrollbar-none pb-12">
                                 {geographyTab === "pipeline" ? (
                                     <GeographyPipelinePanel
@@ -310,9 +320,8 @@ export function WorldGenPage() {
 
                 {/* Center Canvas Wrapper */}
                 <div
-                    className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden
-                        ${isMaxView ? 'ml-0' : 'ml-[370px]'}
-                    `}
+                    className="flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden"
+                    style={{ marginLeft: isMaxView ? 0 : `${sidebarOffset}px` }}
                 >
                     <WorldCanvas
                         viewMode={viewMode} globeWorld={globeWorld}

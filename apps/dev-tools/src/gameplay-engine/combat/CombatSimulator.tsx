@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { GameRegistry, Character, Skill } from '@ashtrail/core';
-import type { TacticalEntity, CombatConfig, DamagePreview } from '@ashtrail/core';
+import type { TacticalEntity, CombatConfig, DamagePreview, CombatResolutionSummary } from '@ashtrail/core';
 import { TacticalArena } from './TacticalArena';
 import { useCombatWebSocket } from './useCombatWebSocket';
 import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacticalGrid';
@@ -68,11 +68,15 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
 export function CombatSimulator({
     initialPlayerIds,
     initialEnemyIds,
-    initialCombatStarted
+    initialCombatStarted,
+    onCombatFinished,
+    onCombatCancelled,
 }: {
     initialPlayerIds?: string[],
     initialEnemyIds?: string[],
-    initialCombatStarted?: boolean
+    initialCombatStarted?: boolean,
+    onCombatFinished?: (summary: CombatResolutionSummary) => void,
+    onCombatCancelled?: () => void,
 } = {}) {
     const chars = GameRegistry.getAllCharacters();
 
@@ -312,6 +316,7 @@ export function CombatSimulator({
         setAiGrid(null);
         setMapName(null);
         setMapError(null);
+        onCombatCancelled?.();
     };
 
     const config: CombatConfig = { gridRows, gridCols };
@@ -561,6 +566,7 @@ export function CombatSimulator({
                     aiGrid={aiGrid}
                     config={config}
                     battlemapUrl={battlemapUrl}
+                    onCombatFinished={onCombatFinished}
                 />
             </div>
         </div>
@@ -568,13 +574,14 @@ export function CombatSimulator({
 }
 
 function TacticalCombatArena({
-    playerIds, enemyIds, aiGrid, config, battlemapUrl
+    playerIds, enemyIds, aiGrid, config, battlemapUrl, onCombatFinished
 }: {
     playerIds: string[];
     enemyIds: string[];
     aiGrid: Grid | null;
     config: CombatConfig;
     battlemapUrl: string | null;
+    onCombatFinished?: (summary: CombatResolutionSummary) => void;
 }) {
     // Dynamically grab default skills from the game registry
     const defaultPlayerSkills = getDefaultPlayerSkills();
@@ -600,6 +607,31 @@ function TacticalCombatArena({
         grid: aiGrid || undefined,
         config,
     });
+
+    const hasReportedCombatEnd = React.useRef(false);
+    const resolveEntityByBaseId = React.useCallback((baseId: string, isPlayer: boolean) => {
+        return Array.from(entities.values()).find((entity) => {
+            if (entity.isPlayer !== isPlayer) return false;
+            return entity.id === baseId || entity.id.startsWith(`${baseId}_${isPlayer ? 'p' : 'e'}`);
+        });
+    }, [entities]);
+
+    React.useEffect(() => {
+        if ((phase !== 'victory' && phase !== 'defeat') || hasReportedCombatEnd.current) return;
+        hasReportedCombatEnd.current = true;
+        onCombatFinished?.({
+            outcome: phase,
+            survivingPlayerIds: playerIds.filter((id) => (resolveEntityByBaseId(id, true)?.hp ?? 0) > 0),
+            defeatedEnemyIds: enemyIds.filter((id) => (resolveEntityByBaseId(id, false)?.hp ?? 0) <= 0),
+            playerSnapshots: Array.from(entities.values())
+                .filter((entity) => entity.isPlayer)
+                .map((entity) => ({ id: entity.id, hp: entity.hp, maxHp: entity.maxHp })),
+            enemySnapshots: Array.from(entities.values())
+                .filter((entity) => !entity.isPlayer)
+                .map((entity) => ({ id: entity.id, hp: entity.hp, maxHp: entity.maxHp })),
+            turnCount: turnNumber,
+        });
+    }, [enemyIds, entities, onCombatFinished, phase, playerIds, resolveEntityByBaseId, turnNumber]);
 
     const getDamagePreview = React.useCallback((attacker: TacticalEntity, target: TacticalEntity, skill: Skill): DamagePreview | null => {
         if (!skill.damage && !skill.pushDistance) return null;

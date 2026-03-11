@@ -174,6 +174,12 @@ export interface CharacterRelationship {
   note?: string; // e.g. "Childhood friends" or "Betrayed them"
 }
 
+export interface CharacterOrigin {
+  system: 'builder' | 'history' | 'quest';
+  sourceId?: string;
+  worldId?: string;
+}
+
 export interface Character {
   id: string;
   isNPC?: boolean;
@@ -204,6 +210,7 @@ export interface Character {
   alignment?: string;
   backstory?: string;
   currentStory?: string;
+  origin?: CharacterOrigin;
   parents?: { father: string | null; mother: string | null }; // legacy
   relationships?: CharacterRelationship[];
 }
@@ -227,6 +234,143 @@ export interface Quest {
   description: string;
   status: 'active' | 'completed' | 'failed';
   rewards: string[];
+}
+
+export interface QuestSeedConfig {
+  premise: string;
+  objective: string;
+  stakes: string;
+  tone: string;
+  difficulty: 'low' | 'medium' | 'high' | 'deadly';
+  runLength: 'short' | 'medium' | 'long';
+  openness: 'guided' | 'balanced' | 'open';
+  targetEndingCount: number;
+  factionAnchorIds: string[];
+  locationAnchorIds: string[];
+  ecologyAnchorIds: string[];
+  notes?: string;
+}
+
+export interface QuestNodeChoice {
+  id: string;
+  label: string;
+  intent?: string;
+  risk?: 'low' | 'medium' | 'high';
+  tags?: string[];
+}
+
+export interface PendingQuestCombat {
+  enemyIds: string[];
+  encounterLabel: string;
+  stakes: string;
+}
+
+export interface QuestNodeActor {
+  id: string;
+  name: string;
+  role?: string;
+  isHostile?: boolean;
+  sourceType?: 'builder' | 'history' | 'quest';
+  sourceId?: string;
+}
+
+export interface QuestNodeContextRef {
+  kind: 'faction' | 'location' | 'ecology' | 'history' | 'character';
+  id: string;
+  label: string;
+}
+
+export interface QuestNode {
+  id: string;
+  act: 1 | 2 | 3;
+  index: number;
+  kind: 'scene' | 'dialogue' | 'decision' | 'combat' | 'ending';
+  title: string;
+  text: string;
+  choices: QuestNodeChoice[];
+  npcs: QuestNodeActor[];
+  contextRefs: QuestNodeContextRef[];
+  flags?: string[];
+  pendingCombat?: PendingQuestCombat | null;
+  endingId?: string;
+}
+
+export interface QuestArc {
+  title: string;
+  premise: string;
+  acts: string[];
+  recurringTensions: string[];
+  endingTracks: Array<{
+    id: string;
+    title: string;
+    description: string;
+  }>;
+  likelyNpcRoles: string[];
+}
+
+export interface QuestLogEntry {
+  id: string;
+  timestamp: number;
+  nodeId?: string;
+  kind: 'system' | 'node' | 'choice' | 'outcome' | 'combat' | 'ending';
+  title: string;
+  text: string;
+  effects?: string[];
+}
+
+export interface CombatResolutionSummary {
+  outcome: 'victory' | 'defeat' | 'cancelled';
+  survivingPlayerIds: string[];
+  defeatedEnemyIds: string[];
+  playerSnapshots: Array<{
+    id: string;
+    hp: number;
+    maxHp: number;
+  }>;
+  enemySnapshots: Array<{
+    id: string;
+    hp: number;
+    maxHp: number;
+  }>;
+  turnCount?: number;
+}
+
+export interface QuestRunRecord {
+  id: string;
+  worldId: string;
+  status: 'active' | 'completed' | 'failed' | 'abandoned';
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  title: string;
+  summary: string;
+  partyCharacterIds: string[];
+  seed: QuestSeedConfig;
+  arc: QuestArc;
+  currentNode: QuestNode | null;
+  nodeCount: number;
+  maxNodeCount: number;
+  flags: string[];
+  endingReached?: string;
+  log: QuestLogEntry[];
+  currentEffects?: string[];
+  pendingCombat?: PendingQuestCombat | null;
+  lastOutcomeText?: string;
+  selectedInfluences?: QuestNodeContextRef[];
+}
+
+export interface QuestRunSummary {
+  id: string;
+  worldId: string;
+  status: 'active' | 'completed' | 'failed' | 'abandoned';
+  title: string;
+  summary: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  partyCharacterIds: string[];
+  nodeCount: number;
+  endingReached?: string;
 }
 
 export interface PointOfInterest {

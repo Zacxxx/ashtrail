@@ -49,20 +49,27 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
     // Fetch Asset Packs and Assign Textures
     useEffect(() => {
         const biomeId = (initialMap as any).biomePackId;
+        const biomeSource = (initialMap as any).biomeSource || "batch";
         const structureIds = (initialMap as any).structurePackIds || [];
+        const structureSourceMap = (initialMap as any).structureSourceMap || {};
+        const biomeName = (initialMap as any).biomeName;
+        const structureNames = (initialMap as any).structureNames || [];
 
         async function loadPacks() {
             setIsAssetsLoading(true);
             try {
                 let fetchedBiome: any = null;
                 if (biomeId) {
-                    const res = await fetch(`/api/textures/batches/${biomeId}`);
+                    const endpoint = biomeSource === "pack" ? `/api/packs/${biomeId}` : `/api/textures/batches/${biomeId}`;
+                    const res = await fetch(endpoint);
                     if (res.ok) fetchedBiome = await res.json();
                 }
 
                 const fetchedStructures: any[] = [];
                 for (const sid of structureIds) {
-                    const res = await fetch(`/api/textures/batches/${sid}`);
+                    const source = structureSourceMap[sid] || "batch";
+                    const endpoint = source === "pack" ? `/api/packs/${sid}` : `/api/textures/batches/${sid}`;
+                    const res = await fetch(endpoint);
                     if (res.ok) fetchedStructures.push(await res.json());
                 }
 
@@ -72,11 +79,24 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                 // Assign textures to tiles and objects
                 setMap(prev => {
                     const newTiles = [...prev.tiles];
-                    const groundTextures = fetchedBiome?.textures.filter((t: any) => t.subCategory === "ground") || [];
-                    const wallTextures = fetchedBiome?.textures.filter((t: any) => t.subCategory === "obstacle") || [];
 
-                    // Structures might have specific walls/floors too
-                    // Fallback to biome if structure doesn't have specific ones
+                    const validGroups = [biomeName, ...structureNames].filter(Boolean);
+
+                    const allPacks = [fetchedBiome, ...fetchedStructures].filter(Boolean);
+                    const allTextures = allPacks.flatMap(p => {
+                        const isManual = !!(p as any).packId;
+                        return (p.textures || []).map((t: any) => ({ ...t, isManual }));
+                    })
+                        .filter((t: any) => t && t.metadata && !t.metadata.isHidden) // Safety check: t and t.metadata must exist
+                        .filter((t: any) => {
+                            if (t.isManual) return true; // Everything in a curated manual pack is intended to be used
+                            if (validGroups.length === 0) return true; // fallback
+                            const groupName = t.metadata?.grouping?.name;
+                            return groupName && validGroups.includes(groupName);
+                        });
+
+                    const groundTextures = allTextures.filter((t: any) => t.metadata?.isPassable !== false);
+                    const wallTextures = allTextures.filter((t: any) => t.metadata?.isPassable === false);
 
                     newTiles.forEach(tile => {
                         if (!tile.textureUrl) {
@@ -89,6 +109,10 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                                 if (groundTextures.length > 0) {
                                     const rand = Math.floor(Math.random() * groundTextures.length);
                                     tile.textureUrl = groundTextures[rand].url;
+                                } else if (allTextures.length > 0) {
+                                    // Extreme fallback: use any texture if no ground textures found
+                                    const rand = Math.floor(Math.random() * allTextures.length);
+                                    tile.textureUrl = allTextures[rand].url;
                                 }
                             }
                         }
@@ -96,14 +120,11 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
 
                     const newObjects = prev.objects.map(obj => {
                         if (!obj.textureUrl) {
-                            const allPacks = [fetchedBiome, ...fetchedStructures].filter(Boolean);
-                            for (const pack of allPacks) {
-                                const match = pack.textures.find((t: any) =>
-                                    (t.itemPrompt?.toLowerCase().includes(obj.type.toLowerCase())) ||
-                                    (t.prompt.toLowerCase().includes(obj.type.toLowerCase()))
-                                );
-                                if (match) return { ...obj, textureUrl: match.url };
-                            }
+                            const match = allTextures.find((t: any) =>
+                                (t.itemPrompt?.toLowerCase().includes(obj.type.toLowerCase())) ||
+                                (t.prompt.toLowerCase().includes(obj.type.toLowerCase()))
+                            );
+                            if (match) return { ...obj, textureUrl: match.url };
                         }
                         return obj;
                     });
@@ -155,11 +176,10 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
     }, []);
 
     const tileSizeBase = 40;
-    const tileSize = tileSizeBase * zoom;
-
 
     const update = (delta: number) => {
         const { map, zoom, offset, selectedPawnId } = stateRef.current;
+        const tileSize = tileSizeBase * zoom;
         // 1. Camera Movement (Edge Scrolling + Keyboard)
         const EDGE_THRESHOLD = 50;
         const SCROLL_SPEED = 800 * delta;
@@ -204,7 +224,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
 
                     if (dist <= moveDist) {
                         const nextPath = pawn.path.slice(1);
-                        const facing =
+                        const facing: "east" | "west" | "north" | "south" =
                             Math.abs(dx) >= Math.abs(dy)
                                 ? dx >= 0 ? "east" : "west"
                                 : dy >= 0 ? "south" : "north";
@@ -216,7 +236,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                             facing,
                         };
                     } else {
-                        const facing =
+                        const facing: "east" | "west" | "north" | "south" =
                             Math.abs(dx) >= Math.abs(dy)
                                 ? dx >= 0 ? "east" : "west"
                                 : dy >= 0 ? "south" : "north";
@@ -237,6 +257,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
 
     const render = () => {
         const { map, zoom, offset, hoverTile, selectedPawnId } = stateRef.current;
+        const tileSize = tileSizeBase * zoom;
         const canvas = canvasRef.current;
         if (!canvas || !map) return;
         const ctx = canvas.getContext("2d");
@@ -378,6 +399,17 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
             keysPressed.current.delete(e.key.toLowerCase());
         };
 
+        const handleWheelEvent = (e: WheelEvent) => {
+            e.preventDefault();
+            const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1;
+            setZoom(prev => Math.max(0.2, Math.min(prev * zoomDelta, 4)));
+        };
+
+        const container = containerRef.current;
+        if (container) {
+            container.addEventListener("wheel", handleWheelEvent, { passive: false });
+        }
+
         window.addEventListener("resize", handleResize);
         window.addEventListener("mousemove", handleMouseMove);
         window.addEventListener("keydown", handleKeyDown);
@@ -387,6 +419,9 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
         requestRef.current = requestAnimationFrame(loop);
 
         return () => {
+            if (container) {
+                container.removeEventListener("wheel", handleWheelEvent);
+            }
             window.removeEventListener("resize", handleResize);
             window.removeEventListener("mousemove", handleMouseMove);
             window.removeEventListener("keydown", handleKeyDown);
@@ -401,6 +436,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
 
+        const tileSize = tileSizeBase * zoom;
         const tileX = Math.floor((mouseX - offset.x) / tileSize);
         const tileY = Math.floor((mouseY - offset.y) / tileSize);
 
@@ -454,6 +490,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
 
     const handleCanvasMouseMove = (e: React.MouseEvent) => {
         const rect = canvasRef.current!.getBoundingClientRect();
+        const tileSize = tileSizeBase * zoom;
         const tileX = Math.floor((e.clientX - rect.left - offset.x) / tileSize);
         const tileY = Math.floor((e.clientY - rect.top - offset.y) / tileSize);
 
@@ -467,22 +504,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
     };
 
     const handleWheel = (e: React.WheelEvent) => {
-        const rect = canvasRef.current!.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-
-        // Zoom centered on mouse
-        const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1;
-        const newZoom = Math.max(0.2, Math.min(zoom * zoomDelta, 4));
-
-        const worldX = (mouseX - offset.x) / zoom;
-        const worldY = (mouseY - offset.y) / zoom;
-
-        const newOffsetX = mouseX - worldX * newZoom;
-        const newOffsetY = mouseY - worldY * newZoom;
-
-        setZoom(newZoom);
-        setOffset({ x: newOffsetX, y: newOffsetY });
+        // Obsolete, replaced by native event listener
     };
 
     return (
@@ -491,7 +513,6 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                 ref={canvasRef}
                 onMouseDown={handleCanvasClick}
                 onMouseMove={handleCanvasMouseMove}
-                onWheel={handleWheel}
                 className="w-full h-full cursor-crosshair"
             />
 
@@ -512,7 +533,9 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                     <span className="opacity-20">|</span>
                     {biomePack && (
                         <>
-                            <span className="text-blue-400 uppercase tracking-tighter">BIOME: {biomePack.gameAsset.grouping.name}</span>
+                            <span className="text-blue-400 uppercase tracking-tighter">
+                                BIOME: {biomePack.grouping?.name || biomePack.gameAsset?.grouping?.name || biomePack.name || "Unknown"}
+                            </span>
                             <span className="opacity-20">|</span>
                         </>
                     )}

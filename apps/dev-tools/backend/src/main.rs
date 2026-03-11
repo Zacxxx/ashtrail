@@ -1,5 +1,6 @@
 mod ai_characters;
 mod ai_events;
+mod ai_quests;
 mod cell_analyzer;
 mod cms;
 mod combat_engine;
@@ -8,6 +9,7 @@ mod gemini;
 mod generator;
 mod hierarchy;
 mod worldgen_pipeline;
+mod asset_packs;
 
 use axum::{
     extract::{Path, Query, State},
@@ -51,6 +53,7 @@ struct AppState {
     textures_export_dir: PathBuf,
     sprites_dir: PathBuf,
     isolated_dir: PathBuf,
+    packs_dir: PathBuf,
     refine_limiter: RefineLimiter,
     supabase: Option<SupabaseStorageConfig>,
 }
@@ -236,6 +239,7 @@ struct SpriteBatchRequest {
     temperature: Option<f32>,
     sprite_type: String,
     mode: String,
+    include_illustration: Option<bool>,
     target: Option<SpriteLinkTarget>,
     world_id: Option<String>,
     source_entity_type: Option<String>,
@@ -276,6 +280,8 @@ struct SpriteBatchManifest {
     created_at: String,
     sprite_type: String,
     mode: String,
+    #[serde(default)]
+    includes_illustration: bool,
     target: Option<SpriteLinkTarget>,
     world_id: Option<String>,
     source_entity_type: Option<String>,
@@ -293,6 +299,8 @@ struct SpriteBatchSummary {
     created_at: String,
     sprite_type: String,
     mode: String,
+    #[serde(default)]
+    includes_illustration: bool,
     sprite_count: usize,
     target: Option<SpriteLinkTarget>,
     thumbnail_url: Option<String>,
@@ -557,6 +565,10 @@ async fn main() {
     std::fs::create_dir_all(&isolated_dir)
         .expect("failed to create game-assets/assets/IsolatedRegions directory");
 
+    let packs_dir = PathBuf::from("../../game-assets/assets/Packs");
+    std::fs::create_dir_all(&packs_dir)
+        .expect("failed to create game-assets/assets/Packs directory");
+
     let refine_max_concurrent = std::env::var("WORLDGEN_REFINE_MAX_CONCURRENT")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
@@ -582,6 +594,7 @@ async fn main() {
         textures_export_dir,
         sprites_dir: sprites_dir.clone(),
         isolated_dir: isolated_dir.clone(),
+        packs_dir: packs_dir.clone(),
         refine_limiter: RefineLimiter {
             semaphore: Arc::new(Semaphore::new(refine_max_concurrent)),
             max_concurrent: refine_max_concurrent,
@@ -622,6 +635,14 @@ async fn main() {
         .route(
             "/api/characters/generate",
             post(ai_characters::generate_character_handler),
+        )
+        .route(
+            "/api/quests/generate-run",
+            post(ai_quests::generate_quest_run_handler),
+        )
+        .route(
+            "/api/quests/advance",
+            post(ai_quests::advance_quest_handler),
         )
         .route("/api/planet/ecology", post(start_ecology_job))
         .route("/api/planet/ecology/{job_id}", get(get_job_status))
@@ -693,6 +714,16 @@ async fn main() {
         .route(
             "/api/planet/temporality/{id}",
             get(get_temporality).post(save_temporality),
+        )
+        .route(
+            "/api/planet/quests/{world_id}",
+            get(ai_quests::list_quest_runs),
+        )
+        .route(
+            "/api/planet/quests/{world_id}/{run_id}",
+            get(ai_quests::get_quest_run)
+                .post(ai_quests::save_quest_run)
+                .delete(ai_quests::delete_quest_run),
         )
         .route("/api/planet/cells/job", post(start_cells_job))
         .route("/api/planet/cells/job/{job_id}", get(get_job_status))
@@ -853,6 +884,7 @@ async fn main() {
         )
         // ── Combat Engine WebSocket ──
         .route("/api/combat/ws", get(combat_engine::session::ws_handler))
+        .merge(asset_packs::router())
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .nest_service("/api/textures", ServeDir::new(textures_dir.clone()))
@@ -2159,6 +2191,7 @@ fn read_lore_snippets(state: &AppState, world_id: &str) -> serde_json::Value {
 fn default_gm_settings(world_id: &str) -> serde_json::Value {
     serde_json::json!({
         "worldId": world_id,
+        "worldPrompt": "",
         "contextSources": {
             "mainLore": true,
             "criticalLore": true,
@@ -2226,6 +2259,7 @@ fn normalize_gm_settings_value(value: serde_json::Value, world_id: &str) -> serd
     );
 
     for key in [
+        "worldPrompt",
         "systemDirective",
         "ambienceDirective",
         "negativeDirective",
@@ -2439,8 +2473,12 @@ async fn get_gm_context(
         .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or("Unknown World");
-    let world_prompt = metadata
+    let world_seed_prompt = metadata
         .get("prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let world_prompt = settings
+        .get("worldPrompt")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
@@ -2475,8 +2513,13 @@ async fn get_gm_context(
     }
 
     let prompt_block = format!(
-        "{event_prefix}\n\nWorld: {world_name}\nWorld Seed Prompt: {world_prompt}\n\nSystem Directive:\n{system_directive}\n\nAmbience Directive:\n{ambience_directive}\n\nNegative Directive:\n{negative_directive}\n\nCanon Lore:\n{lore_block}\n\nFactions:\n{factions_block}\n\nLocations:\n{locations_block}\n\nCharacters:\n{characters_block}\n\nRegions:\n{regions_block}\n\nTemporality:\n{temporality_block}\n\nUse this material as ambient canon and hard context. Generated gameplay events must fit within it and must not rewrite or replace it.",
+        "{event_prefix}\n\nWorld: {world_name}\nCanonical World Prompt:\n{world_prompt_block}\n\nSystem Directive:\n{system_directive}\n\nAmbience Directive:\n{ambience_directive}\n\nNegative Directive:\n{negative_directive}\n\nCanon Lore:\n{lore_block}\n\nFactions:\n{factions_block}\n\nLocations:\n{locations_block}\n\nCharacters:\n{characters_block}\n\nRegions:\n{regions_block}\n\nTemporality:\n{temporality_block}\n\nUse this material as ambient canon and hard context. Generated gameplay events must fit within it and must not rewrite or replace it.",
         event_prefix = settings.get("eventPromptPrefix").and_then(|v| v.as_str()).unwrap_or("Use the following world canon and ambience as hard context for event generation."),
+        world_prompt_block = if world_prompt.trim().is_empty() {
+            "MISSING - write a canonical world prompt in Game Master before using this context."
+        } else {
+            world_prompt
+        },
         system_directive = settings.get("systemDirective").and_then(|v| v.as_str()).unwrap_or(""),
         ambience_directive = settings.get("ambienceDirective").and_then(|v| v.as_str()).unwrap_or(""),
         negative_directive = settings.get("negativeDirective").and_then(|v| v.as_str()).unwrap_or(""),
@@ -2511,6 +2554,7 @@ async fn get_gm_context(
         "worldId": id,
         "worldName": world_name,
         "worldPrompt": world_prompt,
+        "worldSeedPrompt": world_seed_prompt,
         "settings": settings,
         "snippets": selected_lore,
         "promptBlock": prompt_block,
@@ -4622,6 +4666,8 @@ async fn generate_sprite_batch(
     let created_at = chrono::Utc::now().to_rfc3339();
     let style_prompt = request.style_prompt.clone().unwrap_or_default();
     let temperature = request.temperature.or(Some(0.4));
+    let includes_illustration =
+        request.mode == "illustration" || request.include_illustration.unwrap_or(false);
     let mut sprites = Vec::new();
 
     for (index, item_prompt) in request.prompts.iter().enumerate() {
@@ -4734,6 +4780,33 @@ async fn generate_sprite_batch(
             .map(|frame| frame.url.clone())
             .unwrap_or_default();
 
+        let illustration_url = if request.include_illustration.unwrap_or(false) {
+            let illustration_prompt = build_sprite_prompt(&full_prompt, &request.sprite_type, None);
+            let image_bytes = gemini::generate_image_edit_bytes(
+                &illustration_prompt,
+                &south_b64,
+                "image/png",
+                temperature,
+                Some("1:1"),
+            )
+            .await
+            .map_err(|(code, msg)| (code, msg))?;
+
+            let cleaned = clean_sprite_png(&image_bytes)
+                .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, msg))?;
+            let filename = format!("{:03}_illustration.png", index);
+            let path = batch_dir.join(&filename);
+            std::fs::write(&path, &cleaned).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to save sprite illustration: {e}"),
+                )
+            })?;
+            Some(format!("/api/sprites/{}/{}", batch_id, filename))
+        } else {
+            None
+        };
+
         sprites.push(GeneratedSpriteSet {
             sprite_id: format!("sprite-{:03}", index),
             prompt: full_prompt.clone(),
@@ -4743,7 +4816,7 @@ async fn generate_sprite_batch(
             mode: request.mode.clone(),
             preview_url,
             directions,
-            illustration_url: None,
+            illustration_url,
             target: request.target.clone(),
         });
     }
@@ -4758,6 +4831,7 @@ async fn generate_sprite_batch(
         created_at,
         sprite_type: request.sprite_type,
         mode: request.mode,
+        includes_illustration,
         target: request.target,
         world_id: request.world_id,
         source_entity_type: request.source_entity_type,
@@ -4816,6 +4890,7 @@ async fn list_sprite_batches(
                     created_at: manifest.created_at,
                     sprite_type: manifest.sprite_type,
                     mode: manifest.mode,
+                    includes_illustration: manifest.includes_illustration,
                     sprite_count: manifest.sprites.len(),
                     target: manifest.target,
                     thumbnail_url,

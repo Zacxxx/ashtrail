@@ -54,7 +54,7 @@ export function HistoryPage() {
     return (
         <div className="h-screen overflow-hidden bg-[#070b12] text-gray-300 font-sans flex flex-col">
             {/* ══ Tool-Specific Sub-Header ══ */}
-            <div className="fixed top-16 left-0 right-0 z-30 bg-[#030508]/60 backdrop-blur-md border-b border-white/5 pointer-events-auto flex items-center justify-between px-6 h-12 shadow-2xl">
+            <div className="fixed top-16 left-0 right-0 z-30 grid grid-cols-[auto_minmax(0,1fr)_8rem] items-center gap-4 bg-[#030508]/60 backdrop-blur-md border-b border-white/5 pointer-events-auto px-6 h-12 shadow-2xl">
                 <div className="flex items-center gap-4">
                     <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-500/20 text-red-400 font-bold text-[10px] border border-red-500/30">
                         📜
@@ -62,7 +62,7 @@ export function HistoryPage() {
                     <h1 className="text-[10px] font-black tracking-[0.3em] text-white uppercase">HISTORY GENERATOR</h1>
                 </div>
 
-                <div className="flex-1 max-w-2xl px-8 scale-90">
+                <div className="min-w-0">
                     <TabBar
                         tabs={["lore", "regions", "locations", "factions", "characters", "timeline", "temporality"]}
                         activeTab={activeTab}

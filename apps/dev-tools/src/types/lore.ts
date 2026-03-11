@@ -27,6 +27,7 @@ export interface GmContextSources {
 
 export interface GmSettings {
     worldId: string;
+    worldPrompt: string;
     contextSources: GmContextSources;
     maxLoreSnippets: number;
     systemDirective: string;
@@ -40,6 +41,7 @@ export interface CompiledGmContext {
     worldId: string;
     worldName: string;
     worldPrompt?: string;
+    worldSeedPrompt?: string;
     settings: GmSettings;
     snippets: LoreSnippet[];
     promptBlock: string;
@@ -50,4 +52,3 @@ export interface CompiledGmContext {
         maxLoreSnippets: number;
     };
 }
-

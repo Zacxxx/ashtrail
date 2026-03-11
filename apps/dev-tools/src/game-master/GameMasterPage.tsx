@@ -37,6 +37,7 @@ export function GameMasterPage() {
     const [gmContext, setGmContext] = useState<CompiledGmContext | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+    const [isGeneratingWorldPrompt, setIsGeneratingWorldPrompt] = useState(false);
     const hydratedSettingsRef = useRef(false);
     const lastSavedSettingsRef = useRef("");
 
@@ -147,8 +148,42 @@ export function GameMasterPage() {
         } : prev);
     };
 
-    const updateDirective = (key: keyof Pick<GmSettings, "systemDirective" | "ambienceDirective" | "negativeDirective" | "eventPromptPrefix">, value: string) => {
+    const updateDirective = (key: keyof Pick<GmSettings, "worldPrompt" | "systemDirective" | "ambienceDirective" | "negativeDirective" | "eventPromptPrefix">, value: string) => {
         setGmSettings(prev => prev ? { ...prev, [key]: value } : prev);
+    };
+
+    const handleGenerateWorldPrompt = async () => {
+        if (!selectedWorld || !gmContext || !gmSettings || isGeneratingWorldPrompt) return;
+        setIsGeneratingWorldPrompt(true);
+        try {
+            const prompt = [
+                "You are writing a canonical narrative world prompt for the Ashtrail Game Master.",
+                "This is NOT an image-generation prompt and must not describe rendering style, camera, or graphics.",
+                "Write 2 compact paragraphs that define the world's narrative identity, pressures, history, ecology, and social tensions.",
+                "Use the following canon as source material.",
+                "",
+                `World: ${selectedWorldName}`,
+                `World seed prompt to ignore as graphics-only source: ${selectedWorld.prompt || "None"}`,
+                "",
+                gmContext.promptBlock,
+            ].join("\n");
+
+            const response = await fetch("/api/text/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt }),
+            });
+            if (!response.ok) throw new Error("Failed to generate world prompt");
+            const data = await response.json();
+            const text = (data?.text || data?.result || "").trim();
+            if (!text) throw new Error("World prompt generation returned empty text");
+            updateDirective("worldPrompt", text);
+        } catch (error) {
+            console.error(error);
+            setSaveState("error");
+        } finally {
+            setIsGeneratingWorldPrompt(false);
+        }
     };
 
     return (
@@ -218,7 +253,10 @@ export function GameMasterPage() {
                                         <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">Selected World</div>
                                         <h2 className="text-xl font-black tracking-wide text-white">{selectedWorldName}</h2>
                                         <p className="text-sm text-gray-500 leading-relaxed mt-3 max-w-2xl">
-                                            {(selectedWorld.prompt || "No generation prompt available.").slice(0, 280)}
+                                            {(gmSettings.worldPrompt || "No canonical world prompt written yet. Add one below; do not use the graphical world seed prompt for gameplay canon.").slice(0, 280)}
+                                        </p>
+                                        <p className="text-xs text-gray-600 leading-relaxed mt-3 max-w-2xl">
+                                            Visual seed prompt: {(selectedWorld.prompt || "No generation seed prompt available.").slice(0, 280)}
                                         </p>
                                     </div>
                                     <div className="flex gap-2 shrink-0">
@@ -314,6 +352,23 @@ export function GameMasterPage() {
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                                 <Card className="bg-[#121820] border border-white/5 p-5 flex flex-col gap-4">
                                     <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300">Prompt Framing</div>
+                                    <label className="flex flex-col gap-2">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Canonical world prompt</span>
+                                            <button
+                                                type="button"
+                                                onClick={handleGenerateWorldPrompt}
+                                                disabled={isGeneratingWorldPrompt}
+                                                className="px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 disabled:opacity-50 transition-colors"
+                                            >
+                                                {isGeneratingWorldPrompt ? "Generating..." : "Generate from Canon"}
+                                            </button>
+                                        </div>
+                                        <textarea value={gmSettings.worldPrompt} onChange={e => updateDirective("worldPrompt", e.target.value)} className="min-h-[180px] rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-indigo-500/40" placeholder="Write the narrative world context used by quests, events, and the GM. Do not put image-generation instructions here." />
+                                        <div className="text-xs text-gray-500">
+                                            This prompt is narrative canon context. The visual world seed prompt remains separate and is not used for GM-driven quest/event context.
+                                        </div>
+                                    </label>
                                     <label className="flex flex-col gap-2">
                                         <span className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Event prompt prefix</span>
                                         <textarea value={gmSettings.eventPromptPrefix} onChange={e => updateDirective("eventPromptPrefix", e.target.value)} className="min-h-[120px] rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-indigo-500/40" />

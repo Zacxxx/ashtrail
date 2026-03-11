@@ -64,6 +64,14 @@ const TOOLS = [
         icon: "🌿",
         status: "WIP",
         color: "bg-emerald-500",
+    },
+    {
+        id: "quests",
+        name: "Quests",
+        description: "Generate, run, persist, and resume world-scoped multi-ending quest runs.",
+        icon: "🧭",
+        status: "WIP",
+        color: "bg-amber-500",
     }
 ];
 
