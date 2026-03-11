@@ -122,9 +122,9 @@ export function calculateEffectiveStats(baseEntity: CombatEntity, traits: Trait[
             if (eff.target === 'charisma') stats.charisma += val;
             if (eff.target === 'defense') stats.defense += val;
             if (eff.target === 'evasion') stats.evasion += val;
-            if (eff.target === 'maxHp') maxHpBonus += val;
-            if (eff.target === 'maxAp') maxApBonus += val;
-            if (eff.target === 'maxMp') maxMpBonus += val;
+            if (eff.target === 'maxHp' || eff.target === 'hp') maxHpBonus += val;
+            if (eff.target === 'maxAp' || eff.target === 'ap') maxApBonus += val;
+            if (eff.target === 'maxMp' || eff.target === 'mp') maxMpBonus += val;
         }
     });
 
