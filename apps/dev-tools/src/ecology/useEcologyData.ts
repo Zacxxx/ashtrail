@@ -436,6 +436,8 @@ export function useEcologyData(worldId: string | null) {
         approveEntryById,
         updateBiome,
         clearBiomes,
+        syncBiomesWithMap: () =>
+            worldId ? startGeneration(`/api/planet/ecology-data/${worldId}/sync-biomes`) : Promise.resolve(),
         updateArchetype,
         deleteArchetype,
         generateWorldBaseline: () =>

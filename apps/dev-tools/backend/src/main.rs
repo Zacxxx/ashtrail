@@ -630,6 +630,10 @@ async fn main() {
             get(ecology::get_ecology_data).post(ecology::save_ecology_data),
         )
         .route(
+            "/api/planet/ecology-data/{world_id}/sync-biomes",
+            post(ecology::sync_biomes_handler),
+        )
+        .route(
             "/api/planet/ecology-data/{world_id}/generate/world",
             post(ecology::generate_world_baseline),
         )

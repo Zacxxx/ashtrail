@@ -365,13 +365,8 @@ pub async fn get_ecology_data(
     State(state): State<AppState>,
     Path(world_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let mut bundle = load_ecology_bundle(&state.planets_dir, &world_id)
+    let bundle = load_ecology_bundle(&state.planets_dir, &world_id)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
-
-    // Proactively sync biomes with worldgen hierarchy so they appear in /ecology immediately
-    if let Ok(hierarchy) = load_hierarchy(&state.planets_dir, &world_id) {
-        sync_biomes_with_hierarchy(&hierarchy, &mut bundle);
-    }
 
     Ok(Json(bundle))
 }
@@ -383,15 +378,28 @@ pub async fn save_ecology_data(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let existing = load_ecology_bundle(&state.planets_dir, &world_id)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
-    let hierarchy = load_hierarchy(&state.planets_dir, &world_id).ok();
     bundle.world_id = world_id.clone();
     normalize_bundle_for_save(&existing, &mut bundle);
-    if let Some(hierarchy) = hierarchy.as_ref() {
-        sync_biomes_with_hierarchy(hierarchy, &mut bundle);
-    }
     validate_bundle_references(&bundle).map_err(|err| (StatusCode::BAD_REQUEST, err))?;
     save_ecology_bundle(&state.planets_dir, &world_id, &bundle)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
+    Ok(Json(bundle))
+}
+
+pub async fn sync_biomes_handler(
+    State(state): State<AppState>,
+    Path(world_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let mut bundle = load_ecology_bundle(&state.planets_dir, &world_id)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
+    let hierarchy = load_hierarchy(&state.planets_dir, &world_id)
+        .map_err(|err| (StatusCode::NOT_FOUND, format!("World hierarchy not found: {}", err)))?;
+
+    sync_biomes_with_hierarchy(&hierarchy, &mut bundle);
+
+    save_ecology_bundle(&state.planets_dir, &world_id, &bundle)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
+
     Ok(Json(bundle))
 }
 

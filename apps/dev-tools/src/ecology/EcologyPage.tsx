@@ -456,16 +456,28 @@ export function EcologyPage() {
                             </button>
                         </div>
                         {biomeSubTab === "instances" && (
-                            <button
-                                onClick={() => {
-                                    if (window.confirm("Are you sure you want to clear ALL biome instances? This will also remove biome assignments from all flora and fauna.")) {
-                                        void ecology.clearBiomes();
-                                    }
-                                }}
-                                className="px-4 py-1 text-[10px] font-bold tracking-widest uppercase transition-all rounded-full text-red-500/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20"
-                            >
-                                Clear All Biomes
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm("Are you sure you want to SYNC biomes from the world map? This will re-add biomes defined in worldgen and associate them with provinces.")) {
+                                            void ecology.syncBiomesWithMap();
+                                        }
+                                    }}
+                                    className="px-4 py-1 text-[10px] font-bold tracking-widest uppercase transition-all rounded-full text-cyan-500/70 hover:text-cyan-400 hover:bg-cyan-500/10 border border-cyan-500/20"
+                                >
+                                    Sync From World Map
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm("Are you sure you want to clear ALL biome instances? This will also remove biome assignments from all flora and fauna.")) {
+                                            void ecology.clearBiomes();
+                                        }
+                                    }}
+                                    className="px-4 py-1 text-[10px] font-bold tracking-widest uppercase transition-all rounded-full text-red-500/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20"
+                                >
+                                    Clear All Biomes
+                                </button>
+                            </div>
                         )}
                     </div>
 
