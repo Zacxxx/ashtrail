@@ -71,11 +71,9 @@ export function TacticalArena({
         const dc = hoveredCell.col - activeEntity.gridPos.col;
 
         let dirR = 0; let dirC = 0;
-        if (selectedSkill.areaType === 'line') {
-            if (Math.abs(dr) > Math.abs(dc)) dirR = dr > 0 ? 1 : -1;
-            else if (Math.abs(dc) > Math.abs(dr)) dirC = dc > 0 ? 1 : -1;
-            else { dirR = dr > 0 ? 1 : -1; dirC = 0; }
-        }
+        if (Math.abs(dr) > Math.abs(dc)) dirR = dr > 0 ? 1 : -1;
+        else if (Math.abs(dc) > Math.abs(dr)) dirC = dc > 0 ? 1 : -1;
+        else { dirR = dr > 0 ? 1 : -1; dirC = 0; }
 
         const aoe = getAoECells(grid, hoveredCell.row, hoveredCell.col, selectedSkill.areaType, selectedSkill.areaSize || 0, dirR, dirC);
         const set = new Set<string>();

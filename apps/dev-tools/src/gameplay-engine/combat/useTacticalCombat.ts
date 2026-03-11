@@ -291,11 +291,9 @@ export function useTacticalCombat(
         const dr = targetRow - caster.gridPos.row;
         const dc = targetCol - caster.gridPos.col;
         let dirR = 0; let dirC = 0;
-        if (skill.areaType === 'line') {
-            if (Math.abs(dr) > Math.abs(dc)) dirR = dr > 0 ? 1 : -1;
-            else if (Math.abs(dc) > Math.abs(dr)) dirC = dc > 0 ? 1 : -1;
-            else { dirR = dr > 0 ? 1 : -1; dirC = 0; }
-        }
+        if (Math.abs(dr) > Math.abs(dc)) dirR = dr > 0 ? 1 : -1;
+        else if (Math.abs(dc) > Math.abs(dr)) dirC = dc > 0 ? 1 : -1;
+        else { dirR = dr > 0 ? 1 : -1; dirC = 0; }
 
         const affectedCells = getAoECells(grid, targetRow, targetCol, skill.areaType, skill.areaSize || 0, dirR, dirC);
 

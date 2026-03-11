@@ -172,22 +172,43 @@ export function getAoECells(grid: Grid, centerRow: number, centerCol: number, ar
 
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-            const dist = Math.abs(r - centerRow) + Math.abs(c - centerCol);
+            const dr = r - centerRow;
+            const dc = c - centerCol;
+            const dist = Math.abs(dr) + Math.abs(dc);
             let inArea = false;
 
             if (areaType === 'circle') {
                 if (dist <= size) inArea = true;
+            } else if (areaType === 'splash') {
+                if (Math.max(Math.abs(dr), Math.abs(dc)) <= size) inArea = true;
             } else if (areaType === 'cross') {
-                if ((r === centerRow || c === centerCol) && dist <= size) inArea = true;
+                // Original Dofus Cross: Grid axes strictly
+                if ((dr === 0 || dc === 0) && dist <= size) inArea = true;
             } else if (areaType === 'line') {
-                // If we have a clear direction from caster to target, project the line
                 if (dirR !== 0 && dirC === 0) {
-                    if (c === centerCol && (r - centerRow) * dirR >= 0 && Math.abs(r - centerRow) <= size) inArea = true;
+                    if (dc === 0 && dr * dirR >= 0 && Math.abs(dr) <= size) inArea = true;
                 } else if (dirC !== 0 && dirR === 0) {
-                    if (r === centerRow && (c - centerCol) * dirC >= 0 && Math.abs(c - centerCol) <= size) inArea = true;
+                    if (dr === 0 && dc * dirC >= 0 && Math.abs(dc) <= size) inArea = true;
                 } else {
-                    // Fallback to cross if no valid straight line
-                    if ((r === centerRow || c === centerCol) && dist <= size) inArea = true;
+                    if ((dr === 0 || dc === 0) && dist <= size) inArea = true; // fallback
+                }
+            } else if (areaType === 'cone') {
+                if (dirR !== 0 && dirC === 0) {
+                    const depth = dr * dirR;
+                    if (depth >= 0 && depth <= size && Math.abs(dc) <= depth) inArea = true;
+                } else if (dirC !== 0 && dirR === 0) {
+                    const depth = dc * dirC;
+                    if (depth >= 0 && depth <= size && Math.abs(dr) <= depth) inArea = true;
+                } else {
+                    if (dist <= size) inArea = true; // fallback
+                }
+            } else if (areaType === 'perpendicular') {
+                if (dirR !== 0 && dirC === 0) {
+                    if (dr === 0 && Math.abs(dc) <= size) inArea = true;
+                } else if (dirC !== 0 && dirR === 0) {
+                    if (dc === 0 && Math.abs(dr) <= size) inArea = true;
+                } else {
+                    if (dist <= size) inArea = true; // fallback
                 }
             }
 

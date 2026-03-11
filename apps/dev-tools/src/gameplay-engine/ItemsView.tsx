@@ -48,7 +48,7 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
     const [cost, setCost] = useState(0);
     const [weaponType, setWeaponType] = useState<WeaponType>("melee");
     const [weaponRange, setWeaponRange] = useState(1);
-    const [weaponAreaType, setWeaponAreaType] = useState<'single' | 'cross' | 'circle' | 'line'>('single');
+    const [weaponAreaType, setWeaponAreaType] = useState<'single' | 'cross' | 'circle' | 'splash' | 'line' | 'cone' | 'perpendicular'>('single');
     const [weaponAreaSize, setWeaponAreaSize] = useState(1);
     const [effects, setEffects] = useState<GameplayEffect[]>([]);
     const [icon, setIcon] = useState("📦");
@@ -301,21 +301,22 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                                     </div>
                                 </div>
 
-                                {/* AOE Configuration */}
-                                <div className="space-y-2">
+                                <div className="space-y-2 flex-1">
                                     <label className="text-[7px] font-black text-gray-600 uppercase tracking-widest">ATTACK PATTERN</label>
-                                    <div className="flex gap-1">
-                                        {(['single', 'cross', 'circle', 'line'] as const).map(t => (
+                                    <div className="flex flex-wrap gap-1">
+                                        {(['single', 'cross', 'circle', 'splash', 'line', 'cone', 'perpendicular'] as const).map(t => (
                                             <button
                                                 key={t}
                                                 onClick={() => setWeaponAreaType(t)}
-                                                className={`flex-1 py-1.5 rounded border text-[8px] font-black tracking-widest uppercase transition-all ${weaponAreaType === t
+                                                className={`px-2 py-1.5 rounded border text-[8px] font-black tracking-widest uppercase transition-all flex flex-col items-center justify-center ${weaponAreaType === t
                                                         ? 'bg-orange-500/20 border-orange-500/40 text-orange-400'
                                                         : 'bg-black/20 border-white/5 text-gray-700 hover:border-white/10'
                                                     }`}
                                             >
-                                                {t === 'single' ? '◉' : t === 'cross' ? '✚' : t === 'circle' ? '◎' : '╌'}
-                                                <span className="block text-[6px] mt-0.5">{t}</span>
+                                                <span className="text-sm block leading-none mb-0.5">
+                                                    {t === 'single' ? '◉' : t === 'cross' ? '✚' : t === 'circle' ? '◎' : t === 'splash' ? '💥' : t === 'line' ? '╌' : t === 'cone' ? '▽' : '┴'}
+                                                </span>
+                                                <span className="block text-[6px]">{t === 'perpendicular' ? 'PERP' : t}</span>
                                             </button>
                                         ))}
                                     </div>
@@ -327,11 +328,11 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                                                 value={weaponAreaSize}
                                                 onChange={e => setWeaponAreaSize(Math.max(1, Number(e.target.value)))}
                                                 min={1}
-                                                max={5}
+                                                max={10}
                                                 className="w-full bg-black/50 border border-orange-500/20 text-orange-400 px-3 py-1.5 rounded-lg text-[10px] font-bold outline-none focus:border-orange-500/40 transition-all font-mono"
                                             />
                                             <span className="text-[6px] text-gray-600 font-black whitespace-nowrap">
-                                                {weaponAreaType === 'circle' ? 'RADIUS' : weaponAreaType === 'line' ? 'LENGTH' : 'ARM LEN'}
+                                                {weaponAreaType === 'circle' ? 'RADIUS' : weaponAreaType === 'splash' ? 'SQUARE' : weaponAreaType === 'line' ? 'LENGTH' : 'SIZE'}
                                             </span>
                                         </div>
                                     )}

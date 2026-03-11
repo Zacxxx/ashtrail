@@ -196,13 +196,13 @@
         "value": 50
       }
     ],
-    "equipSlot": "",
+    "equipSlot": "mainHand",
     "icon": "📦",
     "id": "item-1773235390183",
     "name": "Old fkcin bazooka",
     "rarity": "relic",
-    "weaponAreaSize": 3,
-    "weaponAreaType": "circle",
+    "weaponAreaSize": 5,
+    "weaponAreaType": "splash",
     "weaponRange": 5,
     "weaponType": "ranged"
   }
