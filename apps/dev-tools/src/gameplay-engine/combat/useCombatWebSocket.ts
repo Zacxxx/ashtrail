@@ -151,7 +151,8 @@ export function useCombatWebSocket(setup: CombatSetup) {
             const target = serverState.entities[cell.occupantId];
             if (target && !target.isPlayer) {
                 const dist = Math.abs(row - activeEntity.gridPos.row) + Math.abs(col - activeEntity.gridPos.col);
-                if (dist <= 1 && activeEntity.ap >= MELEE_ATTACK_COST) {
+                const weaponRange = (activeEntity as any).equipped?.mainHand?.weaponRange || 1;
+                if (dist <= weaponRange && activeEntity.ap >= MELEE_ATTACK_COST) {
                     sendAction({
                         type: 'attack',
                         attackerId: activeId,

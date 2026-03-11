@@ -1,29 +1,69 @@
 import React, { useState } from 'react';
 import { GameRegistry, Character, Skill } from '@ashtrail/core';
-import type { TacticalEntity, CombatConfig, DamagePreview } from '@ashtrail/core';
+import type { TacticalEntity, CombatConfig } from '@ashtrail/core';
 import { TacticalArena } from './TacticalArena';
-import { useCombatWebSocket } from './useCombatWebSocket';
+import { useTacticalCombat } from './useTacticalCombat';
 import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacticalGrid';
 import { GameRulesManager } from '../rules/useGameRules';
 
 // ── Default skills given to characters without their own ──
 function getDefaultPlayerSkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id));
+    return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id));
 }
 function getDefaultEnemySkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+    return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
 }
 
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number, defaultPlayerSkills: Skill[], defaultEnemySkills: Skill[]): TacticalEntity {
-    const skills = char.skills && char.skills.length > 0
-        ? char.skills
-        : isPlayer ? defaultPlayerSkills : defaultEnemySkills;
-
     const rules = GameRulesManager.get();
     const maxHp = rules.core.hpBase + char.stats.endurance * rules.core.hpPerEndurance;
     const maxAp = rules.core.apBase + Math.floor(char.stats.agility / rules.core.apAgilityDivisor);
     const maxMp = rules.core.mpBase;
+
+    // ── 1. Resolve equipped items from registry (fresh data with effects) ──
+    const resolvedEquipped: Record<string, any> = {};
+    if (char.equipped) {
+        for (const [slot, item] of Object.entries(char.equipped)) {
+            if (!item) { resolvedEquipped[slot] = null; continue; }
+            // Always prefer fresh registry data (has effects, weaponType, etc.)
+            const fresh = GameRegistry.getItem((item as any).id);
+            resolvedEquipped[slot] = fresh || item;
+        }
+    }
+
+    const mainHandWeapon = resolvedEquipped.mainHand || null;
+
+    // ── 2. Resolve skills (char.skills may be stale snapshots) ──
+    let skills: Skill[];
+    if (char.skills && char.skills.length > 0) {
+        skills = char.skills.map(s => {
+            // Always pull fresh skill data from registry
+            const fresh = GameRegistry.getSkill(s.id);
+            return fresh || s;
+        });
+    } else {
+        skills = isPlayer ? defaultPlayerSkills : defaultEnemySkills;
+    }
+
+    // ── 3. Patch use-weapon skill with live weapon data (range + description) ──
+    skills = skills.map(skill => {
+        if (skill.id !== 'use-weapon') return skill;
+        const patched = { ...skill };
+        if (mainHandWeapon) {
+            patched.maxRange = mainHandWeapon.weaponRange || 1;
+            patched.minRange = 1;
+            const typeLabel = (mainHandWeapon.weaponType || 'melee').toUpperCase();
+            const dmgMod = mainHandWeapon.effects?.find((e: any) => e.target === 'damage');
+            const dmgStr = dmgMod ? ` | Base DMG: ${dmgMod.value}` : '';
+            const scalingStr = mainHandWeapon.weaponType === 'ranged' ? ' [FIXED]' : ' + STR';
+            patched.description = `Attack with ${mainHandWeapon.name} [${typeLabel}${dmgStr}${scalingStr}]`;
+        } else {
+            patched.maxRange = 1;
+            patched.description = 'Attack unarmed [MELEE + STR]';
+        }
+        return patched;
+    });
 
     return {
         id: `${char.id}_${isPlayer ? 'p' : 'e'}${index}`,
@@ -51,7 +91,7 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
         skills,
         skillCooldowns: {},
         gridPos: { row: 0, col: 0 },
-        equipped: char.equipped,
+        equipped: resolvedEquipped,
         baseStats: {
             strength: char.stats.strength,
             agility: char.stats.agility,
@@ -576,10 +616,10 @@ function TacticalCombatArena({
     config: CombatConfig;
     battlemapUrl: string | null;
 }) {
-    // Dynamically grab default skills from the game registry
     const defaultPlayerSkills = getDefaultPlayerSkills();
     const defaultEnemySkills = getDefaultEnemySkills();
 
+    // Build TacticalEntity for each character using the resolved data from mapCharToTactical
     const playerEntities = playerIds
         .map(id => GameRegistry.getCharacter(id))
         .filter((char): char is Character => char !== undefined)
@@ -590,66 +630,13 @@ function TacticalCombatArena({
         .filter((char): char is Character => char !== undefined)
         .map((char, i) => mapCharToTactical(char, false, i, defaultPlayerSkills, defaultEnemySkills));
 
+    // ── Use LOCAL combat engine (correct weapon damage, game rules, modifiers) ──
     const {
         grid, entities, turnOrder, activeEntityId, activeEntity,
         isPlayerTurn, phase, playerAction, logs, turnNumber,
-        handleCellClick, endTurn, selectSkill, selectedSkill, MELEE_ATTACK_COST,
-    } = useCombatWebSocket({
-        players: playerEntities,
-        enemies: enemyEntities,
-        grid: aiGrid || undefined,
-        config,
-    });
-
-    const getDamagePreview = React.useCallback((attacker: TacticalEntity, target: TacticalEntity, skill: Skill): DamagePreview | null => {
-        if (!skill.damage && !skill.pushDistance) return null;
-
-        const rules = GameRulesManager.get();
-        const isMagical = skill.effectType === 'magical';
-
-        let baseDmg = skill.damage || 0;
-        const weaponReplacement = skill.effects?.find(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT' as any);
-        if (weaponReplacement && attacker.equipped?.mainHand) {
-            const weapon = attacker.equipped.mainHand;
-            const weaponDmgEffect = weapon.effects?.find(e =>
-                e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS' as any
-            );
-            if (weaponDmgEffect) {
-                if (weaponDmgEffect.isPercentage) baseDmg = Math.floor(baseDmg * (1 + (weaponDmgEffect.value / 100)));
-                else baseDmg = weaponDmgEffect.value;
-            }
-        }
-
-        const minStrBonus = skill.pushDistance ? attacker.strength * (rules.combat.shovePushDamageRatio || 0.1) : attacker.strength * (rules.combat.strengthScalingMin || 0.2);
-        const maxStrBonus = skill.pushDistance ? attacker.strength * (rules.combat.shovePushDamageRatio || 0.1) : attacker.strength * (rules.combat.strengthScalingMax || 0.4);
-
-        const vMin = rules.combat.damageVarianceMin || 0.85;
-        const vMax = rules.combat.damageVarianceMax || 1.15;
-
-        // Critical Hit check
-        const analyzedBonus = target.activeEffects?.filter(e => e.type === 'ANALYZED' as any).reduce((sum: number, e: any) => sum + (e.value || 0), 0) || 0;
-        const finalCritChance = attacker.critChance + (analyzedBonus / 100);
-
-        const calc = (str: number, v: number, crit: boolean) => {
-            let d = Math.floor((baseDmg + str) * v);
-            if (crit) d = Math.floor(d * 1.5);
-            if (isMagical) {
-                const resist = Math.floor(d * (target.resistance || 0));
-                return Math.max(1, d - resist);
-            } else {
-                return Math.max(1, d - (target.defense || 0));
-            }
-        };
-
-        return {
-            min: calc(minStrBonus, vMin, false),
-            max: calc(maxStrBonus, vMax, false),
-            critMin: calc(minStrBonus, vMin, true),
-            critMax: calc(maxStrBonus, vMax, true),
-            isMagical,
-            critChance: isNaN(finalCritChance) ? (attacker.critChance || 0) : finalCritChance
-        };
-    }, []);
+        handleCellClick, endTurn, selectSkill, selectedSkill,
+        MELEE_ATTACK_COST, getDamagePreview,
+    } = useTacticalCombat(playerEntities, enemyEntities, aiGrid || undefined, config);
 
     return (
         <TacticalArena

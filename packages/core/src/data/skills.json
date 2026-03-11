@@ -5,14 +5,14 @@
     "areaType": "single",
     "category": "base",
     "cooldown": 0,
-    "damage": 12,
-    "description": "A quick melee strike using the equipped weapon.",
+    "damage": 5,
+    "description": "Strike with your equipped weapon. Replaces base damage with weapon's flat damage modifier. Melee: scales with Strength. Ranged: fixed damage only.",
     "effectType": "physical",
     "effects": [
       {
-        "description": "",
+        "description": "Replaces skill base damage with the equipped weapon's flat damage value.",
         "id": "effect-1773078073638",
-        "name": "New Effect",
+        "name": "Weapon Damage Replacement",
         "target": "mainHand",
         "trigger": "passive",
         "type": "WEAPON_DAMAGE_REPLACEMENT",
@@ -20,7 +20,7 @@
       }
     ],
     "icon": "⚔️",
-    "id": "slash",
+    "id": "use-weapon",
     "maxRange": 1,
     "minRange": 1,
     "name": "Use Weapon",

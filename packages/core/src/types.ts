@@ -103,6 +103,8 @@ export type ItemRarity = "salvaged" | "reinforced" | "pre-ash" | "specialized" |
 
 export type EquipSlot = "head" | "chest" | "gloves" | "waist" | "legs" | "boots" | "mainHand" | "offHand";
 
+export type WeaponType = 'melee' | 'ranged';
+
 export interface Item {
   id: string;
   name: string;
@@ -113,6 +115,8 @@ export interface Item {
   bagIndex?: number;
   slotIndex?: number;
   equipSlot?: EquipSlot;   // Which equipment slot this item belongs to
+  weaponType?: WeaponType;
+  weaponRange?: number;
   effects?: GameplayEffect[];
   icon?: string;           // Emoji or gallery path
 }

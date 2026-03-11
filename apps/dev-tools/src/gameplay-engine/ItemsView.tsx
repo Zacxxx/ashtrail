@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Item, GameRegistry, ItemCategory, ItemRarity, GameplayEffect } from "@ashtrail/core";
+import { Item, GameRegistry, ItemCategory, ItemRarity, GameplayEffect, WeaponType } from "@ashtrail/core";
 import { IconGallerySelector } from "../components/IconGallerySelector";
 
 interface ItemsViewProps {
@@ -46,6 +46,8 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
     const [rarity, setRarity] = useState<ItemRarity>("salvaged");
     const [description, setDescription] = useState("");
     const [cost, setCost] = useState(0);
+    const [weaponType, setWeaponType] = useState<WeaponType>("melee");
+    const [weaponRange, setWeaponRange] = useState(1);
     const [effects, setEffects] = useState<GameplayEffect[]>([]);
     const [icon, setIcon] = useState("📦");
 
@@ -62,6 +64,8 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
             setRarity(item.rarity || "salvaged");
             setDescription(item.description);
             setCost(item.cost);
+            setWeaponType(item.weaponType || "melee");
+            setWeaponRange(item.weaponRange || 1);
             setEffects(item.effects || []);
             setIcon(item.icon || "📦");
         } else {
@@ -79,6 +83,8 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
             rarity,
             description,
             cost,
+            weaponType: category === "weapon" ? weaponType : undefined,
+            weaponRange: category === "weapon" ? weaponRange : undefined,
             icon,
             effects,
         };
@@ -251,6 +257,47 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                             </div>
                         </div>
 
+                        {/* Weapon Configuration (Only for Weapon) */}
+                        {category === "weapon" && (
+                            <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300 border-l-2 border-red-500/30 pl-4 py-1">
+                                <label className="text-[9px] font-black text-red-500 uppercase tracking-widest pl-1 flex items-center gap-2">
+                                    <div className="w-1 h-1 bg-red-500" /> WEAPON SPECIFICATIONS
+                                </label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[7px] font-black text-gray-600 uppercase tracking-widest">COMBAT TYPE</label>
+                                        <div className="flex gap-1">
+                                            {(["melee", "ranged"] as WeaponType[]).map(type => (
+                                                <button
+                                                    key={type}
+                                                    onClick={() => setWeaponType(type)}
+                                                    className={`flex-1 py-1.5 rounded border text-[8px] font-black tracking-widest uppercase transition-all ${weaponType === type
+                                                        ? "bg-red-500/20 border-red-500/40 text-red-500"
+                                                        : "bg-black/20 border-white/5 text-gray-700 hover:border-white/10"
+                                                        }`}
+                                                >
+                                                    {type}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[7px] font-black text-gray-600 uppercase tracking-widest">MAX RANGE</label>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                value={weaponRange}
+                                                onChange={e => setWeaponRange(Number(e.target.value))}
+                                                min={1}
+                                                className="w-full bg-black/50 border border-white/5 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold outline-none focus:border-red-500/30 transition-all font-mono"
+                                            />
+                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[6px] text-gray-600 font-black">CELLS</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Equip Slot Selection (Only for Armor/Weapon) */}
                         {(category === "weapon" || category === "armor") && (
                             <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -372,6 +419,7 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                                                             <option value="charisma">Charisma</option>
                                                         </optgroup>
                                                         <optgroup label="COMBAT" className="bg-black text-[10px]">
+                                                            <option value="damage">⚔️ Weapon Base Damage</option>
                                                             <option value="hp">Health Points</option>
                                                             <option value="maxHp">Max Health</option>
                                                             <option value="ap">Action Points</option>

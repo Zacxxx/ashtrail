@@ -225,12 +225,37 @@ export function useCombatEngine(initialPlayer: CombatEntity, initialEnemy: Comba
         const critRoll = Math.random();
         const isCrit = critRoll < attacker.critChance;
 
-        // Damage Calculation
         const rules = GameRulesManager.get();
         const vMin = rules.combat.damageVarianceMin || 0.85;
         const vMax = rules.combat.damageVarianceMax || 1.15;
         const variance = vMin + (Math.random() * (vMax - vMin));
-        let rawDamage = Math.floor(attacker.strength * variance);
+
+        const weapon = attacker.equipped?.mainHand;
+        const isRanged = weapon?.weaponType === 'ranged';
+        const scalingStatName = isRanged
+            ? (rules.combat?.rangedScalingStat || 'agility')
+            : (rules.combat?.meleeScalingStat || 'strength');
+        const scalingVal = (attacker as any)[scalingStatName] ?? attacker.strength;
+
+        // Base damage for simple attack
+        let weaponBaseDmg = 5;
+        const weaponDmgEffect = weapon?.effects?.find((e: any) =>
+            e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS'
+        );
+        if (weaponDmgEffect) weaponBaseDmg = weaponDmgEffect.value;
+
+        // Formula
+        let rawDamage = 0;
+        if (isRanged) {
+            // RANGED: Pure weapon damage
+            rawDamage = Math.floor(weaponBaseDmg * variance);
+        } else {
+            // MELEE: WeaponBase * (1 + (Stat * Factor / 10))
+            const minScale = rules.combat.strengthScalingMin || 0.2;
+            const maxScale = rules.combat.strengthScalingMax || 0.4;
+            const factor = minScale + (Math.random() * (maxScale - minScale));
+            rawDamage = Math.floor(weaponBaseDmg * (1 + (scalingVal * factor / 10)) * variance);
+        }
 
         if (isCrit) {
             rawDamage = Math.floor(rawDamage * 1.5); // 50% bonus for crit

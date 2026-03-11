@@ -250,6 +250,16 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                                                                     <span className="text-sm">{i.icon || "📦"}</span>
                                                                 )}
                                                                 <span className="text-[11px] font-bold uppercase text-[#c2410c] line-clamp-1">{i.name}</span>
+                                                                {i.category === 'weapon' && (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <span className={`text-[7px] border px-1 py-0.5 rounded font-black uppercase tracking-widest ${i.weaponType === 'ranged' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                                                                            {i.weaponType || 'melee'}
+                                                                        </span>
+                                                                        <span className="text-[7px] bg-white/5 border border-white/5 px-1 py-0.5 rounded text-gray-400 font-bold uppercase">
+                                                                            Range: {i.weaponRange || 1}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
                                                                 {i.equipSlot && <span className="text-[7px] bg-white/5 border border-white/5 px-1 py-0.5 rounded text-gray-500 font-black uppercase tracking-widest">{i.equipSlot}</span>}
                                                             </div>
                                                             <span className="text-[9px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300 font-mono">Cost: {i.cost}</span>

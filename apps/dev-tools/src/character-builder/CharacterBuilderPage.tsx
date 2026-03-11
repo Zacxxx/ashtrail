@@ -410,6 +410,33 @@ export function CharacterBuilderPage() {
         return result;
     }, [activeStats, activeAttributeUpgrades, equipmentStatModifiers]);
 
+    // Dynamize specific skills (like Use Weapon) based on current equipment
+    const dynamicSkills = useMemo(() => {
+        const weapon = equippedItems.mainHand;
+        return selectedSkills.map(skill => {
+            // 'use-weapon' is the canonical id for the weapon attack skill
+            if (skill.id === 'use-weapon') {
+                const dynamicSkill = { ...skill };
+                if (weapon) {
+                    dynamicSkill.maxRange = weapon.weaponRange || 1;
+                    const typeLabel = (weapon.weaponType || 'melee').toUpperCase();
+                    const dmgMod = weapon.effects?.find((e: any) => e.target === 'damage');
+                    const dmgStr = dmgMod ? ` | Base DMG: ${dmgMod.value}` : '';
+                    const scalingStr = weapon.weaponType === 'ranged' ? ' [FIXED, no stat scaling]' : ' + STR scaling';
+                    dynamicSkill.description = `Attack with your ${weapon.name} [${typeLabel}${dmgStr}${scalingStr}].`;
+                } else {
+                    dynamicSkill.maxRange = 1;
+                    dynamicSkill.description = 'Attack with your bare hands [MELEE + STR scaling].';
+                }
+                return dynamicSkill;
+            }
+            return skill;
+        });
+    }, [selectedSkills, equippedItems.mainHand]);
+
+    const activeWeapon = equippedItems.mainHand;
+    const isRangedWeapon = activeWeapon?.weaponType === 'ranged';
+
     // Derived values from effective stats
     const derivedStats = useMemo(() => {
         const s = effectiveStats;
@@ -439,6 +466,11 @@ export function CharacterBuilderPage() {
             }
         });
 
+        const weapon = equippedItems.mainHand;
+        const isRanged = weapon?.weaponType === 'ranged';
+        const scalingStat = isRanged ? (rules.combat?.rangedScalingStat || 'agility') : (rules.combat?.meleeScalingStat || 'strength');
+        const scalingVal = s[scalingStat as keyof Stats] || 0;
+
         return {
             hp: hp + directHp,
             ap: ap,
@@ -446,24 +478,24 @@ export function CharacterBuilderPage() {
             crit: `${(s.intelligence * (rules.core.critPerIntelligence || 0.02) * 100).toFixed(1)}%`,
             resist: `${(s.wisdom * (rules.core.resistPerWisdom || 0.05) * 100).toFixed(0)}%`,
             social: `${(s.charisma * (rules.core.charismaBonusPerCharisma || 0.03) * 100).toFixed(1)}%`,
-            minDmg: (() => {
-                const weapon = equippedItems.mainHand;
-                let base = 4;
-                if (weapon) {
-                    const dmgEff = weapon.effects?.find(e => e.target === 'damage' || e.type === 'COMBAT_BONUS');
-                    if (dmgEff) base = dmgEff.value;
-                }
-                return (base + s.strength * 0.2).toFixed(1);
-            })(),
-            maxDmg: (() => {
-                const weapon = equippedItems.mainHand;
+            ...(() => {
+                // Resolve base damage: prefer explicit `damage` target, then COMBAT_BONUS fallback, else default 5
                 let base = 5;
+                let hasExplicitDmgModifier = false;
                 if (weapon) {
-                    const dmgEff = weapon.effects?.find(e => e.target === 'damage' || e.type === 'COMBAT_BONUS');
-                    if (dmgEff) base = dmgEff.value;
+                    const dmgEff = weapon.effects?.find(e => e.target === 'damage');
+                    const combatBonusEff = !dmgEff ? weapon.effects?.find(e => e.type === 'COMBAT_BONUS') : null;
+                    const effective = dmgEff || combatBonusEff;
+                    if (effective) { base = effective.value; hasExplicitDmgModifier = !!dmgEff; }
                 }
-                return (base + s.strength * 0.4).toFixed(1);
-            })()
+                const minScale = rules.combat?.strengthScalingMin || 0.2;
+                const maxScale = rules.combat?.strengthScalingMax || 0.4;
+                return {
+                    weaponBaseDmg: hasExplicitDmgModifier ? base : null,
+                    minDmg: isRanged ? base.toFixed(1) : (base * (1 + (scalingVal * minScale / 10))).toFixed(1),
+                    maxDmg: isRanged ? base.toFixed(1) : (base * (1 + (scalingVal * maxScale / 10))).toFixed(1),
+                };
+            })(),
         };
     }, [effectiveStats, equippedItems]);
 
@@ -1983,13 +2015,13 @@ export function CharacterBuilderPage() {
                                                     <div className="flex items-center gap-4">
                                                         <div className="flex flex-col items-end">
                                                             <span className="text-[7px] text-gray-600 font-black uppercase">Buffer Page</span>
-                                                            <span className="text-[10px] text-white font-mono">{selectedSkills.filter(s => s.category === bookCategory).length > 0 ? "01" : "00"}</span>
+                                                            <span className="text-[10px] text-white font-mono">{dynamicSkills.filter(s => s.category === bookCategory).length > 0 ? "01" : "00"}</span>
                                                         </div>
                                                     </div>
                                                 </div>
 
                                                 <div className="flex-1 overflow-y-auto pr-2 pb-8 game-scrollbar">
-                                                    {selectedSkills.filter(s => s.category === bookCategory).length === 0 ? (
+                                                    {dynamicSkills.filter(s => s.category === bookCategory).length === 0 ? (
                                                         <div className="flex-1 flex flex-col items-center justify-center py-20 opacity-20 group-hover:opacity-30 transition-opacity">
                                                             <div className="text-4xl mb-6 grayscale brightness-50">📂</div>
                                                             <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.34em] italic text-center">no active skill</p>
@@ -1997,7 +2029,7 @@ export function CharacterBuilderPage() {
                                                         </div>
                                                     ) : (
                                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-4 gap-y-3">
-                                                            {selectedSkills.filter(s => s.category === bookCategory).map(skill => (
+                                                            {dynamicSkills.filter(s => s.category === bookCategory).map(skill => (
                                                                 <div key={skill.id} className="relative group/skill bg-black/20 hover:bg-white/[0.03] border border-white/5 rounded-lg p-2 transition-all hover:border-[#c2410c]/30">
                                                                     <div className="flex gap-2">
                                                                         <div className="relative shrink-0">
@@ -2322,20 +2354,41 @@ export function CharacterBuilderPage() {
 
                                                         {/* COMBAT SECTION */}
                                                         <div className="space-y-1 pt-0.5">
-                                                            <div className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-1 opacity-80 flex items-center gap-1.5">
-                                                                <div className="w-0.5 h-0.5 bg-[#c2410c]/40" />
-                                                                COMBAT
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <div className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em] opacity-80 flex items-center gap-1.5">
+                                                                    <div className="w-0.5 h-0.5 bg-[#c2410c]/40" />
+                                                                    COMBAT
+                                                                </div>
+                                                                {activeWeapon && (
+                                                                    <span className={`text-[6px] px-1 py-0.5 rounded font-black uppercase tracking-widest border ${isRangedWeapon ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
+                                                                        {isRangedWeapon ? 'Ranged' : 'Melee'}
+                                                                    </span>
+                                                                )}
                                                             </div>
+                                                            {/* Base weapon damage badge when a modifier sets it */}
+                                                            {derivedStats.weaponBaseDmg !== null && (
+                                                                <div className="mb-1.5 flex items-center justify-between bg-orange-500/5 border border-orange-500/20 px-1.5 py-1 rounded">
+                                                                    <span className="text-[7px] text-orange-400/70 font-black uppercase tracking-widest">⚔ Base DMG</span>
+                                                                    <span className="text-[9px] font-black font-mono text-orange-400">{derivedStats.weaponBaseDmg}</span>
+                                                                </div>
+                                                            )}
                                                             {[
-                                                                { label: "Strength", value: effectiveStats.strength },
+                                                                {
+                                                                    label: isRangedWeapon ? "Scaling" : "Strength",
+                                                                    value: isRangedWeapon ? "FIXED" : effectiveStats.strength,
+                                                                    highlight: isRangedWeapon ? "text-blue-400" : "text-white"
+                                                                },
                                                                 { label: "Min dmg", value: derivedStats.minDmg },
                                                                 { label: "Max dmg", value: derivedStats.maxDmg },
                                                             ].map(item => (
                                                                 <div key={item.label} className="flex justify-between items-center group/row border-b border-white/[0.02] pb-0.5">
                                                                     <span className="text-[8px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors">{item.label}</span>
-                                                                    <span className="text-[9px] text-white font-black font-mono tracking-widest">{item.value}</span>
+                                                                    <span className={`text-[9px] font-black font-mono tracking-widest ${item.highlight || 'text-white'}`}>{item.value}</span>
                                                                 </div>
                                                             ))}
+                                                            {isRangedWeapon && (
+                                                                <p className="text-[6px] text-gray-700 italic mt-1 leading-tight">Ranged damage ignores character stats and relies solely on weapon quality.</p>
+                                                            )}
                                                         </div>
 
                                                         {/* EQUIPMENT EFFECTS SECTION */}
@@ -3153,6 +3206,28 @@ export function CharacterBuilderPage() {
                                                             </>
                                                         )}
 
+                                                        {hoverInfo.item.category === 'weapon' && (
+                                                            <>
+                                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Combat:</div>
+                                                                <div className="text-[7px] text-red-500 font-bold uppercase tracking-widest text-right">
+                                                                    {hoverInfo.item.weaponType || 'melee'}
+                                                                </div>
+                                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Range:</div>
+                                                                <div className="text-[7px] text-white font-bold uppercase tracking-widest text-right">
+                                                                    {hoverInfo.item.weaponRange || 1} CELLS
+                                                                </div>
+                                                                {(() => {
+                                                                    const dmgMod = hoverInfo.item.effects?.find((e: any) => e.target === 'damage');
+                                                                    return dmgMod ? (
+                                                                        <>
+                                                                            <div className="text-[7px] text-orange-500/70 font-black uppercase tracking-widest">Base DMG:</div>
+                                                                            <div className="text-[7px] text-orange-400 font-black uppercase tracking-widest text-right">{dmgMod.value}</div>
+                                                                        </>
+                                                                    ) : null;
+                                                                })()}
+                                                            </>
+                                                        )}
+
                                                         <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Value:</div>
                                                         <div className="text-[7px] text-[#c2410c] font-black uppercase tracking-widest text-right">
                                                             {hoverInfo.item.cost}C
@@ -3171,8 +3246,14 @@ export function CharacterBuilderPage() {
                                                         <div className="mt-2 pt-2 border-t border-white/5 space-y-1">
                                                             <div className="text-[6px] font-black text-orange-500/70 uppercase tracking-widest mb-1">Effects:</div>
                                                             {hoverInfo.item.effects.map((eff: any, idx: number) => {
-                                                                let label = eff.target === 'damage' ? 'Weapon Damage' : eff.target;
-                                                                if (eff.target === 'armor' || eff.target === 'defense') label = 'Armor';
+                                                                const isDmgMod = eff.target === 'damage';
+                                                                let label = isDmgMod ? '⚔ Weapon DMG' : eff.target;
+                                                                if (eff.target === 'armor' || eff.target === 'defense') label = '🛡 Armor';
+                                                                if (eff.target === 'hp' || eff.target === 'maxHp') label = '❤ Health';
+                                                                if (eff.target === 'ap') label = '⚡ Action Pts';
+
+                                                                // Skip damage modifier in the effects list — it's shown in Combat row above
+                                                                if (isDmgMod && hoverInfo.item.category === 'weapon') return null;
 
                                                                 return (
                                                                     <div key={idx} className="flex justify-between items-center bg-white/[0.02] px-1.5 py-1 rounded border border-white/5">

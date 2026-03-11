@@ -7,11 +7,84 @@
   "currentStory": "",
   "equipped": {
     "boots": null,
-    "chest": null,
+    "chest": {
+      "bagIndex": 0,
+      "category": "armor",
+      "cost": 0,
+      "description": "A tuxedo made for the C-suite of Moebius.",
+      "effects": [
+        {
+          "target": "charisma",
+          "type": "STAT_MODIFIER",
+          "value": 10
+        },
+        {
+          "target": "agility",
+          "type": "STAT_MODIFIER",
+          "value": 10
+        }
+      ],
+      "equipSlot": "chest",
+      "icon": "📦",
+      "id": "item-1772901624775-1773232774462",
+      "name": "Moebius' Tuxedo",
+      "rarity": "specialized"
+    },
     "gloves": null,
-    "head": null,
+    "head": {
+      "bagIndex": 0,
+      "category": "armor",
+      "cost": 2026,
+      "description": "A cap made for the C-Suite of Moebius",
+      "effects": [
+        {
+          "target": "wisdom",
+          "type": "STAT_MODIFIER",
+          "value": 10
+        }
+      ],
+      "equipSlot": "head",
+      "icon": "📦",
+      "id": "item-1772901546306-1773232774064",
+      "name": "Moebius' Cap",
+      "rarity": "relic"
+    },
     "legs": null,
-    "mainHand": null,
+    "mainHand": {
+      "bagIndex": 0,
+      "category": "weapon",
+      "cost": 2026,
+      "description": "A gun made for the C-Suite of Moebius",
+      "effects": [
+        {
+          "target": "damage",
+          "type": "COMBAT_BONUS",
+          "value": 50
+        },
+        {
+          "target": "crit_rate",
+          "type": "STAT_MODIFIER",
+          "value": 10
+        },
+        {
+          "target": "intelligence",
+          "type": "STAT_MODIFIER",
+          "value": 10
+        },
+        {
+          "target": "intelligence",
+          "type": "STAT_MODIFIER",
+          "value": 10
+        }
+      ],
+      "equipSlot": "mainHand",
+      "icon": "📦",
+      "id": "item-1772901369456-1773232770795",
+      "name": "Moebius' Blaster",
+      "rarity": "specialized",
+      "weaponRange": 5,
+      "weaponType": "ranged"
+    },
     "offHand": null,
     "waist": null
   },
@@ -190,6 +263,33 @@
       "maxRange": 5,
       "minRange": 1,
       "name": "Analyze",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 0,
+      "damage": 5,
+      "description": "Strike with your equipped weapon. Replaces base damage with weapon's flat damage modifier. Melee: scales with Strength. Ranged: fixed damage only.",
+      "effectType": "physical",
+      "effects": [
+        {
+          "description": "Replaces skill base damage with the equipped weapon's flat damage value.",
+          "id": "effect-1773078073638",
+          "name": "Weapon Damage Replacement",
+          "target": "mainHand",
+          "trigger": "passive",
+          "type": "WEAPON_DAMAGE_REPLACEMENT",
+          "value": 0
+        }
+      ],
+      "icon": "⚔️",
+      "id": "use-weapon",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Use Weapon",
       "targetType": "enemy"
     }
   ],
