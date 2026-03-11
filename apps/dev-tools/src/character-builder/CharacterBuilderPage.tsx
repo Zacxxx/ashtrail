@@ -416,30 +416,31 @@ export function CharacterBuilderPage() {
         return selectedSkills.map(skill => {
             // 'use-weapon' is the canonical id for the weapon attack skill
             if (skill.id === 'use-weapon') {
-                    const dynamicSkill = { ...skill };
-                    if (weapon) {
-                        dynamicSkill.maxRange = weapon.weaponRange || 1;
-                        dynamicSkill.minRange = 1;
-                        
-                        const weapAreaType = (weapon as any).weaponAreaType || 'single';
-                        const weapAreaSize = (weapon as any).weaponAreaSize || 0;
-                        dynamicSkill.areaType = weapAreaType;
-                        dynamicSkill.areaSize = weapAreaSize;
+                const dynamicSkill = { ...skill };
+                const freshWeapon = weapon && weapon.id ? (GameRegistry.getItem(weapon.id) || weapon) : weapon;
+                if (freshWeapon) {
+                    dynamicSkill.maxRange = freshWeapon.weaponRange || 1;
+                    dynamicSkill.minRange = 1;
 
-                        const typeLabel = (weapon.weaponType || 'melee').toUpperCase();
-                        const dmgMod = weapon.effects?.find((e: any) => e.target === 'damage');
-                        const dmgStr = dmgMod ? ` | Base DMG: ${dmgMod.value}` : '';
-                        const scalingStr = weapon.weaponType === 'ranged' ? ' [FIXED]' : ' + STR scaling';
-                        const aoeStr = weapAreaType !== 'single' ? ` | AOE: ${weapAreaType}(${weapAreaSize})` : '';
-                        dynamicSkill.description = `Attack with your ${weapon.name} [${typeLabel}${dmgStr}${scalingStr}${aoeStr}].`;
-                    } else {
-                        dynamicSkill.maxRange = 1;
-                        dynamicSkill.minRange = 1;
-                        dynamicSkill.areaType = 'single';
-                        dynamicSkill.areaSize = 0;
-                        dynamicSkill.description = 'Attack with your bare hands [MELEE + STR scaling].';
-                    }
-                    return dynamicSkill;
+                    const weapAreaType = (freshWeapon as any).weaponAreaType || 'single';
+                    const weapAreaSize = (freshWeapon as any).weaponAreaSize || 0;
+                    dynamicSkill.areaType = weapAreaType;
+                    dynamicSkill.areaSize = weapAreaSize;
+
+                    const typeLabel = (freshWeapon.weaponType || 'melee').toUpperCase();
+                    const dmgMod = freshWeapon.effects?.find((e: any) => e.target === 'damage');
+                    const dmgStr = dmgMod ? ` | Base DMG: ${dmgMod.value}` : '';
+                    const scalingStr = weapon.weaponType === 'ranged' ? ' [FIXED]' : ' + STR scaling';
+                    const aoeStr = weapAreaType !== 'single' ? ` | AOE: ${weapAreaType}(${weapAreaSize})` : '';
+                    dynamicSkill.description = `Attack with your ${weapon.name} [${typeLabel}${dmgStr}${scalingStr}${aoeStr}].`;
+                } else {
+                    dynamicSkill.maxRange = 1;
+                    dynamicSkill.minRange = 1;
+                    dynamicSkill.areaType = 'single';
+                    dynamicSkill.areaSize = 0;
+                    dynamicSkill.description = 'Attack with your bare hands [MELEE + STR scaling].';
+                }
+                return dynamicSkill;
             }
             return skill;
         });
@@ -782,7 +783,13 @@ export function CharacterBuilderPage() {
         setRedispatchPoints(null);
         setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
-        setInventory(char.inventory || []);
+        setInventory((char.inventory || []).map(invItem => {
+            if (invItem && invItem.id) {
+                const fresh = GameRegistry.getItem(invItem.id);
+                if (fresh) return { ...fresh, bagIndex: invItem.bagIndex, slotIndex: invItem.slotIndex };
+            }
+            return invItem;
+        }));
         setSelectedSkills(prev => {
             const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
             const loadedSkills = char.skills || [];
@@ -796,7 +803,16 @@ export function CharacterBuilderPage() {
             return merged;
         });
         if (char.equipped) {
-            setEquippedItems(char.equipped);
+            const freshEquipped: Record<string, Item | null> = { ...char.equipped };
+            // Hydrate with latest version from registry to avoid stale snapshots
+            Object.keys(freshEquipped).forEach(slot => {
+                const eqItem = freshEquipped[slot] as any;
+                if (eqItem && eqItem.id) {
+                    const fresh = GameRegistry.getItem(eqItem.id);
+                    if (fresh) freshEquipped[slot] = fresh;
+                }
+            });
+            setEquippedItems(freshEquipped);
         } else {
             setEquippedItems({
                 head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
@@ -3239,9 +3255,10 @@ export function CharacterBuilderPage() {
                                                                 <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Pattern:</div>
                                                                 <div className="text-[7px] font-black uppercase tracking-widest text-right">
                                                                     {(() => {
-                                                                        const at = (hoverInfo.item as any).weaponAreaType || 'single';
+                                                                        const freshItem = GameRegistry.getItem(hoverInfo.item.id) || hoverInfo.item;
+                                                                        const at = (freshItem as any).weaponAreaType || 'single';
                                                                         if (at === 'single') return <span className="text-gray-400">◉ MONO</span>;
-                                                                        const as_ = (hoverInfo.item as any).weaponAreaSize || 1;
+                                                                        const as_ = (freshItem as any).weaponAreaSize || 1;
                                                                         const icon = at === 'cross' ? '✚' : at === 'circle' ? '◎' : at === 'splash' ? '💥' : at === 'line' ? '╌' : at === 'cone' ? '▽' : '┴';
                                                                         return <span className="text-orange-400">{icon} {at.toUpperCase()} ({as_})</span>;
                                                                     })()}

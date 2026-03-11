@@ -201,7 +201,7 @@
     "id": "item-1773235390183",
     "name": "Old fkcin bazooka",
     "rarity": "relic",
-    "weaponAreaSize": 5,
+    "weaponAreaSize": 3,
     "weaponAreaType": "splash",
     "weaponRange": 5,
     "weaponType": "ranged"

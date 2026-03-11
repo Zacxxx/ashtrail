@@ -24,7 +24,7 @@
     "maxRange": 1,
     "minRange": 1,
     "name": "Use Weapon",
-    "targetType": "enemy"
+    "targetType": "cell"
   },
   {
     "apCost": 4,
