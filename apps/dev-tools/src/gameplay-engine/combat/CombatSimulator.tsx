@@ -46,20 +46,28 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
         skills = isPlayer ? defaultPlayerSkills : defaultEnemySkills;
     }
 
-    // ── 3. Patch use-weapon skill with live weapon data (range + description) ──
+    // ── 3. Patch use-weapon skill with live weapon data (range + description + AOE) ──
     skills = skills.map(skill => {
         if (skill.id !== 'use-weapon') return skill;
         const patched = { ...skill };
         if (mainHandWeapon) {
             patched.maxRange = mainHandWeapon.weaponRange || 1;
             patched.minRange = 1;
+            // Propagate weapon AOE to the skill so executeSkill uses getAoECells correctly
+            const weapAreaType = (mainHandWeapon as any).weaponAreaType || 'single';
+            const weapAreaSize = (mainHandWeapon as any).weaponAreaSize || 0;
+            patched.areaType = weapAreaType;
+            patched.areaSize = weapAreaSize;
             const typeLabel = (mainHandWeapon.weaponType || 'melee').toUpperCase();
             const dmgMod = mainHandWeapon.effects?.find((e: any) => e.target === 'damage');
             const dmgStr = dmgMod ? ` | Base DMG: ${dmgMod.value}` : '';
             const scalingStr = mainHandWeapon.weaponType === 'ranged' ? ' [FIXED]' : ' + STR';
-            patched.description = `Attack with ${mainHandWeapon.name} [${typeLabel}${dmgStr}${scalingStr}]`;
+            const aoeStr = weapAreaType !== 'single' ? ` | AOE: ${weapAreaType}(${weapAreaSize})` : '';
+            patched.description = `Attack with ${mainHandWeapon.name} [${typeLabel}${dmgStr}${scalingStr}${aoeStr}]`;
         } else {
             patched.maxRange = 1;
+            patched.areaType = 'single';
+            patched.areaSize = 0;
             patched.description = 'Attack unarmed [MELEE + STR]';
         }
         return patched;

@@ -48,6 +48,8 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
     const [cost, setCost] = useState(0);
     const [weaponType, setWeaponType] = useState<WeaponType>("melee");
     const [weaponRange, setWeaponRange] = useState(1);
+    const [weaponAreaType, setWeaponAreaType] = useState<'single' | 'cross' | 'circle' | 'line'>('single');
+    const [weaponAreaSize, setWeaponAreaSize] = useState(1);
     const [effects, setEffects] = useState<GameplayEffect[]>([]);
     const [icon, setIcon] = useState("📦");
 
@@ -66,6 +68,8 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
             setCost(item.cost);
             setWeaponType(item.weaponType || "melee");
             setWeaponRange(item.weaponRange || 1);
+            setWeaponAreaType((item as any).weaponAreaType || 'single');
+            setWeaponAreaSize((item as any).weaponAreaSize || 1);
             setEffects(item.effects || []);
             setIcon(item.icon || "📦");
         } else {
@@ -85,6 +89,7 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
             cost,
             weaponType: category === "weapon" ? weaponType : undefined,
             weaponRange: category === "weapon" ? weaponRange : undefined,
+            ...(category === "weapon" ? { weaponAreaType, weaponAreaSize: weaponAreaType !== 'single' ? weaponAreaSize : 0 } : {}),
             icon,
             effects,
         };
@@ -294,6 +299,42 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                                             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[6px] text-gray-600 font-black">CELLS</span>
                                         </div>
                                     </div>
+                                </div>
+
+                                {/* AOE Configuration */}
+                                <div className="space-y-2">
+                                    <label className="text-[7px] font-black text-gray-600 uppercase tracking-widest">ATTACK PATTERN</label>
+                                    <div className="flex gap-1">
+                                        {(['single', 'cross', 'circle', 'line'] as const).map(t => (
+                                            <button
+                                                key={t}
+                                                onClick={() => setWeaponAreaType(t)}
+                                                className={`flex-1 py-1.5 rounded border text-[8px] font-black tracking-widest uppercase transition-all ${weaponAreaType === t
+                                                        ? 'bg-orange-500/20 border-orange-500/40 text-orange-400'
+                                                        : 'bg-black/20 border-white/5 text-gray-700 hover:border-white/10'
+                                                    }`}
+                                            >
+                                                {t === 'single' ? '◉' : t === 'cross' ? '✚' : t === 'circle' ? '◎' : '╌'}
+                                                <span className="block text-[6px] mt-0.5">{t}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {weaponAreaType !== 'single' && (
+                                        <div className="flex items-center gap-3 mt-1">
+                                            <label className="text-[7px] font-black text-gray-600 uppercase tracking-widest whitespace-nowrap">AOE SIZE</label>
+                                            <input
+                                                type="number"
+                                                value={weaponAreaSize}
+                                                onChange={e => setWeaponAreaSize(Math.max(1, Number(e.target.value)))}
+                                                min={1}
+                                                max={5}
+                                                className="w-full bg-black/50 border border-orange-500/20 text-orange-400 px-3 py-1.5 rounded-lg text-[10px] font-bold outline-none focus:border-orange-500/40 transition-all font-mono"
+                                            />
+                                            <span className="text-[6px] text-gray-600 font-black whitespace-nowrap">
+                                                {weaponAreaType === 'circle' ? 'RADIUS' : weaponAreaType === 'line' ? 'LENGTH' : 'ARM LEN'}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}

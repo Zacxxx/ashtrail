@@ -184,5 +184,26 @@
     "id": "item-1772901624775",
     "name": "Moebius' Tuxedo",
     "rarity": "specialized"
+  },
+  {
+    "category": "weapon",
+    "cost": 0,
+    "description": "old but efficient as fuck",
+    "effects": [
+      {
+        "target": "damage",
+        "type": "COMBAT_BONUS",
+        "value": 50
+      }
+    ],
+    "equipSlot": "",
+    "icon": "📦",
+    "id": "item-1773235390183",
+    "name": "Old fkcin bazooka",
+    "rarity": "relic",
+    "weaponAreaSize": 3,
+    "weaponAreaType": "circle",
+    "weaponRange": 5,
+    "weaponType": "ranged"
   }
 ]

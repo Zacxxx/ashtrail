@@ -65,6 +65,7 @@ export function TacticalArena({
 
     const aoeSet = useMemo(() => {
         if (!selectedSkill || !hoveredCell || !activeEntity || phase !== 'combat' || playerAction !== 'targeting_skill') return new Set<string>();
+        if (selectedSkill.areaType === 'single') return new Set<string>();
 
         const dr = hoveredCell.row - activeEntity.gridPos.row;
         const dc = hoveredCell.col - activeEntity.gridPos.col;
@@ -73,7 +74,7 @@ export function TacticalArena({
         if (selectedSkill.areaType === 'line') {
             if (Math.abs(dr) > Math.abs(dc)) dirR = dr > 0 ? 1 : -1;
             else if (Math.abs(dc) > Math.abs(dr)) dirC = dc > 0 ? 1 : -1;
-            else { dirR = dr > 0 ? 1 : -1; dirC = 0; } // fallback
+            else { dirR = dr > 0 ? 1 : -1; dirC = 0; }
         }
 
         const aoe = getAoECells(grid, hoveredCell.row, hoveredCell.col, selectedSkill.areaType, selectedSkill.areaSize || 0, dirR, dirC);

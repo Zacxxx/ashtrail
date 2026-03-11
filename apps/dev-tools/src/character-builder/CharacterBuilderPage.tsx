@@ -3225,6 +3225,16 @@ export function CharacterBuilderPage() {
                                                                         </>
                                                                     ) : null;
                                                                 })()}
+                                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Pattern:</div>
+                                                                <div className="text-[7px] font-black uppercase tracking-widest text-right">
+                                                                    {(() => {
+                                                                        const at = (hoverInfo.item as any).weaponAreaType || 'single';
+                                                                        if (at === 'single') return <span className="text-gray-400">◉ MONO</span>;
+                                                                        const as_ = (hoverInfo.item as any).weaponAreaSize || 1;
+                                                                        const icon = at === 'cross' ? '✚' : at === 'circle' ? '◎' : '╌';
+                                                                        return <span className="text-orange-400">{icon} AOE ({as_})</span>;
+                                                                    })()}
+                                                                </div>
                                                             </>
                                                         )}
 

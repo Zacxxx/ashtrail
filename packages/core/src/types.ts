@@ -115,8 +115,10 @@ export interface Item {
   bagIndex?: number;
   slotIndex?: number;
   equipSlot?: EquipSlot;   // Which equipment slot this item belongs to
-  weaponType?: WeaponType;
+  weaponType?: 'melee' | 'ranged';
   weaponRange?: number;
+  weaponAreaType?: 'single' | 'cross' | 'circle' | 'line'; // AOE pattern
+  weaponAreaSize?: number;  // radius/arm-length/line-length (0 = single target)
   effects?: GameplayEffect[];
   icon?: string;           // Emoji or gallery path
 }
