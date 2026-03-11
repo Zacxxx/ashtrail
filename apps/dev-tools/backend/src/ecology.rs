@@ -32,7 +32,39 @@ pub struct EcologyBundle {
     #[serde(default)]
     pub fauna: Vec<FaunaEntry>,
     #[serde(default)]
+    pub biomes: Vec<BiomeEntry>,
+    #[serde(default)]
+    pub archetypes: worldgen_core::BiomeRegistry,
+    #[serde(default)]
     pub provinces: Vec<ProvinceEcologyRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BiomeEntry {
+    pub id: String,
+    pub status: EntryStatus,
+    pub name: String,
+    pub biome_type: String, // From geo_core::BiomeType
+    pub description: String,
+    #[serde(default)]
+    pub typical_flora_ids: Vec<String>,
+    #[serde(default)]
+    pub typical_fauna_ids: Vec<String>,
+    #[serde(default)]
+    pub province_ids: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectionalSpriteBinding {
+    pub batch_id: String,
+    pub sprite_id: String,
+    pub actor_type: String,
+    pub preview_url: String,
+    pub directions: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -94,7 +126,13 @@ pub struct FloraEntry {
     #[serde(default)]
     pub climate_profile_ids: Vec<String>,
     #[serde(default)]
+    pub biome_ids: Vec<String>,
+    #[serde(default)]
     pub province_ids: Vec<u32>,
+    #[serde(default)]
+    pub vegetation_asset_batch_ids: Vec<String>,
+    #[serde(default)]
+    pub illustration_asset_batch_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_at: Option<String>,
 }
@@ -116,6 +154,8 @@ pub struct FaunaEntry {
     #[serde(default)]
     pub climate_profile_ids: Vec<String>,
     #[serde(default)]
+    pub biome_ids: Vec<String>,
+    #[serde(default)]
     pub province_ids: Vec<u32>,
     pub earth_analog: String,
     pub ancestral_stock: String,
@@ -123,6 +163,14 @@ pub struct FaunaEntry {
     pub evolutionary_pressures: Vec<String>,
     pub mutation_summary: String,
     pub divergence_summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family_name: Option<String>,
+    #[serde(default)]
+    pub illustration_asset_batch_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exploration_sprite: Option<DirectionalSpriteBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_at: Option<String>,
 }
@@ -142,6 +190,8 @@ pub struct ProvinceEcologyRecord {
     pub flora_ids: Vec<String>,
     #[serde(default)]
     pub fauna_ids: Vec<String>,
+    #[serde(default)]
+    pub biome_id: Option<String>,
     pub ecological_potential: i32,
     pub agriculture_potential: i32,
     #[serde(default)]
@@ -315,8 +365,14 @@ pub async fn get_ecology_data(
     State(state): State<AppState>,
     Path(world_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let bundle = load_ecology_bundle(&state.planets_dir, &world_id)
+    let mut bundle = load_ecology_bundle(&state.planets_dir, &world_id)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
+
+    // Proactively sync biomes with worldgen hierarchy so they appear in /ecology immediately
+    if let Ok(hierarchy) = load_hierarchy(&state.planets_dir, &world_id) {
+        sync_biomes_with_hierarchy(&hierarchy, &mut bundle);
+    }
+
     Ok(Json(bundle))
 }
 
@@ -327,8 +383,12 @@ pub async fn save_ecology_data(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let existing = load_ecology_bundle(&state.planets_dir, &world_id)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
+    let hierarchy = load_hierarchy(&state.planets_dir, &world_id).ok();
     bundle.world_id = world_id.clone();
     normalize_bundle_for_save(&existing, &mut bundle);
+    if let Some(hierarchy) = hierarchy.as_ref() {
+        sync_biomes_with_hierarchy(hierarchy, &mut bundle);
+    }
     validate_bundle_references(&bundle).map_err(|err| (StatusCode::BAD_REQUEST, err))?;
     save_ecology_bundle(&state.planets_dir, &world_id, &bundle)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
@@ -368,12 +428,20 @@ pub async fn generate_province_record(
     spawn_ecology_job(state, world_id, EcologyJobKind::Province { province_id }).await
 }
 
+pub async fn generate_biome_description(
+    State(state): State<AppState>,
+    Path((world_id, biome_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    spawn_ecology_job(state, world_id, EcologyJobKind::Biome { biome_id }).await
+}
+
 #[derive(Debug, Clone)]
 enum EcologyJobKind {
     WorldBaseline,
     KingdomBaseline { kingdom_id: u32 },
     DuchyBaseline { duchy_id: u32 },
     Province { province_id: u32 },
+    Biome { biome_id: String },
 }
 
 async fn spawn_ecology_job(
@@ -449,6 +517,9 @@ async fn run_ecology_job(
         }
         EcologyJobKind::Province { province_id } => {
             generate_province_record_impl(&planets_dir, &isolated_dir, &world_id, province_id).await
+        }
+        EcologyJobKind::Biome { biome_id } => {
+            generate_biome_description_impl(&planets_dir, &world_id, &biome_id).await
         }
     };
 
@@ -644,6 +715,9 @@ async fn generate_province_record_impl(
         }
     }
 
+    // Auto-sync biomes before generating province to ensure we have a biome ID to link
+    sync_biomes_with_hierarchy(&hierarchy, &mut bundle);
+
     let duchy_baseline = get_approved_baseline(
         &bundle.baselines,
         BaselineScope::Duchy,
@@ -656,6 +730,10 @@ async fn generate_province_record_impl(
     )?;
 
     let metrics = load_cell_metrics(planets_dir, world_id, province_id).unwrap_or_default();
+
+    let biome_type = province.biome_primary; // numeric from worldgen
+    let biome_id = format!("biome-{}", biome_type);
+
     let prompt = build_province_prompt(
         &province,
         &duchy,
@@ -706,7 +784,10 @@ async fn generate_province_record_impl(
             edibility: draft.edibility,
             agriculture_value: draft.agriculture_value,
             climate_profile_ids: draft.climate_profile_ids,
+            biome_ids: vec![biome_id.clone()],
             province_ids: vec![province_id],
+            vegetation_asset_batch_ids: Vec::new(),
+            illustration_asset_batch_ids: Vec::new(),
             approved_at: None,
         });
         flora_ids.push(id);
@@ -725,12 +806,17 @@ async fn generate_province_record_impl(
             domestication_potential: draft.domestication_potential,
             danger_level: draft.danger_level,
             climate_profile_ids: draft.climate_profile_ids,
+            biome_ids: vec![biome_id.clone()],
             province_ids: vec![province_id],
             earth_analog: draft.earth_analog,
             ancestral_stock: draft.ancestral_stock,
             evolutionary_pressures: draft.evolutionary_pressures,
             mutation_summary: draft.mutation_summary,
             divergence_summary: draft.divergence_summary,
+            family_id: None,
+            family_name: None,
+            illustration_asset_batch_ids: Vec::new(),
+            exploration_sprite: None,
             approved_at: None,
         });
         fauna_ids.push(id);
@@ -753,6 +839,7 @@ async fn generate_province_record_impl(
         climate_profile_ids: dedupe_ids(climate_ids),
         flora_ids: dedupe_ids(flora_ids),
         fauna_ids: dedupe_ids(fauna_ids),
+        biome_id: Some(biome_id.clone()),
         ecological_potential: response.ecological_potential.clamp(0, 100),
         agriculture_potential: response.agriculture_potential.clamp(0, 100),
         consistency_notes: response.consistency_notes,
@@ -760,11 +847,159 @@ async fn generate_province_record_impl(
         approved_at: None,
     };
     upsert_province_record(&mut bundle.provinces, province_record);
+    
+    // Link biome to this province
+    if let Some(biome) = bundle.biomes.iter_mut().find(|b| b.id == biome_id) {
+        if !biome.province_ids.contains(&province_id) {
+            biome.province_ids.push(province_id);
+        }
+    }
+
     validate_bundle_references(&bundle)?;
     save_ecology_bundle(planets_dir, world_id, &bundle)
 }
 
-fn load_ecology_bundle(planets_dir: &FsPath, world_id: &str) -> Result<EcologyBundle, String> {
+async fn generate_biome_description_impl(
+    planets_dir: &FsPath,
+    world_id: &str,
+    biome_id: &str,
+) -> Result<(), String> {
+    let hierarchy = load_hierarchy(planets_dir, world_id)?;
+    let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
+    
+    sync_biomes_with_hierarchy(&hierarchy, &mut bundle);
+    
+    let biome = bundle.biomes.iter().find(|b| b.id == biome_id)
+        .ok_or_else(|| format!("Biome {} not found", biome_id))?.clone();
+        
+    let world_baseline = get_approved_baseline(
+        &bundle.baselines,
+        BaselineScope::World,
+        &BaselineEntityId::World("world".to_string()),
+    )?;
+
+    let prompt = build_biome_prompt(&biome, world_baseline, &bundle);
+    let text = gemini::generate_text(&prompt)
+        .await
+        .map_err(|(_, err)| err)?;
+        
+    let draft: BiomeDraft = parse_json_payload(&text)?;
+    
+    if let Some(target) = bundle.biomes.iter_mut().find(|b| b.id == biome_id) {
+        target.name = draft.name;
+        target.description = draft.description;
+        target.typical_flora_ids = draft.typical_flora_ids;
+        target.typical_fauna_ids = draft.typical_fauna_ids;
+        target.status = EntryStatus::Draft;
+    }
+    
+    save_ecology_bundle(planets_dir, world_id, &bundle)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BiomeDraft {
+    name: String,
+    description: String,
+    #[serde(default)]
+    typical_flora_ids: Vec<String>,
+    #[serde(default)]
+    typical_fauna_ids: Vec<String>,
+}
+
+fn build_biome_prompt(biome: &BiomeEntry, world_baseline: &EcologyBaseline, bundle: &EcologyBundle) -> String {
+    let approved_flora = bundle
+        .flora
+        .iter()
+        .filter(|entry| entry.status == EntryStatus::Approved)
+        .map(|entry| format!("{}: {} [{:?}]", entry.id, entry.name, entry.category))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let approved_fauna = bundle
+        .fauna
+        .iter()
+        .filter(|entry| entry.status == EntryStatus::Approved)
+        .map(|entry| {
+            format!(
+                "{}: {} [{:?}]",
+                entry.id, entry.name, entry.category
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "You are defining a canonical biome description for a worldbuilding project.\n\
+        Return ONLY strict JSON with this shape:\n\
+        {{\"name\":\"...\",\"description\":\"...\",\"typicalFloraIds\":[\"...\"],\"typicalFaunaIds\":[\"...\"]}}\n\n\
+        Biome Type: {}\n\
+        World Baseline: {}\n\n\
+        Approved Flora:\n{}\n\n\
+        Approved Fauna:\n{}\n\n\
+        Rules:\n\
+        - The description should be evocative and follow the world baseline's tone.\n\
+        - Link to existing approved flora/fauna if they fit this biome type.\n",
+        biome.biome_type,
+        world_baseline.summary,
+        approved_flora,
+        approved_fauna
+    )
+}
+
+fn sync_biomes_with_hierarchy(hierarchy: &HierarchyData, bundle: &mut EcologyBundle) {
+    let mut discovered_biomes = HashSet::new();
+    for province in &hierarchy.provinces {
+        discovered_biomes.insert(province.biome_primary);
+    }
+    
+    for biome_type_idx in discovered_biomes {
+        let id = format!("biome-{}", biome_type_idx);
+        if !bundle.biomes.iter().any(|b| b.id == id) {
+            // Mapping numeric biome to string name requires access to geo_core or a simple map
+            // Since we are in dev-tools, we can use a basic mapping or just the index
+            let name = match biome_type_idx {
+                0..=4 => "Aquatic Biome",
+                10..=12 => "Tropical Biome",
+                13..=15 => "Temperate Biome",
+                16..=18 => "Cold Biome",
+                _ => "Unique Biome",
+            };
+            
+            bundle.biomes.push(BiomeEntry {
+                id,
+                status: EntryStatus::Draft,
+                name: name.to_string(),
+                biome_type: biome_type_idx.to_string(), // Store the numeric type stringified or map it
+                description: "Undiscovered biome. Generate description to populate.".to_string(),
+                typical_flora_ids: Vec::new(),
+                typical_fauna_ids: Vec::new(),
+                province_ids: Vec::new(),
+                approved_at: None,
+            });
+        }
+    }
+
+    let province_links = hierarchy
+        .provinces
+        .iter()
+        .map(|province| (format!("biome-{}", province.biome_primary), province.id))
+        .collect::<Vec<_>>();
+
+    for biome in &mut bundle.biomes {
+        biome.province_ids.clear();
+    }
+    for (biome_id, province_id) in province_links {
+        if let Some(biome) = bundle.biomes.iter_mut().find(|entry| entry.id == biome_id) {
+            biome.province_ids.push(province_id);
+        }
+    }
+    for biome in &mut bundle.biomes {
+        biome.province_ids.sort_unstable();
+        biome.province_ids.dedup();
+    }
+}
+
+pub(crate) fn load_ecology_bundle(planets_dir: &FsPath, world_id: &str) -> Result<EcologyBundle, String> {
     let ecology_dir = ecology_dir(planets_dir, world_id);
     if !ecology_dir.exists() {
         return Ok(empty_bundle(world_id));
@@ -777,6 +1012,12 @@ fn load_ecology_bundle(planets_dir: &FsPath, world_id: &str) -> Result<EcologyBu
         let mut bundle: EcologyBundle = serde_json::from_str(&raw)
             .map_err(|e| format!("Failed to parse bundle.json: {}", e))?;
         bundle.world_id = world_id.to_string();
+
+        if bundle.archetypes.archetypes.is_empty() {
+            bundle.archetypes = worldgen_core::BiomeRegistry::default_registry();
+        }
+        normalize_loaded_bundle(&mut bundle);
+
         return Ok(bundle);
     }
 
@@ -785,7 +1026,9 @@ fn load_ecology_bundle(planets_dir: &FsPath, world_id: &str) -> Result<EcologyBu
     bundle.climates = read_optional_json(ecology_dir.join("climates.json"))?;
     bundle.flora = read_optional_json(ecology_dir.join("flora.json"))?;
     bundle.fauna = read_optional_json(ecology_dir.join("fauna.json"))?;
+    bundle.biomes = read_optional_json(ecology_dir.join("biomes.json"))?;
     bundle.provinces = read_optional_json(ecology_dir.join("provinces.json"))?;
+    normalize_loaded_bundle(&mut bundle);
     Ok(bundle)
 }
 
@@ -799,12 +1042,14 @@ fn save_ecology_bundle(
     let mut normalized = bundle.clone();
     normalized.world_id = world_id.to_string();
     normalized.updated_at = Utc::now().to_rfc3339();
+    normalize_loaded_bundle(&mut normalized);
 
     write_json_file(ecology_dir.join("bundle.json"), &normalized)?;
     write_json_file(ecology_dir.join("baselines.json"), &normalized.baselines)?;
     write_json_file(ecology_dir.join("climates.json"), &normalized.climates)?;
     write_json_file(ecology_dir.join("flora.json"), &normalized.flora)?;
     write_json_file(ecology_dir.join("fauna.json"), &normalized.fauna)?;
+    write_json_file(ecology_dir.join("biomes.json"), &normalized.biomes)?;
     write_json_file(ecology_dir.join("provinces.json"), &normalized.provinces)?;
     Ok(())
 }
@@ -813,7 +1058,7 @@ fn ecology_dir(planets_dir: &FsPath, world_id: &str) -> PathBuf {
     planets_dir.join(world_id).join("ecology")
 }
 
-fn empty_bundle(world_id: &str) -> EcologyBundle {
+pub(crate) fn empty_bundle(world_id: &str) -> EcologyBundle {
     EcologyBundle {
         world_id: world_id.to_string(),
         updated_at: Utc::now().to_rfc3339(),
@@ -821,6 +1066,8 @@ fn empty_bundle(world_id: &str) -> EcologyBundle {
         climates: Vec::new(),
         flora: Vec::new(),
         fauna: Vec::new(),
+        biomes: Vec::new(),
+        archetypes: worldgen_core::BiomeRegistry::default_registry(),
         provinces: Vec::new(),
     }
 }
@@ -1180,6 +1427,11 @@ fn validate_bundle_references(bundle: &EcologyBundle) -> Result<(), String> {
         .collect();
     let flora_ids: HashSet<&str> = bundle.flora.iter().map(|entry| entry.id.as_str()).collect();
     let fauna_ids: HashSet<&str> = bundle.fauna.iter().map(|entry| entry.id.as_str()).collect();
+    let _biome_ids: HashSet<&str> = bundle
+        .biomes
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
 
     for flora in &bundle.flora {
         for climate_id in &flora.climate_profile_ids {
@@ -1190,6 +1442,11 @@ fn validate_bundle_references(bundle: &EcologyBundle) -> Result<(), String> {
                 ));
             }
         }
+        for biome_id in &flora.biome_ids {
+            if !bundle.biomes.iter().any(|entry| &entry.id == biome_id) {
+                return Err(format!("Flora {} references missing biome {}", flora.id, biome_id));
+            }
+        }
     }
     for fauna in &bundle.fauna {
         for climate_id in &fauna.climate_profile_ids {
@@ -1198,6 +1455,11 @@ fn validate_bundle_references(bundle: &EcologyBundle) -> Result<(), String> {
                     "Fauna {} references missing climate {}",
                     fauna.id, climate_id
                 ));
+            }
+        }
+        for biome_id in &fauna.biome_ids {
+            if !bundle.biomes.iter().any(|entry| &entry.id == biome_id) {
+                return Err(format!("Fauna {} references missing biome {}", fauna.id, biome_id));
             }
         }
     }
@@ -1231,12 +1493,116 @@ fn validate_bundle_references(bundle: &EcologyBundle) -> Result<(), String> {
 }
 
 fn normalize_bundle_for_save(existing: &EcologyBundle, incoming: &mut EcologyBundle) {
+    normalize_loaded_bundle(incoming);
     incoming.updated_at = Utc::now().to_rfc3339();
     normalize_baselines_for_save(&existing.baselines, &mut incoming.baselines);
     normalize_entry_status_for_save(&existing.climates, &mut incoming.climates);
     normalize_entry_status_for_save(&existing.flora, &mut incoming.flora);
     normalize_entry_status_for_save(&existing.fauna, &mut incoming.fauna);
+    normalize_entry_status_for_save(&existing.biomes, &mut incoming.biomes);
     normalize_provinces_for_save(&existing.provinces, &mut incoming.provinces);
+}
+
+fn normalize_loaded_bundle(bundle: &mut EcologyBundle) {
+    if bundle.archetypes.archetypes.is_empty() {
+        bundle.archetypes = worldgen_core::BiomeRegistry::default_registry();
+    }
+
+    backfill_biome_ids_from_reverse_links(bundle);
+    derive_biome_reverse_links(bundle);
+
+    for flora in &mut bundle.flora {
+        sort_and_dedupe_strings(&mut flora.biome_ids);
+        sort_and_dedupe_strings(&mut flora.vegetation_asset_batch_ids);
+        sort_and_dedupe_strings(&mut flora.illustration_asset_batch_ids);
+    }
+    for fauna in &mut bundle.fauna {
+        sort_and_dedupe_strings(&mut fauna.biome_ids);
+        sort_and_dedupe_strings(&mut fauna.illustration_asset_batch_ids);
+    }
+    for biome in &mut bundle.biomes {
+        biome.province_ids.sort_unstable();
+        biome.province_ids.dedup();
+    }
+}
+
+fn backfill_biome_ids_from_reverse_links(bundle: &mut EcologyBundle) {
+    if bundle.flora.iter().all(|entry| entry.biome_ids.is_empty())
+        && bundle.fauna.iter().all(|entry| entry.biome_ids.is_empty())
+    {
+        let flora_index: HashMap<String, usize> = bundle
+            .flora
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| (entry.id.clone(), idx))
+            .collect();
+        let fauna_index: HashMap<String, usize> = bundle
+            .fauna
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| (entry.id.clone(), idx))
+            .collect();
+
+        let biome_links = bundle
+            .biomes
+            .iter()
+            .map(|biome| {
+                (
+                    biome.id.clone(),
+                    biome.typical_flora_ids.clone(),
+                    biome.typical_fauna_ids.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        for (biome_id, flora_ids, fauna_ids) in biome_links {
+            for flora_id in &flora_ids {
+                if let Some(index) = flora_index.get(flora_id) {
+                    bundle.flora[*index].biome_ids.push(biome_id.clone());
+                }
+            }
+            for fauna_id in &fauna_ids {
+                if let Some(index) = fauna_index.get(fauna_id) {
+                    bundle.fauna[*index].biome_ids.push(biome_id.clone());
+                }
+            }
+        }
+    }
+}
+
+fn derive_biome_reverse_links(bundle: &mut EcologyBundle) {
+    let mut flora_by_biome: HashMap<&str, Vec<String>> = HashMap::new();
+    let mut fauna_by_biome: HashMap<&str, Vec<String>> = HashMap::new();
+
+    for flora in &bundle.flora {
+        for biome_id in &flora.biome_ids {
+            flora_by_biome
+                .entry(biome_id.as_str())
+                .or_default()
+                .push(flora.id.clone());
+        }
+    }
+
+    for fauna in &bundle.fauna {
+        for biome_id in &fauna.biome_ids {
+            fauna_by_biome
+                .entry(biome_id.as_str())
+                .or_default()
+                .push(fauna.id.clone());
+        }
+    }
+
+    for biome in &mut bundle.biomes {
+        biome.typical_flora_ids = flora_by_biome.remove(biome.id.as_str()).unwrap_or_default();
+        biome.typical_fauna_ids = fauna_by_biome.remove(biome.id.as_str()).unwrap_or_default();
+        sort_and_dedupe_strings(&mut biome.typical_flora_ids);
+        sort_and_dedupe_strings(&mut biome.typical_fauna_ids);
+    }
+}
+
+fn sort_and_dedupe_strings(values: &mut Vec<String>) {
+    values.sort();
+    values.dedup();
 }
 
 fn normalize_baselines_for_save(existing: &[EcologyBaseline], incoming: &mut [EcologyBaseline]) {
@@ -1293,6 +1659,21 @@ impl IdentifiedEntry for FloraEntry {
 }
 
 impl IdentifiedEntry for FaunaEntry {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn status(&self) -> &EntryStatus {
+        &self.status
+    }
+    fn status_mut(&mut self) -> &mut EntryStatus {
+        &mut self.status
+    }
+    fn approved_at_mut(&mut self) -> &mut Option<String> {
+        &mut self.approved_at
+    }
+}
+
+impl IdentifiedEntry for BiomeEntry {
     fn id(&self) -> &str {
         &self.id
     }
@@ -1461,6 +1842,8 @@ mod tests {
             climates: Vec::new(),
             flora: Vec::new(),
             fauna: Vec::new(),
+            biomes: Vec::new(),
+            archetypes: worldgen_core::BiomeRegistry::default_registry(),
             provinces: Vec::new(),
         };
         save_ecology_bundle(&planets_dir, "world-1", &bundle).expect("save bundle");
@@ -1483,6 +1866,8 @@ mod tests {
             climates: Vec::new(),
             flora: Vec::new(),
             fauna: Vec::new(),
+            biomes: Vec::new(),
+            archetypes: worldgen_core::BiomeRegistry::default_registry(),
             provinces: vec![ProvinceEcologyRecord {
                 province_id: 1,
                 duchy_id: 1,
@@ -1493,6 +1878,7 @@ mod tests {
                 climate_profile_ids: vec!["climate-1".to_string()],
                 flora_ids: Vec::new(),
                 fauna_ids: Vec::new(),
+                biome_id: None,
                 ecological_potential: 50,
                 agriculture_potential: 40,
                 consistency_notes: Vec::new(),
@@ -1524,6 +1910,8 @@ mod tests {
             }],
             flora: Vec::new(),
             fauna: Vec::new(),
+            biomes: Vec::new(),
+            archetypes: worldgen_core::BiomeRegistry::default_registry(),
             provinces: Vec::new(),
         };
         let response = ProvinceGenerationResponse {
@@ -1571,7 +1959,10 @@ mod tests {
                 edibility: FloraEdibility::None,
                 agriculture_value: 10,
                 climate_profile_ids: vec!["climate-ok".to_string()],
+                biome_ids: Vec::new(),
                 province_ids: Vec::new(),
+                vegetation_asset_batch_ids: Vec::new(),
+                illustration_asset_batch_ids: Vec::new(),
                 approved_at: Some(Utc::now().to_rfc3339()),
             }],
             fauna: vec![FaunaEntry {
@@ -1585,14 +1976,21 @@ mod tests {
                 domestication_potential: 50,
                 danger_level: 10,
                 climate_profile_ids: vec!["climate-ok".to_string()],
+                biome_ids: Vec::new(),
                 province_ids: Vec::new(),
                 earth_analog: "goat".to_string(),
                 ancestral_stock: "ungulate".to_string(),
                 evolutionary_pressures: Vec::new(),
                 mutation_summary: String::new(),
                 divergence_summary: String::new(),
+                family_id: None,
+                family_name: None,
+                illustration_asset_batch_ids: Vec::new(),
+                exploration_sprite: None,
                 approved_at: Some(Utc::now().to_rfc3339()),
             }],
+            biomes: Vec::new(),
+            archetypes: worldgen_core::BiomeRegistry::default_registry(),
             provinces: Vec::new(),
         };
         let new_climate = ClimateProfile {

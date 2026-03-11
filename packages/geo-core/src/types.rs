@@ -159,7 +159,7 @@ pub struct TerrainCell {
     pub soil_type: SoilType,
     pub mineral_deposits: Vec<MineralType>,
     pub radiation_level: f64,
-    pub biome: BiomeType,
+    pub biome: String,
     pub color: String,
 }
 

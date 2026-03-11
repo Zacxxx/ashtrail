@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
     BaselineEntityId,
     BaselineScope,
+    BiomeEntry,
     ClimateProfile,
     EcologyBaseline,
     EcologyBundle,
@@ -23,7 +24,42 @@ function emptyBundle(worldId: string): EcologyBundle {
         climates: [],
         flora: [],
         fauna: [],
+        biomes: [],
+        archetypes: { archetypes: [] },
         provinces: [],
+    };
+}
+
+function normalizeBundle(bundle: any, worldId: string): EcologyBundle {
+    const base = emptyBundle(worldId);
+    return {
+        ...base,
+        ...bundle,
+        updatedAt: bundle?.updatedAt || new Date().toISOString(),
+        flora: Array.isArray(bundle?.flora)
+            ? bundle.flora.map((entry: any) => ({
+                biomeIds: [],
+                vegetationAssetBatchIds: [],
+                illustrationAssetBatchIds: [],
+                ...entry,
+            }))
+            : base.flora,
+        fauna: Array.isArray(bundle?.fauna)
+            ? bundle.fauna.map((entry: any) => ({
+                biomeIds: [],
+                illustrationAssetBatchIds: [],
+                ...entry,
+            }))
+            : base.fauna,
+        biomes: Array.isArray(bundle?.biomes)
+            ? bundle.biomes.map((entry: any) => ({
+                typicalFloraIds: [],
+                typicalFaunaIds: [],
+                provinceIds: [],
+                ...entry,
+            }))
+            : base.biomes,
+        archetypes: bundle?.archetypes ?? base.archetypes,
     };
 }
 
@@ -89,7 +125,7 @@ export function useEcologyData(worldId: string | null) {
                 throw new Error(await regionsRes.text());
             }
             const [bundleData, regionData] = await Promise.all([bundleRes.json(), regionsRes.json()]);
-            setBundle(bundleData);
+            setBundle(normalizeBundle(bundleData, worldId));
             setRegions(Array.isArray(regionData) ? regionData : []);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to load ecology data.");
@@ -119,8 +155,9 @@ export function useEcologyData(worldId: string | null) {
                     throw new Error(await response.text());
                 }
                 const saved = await response.json();
-                setBundle(saved);
-                return saved as EcologyBundle;
+                const normalized = normalizeBundle(saved, worldId);
+                setBundle(normalized);
+                return normalized as EcologyBundle;
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Failed to save ecology data.");
                 return null;
@@ -249,6 +286,41 @@ export function useEcologyData(worldId: string | null) {
         [bundle, saveBundle],
     );
 
+    const updateBiome = useCallback(
+        async (entry: BiomeEntry) => {
+            if (!bundle) return null;
+            const next = structuredClone(bundle) as EcologyBundle;
+            const index = next.biomes.findIndex((candidate) => candidate.id === entry.id);
+            const normalized = entry.status === "approved" ? markEntryDraft(entry) : entry;
+            if (index >= 0) next.biomes[index] = normalized;
+            else next.biomes.push(normalized);
+            return saveBundle(next);
+        },
+        [bundle, saveBundle],
+    );
+
+    const updateArchetype = useCallback(
+        async (archetype: any) => {
+            if (!bundle) return null;
+            const next = structuredClone(bundle) as EcologyBundle;
+            const index = next.archetypes.archetypes.findIndex((a) => a.id === archetype.id);
+            if (index >= 0) next.archetypes.archetypes[index] = archetype;
+            else next.archetypes.archetypes.push(archetype);
+            return saveBundle(next);
+        },
+        [bundle, saveBundle],
+    );
+
+    const deleteArchetype = useCallback(
+        async (id: string) => {
+            if (!bundle) return null;
+            const next = structuredClone(bundle) as EcologyBundle;
+            next.archetypes.archetypes = next.archetypes.archetypes.filter((a) => a.id !== id);
+            return saveBundle(next);
+        },
+        [bundle, saveBundle],
+    );
+
     const updateBaseline = useCallback(
         async (baseline: EcologyBaseline) => {
             if (!bundle) return null;
@@ -280,7 +352,7 @@ export function useEcologyData(worldId: string | null) {
     );
 
     const approveEntryById = useCallback(
-        async (kind: "climates" | "flora" | "fauna", id: string) => {
+        async (kind: "climates" | "flora" | "fauna" | "biomes", id: string) => {
             if (!bundle) return null;
             const next = structuredClone(bundle) as EcologyBundle;
             const targetList = next[kind];
@@ -324,6 +396,17 @@ export function useEcologyData(worldId: string | null) {
         [regions],
     );
 
+    const clearBiomes = useCallback(async () => {
+        if (!bundle) return null;
+        const next = structuredClone(bundle) as EcologyBundle;
+        next.biomes = [];
+        // Clear references in flora/fauna/provinces
+        next.flora = next.flora.map(f => ({ ...f, biomeIds: [] }));
+        next.fauna = next.fauna.map(f => ({ ...f, biomeIds: [] }));
+        next.provinces = next.provinces.map(p => ({ ...p, biomeId: undefined }));
+        return saveBundle(next);
+    }, [bundle, saveBundle]);
+
     const baselineLookup = useMemo(() => {
         const map = new Map<string, EcologyBaseline>();
         for (const baseline of bundle?.baselines ?? []) {
@@ -351,6 +434,10 @@ export function useEcologyData(worldId: string | null) {
         approveBaseline,
         approveProvince,
         approveEntryById,
+        updateBiome,
+        clearBiomes,
+        updateArchetype,
+        deleteArchetype,
         generateWorldBaseline: () =>
             worldId ? startGeneration(`/api/planet/ecology-data/${worldId}/generate/world`) : Promise.resolve(),
         generateKingdomBaseline: (kingdomId: number) =>
@@ -359,5 +446,7 @@ export function useEcologyData(worldId: string | null) {
             worldId ? startGeneration(`/api/planet/ecology-data/${worldId}/generate/duchy/${duchyId}`) : Promise.resolve(),
         generateProvince: (provinceId: number) =>
             worldId ? startGeneration(`/api/planet/ecology-data/${worldId}/generate/province/${provinceId}`) : Promise.resolve(),
+        generateBiomeDescription: (biomeId: string) =>
+            worldId ? startGeneration(`/api/planet/ecology-data/${worldId}/generate/biome/${biomeId}`) : Promise.resolve(),
     };
 }

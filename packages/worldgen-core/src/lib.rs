@@ -1,4 +1,5 @@
 pub mod biome;
+pub mod biome_archetype;
 pub mod cluster;
 pub mod config;
 pub mod export;
@@ -13,4 +14,5 @@ pub mod raster;
 pub mod sampling;
 pub mod suitability;
 
+pub use biome_archetype::{BiomeArchetype, BiomeRegistry, ColorProfile, EnvironmentalEnvelope};
 pub use config::WorldgenConfig;

@@ -1,34 +1,35 @@
 use crate::color_utils::lerp_color;
 use crate::types::{BiomeType, SoilType};
 
-pub fn get_biome_color(biome: &BiomeType) -> &'static str {
-    match biome {
-        BiomeType::AbyssalOcean => "#0a1628",
-        BiomeType::DeepOcean => "#0f2847",
-        BiomeType::Ocean => "#1a5276",
-        BiomeType::CoastalShelf => "#2e86c1",
-        BiomeType::CoralReef => "#48c9b0",
-        BiomeType::TidalFlat => "#7fb3d3",
-        BiomeType::Beach => "#f0d9b5",
-        BiomeType::Mangrove => "#1e7845",
-        BiomeType::SaltMarsh => "#8fbc8f",
-        BiomeType::RiverDelta => "#5dade2",
-        BiomeType::TropicalRainforest => "#0b6623",
-        BiomeType::TropicalSavanna => "#c4a747",
-        BiomeType::SubtropicalDesert => "#e8c872",
-        BiomeType::TemperateDeciduousForest => "#2d7d46",
-        BiomeType::TemperateGrassland => "#7db46c",
-        BiomeType::Mediterranean => "#b8a94a",
-        BiomeType::BorealForest => "#3b5e2f",
-        BiomeType::Tundra => "#8b9f8e",
-        BiomeType::IceSheet => "#dce6f0",
-        BiomeType::AlpineMeadow => "#7b8f6a",
-        BiomeType::AlpineBare => "#9e9e9e",
-        BiomeType::VolcanicWasteland => "#4a2c2a",
-        BiomeType::IrradiatedZone => "#5e3f71",
-        BiomeType::SaltFlat => "#d4c8a8",
-        BiomeType::ToxicSwamp => "#4a6741",
-        BiomeType::AshDesert => "#8b7d6b",
+pub fn get_biome_color(biome_id: &str) -> &'static str {
+    match biome_id {
+        "abyssal_ocean" => "#0a1628",
+        "deep_ocean" => "#0f2847",
+        "ocean" => "#1a5276",
+        "coastal_shelf" => "#2e86c1",
+        "coral_reef" => "#48c9b0",
+        "tidal_flat" => "#7fb3d3",
+        "beach" => "#f0d9b5",
+        "mangrove" => "#1e7845",
+        "salt_marsh" => "#8fbc8f",
+        "river_delta" => "#5dade2",
+        "tropical_rainforest" => "#0b6623",
+        "tropical_savanna" => "#c4a747",
+        "subtropical_desert" => "#e8c872",
+        "temperate_deciduous_forest" => "#2d7d46",
+        "temperate_grassland" => "#7db46c",
+        "mediterranean" => "#b8a94a",
+        "boreal_forest" => "#3b5e2f",
+        "tundra" => "#8b9f8e",
+        "ice_sheet" => "#dce6f0",
+        "alpine_meadow" => "#7b8f6a",
+        "alpine_bare" => "#9e9e9e",
+        "volcanic_wasteland" => "#4a2c2a",
+        "irradiated_zone" => "#5e3f71",
+        "salt_flat" => "#d4c8a8",
+        "toxic_swamp" => "#4a6741",
+        "ash_desert" => "#8b7d6b",
+        _ => "#7db46c", // Default to grassland
     }
 }
 
@@ -39,97 +40,108 @@ pub fn classify_biome(
     volcanic_activity: f64,
     radiation_level: f64,
     water_level: f64,
-) -> BiomeType {
-    if radiation_level > 0.7 {
-        return BiomeType::IrradiatedZone;
-    }
-    if volcanic_activity > 0.7 {
-        return BiomeType::VolcanicWasteland;
-    }
-
-    if elevation < water_level {
+) -> String {
+    let biome_type = if radiation_level > 0.7 {
+        BiomeType::IrradiatedZone
+    } else if volcanic_activity > 0.7 {
+        BiomeType::VolcanicWasteland
+    } else if elevation < water_level {
         let depth = water_level - elevation;
-        // Hypsometric curve compresses ocean depths; thresholds adjusted accordingly
         if depth > 0.20 {
-            return BiomeType::AbyssalOcean;
-        }
-        if depth > 0.14 {
-            return BiomeType::DeepOcean;
-        }
-        if depth > 0.06 {
-            return BiomeType::Ocean;
-        }
-        if depth > 0.02 {
+            BiomeType::AbyssalOcean
+        } else if depth > 0.14 {
+            BiomeType::DeepOcean
+        } else if depth > 0.06 {
+            BiomeType::Ocean
+        } else if depth > 0.02 {
             if temperature > 22.0 && precipitation > 0.5 {
-                return BiomeType::CoralReef;
+                BiomeType::CoralReef
+            } else {
+                BiomeType::CoastalShelf
             }
-            return BiomeType::CoastalShelf;
+        } else {
+            BiomeType::TidalFlat
         }
-        return BiomeType::TidalFlat;
-    }
-
-    // Wider coastal zone for continental shelf transitions
-    let coast_proximity = elevation - water_level;
-    if coast_proximity < 0.03 {
-        if precipitation > 0.6 && temperature > 20.0 {
-            return BiomeType::Mangrove;
-        }
-        if precipitation > 0.7 {
-            return BiomeType::SaltMarsh;
-        }
-        return BiomeType::Beach;
-    }
-
-    // Alpine / high-altitude thresholds adjusted for hypsometric curve
-    if elevation > 0.92 {
-        return BiomeType::IceSheet;
-    }
-    if elevation > 0.84 {
-        return BiomeType::AlpineBare;
-    }
-    if elevation > 0.76 {
-        return BiomeType::AlpineMeadow;
-    }
-
-    if volcanic_activity > 0.4 && precipitation < 0.2 {
-        return BiomeType::AshDesert;
-    }
-    if precipitation < 0.08 && temperature > 10.0 {
-        return BiomeType::SaltFlat;
-    }
-
-    if temperature > 20.0 {
-        if precipitation > 0.65 {
-            return BiomeType::TropicalRainforest;
-        }
-        if precipitation > 0.3 {
-            return BiomeType::TropicalSavanna;
-        }
-        return BiomeType::SubtropicalDesert;
-    }
-
-    if temperature > 10.0 {
-        if precipitation > 0.6 {
-            return BiomeType::TemperateDeciduousForest;
-        }
-        if precipitation > 0.3 {
-            return BiomeType::Mediterranean;
-        }
-        return BiomeType::TemperateGrassland;
-    }
-
-    if temperature > 0.0 {
-        if precipitation > 0.4 {
-            return BiomeType::BorealForest;
-        }
-        return BiomeType::Tundra;
-    }
-
-    if precipitation > 0.3 {
-        BiomeType::IceSheet
     } else {
-        BiomeType::Tundra
+        let coast_proximity = elevation - water_level;
+        if coast_proximity < 0.03 {
+            if precipitation > 0.6 && temperature > 20.0 {
+                BiomeType::Mangrove
+            } else if precipitation > 0.7 {
+                BiomeType::SaltMarsh
+            } else {
+                BiomeType::Beach
+            }
+        } else if elevation > 0.92 {
+            BiomeType::IceSheet
+        } else if elevation > 0.84 {
+            BiomeType::AlpineBare
+        } else if elevation > 0.76 {
+            BiomeType::AlpineMeadow
+        } else if volcanic_activity > 0.4 && precipitation < 0.2 {
+            BiomeType::AshDesert
+        } else if precipitation < 0.08 && temperature > 10.0 {
+            BiomeType::SaltFlat
+        } else if precipitation > 0.6 {
+            if temperature > 18.0 {
+                BiomeType::TropicalRainforest
+            } else if temperature > 5.0 {
+                BiomeType::TemperateDeciduousForest
+            } else {
+                BiomeType::BorealForest
+            }
+        } else if precipitation > 0.3 {
+            if temperature > 18.0 {
+                BiomeType::TropicalSavanna
+            } else if temperature > 10.0 {
+                BiomeType::Mediterranean
+            } else if temperature > 0.0 {
+                BiomeType::TemperateGrassland
+            } else {
+                BiomeType::Tundra
+            }
+        } else {
+            if temperature > 20.0 {
+                BiomeType::SubtropicalDesert
+            } else {
+                BiomeType::Tundra
+            }
+        }
+    };
+
+    biome_type_to_id(biome_type)
+}
+
+fn biome_type_to_id(bt: BiomeType) -> String {
+    match bt {
+        BiomeType::AbyssalOcean => "abyssal_ocean",
+        BiomeType::DeepOcean => "deep_ocean",
+        BiomeType::Ocean => "ocean",
+        BiomeType::CoastalShelf => "coastal_shelf",
+        BiomeType::CoralReef => "coral_reef",
+        BiomeType::TidalFlat => "tidal_flat",
+        BiomeType::Beach => "beach",
+        BiomeType::Mangrove => "mangrove",
+        BiomeType::SaltMarsh => "salt_marsh",
+        BiomeType::RiverDelta => "river_delta",
+        BiomeType::TropicalRainforest => "tropical_rainforest",
+        BiomeType::TropicalSavanna => "tropical_savanna",
+        BiomeType::SubtropicalDesert => "subtropical_desert",
+        BiomeType::TemperateDeciduousForest => "temperate_deciduous_forest",
+        BiomeType::TemperateGrassland => "temperate_grassland",
+        BiomeType::Mediterranean => "mediterranean",
+        BiomeType::BorealForest => "boreal_forest",
+        BiomeType::Tundra => "tundra",
+        BiomeType::IceSheet => "ice_sheet",
+        BiomeType::AlpineMeadow => "alpine_meadow",
+        BiomeType::AlpineBare => "alpine_bare",
+        BiomeType::VolcanicWasteland => "volcanic_wasteland",
+        BiomeType::IrradiatedZone => "irradiated_zone",
+        BiomeType::SaltFlat => "salt_flat",
+        BiomeType::ToxicSwamp => "toxic_swamp",
+        BiomeType::AshDesert => "ash_desert",
     }
+    .to_string()
 }
 
 pub fn classify_soil(

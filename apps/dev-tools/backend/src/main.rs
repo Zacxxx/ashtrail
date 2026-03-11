@@ -49,6 +49,7 @@ struct AppState {
     icons_export_dir: PathBuf,
     textures_dir: PathBuf,
     textures_export_dir: PathBuf,
+    sprites_dir: PathBuf,
     isolated_dir: PathBuf,
     refine_limiter: RefineLimiter,
     supabase: Option<SupabaseStorageConfig>,
@@ -175,6 +176,128 @@ struct IconBatchRequest {
     temperature: Option<f32>,
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BuildingMetadata {
+    is_natural: bool,
+    is_passable: bool,
+    is_hidden: bool,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TerrainMetadata {
+    is_natural: bool,
+    move_efficiency: f32,
+    fertility: f32,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct EcologyLink {
+    kind: String,
+    id: String,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GameAssetGrouping {
+    #[serde(rename = "type")]
+    group_type: String, // "biome" or "structure"
+    name: String,
+    description: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GameAssetInfo {
+    #[serde(rename = "type")]
+    asset_type: String, // "building" or "terrain" or "vegetation"
+    metadata: serde_json::Value,
+    grouping: Option<GameAssetGrouping>,
+    #[serde(default)]
+    ecology_link: Option<EcologyLink>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SpriteLinkTarget {
+    kind: String,
+    id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SpriteBatchRequest {
+    prompts: Vec<String>,
+    style_prompt: Option<String>,
+    base64_image: Option<String>,
+    batch_name: Option<String>,
+    temperature: Option<f32>,
+    sprite_type: String,
+    mode: String,
+    target: Option<SpriteLinkTarget>,
+    world_id: Option<String>,
+    source_entity_type: Option<String>,
+    source_entity_id: Option<String>,
+    #[serde(default)]
+    biome_ids: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DirectionalSpriteFrame {
+    direction: String,
+    url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GeneratedSpriteSet {
+    sprite_id: String,
+    prompt: String,
+    style_prompt: String,
+    item_prompt: String,
+    actor_type: String,
+    mode: String,
+    preview_url: String,
+    #[serde(default)]
+    directions: Vec<DirectionalSpriteFrame>,
+    illustration_url: Option<String>,
+    target: Option<SpriteLinkTarget>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SpriteBatchManifest {
+    batch_id: String,
+    #[serde(default)]
+    batch_name: String,
+    created_at: String,
+    sprite_type: String,
+    mode: String,
+    target: Option<SpriteLinkTarget>,
+    world_id: Option<String>,
+    source_entity_type: Option<String>,
+    source_entity_id: Option<String>,
+    #[serde(default)]
+    biome_ids: Vec<String>,
+    sprites: Vec<GeneratedSpriteSet>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SpriteBatchSummary {
+    batch_id: String,
+    batch_name: String,
+    created_at: String,
+    sprite_type: String,
+    mode: String,
+    sprite_count: usize,
+    target: Option<SpriteLinkTarget>,
+    thumbnail_url: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TextureBatchRequest {
@@ -183,8 +306,9 @@ struct TextureBatchRequest {
     base64_image: Option<String>,
     batch_name: Option<String>,
     temperature: Option<f32>,
-    category: String,             // "battle_assets", "character", "item"
+    category: String,             // "battle_assets", "character", "item", "world_assets", "game_assets"
     sub_category: Option<String>, // "ground", "obstacle"
+    game_asset: Option<GameAssetInfo>,
 }
 
 #[derive(Deserialize)]
@@ -244,6 +368,8 @@ struct TextureBatchManifest {
     created_at: String,
     category: String,
     sub_category: Option<String>,
+    #[serde(default)]
+    game_asset: Option<GameAssetInfo>,
     textures: Vec<BatchTexture>,
 }
 
@@ -257,6 +383,8 @@ struct BatchTexture {
     #[serde(default)]
     item_prompt: String,
     url: String,
+    #[serde(default)]
+    metadata: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -269,7 +397,7 @@ struct BatchSummary {
     thumbnail_url: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct TextureBatchSummary {
     batch_id: String,
@@ -278,6 +406,8 @@ struct TextureBatchSummary {
     created_at: String,
     category: String,
     sub_category: Option<String>,
+    #[serde(default)]
+    game_asset: Option<GameAssetInfo>,
     thumbnail_url: Option<String>,
 }
 
@@ -419,6 +549,10 @@ async fn main() {
     std::fs::create_dir_all(&textures_export_dir)
         .expect("failed to create game-assets/assets/Textures directory");
 
+    let sprites_dir = PathBuf::from("../../game-assets/assets/Sprites");
+    std::fs::create_dir_all(&sprites_dir)
+        .expect("failed to create game-assets/assets/Sprites directory");
+
     let isolated_dir = PathBuf::from("../../game-assets/assets/IsolatedRegions");
     std::fs::create_dir_all(&isolated_dir)
         .expect("failed to create game-assets/assets/IsolatedRegions directory");
@@ -446,6 +580,7 @@ async fn main() {
         icons_export_dir,
         textures_dir: textures_dir.clone(),
         textures_export_dir,
+        sprites_dir: sprites_dir.clone(),
         isolated_dir: isolated_dir.clone(),
         refine_limiter: RefineLimiter {
             semaphore: Arc::new(Semaphore::new(refine_max_concurrent)),
@@ -509,6 +644,10 @@ async fn main() {
         .route(
             "/api/planet/ecology-data/{world_id}/generate/province/{province_id}",
             post(ecology::generate_province_record),
+        )
+        .route(
+            "/api/planet/ecology-data/{world_id}/generate/biome/{biome_id}",
+            post(ecology::generate_biome_description),
         )
         .route("/api/planet/ecology-jobs/{job_id}", get(get_job_status))
         .route("/api/planet/humanity", post(start_humanity_job))
@@ -583,10 +722,24 @@ async fn main() {
             axum::routing::put(rename_texture_batch),
         )
         .route(
+            "/api/textures/batches/{batch_id}/textures/{filename}/metadata",
+            axum::routing::put(update_texture_metadata),
+        )
+        .route(
             "/api/textures/batches/{batch_id}/textures/{filename}/regenerate",
             post(regenerate_texture),
         )
         .route("/api/textures/export", post(export_textures_registry))
+        .route("/api/sprites/generate-batch", post(generate_sprite_batch))
+        .route("/api/sprites/batches", get(list_sprite_batches))
+        .route(
+            "/api/sprites/batches/{batch_id}",
+            get(get_sprite_batch),
+        )
+        .route(
+            "/api/sprites/batches/{batch_id}/rename",
+            axum::routing::put(rename_sprite_batch),
+        )
         .route("/api/ai/image-models", get(get_ai_image_models))
         .route("/api/storage/supabase/browse", get(browse_supabase_objects))
         .route("/api/storage/supabase/sync", post(sync_supabase_storage))
@@ -699,6 +852,7 @@ async fn main() {
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .nest_service("/api/textures", ServeDir::new(textures_dir.clone()))
+        .nest_service("/api/sprites", ServeDir::new(sprites_dir.clone()))
         .nest_service("/api/isolated-assets", ServeDir::new(isolated_dir.clone()))
         .with_state(state)
         .layer(
@@ -4225,6 +4379,7 @@ async fn generate_texture_batch(
                     style_prompt: style_prompt_cloned,
                     item_prompt: item_prompt_cloned,
                     url: format!("/api/textures/{}/{}", batch_id_clone, filename),
+                    metadata: serde_json::Value::Null,
                 })
             })
             .await
@@ -4249,6 +4404,7 @@ async fn generate_texture_batch(
         created_at,
         category: request.category,
         sub_category: request.sub_category,
+        game_asset: request.game_asset,
         textures,
     };
 
@@ -4306,6 +4462,7 @@ async fn list_texture_batches(
                     created_at: manifest.created_at,
                     category: manifest.category,
                     sub_category: manifest.sub_category,
+                    game_asset: manifest.game_asset,
                     thumbnail_url,
                 });
             }
@@ -4348,6 +4505,413 @@ async fn get_texture_batch(
         )
     })?;
     Ok(Json(manifest))
+}
+
+fn build_sprite_prompt(full_prompt: &str, sprite_type: &str, direction: Option<&str>) -> String {
+    match direction {
+        Some(direction) => format!(
+            "Generate a gameplay-ready 2D exploration sprite for a {sprite_type}. \
+            Facing {direction}. \
+            Keep the same subject identity, silhouette clarity, and readable proportions. \
+            Centered composition, dark or transparent background, no border, no text. \
+            Visual content: {full_prompt}. \
+            Output ONLY the sprite image."
+        ),
+        None => format!(
+            "Generate a polished reference illustration for a {sprite_type}. \
+            Centered composition, dark or transparent background, no border, no text. \
+            Visual content: {full_prompt}. \
+            Output ONLY the illustration image."
+        ),
+    }
+}
+
+fn clean_sprite_png(image_bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let mut rgba = image::load_from_memory(image_bytes)
+        .map_err(|e| format!("Image decode error: {e}"))?
+        .to_rgba8();
+
+    let (width, height) = rgba.dimensions();
+    let mut min_x = width;
+    let mut min_y = height;
+    let mut max_x = 0;
+    let mut max_y = 0;
+    let mut found = false;
+
+    for y in 0..height {
+        for x in 0..width {
+            let px = rgba.get_pixel_mut(x, y);
+            let [r, g, b, a] = px.0;
+            let is_dark_bg = a > 0 && r < 24 && g < 24 && b < 24;
+            if a == 0 || is_dark_bg {
+                *px = image::Rgba([0, 0, 0, 0]);
+                continue;
+            }
+
+            found = true;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+    }
+
+    let cropped = if found {
+        let margin = 8u32;
+        let left = min_x.saturating_sub(margin);
+        let top = min_y.saturating_sub(margin);
+        let right = (max_x + margin).min(width.saturating_sub(1));
+        let bottom = (max_y + margin).min(height.saturating_sub(1));
+        image::imageops::crop_imm(&rgba, left, top, right - left + 1, bottom - top + 1).to_image()
+    } else {
+        rgba
+    };
+
+    let side = cropped.width().max(cropped.height()).max(64);
+    let mut square = image::RgbaImage::new(side, side);
+    let offset_x = (side - cropped.width()) / 2;
+    let offset_y = (side - cropped.height()) / 2;
+    image::imageops::overlay(&mut square, &cropped, offset_x as i64, offset_y as i64);
+
+    let mut output = Vec::new();
+    image::DynamicImage::ImageRgba8(square)
+        .write_to(&mut std::io::Cursor::new(&mut output), image::ImageFormat::Png)
+        .map_err(|e| format!("PNG encode error: {e}"))?;
+    Ok(output)
+}
+
+async fn generate_sprite_batch(
+    State(state): State<AppState>,
+    Json(request): Json<SpriteBatchRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if request.prompts.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "No prompts provided".to_string()));
+    }
+    if request.prompts.len() > 24 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Maximum 24 prompts per sprite batch".to_string(),
+        ));
+    }
+
+    let batch_name = request
+        .batch_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("")
+        .to_string();
+    let batch_id = if batch_name.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        slugify_prompt(&batch_name)
+    };
+
+    let batch_dir = state.sprites_dir.join(&batch_id);
+    std::fs::create_dir_all(&batch_dir).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create sprite batch dir: {e}"),
+        )
+    })?;
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let style_prompt = request.style_prompt.clone().unwrap_or_default();
+    let temperature = request.temperature.or(Some(0.4));
+    let mut sprites = Vec::new();
+
+    for (index, item_prompt) in request.prompts.iter().enumerate() {
+        let full_prompt = if style_prompt.trim().is_empty() {
+            item_prompt.clone()
+        } else {
+            format!("{} {}", style_prompt.trim(), item_prompt.trim())
+        };
+
+        if request.mode == "illustration" {
+            let wrapped_prompt = build_sprite_prompt(&full_prompt, &request.sprite_type, None);
+            let image_bytes = if let Some(base64_img) = &request.base64_image {
+                gemini::generate_image_edit_bytes(
+                    &wrapped_prompt,
+                    base64_img,
+                    "image/png",
+                    temperature,
+                    Some("1:1"),
+                )
+                .await
+            } else {
+                gemini::generate_image_bytes(&wrapped_prompt, temperature, 512, 512, Some("1:1"))
+                    .await
+            }
+            .map_err(|(code, msg)| (code, msg))?;
+
+            let cleaned = clean_sprite_png(&image_bytes)
+                .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, msg))?;
+            let filename = format!("{:03}_illustration.png", index);
+            let path = batch_dir.join(&filename);
+            std::fs::write(&path, &cleaned).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to save sprite illustration: {e}"),
+                )
+            })?;
+            let url = format!("/api/sprites/{}/{}", batch_id, filename);
+            sprites.push(GeneratedSpriteSet {
+                sprite_id: format!("sprite-{:03}", index),
+                prompt: full_prompt.clone(),
+                style_prompt: style_prompt.clone(),
+                item_prompt: item_prompt.clone(),
+                actor_type: request.sprite_type.clone(),
+                mode: request.mode.clone(),
+                preview_url: url.clone(),
+                directions: Vec::new(),
+                illustration_url: Some(url),
+                target: request.target.clone(),
+            });
+            continue;
+        }
+
+        let south_prompt = build_sprite_prompt(&full_prompt, &request.sprite_type, Some("south"));
+        let south_bytes = if let Some(base64_img) = &request.base64_image {
+            gemini::generate_image_edit_bytes(
+                &south_prompt,
+                base64_img,
+                "image/png",
+                temperature,
+                Some("1:1"),
+            )
+            .await
+        } else {
+            gemini::generate_image_bytes(&south_prompt, temperature, 512, 512, Some("1:1")).await
+        }
+        .map_err(|(code, msg)| (code, msg))?;
+
+        let south_clean = clean_sprite_png(&south_bytes)
+            .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, msg))?;
+        let south_b64 = base64::engine::general_purpose::STANDARD.encode(&south_clean);
+        let mut directions = Vec::new();
+        let ordered_directions = ["south", "east", "west", "north"];
+
+        for direction in ordered_directions {
+            let direction_bytes = if direction == "south" {
+                south_clean.clone()
+            } else {
+                let direction_prompt =
+                    build_sprite_prompt(&full_prompt, &request.sprite_type, Some(direction));
+                let edited = gemini::generate_image_edit_bytes(
+                    &direction_prompt,
+                    &south_b64,
+                    "image/png",
+                    temperature,
+                    Some("1:1"),
+                )
+                .await
+                .map_err(|(code, msg)| (code, msg))?;
+                clean_sprite_png(&edited)
+                    .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, msg))?
+            };
+
+            let filename = format!("{:03}_{}.png", index, direction);
+            let path = batch_dir.join(&filename);
+            std::fs::write(&path, &direction_bytes).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to save sprite frame: {e}"),
+                )
+            })?;
+            directions.push(DirectionalSpriteFrame {
+                direction: direction.to_string(),
+                url: format!("/api/sprites/{}/{}", batch_id, filename),
+            });
+        }
+
+        let preview_url = directions
+            .iter()
+            .find(|frame| frame.direction == "south")
+            .map(|frame| frame.url.clone())
+            .unwrap_or_default();
+
+        sprites.push(GeneratedSpriteSet {
+            sprite_id: format!("sprite-{:03}", index),
+            prompt: full_prompt.clone(),
+            style_prompt: style_prompt.clone(),
+            item_prompt: item_prompt.clone(),
+            actor_type: request.sprite_type.clone(),
+            mode: request.mode.clone(),
+            preview_url,
+            directions,
+            illustration_url: None,
+            target: request.target.clone(),
+        });
+    }
+
+    let manifest = SpriteBatchManifest {
+        batch_id: batch_id.clone(),
+        batch_name: if batch_name.is_empty() {
+            batch_id[..8.min(batch_id.len())].to_uppercase()
+        } else {
+            batch_name
+        },
+        created_at,
+        sprite_type: request.sprite_type,
+        mode: request.mode,
+        target: request.target,
+        world_id: request.world_id,
+        source_entity_type: request.source_entity_type,
+        source_entity_id: request.source_entity_id,
+        biome_ids: request.biome_ids,
+        sprites,
+    };
+
+    let manifest_path = batch_dir.join("manifest.json");
+    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Sprite manifest JSON error: {e}"),
+        )
+    })?;
+    std::fs::write(&manifest_path, manifest_json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Sprite manifest write error: {e}"),
+        )
+    })?;
+
+    Ok(Json(manifest))
+}
+
+async fn list_sprite_batches(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let sprites_dir = state.sprites_dir.clone();
+
+    let batches =
+        tokio::task::spawn_blocking(move || -> Result<Vec<SpriteBatchSummary>, String> {
+            let mut result = Vec::new();
+            if !sprites_dir.exists() {
+                return Ok(result);
+            }
+            let dir = std::fs::read_dir(&sprites_dir).map_err(|e| format!("read dir: {e}"))?;
+            for entry in dir {
+                let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let manifest_path = path.join("manifest.json");
+                if !manifest_path.exists() {
+                    continue;
+                }
+                let data = std::fs::read_to_string(&manifest_path)
+                    .map_err(|e| format!("read manifest: {e}"))?;
+                let manifest: SpriteBatchManifest =
+                    serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
+                let thumbnail_url = manifest.sprites.first().map(|sprite| sprite.preview_url.clone());
+                result.push(SpriteBatchSummary {
+                    batch_id: manifest.batch_id,
+                    batch_name: manifest.batch_name,
+                    created_at: manifest.created_at,
+                    sprite_type: manifest.sprite_type,
+                    mode: manifest.mode,
+                    sprite_count: manifest.sprites.len(),
+                    target: manifest.target,
+                    thumbnail_url,
+                });
+            }
+            result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            Ok(result)
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Task error: {e}"),
+            )
+        })?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(batches))
+}
+
+async fn get_sprite_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let manifest_path = state.sprites_dir.join(&batch_id).join("manifest.json");
+    if !manifest_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Sprite batch not found".to_string()));
+    }
+    let data = tokio::fs::read_to_string(&manifest_path)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Read error: {e}"),
+            )
+        })?;
+    let manifest: SpriteBatchManifest = serde_json::from_str(&data).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Parse error: {e}"),
+        )
+    })?;
+    Ok(Json(manifest))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateMetadataRequest {
+    metadata: serde_json::Value,
+}
+
+/// Update metadata for a single texture in a batch.
+async fn update_texture_metadata(
+    State(state): State<AppState>,
+    Path((batch_id, filename)): Path<(String, String)>,
+    Json(request): Json<UpdateMetadataRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let batch_dir = state.textures_dir.join(&batch_id);
+    let manifest_path = batch_dir.join("manifest.json");
+
+    if !manifest_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+
+    let data = std::fs::read_to_string(&manifest_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read manifest: {e}"),
+        )
+    })?;
+
+    let mut manifest: TextureBatchManifest = serde_json::from_str(&data).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to parse manifest: {e}"),
+        )
+    })?;
+
+    if let Some(texture) = manifest.textures.iter_mut().find(|t| t.filename == filename) {
+        texture.metadata = request.metadata;
+
+        let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("JSON error: {e}"),
+            )
+        })?;
+
+        std::fs::write(&manifest_path, &manifest_json).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Manifest write error: {e}"),
+            )
+        })?;
+
+        info!(batch_id = %batch_id, filename = %filename, "texture metadata updated");
+        Ok(StatusCode::OK)
+    } else {
+        Err((StatusCode::NOT_FOUND, "Texture not found in batch".to_string()))
+    }
 }
 
 /// Delete a texture batch and its directory.
@@ -4791,6 +5355,82 @@ async fn rename_texture_batch(
     Ok(Json(result))
 }
 
+async fn rename_sprite_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+    Json(request): Json<RenameBatchRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let new_name = request.new_name.trim().to_string();
+    if new_name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Name cannot be empty".to_string()));
+    }
+
+    let new_batch_id = slugify_prompt(&new_name);
+    let sprites_dir = state.sprites_dir.clone();
+    let old_dir = sprites_dir.join(&batch_id);
+    let new_dir = sprites_dir.join(&new_batch_id);
+
+    if !old_dir.exists() {
+        return Err((StatusCode::NOT_FOUND, "Batch not found".to_string()));
+    }
+    if new_batch_id != batch_id && new_dir.exists() {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("A batch named '{}' already exists", new_batch_id),
+        ));
+    }
+
+    let result = tokio::task::spawn_blocking(move || -> Result<SpriteBatchManifest, String> {
+        let manifest_path = old_dir.join("manifest.json");
+        let data =
+            std::fs::read_to_string(&manifest_path).map_err(|e| format!("read manifest: {e}"))?;
+        let mut manifest: SpriteBatchManifest =
+            serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
+
+        manifest.batch_name = new_name;
+        manifest.batch_id = new_batch_id.clone();
+
+        for sprite in &mut manifest.sprites {
+            sprite.preview_url = sprite
+                .preview_url
+                .replace(&format!("/api/sprites/{batch_id}/"), &format!("/api/sprites/{new_batch_id}/"));
+            if let Some(url) = sprite.illustration_url.as_mut() {
+                *url = url.replace(
+                    &format!("/api/sprites/{batch_id}/"),
+                    &format!("/api/sprites/{new_batch_id}/"),
+                );
+            }
+            for frame in &mut sprite.directions {
+                frame.url = frame.url.replace(
+                    &format!("/api/sprites/{batch_id}/"),
+                    &format!("/api/sprites/{new_batch_id}/"),
+                );
+            }
+        }
+
+        let updated_json = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| format!("serialize manifest: {e}"))?;
+        std::fs::write(&manifest_path, &updated_json)
+            .map_err(|e| format!("write manifest: {e}"))?;
+
+        if old_dir != new_dir {
+            std::fs::rename(&old_dir, &new_dir).map_err(|e| format!("rename folder: {e}"))?;
+        }
+
+        Ok(manifest)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task error: {e}"),
+        )
+    })?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(result))
+}
+
 /// Regenerate a single texture in a batch.
 async fn regenerate_texture(
     State(state): State<AppState>,
@@ -4901,13 +5541,13 @@ async fn regenerate_texture(
                     format!("Write manifest error: {e}"),
                 )
             })?;
-
             Ok(BatchTexture {
                 filename: filename.clone(),
                 prompt: full_prompt,
                 style_prompt: style_text,
                 item_prompt: item_text,
                 url: format!("/api/textures/{}/{}", batch_id, filename),
+                metadata: serde_json::Value::Null,
             })
         })
         .await

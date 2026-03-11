@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType } from "@ashtrail/core";
+import { Link, useSearchParams } from "react-router-dom";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding } from "@ashtrail/core";
 import { TabBar, Modal } from "@ashtrail/ui";
 import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
@@ -97,7 +97,17 @@ const ALL_BADGES = [
     "👤", "💀", "⚔️", "🛡️", "🧬", "⚡", "🔥", "☢️", "☣️", "🪦", "🔋", "🩸"
 ];
 
+const SPRITE_ENABLED_TYPES = new Set(["Human", "Monster", "Mutant", "Construct"]);
+const CHARACTER_SPRITE_TYPE_MAP: Record<string, "human" | "monster" | "mutant" | "construct" | null> = {
+    Human: "human",
+    Monster: "monster",
+    Mutant: "mutant",
+    Construct: "construct",
+    Animal: null,
+};
+
 export function CharacterBuilderPage() {
+    const [searchParams] = useSearchParams();
     const [isLoading, setIsLoading] = useState(true);
     const [savedCharacters, setSavedCharacters] = useState<Character[]>([]);
     const [libraryItems, setLibraryItems] = useState<Item[]>([]);
@@ -113,6 +123,7 @@ export function CharacterBuilderPage() {
     const [currentStory, setCurrentStory] = useState("");
     const [isNPC, setIsNPC] = useState(false);
     const [characterType, setCharacterType] = useState<CharacterType>("Human");
+    const [explorationSprite, setExplorationSprite] = useState<DirectionalSpriteBinding | undefined>(undefined);
     const [isFamily, setIsFamily] = useState(false);
     const [familyId, setFamilyId] = useState("");
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
@@ -259,6 +270,9 @@ export function CharacterBuilderPage() {
 
     const activeBaseTypes = worldSettings?.baseTypes && worldSettings.baseTypes.length > 0 ? worldSettings.baseTypes : DEFAULT_BASE_TYPES;
     const activeRules = currentBaseTypeRules || activeBaseTypes.find(t => t.id === characterType) || DEFAULT_BASE_TYPES[0];
+    const supportsExplorationSprite = SPRITE_ENABLED_TYPES.has(characterType);
+    const spriteActorType = CHARACTER_SPRITE_TYPE_MAP[characterType] ?? "human";
+    const spriteGeneratorLink = `/asset-generator?tab=sprites&mode=directional-set&spriteType=${spriteActorType}&targetKind=character&targetId=${charId}`;
 
     const selectedWorld = generationHistory.find(h => h.id === worldId);
 
@@ -486,6 +500,18 @@ export function CharacterBuilderPage() {
     }, []);
 
     useEffect(() => {
+        if (isLoading) return;
+        const requestedId = searchParams.get("id");
+        if (!requestedId) return;
+        const match = savedCharacters.find((character) => character.id === requestedId);
+        if (!match) return;
+        loadCharacter(match);
+        if (searchParams.get("focus") === "sprite") {
+            setActiveTab("IDENTITY");
+        }
+    }, [isLoading, savedCharacters, searchParams]);
+
+    useEffect(() => {
         if (activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT") return;
 
         let isActive = true;
@@ -627,6 +653,7 @@ export function CharacterBuilderPage() {
         setHistory(loadedHistory);
         setIsNPC(char.isNPC || false);
         setCharacterType(char.type || "Human");
+        setExplorationSprite(char.explorationSprite);
         setIsFamily(char.isFamily || false);
         setFamilyId(char.familyId || "");
         setWorldId(char.worldId || "665774da-472d-4570-adfb-1242ceefdfd9");
@@ -682,6 +709,7 @@ export function CharacterBuilderPage() {
         setBackstory("");
         setIsNPC(false);
         setCharacterType("Human");
+        setExplorationSprite(undefined);
         setIsFamily(false);
         setFamilyId("");
         setWorldId("665774da-472d-4570-adfb-1242ceefdfd9");
@@ -757,6 +785,7 @@ export function CharacterBuilderPage() {
             faction: faction,
             alignment: alignment,
             currentStory: currentStory,
+            explorationSprite,
             parents: { father: relationships.find(r => r.type === 'father')?.targetId || null, mother: relationships.find(r => r.type === 'mother')?.targetId || null },
             relationships,
         };
@@ -1048,6 +1077,38 @@ export function CharacterBuilderPage() {
                                             {isNPC ? "NPC / Archetype" : "Player Character"}
                                         </button>
                                     </div>
+
+                                    {supportsExplorationSprite && (
+                                        <div className={`rounded-2xl border p-4 ${searchParams.get("focus") === "sprite" ? "border-emerald-500/40 bg-emerald-500/5" : "border-white/5 bg-black/30"}`}>
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div>
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400">Exploration Sprite</p>
+                                                    <p className="mt-1 text-[10px] text-gray-500">Used by the gameplay-engine location exploration actors.</p>
+                                                </div>
+                                                <Link
+                                                    to={spriteGeneratorLink}
+                                                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-emerald-300 transition-all hover:bg-emerald-500/20"
+                                                >
+                                                    {explorationSprite ? "Replace Sprite" : "Generate Sprite"}
+                                                </Link>
+                                            </div>
+
+                                            {explorationSprite ? (
+                                                <div className="mt-4 flex items-center gap-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                                                    <img src={explorationSprite.previewUrl} alt="Exploration sprite preview" className="h-20 w-20 rounded-lg border border-white/10 object-contain bg-black/30" />
+                                                    <div className="space-y-1">
+                                                        <p className="text-[10px] font-bold uppercase tracking-widest text-white">{explorationSprite.actorType}</p>
+                                                        <p className="text-[10px] text-gray-500">Batch {explorationSprite.batchId}</p>
+                                                        <p className="text-[10px] text-gray-500">Sprite {explorationSprite.spriteId}</p>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-black/20 p-4 text-[10px] uppercase tracking-widest text-gray-600">
+                                                    No exploration sprite bound.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-1">

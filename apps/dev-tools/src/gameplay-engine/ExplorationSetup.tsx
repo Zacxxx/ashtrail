@@ -2,6 +2,15 @@ import React, { useState, useEffect } from "react";
 import { GameRegistry, Character, ExplorationMap, ExplorationPawn } from "@ashtrail/core";
 import { generateExplorationGrid, buildExplorationMapPrompt, parseAIExplorationResponse } from "./explorationGrid";
 
+function getPawnType(character: Character | null | undefined): ExplorationPawn["type"] {
+    if (!character) return "human";
+    if (character.explorationSprite?.actorType === "animal") return "animal";
+    if (character.explorationSprite?.actorType === "construct") return "mechanoid";
+    if (character.type === "Animal") return "animal";
+    if (character.type === "Construct") return "mechanoid";
+    return "human";
+}
+
 interface ExplorationSetupProps {
     onStart: (map: ExplorationMap, selectedPawnId: string) => void;
 }
@@ -18,7 +27,8 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     // ── New State for Biomes & Structures ──
     const [availableBiomes, setAvailableBiomes] = useState<any[]>([]);
     const [availableStructures, setAvailableStructures] = useState<any[]>([]);
-    const [selectedBiomeId, setSelectedBiomeId] = useState<string | null>(null);
+    const [selectedBiomeName, setSelectedBiomeName] = useState<string | null>(null);
+    const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
     const [selectedStructureIds, setSelectedStructureIds] = useState<string[]>([]);
 
     const allCharacters = GameRegistry.getAllCharacters();
@@ -40,6 +50,13 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                     const structures = batches.filter(b => b.gameAsset?.grouping?.type === "structure");
                     setAvailableBiomes(biomes);
                     setAvailableStructures(structures);
+
+                    // Pre-select first biome if available
+                    if (biomes.length > 0) {
+                        const firstBiomeName = biomes[0].gameAsset.grouping.name;
+                        setSelectedBiomeName(firstBiomeName);
+                        setSelectedPackId(biomes[0].batchId);
+                    }
                 }
             } catch (err) {
                 console.error("Failed to fetch biome/structure assets:", err);
@@ -58,7 +75,7 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
 
         setIsGenerating(true);
         try {
-            const selectedBiome = availableBiomes.find(b => b.batchId === selectedBiomeId);
+            const selectedBiome = availableBiomes.find(b => b.batchId === selectedPackId);
             const selectedStructures = availableStructures.filter(s => selectedStructureIds.includes(s.batchId));
 
             const prompt = buildExplorationMapPrompt(
@@ -94,13 +111,13 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
         let mapToUse = generatedMap || generateExplorationGrid(rows, cols);
 
         // Attach Biome and Structure info to map metadata if needed for rendering
-        const selectedBiome = availableBiomes.find(b => b.batchId === selectedBiomeId);
+        const selectedBiome = availableBiomes.find(b => b.batchId === selectedPackId);
         const selectedStructures = availableStructures.filter(s => selectedStructureIds.includes(s.batchId));
 
         // Note: The core ExplorationMap type might need extensions to store these IDs if we want to fetch textures later
         // But for now we can just store them as arbitrary metadata if needed, or rely on them being part of the 'grid'
         // For rendering, we'll need to know which Pack to use.
-        (mapToUse as any).biomePackId = selectedBiomeId;
+        (mapToUse as any).biomePackId = selectedPackId;
         (mapToUse as any).structurePackIds = selectedStructureIds;
 
         // Add selected pawns to map
@@ -113,7 +130,9 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                 y: Math.floor(mapToUse.height / 2),
                 speed: 4.5,
                 factionId: "player",
-                type: "human",
+                type: getPawnType(char),
+                sprite: char?.explorationSprite,
+                facing: "south",
             };
         });
 
@@ -173,26 +192,50 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                     {/* Biome & Pack Selection */}
                     <section className="space-y-6">
                         <div>
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-4">Biome Selection (Asset Pack)</h3>
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-4">Biome Selection</h3>
                             {availableBiomes.length === 0 ? (
                                 <div className="p-4 bg-black/20 border border-white/5 rounded-2xl text-[10px] text-gray-600 uppercase tracking-widest text-center">
-                                    No Biome Packs Found. Create some in Asset Generator.
+                                    No Biome Packs Found.
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-3 gap-3">
-                                    {availableBiomes.map(biome => (
-                                        <button
-                                            key={biome.batchId}
-                                            onClick={() => setSelectedBiomeId(selectedBiomeId === biome.batchId ? null : biome.batchId)}
-                                            className={`p-3 rounded-xl border transition-all text-left flex flex-col gap-2 ${selectedBiomeId === biome.batchId ? "bg-emerald-500/10 border-emerald-500/40" : "bg-black/20 border-white/5 hover:border-white/10"}`}
-                                        >
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[10px] font-bold text-white tracking-wide uppercase">{biome.gameAsset.grouping.name}</span>
-                                                {selectedBiomeId === biome.batchId && <span className="text-emerald-500 text-[8px]">ACTIVE</span>}
-                                            </div>
-                                            <span className="text-[8px] text-gray-600 uppercase truncate">{biome.batchName || biome.batchId.substring(0, 8)}</span>
-                                        </button>
-                                    ))}
+                                <div className="space-y-4">
+                                    {/* Level 1: Biome Names */}
+                                    <div className="flex flex-wrap gap-2">
+                                        {Array.from(new Set(availableBiomes.map(b => b.gameAsset.grouping.name))).map(name => (
+                                            <button
+                                                key={name}
+                                                onClick={() => {
+                                                    setSelectedBiomeName(name);
+                                                    const firstPack = availableBiomes.find(b => b.gameAsset.grouping.name === name);
+                                                    setSelectedPackId(firstPack?.batchId || null);
+                                                }}
+                                                className={`px-4 py-2 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all ${selectedBiomeName === name ? "bg-emerald-500 text-black border-emerald-500 shadow-lg shadow-emerald-500/20" : "bg-black/20 border-white/5 text-gray-500 hover:border-white/20"}`}
+                                            >
+                                                {name}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* Level 2: Specific Packs (Batches) */}
+                                    {selectedBiomeName && (
+                                        <div className="grid grid-cols-2 gap-3 p-4 bg-black/20 rounded-2xl border border-white/5">
+                                            {availableBiomes.filter(b => b.gameAsset.grouping.name === selectedBiomeName).map(pack => (
+                                                <button
+                                                    key={pack.batchId}
+                                                    onClick={() => setSelectedPackId(pack.batchId)}
+                                                    className={`p-3 rounded-xl border transition-all text-left flex flex-col gap-1 ${selectedPackId === pack.batchId ? "bg-emerald-500/10 border-emerald-500/40" : "bg-black/20 border-white/5 hover:border-white/10"}`}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[10px] font-bold text-white tracking-wide truncate">{pack.batchName || `Batch ${pack.batchId.substring(0, 6)}`}</span>
+                                                        {selectedPackId === pack.batchId && <span className="text-emerald-500 text-[8px] font-black italic">SELECTED</span>}
+                                                    </div>
+                                                    <span className="text-[8px] text-gray-600 uppercase">
+                                                        {pack.textureCount} Textures · {new Date(pack.createdAt).toLocaleDateString()}
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -209,15 +252,18 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                                         <button
                                             key={struct.batchId}
                                             onClick={() => setSelectedStructureIds(prev => prev.includes(struct.batchId) ? prev.filter(id => id !== struct.batchId) : [...prev, struct.batchId])}
-                                            className={`p-3 rounded-xl border transition-all text-left flex items-start gap-3 ${selectedStructureIds.includes(struct.batchId) ? "bg-amber-500/10 border-amber-500/40" : "bg-black/20 border-white/5 hover:border-white/10"}`}
+                                            className={`p-4 rounded-2xl border transition-all text-left flex items-start gap-4 ${selectedStructureIds.includes(struct.batchId) ? "bg-amber-500/10 border-amber-500/40 shadow-lg shadow-amber-500/5" : "bg-black/20 border-white/5 hover:border-white/10"}`}
                                         >
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${selectedStructureIds.includes(struct.batchId) ? "bg-amber-500 text-black" : "bg-white/5 text-gray-500"}`}>
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border transition-all ${selectedStructureIds.includes(struct.batchId) ? "bg-amber-500 border-amber-400 text-black" : "bg-white/5 border-white/10 text-gray-500"}`}>
                                                 🏛️
                                             </div>
                                             <div className="flex flex-col min-w-0">
-                                                <span className="text-[10px] font-bold text-white tracking-wide uppercase truncate">{struct.gameAsset.grouping.name}</span>
-                                                <span className="text-[8px] text-gray-600 uppercase truncate" title={struct.gameAsset.grouping.description}>
-                                                    {struct.gameAsset.grouping.description || "No description"}
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="text-[11px] font-bold text-white tracking-wide uppercase truncate">{struct.gameAsset.grouping.name}</span>
+                                                    {selectedStructureIds.includes(struct.batchId) && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />}
+                                                </div>
+                                                <span className="text-[9px] text-gray-500 font-medium leading-relaxed line-clamp-2 italic">
+                                                    {struct.gameAsset.grouping.description || "No architectural description provided."}
                                                 </span>
                                             </div>
                                         </button>

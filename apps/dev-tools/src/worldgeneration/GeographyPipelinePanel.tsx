@@ -224,7 +224,7 @@ export function GeographyPipelinePanel({ activeHistoryId, globeWorld }: Geograph
                                         <button
                                             onClick={(e) => { e.stopPropagation(); resetStage(stage.id); }}
                                             className="text-[8px] tracking-widest font-bold text-gray-600 hover:text-amber-400 px-2 py-1 rounded-lg border border-transparent hover:border-amber-500/30 transition-all shrink-0"
-                                            title="Re-run this stage (and downstream)"
+                                            title="Re-run this stage only (isolated)"
                                         >
                                             ↻
                                         </button>

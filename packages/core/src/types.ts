@@ -28,6 +28,17 @@ export interface Stats {
 
 export type CharacterType = string;
 
+export type SpriteActorType = "animal" | "monster" | "human" | "mutant" | "construct";
+export type SpriteDirection = "north" | "south" | "east" | "west";
+
+export interface DirectionalSpriteBinding {
+  batchId: string;
+  spriteId: string;
+  actorType: SpriteActorType;
+  previewUrl: string;
+  directions: Record<SpriteDirection, string>;
+}
+
 export type BuilderTab = "IDENTITY" | "LORE" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
 
 export interface CustomBaseType {
@@ -176,6 +187,7 @@ export interface Character {
   history: string;
   appearancePrompt: string;
   portraitUrl?: string;
+  explorationSprite?: DirectionalSpriteBinding;
   stats: Stats;
   traits: Trait[];
   skills?: Skill[];

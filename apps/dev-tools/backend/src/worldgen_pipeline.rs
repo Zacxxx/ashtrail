@@ -2122,7 +2122,13 @@ fn run_single_stage(
             let mask = load_landmask(&out_dir.join("landmask.png"), w, h)?;
             let hf = load_height16(&out_dir.join("height16.png"), w, h)?;
             let base_img = load_rgb_png(&base_path, "Failed to load base image")?;
-            let biomes = biome::classify_biomes(&hf, &mask, &base_img, config, w, h, progress);
+            
+            // Load registry from ecology
+            let bundle = crate::ecology::load_ecology_bundle(&planets_dir, planet_id)
+                .unwrap_or_else(|_| crate::ecology::empty_bundle(planet_id));
+            let registry = bundle.archetypes;
+
+            let biomes = biome::classify_biomes(&hf, &mask, &base_img, config, &registry, w, h, progress);
             export::write_mask_texture(&biomes, w, h, &out_dir.join("biome.png"))
         }
 
@@ -2132,8 +2138,14 @@ fn run_single_stage(
             let hf = load_height16(&out_dir.join("height16.png"), w, h)?;
             let river = load_mask_u8(&out_dir.join("river_mask.png"), w, h)?;
             let biomes = load_mask_u8(&out_dir.join("biome.png"), w, h)?;
+
+            // Load registry from ecology
+            let bundle = crate::ecology::load_ecology_bundle(&planets_dir, planet_id)
+                .unwrap_or_else(|_| crate::ecology::empty_bundle(planet_id));
+            let registry = bundle.archetypes;
+
             let suit =
-                suitability::compute_suitability(&hf, &mask, &river, &biomes, w, h, progress);
+                suitability::compute_suitability(&hf, &mask, &river, &biomes, &registry, w, h, progress);
             export::write_f32_binary(&suit, &out_dir.join("suitability.bin"))
         }
 

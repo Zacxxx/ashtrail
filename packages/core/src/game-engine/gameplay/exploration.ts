@@ -1,3 +1,5 @@
+import type { DirectionalSpriteBinding, SpriteDirection } from "../../types";
+
 export interface Tile {
     type: string;
     walkable: boolean;
@@ -18,6 +20,8 @@ export interface ExplorationPawn {
     factionId: string;
     type: "human" | "animal" | "mechanoid";
     textureUrl?: string;
+    sprite?: DirectionalSpriteBinding;
+    facing?: SpriteDirection;
 }
 
 export interface MapObject {

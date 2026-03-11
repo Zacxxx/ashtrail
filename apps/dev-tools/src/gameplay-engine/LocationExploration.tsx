@@ -126,6 +126,11 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
         const uniqueUrls = new Set<string>();
         map.tiles.forEach(t => t.textureUrl && uniqueUrls.add(t.textureUrl));
         map.objects.forEach(o => o.textureUrl && uniqueUrls.add(o.textureUrl));
+        map.pawns.forEach((pawn) => {
+            Object.values(pawn.sprite?.directions ?? {}).forEach((url) => {
+                if (url) uniqueUrls.add(url);
+            });
+        });
 
         uniqueUrls.forEach(url => {
             if (!texturesRef.current.has(url)) {
@@ -136,7 +141,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                 };
             }
         });
-    }, [map.tiles, map.objects]);
+    }, [map.tiles, map.objects, map.pawns]);
 
     // Center camera on first pawn initially
     useEffect(() => {
@@ -199,17 +204,27 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
 
                     if (dist <= moveDist) {
                         const nextPath = pawn.path.slice(1);
+                        const facing =
+                            Math.abs(dx) >= Math.abs(dy)
+                                ? dx >= 0 ? "east" : "west"
+                                : dy >= 0 ? "south" : "north";
                         return {
                             ...pawn,
                             x: target.x,
                             y: target.y,
-                            path: nextPath.length > 0 ? nextPath : undefined
+                            path: nextPath.length > 0 ? nextPath : undefined,
+                            facing,
                         };
                     } else {
+                        const facing =
+                            Math.abs(dx) >= Math.abs(dy)
+                                ? dx >= 0 ? "east" : "west"
+                                : dy >= 0 ? "south" : "north";
                         return {
                             ...pawn,
                             x: pawn.x + (dx / dist) * moveDist,
-                            y: pawn.y + (dy / dist) * moveDist
+                            y: pawn.y + (dy / dist) * moveDist,
+                            facing,
                         };
                     }
                 }
@@ -292,6 +307,9 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
             const screenX = pawn.x * tileSize + tileSize / 2;
             const screenY = pawn.y * tileSize + tileSize / 2;
             const size = tileSize * 0.7;
+            const facing = pawn.facing || "south";
+            const spriteUrl = pawn.sprite?.directions?.[facing];
+            const spriteImage = spriteUrl ? texturesRef.current.get(spriteUrl) : undefined;
 
             if (pawn.id === selectedPawnId) {
                 ctx.strokeStyle = "#10b981";
@@ -313,10 +331,14 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                 }
             }
 
-            ctx.fillStyle = pawn.type === "human" ? "#3498db" : pawn.type === "animal" ? "#e67e22" : "#95a5a6";
-            ctx.beginPath();
-            ctx.arc(screenX, screenY, size / 2, 0, Math.PI * 2);
-            ctx.fill();
+            if (spriteImage) {
+                ctx.drawImage(spriteImage, screenX - size / 2, screenY - size / 2, size, size);
+            } else {
+                ctx.fillStyle = pawn.type === "human" ? "#3498db" : pawn.type === "animal" ? "#e67e22" : "#95a5a6";
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, size / 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
 
             ctx.fillStyle = "white";
             ctx.font = "bold 9px Inter";
@@ -519,7 +541,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                 <div className="absolute top-1/2 -translate-y-1/2 left-6 p-4 bg-black/80 border border-white/10 rounded-3xl backdrop-blur-xl animate-in slide-in-from-left-4 duration-500">
                     <div className="flex flex-col items-center gap-4">
                         <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-3xl">
-                            {map.pawns.find(p => p.id === selectedPawnId)?.type === "human" ? "👤" : "🐾"}
+                            {map.pawns.find(p => p.id === selectedPawnId)?.sprite ? "🧬" : map.pawns.find(p => p.id === selectedPawnId)?.type === "human" ? "👤" : "🐾"}
                         </div>
                         <div className="flex flex-col items-center">
                             <span className="text-sm font-black text-white leading-tight uppercase tracking-widest">
