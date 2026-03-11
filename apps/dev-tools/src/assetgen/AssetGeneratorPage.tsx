@@ -2120,14 +2120,20 @@ export function AssetGeneratorPage() {
                                         <p className="text-[10px] text-gray-600 italic">No textures in this pack.</p>
                                     ) : (
                                         <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
-                                            {activePack.textures.map((txt) => (
-                                                <div key={txt.url} className="relative group rounded-xl overflow-hidden bg-black/40 border border-white/10 hover:border-[#E6E6FA]/40 transition-all shadow-lg aspect-square">
-                                                    <img src={`${txt.url}?w=256`} alt="" className="w-full h-full object-cover" />
-                                                    <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
-                                                        <p className="text-[9px] text-white font-bold truncate">{txt.filename}</p>
+                                            {activePack.textures.map((txt) => {
+                                                let url = txt.url;
+                                                if (url && url.includes("/api/textures/batches/")) {
+                                                    url = url.replace("/api/textures/batches/", "/api/textures/").replace("/textures/", "/");
+                                                }
+                                                return (
+                                                    <div key={txt.url} className="relative group rounded-xl overflow-hidden bg-black/40 border border-white/10 hover:border-[#E6E6FA]/40 transition-all shadow-lg aspect-square">
+                                                        <img src={`${url}?w=256`} alt="" className="w-full h-full object-cover" />
+                                                        <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                                                            <p className="text-[9px] text-white font-bold truncate">{txt.filename}</p>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>
@@ -2138,14 +2144,20 @@ export function AssetGeneratorPage() {
                                         <p className="text-[10px] text-gray-600 italic">No sprites in this pack.</p>
                                     ) : (
                                         <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
-                                            {activePack.sprites.map((sprite) => (
-                                                <div key={sprite.spriteId} className="relative group rounded-xl overflow-hidden bg-black/40 border border-white/10 hover:border-[#E6E6FA]/40 transition-all shadow-lg aspect-square">
-                                                    <img src={sprite.url} alt="" className="w-full h-full object-contain" />
-                                                    <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
-                                                        <p className="text-[9px] text-white font-bold truncate">{sprite.spriteId.substring(0, 8)}</p>
+                                            {activePack.sprites.map((sprite) => {
+                                                let url = sprite.url;
+                                                if (url && url.includes("/api/sprites/batches/")) {
+                                                    url = url.replace("/api/sprites/batches/", "/api/sprites/").replace("/sprites/", "/");
+                                                }
+                                                return (
+                                                    <div key={sprite.spriteId} className="relative group rounded-xl overflow-hidden bg-black/40 border border-white/10 hover:border-[#E6E6FA]/40 transition-all shadow-lg aspect-square">
+                                                        <img src={url} alt="" className="w-full h-full object-contain" />
+                                                        <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                                                            <p className="text-[9px] text-white font-bold truncate">{sprite.spriteId.substring(0, 8)}</p>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>

@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Button, Card } from "@ashtrail/ui";
-import type { CompiledGmContext, GmSettings } from "../types/lore";
+import type {
+    CompiledGmContext,
+    GmAmbienceSettings,
+    GmIntensity,
+    GmSettings,
+} from "../types/lore";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { WorldPickerModal } from "../components/WorldPickerModal";
@@ -9,12 +14,24 @@ import { WorldPickerModal } from "../components/WorldPickerModal";
 type GameMasterTab = "context" | "directives" | "integrations";
 
 const TABS: GameMasterTab[] = ["context", "directives", "integrations"];
+const INTENSITY_LEVELS: GmIntensity[] = ["low", "medium", "high"];
+const TONE_PRESETS = ["bleak", "political", "survival", "mystic", "decaying", "frontier"];
 
 const DEFAULT_CONTEXT: CompiledGmContext["sourceSummary"]["loreCounts"] = {
     main: 0,
     critical: 0,
     major: 0,
     minor: 0,
+};
+
+const DEFAULT_AMBIENCE: GmAmbienceSettings = {
+    atmosphere: "high",
+    pressure: "high",
+    scarcity: "medium",
+    socialTension: "high",
+    groundedConsequences: "high",
+    tones: ["bleak", "frontier"],
+    notes: "",
 };
 
 function serializeSettings(settings: GmSettings | null) {
@@ -25,6 +42,47 @@ function serializeSettings(settings: GmSettings | null) {
 
 function isGameMasterTab(value: string | null): value is GameMasterTab {
     return value === "context" || value === "directives" || value === "integrations";
+}
+
+function labelizeIntensity(level: GmIntensity) {
+    return level.charAt(0).toUpperCase() + level.slice(1);
+}
+
+function buildAmbienceIntentSummary(ambience: GmAmbienceSettings | null | undefined) {
+    const resolved = ambience || DEFAULT_AMBIENCE;
+    const tones = resolved.tones.length > 0 ? resolved.tones.join(", ") : "none selected";
+    const note = resolved.notes.trim();
+
+    return [
+        `Atmosphere ${resolved.atmosphere}, pressure ${resolved.pressure}, scarcity ${resolved.scarcity}, social tension ${resolved.socialTension}, grounded consequences ${resolved.groundedConsequences}.`,
+        `Tone accents: ${tones}.`,
+        note ? `Notes: ${note}` : null,
+    ].filter(Boolean).join(" ");
+}
+
+function sourceLabel(key: string) {
+    switch (key) {
+        case "mainLore":
+            return "Main Lore";
+        case "criticalLore":
+            return "Critical Lore";
+        case "majorLore":
+            return "Major Lore";
+        case "minorLore":
+            return "Minor Lore";
+        case "regions":
+            return "Regions";
+        case "locations":
+            return "Locations";
+        case "factions":
+            return "Factions";
+        case "characters":
+            return "Characters";
+        case "temporality":
+            return "Temporality";
+        default:
+            return key;
+    }
 }
 
 export function GameMasterPage() {
@@ -38,6 +96,7 @@ export function GameMasterPage() {
     const [isLoading, setIsLoading] = useState(false);
     const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
     const [isGeneratingWorldPrompt, setIsGeneratingWorldPrompt] = useState(false);
+    const [showAdvanced, setShowAdvanced] = useState(false);
     const hydratedSettingsRef = useRef(false);
     const lastSavedSettingsRef = useRef("");
 
@@ -132,6 +191,7 @@ export function GameMasterPage() {
     const loreCounts = gmContext?.sourceSummary?.loreCounts || DEFAULT_CONTEXT;
     const usedLoreCounts = gmContext?.sourceSummary?.usedLoreCounts || DEFAULT_CONTEXT;
     const enabledSources = gmContext?.sourceSummary?.enabledSources || [];
+    const ambience = gmSettings?.ambience || gmContext?.ambience || DEFAULT_AMBIENCE;
 
     const selectedWorldName = useMemo(
         () => selectedWorld?.name || selectedWorld?.prompt || "Unknown World",
@@ -148,8 +208,45 @@ export function GameMasterPage() {
         } : prev);
     };
 
-    const updateDirective = (key: keyof Pick<GmSettings, "worldPrompt" | "systemDirective" | "ambienceDirective" | "negativeDirective" | "eventPromptPrefix">, value: string) => {
+    const updateDirective = (key: keyof Pick<GmSettings, "worldPrompt" | "systemDirective" | "negativeDirective" | "eventPromptPrefix">, value: string) => {
         setGmSettings(prev => prev ? { ...prev, [key]: value } : prev);
+    };
+
+    const updateAmbienceLevel = (key: keyof Pick<GmAmbienceSettings, "atmosphere" | "pressure" | "scarcity" | "socialTension" | "groundedConsequences">, value: GmIntensity) => {
+        setGmSettings(prev => prev ? {
+            ...prev,
+            ambience: {
+                ...(prev.ambience || DEFAULT_AMBIENCE),
+                [key]: value,
+            },
+        } : prev);
+    };
+
+    const updateAmbienceNotes = (value: string) => {
+        setGmSettings(prev => prev ? {
+            ...prev,
+            ambience: {
+                ...(prev.ambience || DEFAULT_AMBIENCE),
+                notes: value,
+            },
+        } : prev);
+    };
+
+    const toggleTone = (tone: string) => {
+        setGmSettings(prev => {
+            if (!prev) return prev;
+            const currentTones = prev.ambience?.tones || [];
+            const nextTones = currentTones.includes(tone)
+                ? currentTones.filter(entry => entry !== tone)
+                : [...currentTones, tone];
+            return {
+                ...prev,
+                ambience: {
+                    ...(prev.ambience || DEFAULT_AMBIENCE),
+                    tones: nextTones,
+                },
+            };
+        });
     };
 
     const handleGenerateWorldPrompt = async () => {
@@ -185,6 +282,9 @@ export function GameMasterPage() {
             setIsGeneratingWorldPrompt(false);
         }
     };
+
+    const contextSections = gmContext?.sourceSummary?.sections || [];
+    const isWorldPromptMissing = !gmSettings?.worldPrompt?.trim();
 
     return (
         <div className="h-screen overflow-hidden bg-[#070b12] text-gray-300 font-sans flex flex-col">
@@ -233,7 +333,7 @@ export function GameMasterPage() {
                             <div className="text-5xl mb-5 opacity-70">🌍</div>
                             <h2 className="text-lg font-black tracking-[0.2em] text-white uppercase mb-3">World Required</h2>
                             <p className="text-sm text-gray-500 leading-relaxed mb-6">
-                                The Game Master settings are stored per world. Pick the target world before editing canon sources or event directives.
+                                The Game Master settings are stored per world. Pick the target world before editing canon sources or AI-director behavior.
                             </p>
                             <Button onClick={() => setShowWorldPicker(true)} className="bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/20">
                                 Open World Picker
@@ -246,25 +346,38 @@ export function GameMasterPage() {
                     </div>
                 ) : (
                     <div className="max-w-6xl mx-auto flex flex-col gap-6">
-                        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-6">
                             <Card className="bg-[#121820] border border-white/5 p-5">
                                 <div className="flex items-start justify-between gap-4">
-                                    <div>
-                                        <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">Selected World</div>
+                                    <div className="space-y-3">
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300">AI GM World</div>
                                         <h2 className="text-xl font-black tracking-wide text-white">{selectedWorldName}</h2>
-                                        <p className="text-sm text-gray-500 leading-relaxed mt-3 max-w-2xl">
-                                            {(gmSettings.worldPrompt || "No canonical world prompt written yet. Add one below; do not use the graphical world seed prompt for gameplay canon.").slice(0, 280)}
+                                        <p className="text-sm text-gray-400 leading-relaxed max-w-2xl">
+                                            {gmSettings.worldPrompt
+                                                ? gmSettings.worldPrompt.slice(0, 320)
+                                                : "No canonical world prompt written yet. Events and Quests should rely on this field, not the graphical world-generation prompt."}
                                         </p>
-                                        <p className="text-xs text-gray-600 leading-relaxed mt-3 max-w-2xl">
-                                            Visual seed prompt: {(selectedWorld.prompt || "No generation seed prompt available.").slice(0, 280)}
-                                        </p>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                                            <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
+                                                <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">Canonical Prompt</div>
+                                                <div className="text-xs text-gray-400 leading-relaxed">
+                                                    Narrative identity, pressures, and canon framing for Events and Quests.
+                                                </div>
+                                            </div>
+                                            <div className="rounded-2xl border border-white/5 bg-black/20 p-4">
+                                                <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2">Visual Seed Prompt</div>
+                                                <div className="text-xs text-gray-500 leading-relaxed">
+                                                    Graphics-only reference. This does not drive GM generation.
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div className="flex gap-2 shrink-0">
                                         <Link to="/history?tab=lore" className="px-3 py-2 rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-cyan-500/20 transition-colors">
                                             Edit Lore
                                         </Link>
-                                        <Link to="/gameplay-engine?step=EVENTS" className="px-3 py-2 rounded-lg bg-orange-500/10 text-orange-300 border border-orange-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-orange-500/20 transition-colors">
-                                            Open Events
+                                        <Link to="/quests" className="px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
+                                            Open Quests
                                         </Link>
                                     </div>
                                 </div>
@@ -276,129 +389,310 @@ export function GameMasterPage() {
                                     {(["main", "critical", "major", "minor"] as const).map(priority => (
                                         <div key={priority} className="rounded-xl border border-white/5 bg-black/20 p-3">
                                             <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500">{priority}</div>
-                                            <div className="mt-2 text-lg font-black text-white">{usedLoreCounts[priority]} <span className="text-xs text-gray-500">/ {loreCounts[priority]}</span></div>
+                                            <div className="mt-2 text-lg font-black text-white">
+                                                {usedLoreCounts[priority]} <span className="text-xs text-gray-500">/ {loreCounts[priority]}</span>
+                                            </div>
                                         </div>
                                     ))}
+                                </div>
+                                <div className="mt-4 rounded-xl border border-white/5 bg-black/20 p-3">
+                                    <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2">Live Context Feeds</div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {enabledSources.map(source => (
+                                            <span key={source} className="px-2 py-1 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase">
+                                                {sourceLabel(source)}
+                                            </span>
+                                        ))}
+                                    </div>
                                 </div>
                             </Card>
                         </div>
 
-                        {activeTab === "context" && (
-                            <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-6">
-                                <Card className="bg-[#121820] border border-white/5 p-5 flex flex-col gap-5">
+                        {isWorldPromptMissing && (
+                            <Card className="bg-red-500/10 border border-red-500/20 p-5">
+                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                                     <div>
-                                        <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">Context Sources</div>
-                                        <p className="text-sm text-gray-500">Toggle which world data feeds the gameplay event prompt compiler.</p>
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-red-300 mb-2">Canonical World Prompt Missing</div>
+                                        <p className="text-sm text-red-100/80 leading-relaxed max-w-3xl">
+                                            The AI GM can compile live world context, but it still needs a canonical world prompt to define the narrative identity of the world. Quests remain blocked until this is written or generated.
+                                        </p>
                                     </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {Object.entries(gmSettings.contextSources).map(([key, enabled]) => (
-                                            <label key={key} className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-3">
-                                                <span className="text-[11px] font-bold tracking-widest uppercase text-gray-300">{key}</span>
-                                                <input
-                                                    type="checkbox"
-                                                    className="w-4 h-4 accent-indigo-500"
-                                                    checked={enabled}
-                                                    onChange={e => updateSource(key as keyof GmSettings["contextSources"], e.target.checked)}
-                                                />
-                                            </label>
-                                        ))}
+                                    <div className="flex gap-2">
+                                        <Button onClick={handleGenerateWorldPrompt} disabled={isGeneratingWorldPrompt} className="bg-red-500/10 text-red-200 border border-red-400/30 hover:bg-red-500/20">
+                                            {isGeneratingWorldPrompt ? "Generating..." : "Generate from Canon"}
+                                        </Button>
+                                        <Link to="/quests" className="px-4 py-2 rounded-lg bg-white/5 text-white border border-white/10 text-[11px] font-bold tracking-widest uppercase hover:bg-white/10 transition-colors">
+                                            Review Quests
+                                        </Link>
                                     </div>
-
-                                    <div className="rounded-xl border border-white/5 bg-black/20 p-4">
-                                        <div className="flex items-center justify-between gap-4">
-                                            <div>
-                                                <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Non-main lore budget</div>
-                                                <div className="text-lg font-black text-white mt-1">{gmSettings.maxLoreSnippets}</div>
-                                            </div>
-                                            <input
-                                                type="range"
-                                                min={1}
-                                                max={16}
-                                                value={gmSettings.maxLoreSnippets}
-                                                onChange={e => setGmSettings(prev => prev ? { ...prev, maxLoreSnippets: Number(e.target.value) } : prev)}
-                                                className="w-full max-w-[260px]"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="rounded-xl border border-white/5 bg-black/20 p-4">
-                                        <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2">Enabled Sources</div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {enabledSources.map(source => (
-                                                <span key={source} className="px-2 py-1 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase">
-                                                    {source}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </Card>
-
-                                <Card className="bg-[#121820] border border-white/5 p-5 flex flex-col gap-4">
-                                    <div>
-                                        <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">Compiled Event Context</div>
-                                        <p className="text-sm text-gray-500">This exact block is passed into the gameplay event generator as canon and ambience.</p>
-                                    </div>
-                                    <textarea
-                                        value={gmContext.promptBlock}
-                                        readOnly
-                                        className="min-h-[520px] w-full rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-300 leading-relaxed focus:outline-none resize-none"
-                                    />
-                                </Card>
-                            </div>
+                                </div>
+                            </Card>
                         )}
 
                         {activeTab === "directives" && (
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                                 <Card className="bg-[#121820] border border-white/5 p-5 flex flex-col gap-4">
-                                    <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300">Prompt Framing</div>
-                                    <label className="flex flex-col gap-2">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Canonical world prompt</span>
-                                            <button
-                                                type="button"
-                                                onClick={handleGenerateWorldPrompt}
-                                                disabled={isGeneratingWorldPrompt}
-                                                className="px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 disabled:opacity-50 transition-colors"
-                                            >
-                                                {isGeneratingWorldPrompt ? "Generating..." : "Generate from Canon"}
-                                            </button>
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div>
+                                            <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">World</div>
+                                            <h3 className="text-lg font-black text-white">Canonical World Prompt</h3>
+                                            <p className="text-sm text-gray-500 mt-2 max-w-2xl">
+                                                This is the world canon and ambience anchor used by the AI GM for Events and Quests. Keep it narrative and systemic. Do not describe visuals, rendering, or image composition here.
+                                            </p>
                                         </div>
-                                        <textarea value={gmSettings.worldPrompt} onChange={e => updateDirective("worldPrompt", e.target.value)} className="min-h-[180px] rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-indigo-500/40" placeholder="Write the narrative world context used by quests, events, and the GM. Do not put image-generation instructions here." />
-                                        <div className="text-xs text-gray-500">
-                                            This prompt is narrative canon context. The visual world seed prompt remains separate and is not used for GM-driven quest/event context.
-                                        </div>
-                                    </label>
-                                    <label className="flex flex-col gap-2">
-                                        <span className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Event prompt prefix</span>
-                                        <textarea value={gmSettings.eventPromptPrefix} onChange={e => updateDirective("eventPromptPrefix", e.target.value)} className="min-h-[120px] rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-indigo-500/40" />
-                                    </label>
-                                    <label className="flex flex-col gap-2">
-                                        <span className="text-[10px] font-bold tracking-widest uppercase text-gray-500">System directive</span>
-                                        <textarea value={gmSettings.systemDirective} onChange={e => updateDirective("systemDirective", e.target.value)} className="min-h-[220px] rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-indigo-500/40" />
-                                    </label>
+                                        <button
+                                            type="button"
+                                            onClick={handleGenerateWorldPrompt}
+                                            disabled={isGeneratingWorldPrompt}
+                                            className="px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 disabled:opacity-50 transition-colors"
+                                        >
+                                            {isGeneratingWorldPrompt ? "Generating..." : "Generate from Canon"}
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        value={gmSettings.worldPrompt}
+                                        onChange={e => updateDirective("worldPrompt", e.target.value)}
+                                        className="min-h-[220px] rounded-2xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-indigo-500/40"
+                                        placeholder="Write the canonical world prompt used by the AI GM. This should express the world, its pressures, history, atmosphere, and narrative identity."
+                                    />
+                                    <div className="rounded-2xl border border-white/5 bg-black/20 p-4">
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2">Visual World Seed Prompt</div>
+                                        <p className="text-xs text-gray-500 leading-relaxed">
+                                            {gmContext.worldSeedPrompt || selectedWorld.prompt || "No graphical world-generation prompt is stored for this world."}
+                                        </p>
+                                    </div>
                                 </Card>
 
                                 <Card className="bg-[#121820] border border-white/5 p-5 flex flex-col gap-4">
-                                    <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300">Guardrails</div>
+                                    <div>
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">System Role</div>
+                                        <h3 className="text-lg font-black text-white">System Directive</h3>
+                                        <p className="text-sm text-gray-500 mt-2 max-w-2xl">
+                                            This governs how the AI GM reasons about scenes, consequences, escalation, and progression. It should define behavior, not repeat world canon.
+                                        </p>
+                                    </div>
+                                    <textarea
+                                        value={gmSettings.systemDirective}
+                                        onChange={e => updateDirective("systemDirective", e.target.value)}
+                                        className="min-h-[260px] rounded-2xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-indigo-500/40"
+                                    />
+                                    <div className="rounded-2xl border border-emerald-500/15 bg-emerald-500/10 p-4">
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-emerald-300 mb-2">AI GM Model</div>
+                                        <p className="text-sm text-emerald-100/80 leading-relaxed">
+                                            Hidden framework guardrails stay in the backend. This page is for authoring the world identity, the GM role, and the intended dramatic pressure while the canon feeds stay dynamic.
+                                        </p>
+                                    </div>
+                                </Card>
+
+                                <Card className="xl:col-span-2 bg-[#121820] border border-white/5 p-5 flex flex-col gap-5">
+                                    <div>
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">Tone and Intent</div>
+                                        <h3 className="text-lg font-black text-white">Structured Ambience</h3>
+                                        <p className="text-sm text-gray-500 mt-2 max-w-3xl">
+                                            Set the pressure profile of the AI GM here. The backend converts these intentions into the hidden ambience instruction used during event and quest generation.
+                                        </p>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                                        {([
+                                            ["atmosphere", "Atmosphere"],
+                                            ["pressure", "Pressure"],
+                                            ["scarcity", "Scarcity"],
+                                            ["socialTension", "Social Tension"],
+                                            ["groundedConsequences", "Grounded Consequences"],
+                                        ] as Array<[keyof Pick<GmAmbienceSettings, "atmosphere" | "pressure" | "scarcity" | "socialTension" | "groundedConsequences">, string]>).map(([key, label]) => (
+                                            <div key={key} className="rounded-2xl border border-white/5 bg-black/20 p-4">
+                                                <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-3">{label}</div>
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    {INTENSITY_LEVELS.map(level => {
+                                                        const isActive = ambience[key] === level;
+                                                        return (
+                                                            <button
+                                                                key={level}
+                                                                type="button"
+                                                                onClick={() => updateAmbienceLevel(key, level)}
+                                                                className={`rounded-xl border px-3 py-2 text-[11px] font-bold tracking-widest uppercase transition-colors ${isActive ? "border-indigo-400/50 bg-indigo-500/20 text-white" : "border-white/5 bg-[#05080c] text-gray-400 hover:border-white/10 hover:text-gray-200"}`}
+                                                            >
+                                                                {labelizeIntensity(level)}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div className="rounded-2xl border border-white/5 bg-black/20 p-4">
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-3">Tone Presets</div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {TONE_PRESETS.map(tone => {
+                                                const isActive = ambience.tones.includes(tone);
+                                                return (
+                                                    <button
+                                                        key={tone}
+                                                        type="button"
+                                                        onClick={() => toggleTone(tone)}
+                                                        className={`px-3 py-2 rounded-full border text-[10px] font-bold tracking-[0.18em] uppercase transition-colors ${isActive ? "border-orange-400/40 bg-orange-500/15 text-orange-100" : "border-white/5 bg-[#05080c] text-gray-500 hover:text-gray-300 hover:border-white/10"}`}
+                                                    >
+                                                        {tone}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
                                     <label className="flex flex-col gap-2">
-                                        <span className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Ambience directive</span>
-                                        <textarea value={gmSettings.ambienceDirective} onChange={e => updateDirective("ambienceDirective", e.target.value)} className="min-h-[180px] rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-indigo-500/40" />
+                                        <span className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Ambience Notes</span>
+                                        <textarea
+                                            value={ambience.notes}
+                                            onChange={e => updateAmbienceNotes(e.target.value)}
+                                            className="min-h-[120px] rounded-2xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-indigo-500/40"
+                                            placeholder="Optional nuance for the GM: what kind of pressure, social texture, or atmosphere should dominate play?"
+                                        />
                                     </label>
-                                    <label className="flex flex-col gap-2">
-                                        <span className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Negative directive</span>
-                                        <textarea value={gmSettings.negativeDirective} onChange={e => updateDirective("negativeDirective", e.target.value)} className="min-h-[180px] rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-indigo-500/40" />
-                                    </label>
+
+                                    <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">Compiled Intent Preview</div>
+                                        <p className="text-sm text-indigo-100/80 leading-relaxed">
+                                            {buildAmbienceIntentSummary(ambience)}
+                                        </p>
+                                    </div>
                                 </Card>
                             </div>
                         )}
 
+                        {activeTab === "context" && (
+                            <div className="flex flex-col gap-6">
+                                <Card className="bg-[#121820] border border-white/5 p-5">
+                                    <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+                                        <div>
+                                            <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">Canon Context</div>
+                                            <h3 className="text-lg font-black text-white">Dynamic World Inputs</h3>
+                                            <p className="text-sm text-gray-500 mt-2 max-w-3xl">
+                                                These feeds are pulled from History and world data at runtime. They are shown here so you can see what the AI GM is grounded against, but they are not meant to be hand-authored as static prompt prose.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAdvanced(prev => !prev)}
+                                            className="px-4 py-2 rounded-full bg-white/5 text-gray-300 border border-white/10 text-[10px] font-bold tracking-widest uppercase hover:bg-white/10 transition-colors"
+                                        >
+                                            {showAdvanced ? "Hide Advanced" : "Show Advanced"}
+                                        </button>
+                                    </div>
+                                </Card>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                                    {contextSections.map(section => (
+                                        <Card key={section.key} className="bg-[#121820] border border-white/5 p-5 flex flex-col gap-4">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div>
+                                                    <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-2">{section.label}</div>
+                                                    <div className="text-2xl font-black text-white">{section.itemCount}</div>
+                                                </div>
+                                                <span className={`px-2 py-1 rounded-full border text-[10px] font-bold tracking-widest uppercase ${section.enabled ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-white/10 bg-white/5 text-gray-500"}`}>
+                                                    {section.enabled ? "Live" : "Muted"}
+                                                </span>
+                                            </div>
+                                            {section.meta && (
+                                                <div className="text-xs text-gray-500 leading-relaxed">
+                                                    {section.meta}
+                                                </div>
+                                            )}
+                                            <div className="rounded-2xl border border-white/5 bg-black/20 p-4 min-h-[150px]">
+                                                <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2">Preview</div>
+                                                <div className="text-sm text-gray-400 leading-relaxed whitespace-pre-wrap">
+                                                    {section.preview}
+                                                </div>
+                                            </div>
+                                        </Card>
+                                    ))}
+                                </div>
+
+                                {showAdvanced && (
+                                    <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-6">
+                                        <Card className="bg-[#121820] border border-white/5 p-5 flex flex-col gap-5">
+                                            <div>
+                                                <div className="text-[10px] font-bold tracking-widest uppercase text-orange-300 mb-2">Advanced Controls</div>
+                                                <p className="text-sm text-gray-500">
+                                                    Use this layer for debugging, source gating, and framework overrides. Normal GM authoring should happen in the visible World/System/Tone sections.
+                                                </p>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                {Object.entries(gmSettings.contextSources).map(([key, enabled]) => (
+                                                    <label key={key} className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-3">
+                                                        <span className="text-[11px] font-bold tracking-widest uppercase text-gray-300">{sourceLabel(key)}</span>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 accent-indigo-500"
+                                                            checked={enabled}
+                                                            onChange={e => updateSource(key as keyof GmSettings["contextSources"], e.target.checked)}
+                                                        />
+                                                    </label>
+                                                ))}
+                                            </div>
+
+                                            <div className="rounded-xl border border-white/5 bg-black/20 p-4">
+                                                <div className="flex items-center justify-between gap-4">
+                                                    <div>
+                                                        <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Non-main lore budget</div>
+                                                        <div className="text-lg font-black text-white mt-1">{gmSettings.maxLoreSnippets}</div>
+                                                    </div>
+                                                    <input
+                                                        type="range"
+                                                        min={1}
+                                                        max={16}
+                                                        value={gmSettings.maxLoreSnippets}
+                                                        onChange={e => setGmSettings(prev => prev ? { ...prev, maxLoreSnippets: Number(e.target.value) } : prev)}
+                                                        className="w-full max-w-[260px]"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <label className="flex flex-col gap-2">
+                                                <span className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Framework Prefix</span>
+                                                <textarea
+                                                    value={gmSettings.eventPromptPrefix}
+                                                    onChange={e => updateDirective("eventPromptPrefix", e.target.value)}
+                                                    className="min-h-[90px] rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-orange-500/40"
+                                                />
+                                            </label>
+
+                                            <label className="flex flex-col gap-2">
+                                                <span className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Negative Directive</span>
+                                                <textarea
+                                                    value={gmSettings.negativeDirective}
+                                                    onChange={e => updateDirective("negativeDirective", e.target.value)}
+                                                    className="min-h-[120px] rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-200 resize-none focus:outline-none focus:border-orange-500/40"
+                                                />
+                                            </label>
+                                        </Card>
+
+                                        <Card className="bg-[#121820] border border-white/5 p-5 flex flex-col gap-4">
+                                            <div>
+                                                <div className="text-[10px] font-bold tracking-widest uppercase text-orange-300 mb-2">Raw Prompt Preview</div>
+                                                <p className="text-sm text-gray-500">
+                                                    This is the exact compiled prompt block passed to event and quest generation. Hidden by default so the page stays focused on intent, not scaffolding.
+                                                </p>
+                                            </div>
+                                            <textarea
+                                                value={gmContext.promptBlock}
+                                                readOnly
+                                                className="min-h-[520px] w-full rounded-xl border border-white/5 bg-[#05080c] p-4 text-sm text-gray-300 leading-relaxed focus:outline-none resize-none"
+                                            />
+                                        </Card>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {activeTab === "integrations" && (
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                                 <Card className="bg-[#121820] border border-white/5 p-5">
                                     <div className="text-[10px] font-bold tracking-widest uppercase text-cyan-300 mb-3">History</div>
                                     <p className="text-sm text-gray-500 leading-relaxed mb-4">
-                                        `/history` is the canonical source. Edit `Main Lore` and ranked snippets there; this page only decides what gets compiled into AI context.
+                                        `/history` remains the canonical source. Lore, factions, characters, regions, locations, and temporality flow into the AI GM dynamically from there.
                                     </p>
                                     <Link to="/history?tab=lore" className="inline-flex px-3 py-2 rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-cyan-500/20 transition-colors">
                                         Open Lore Editor
@@ -406,12 +700,22 @@ export function GameMasterPage() {
                                 </Card>
 
                                 <Card className="bg-[#121820] border border-white/5 p-5">
-                                    <div className="text-[10px] font-bold tracking-widest uppercase text-orange-300 mb-3">Gameplay Engine</div>
+                                    <div className="text-[10px] font-bold tracking-widest uppercase text-orange-300 mb-3">Gameplay Events</div>
                                     <p className="text-sm text-gray-500 leading-relaxed mb-4">
-                                        `/gameplay-engine?step=EVENTS` consumes the compiled GM context at event generation, rethink, and resolution time.
+                                        `/gameplay-engine?step=EVENTS` consumes the compiled GM context at generation, rethink, and resolution time.
                                     </p>
                                     <Link to="/gameplay-engine?step=EVENTS" className="inline-flex px-3 py-2 rounded-lg bg-orange-500/10 text-orange-300 border border-orange-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-orange-500/20 transition-colors">
                                         Open Events View
+                                    </Link>
+                                </Card>
+
+                                <Card className="bg-[#121820] border border-white/5 p-5">
+                                    <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-3">Quests</div>
+                                    <p className="text-sm text-gray-500 leading-relaxed mb-4">
+                                        `/quests` uses the canonical GM world prompt and the same compiled world context. Missing world prompt blocks new quest generation.
+                                    </p>
+                                    <Link to="/quests" className="inline-flex px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
+                                        Open Quests
                                     </Link>
                                 </Card>
 

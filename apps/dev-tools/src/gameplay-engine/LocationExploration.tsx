@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, useState } from "react";
 import { ExplorationMap, Tile, ExplorationPawn } from "@ashtrail/core";
 // @ts-ignore - Ignore member export if TS is lagging behind wasm-pack build
-import init, { find_path_wasm } from "@ashtrail/geo-wasm";
 // @ts-ignore - Vite will resolve this correctly
 import wasmUrl from "@ashtrail/geo-wasm/geo_wasm_bg.wasm?url";
 
@@ -19,6 +18,8 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
     const [zoom, setZoom] = useState(1.0);
     const [offset, setOffset] = useState({ x: 0, y: 0 });
     const [wasmReady, setWasmReady] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const wasmRef = useRef<any>(null);
     const [hoverTile, setHoverTile] = useState<{ x: number, y: number } | null>(null);
     const [selectedPawnId, setSelectedPawnId] = useState<string | null>(initialSelectedPawnId);
 
@@ -41,9 +42,20 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
 
     // Initialize WASM
     useEffect(() => {
-        init(wasmUrl).then(() => {
-            setWasmReady(true);
-        }).catch(err => console.error("WASM Init Error:", err));
+        console.log("Initializing WASM...");
+        import("@ashtrail/geo-wasm").then(m => {
+            m.default(wasmUrl).then((instance) => {
+                console.log("WASM Instance initialized:", instance);
+                wasmRef.current = instance;
+                setWasmReady(true);
+            }).catch(e => {
+                console.error("WASM Instance error:", e);
+                setError("WASM Failure: " + e.message);
+            });
+        }).catch(err => {
+            console.error("WASM Import Error:", err);
+            setError("WASM Import Failure");
+        });
     }, []);
 
     // Fetch Asset Packs and Assign Textures
@@ -80,43 +92,61 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                 setMap(prev => {
                     const newTiles = [...prev.tiles];
 
-                    const validGroups = [biomeName, ...structureNames].filter(Boolean);
+                    if (!fetchedBiome && fetchedStructures.length === 0) {
+                        console.warn("No asset packs fetched, only basic colors will be shown.");
+                    }
+
+                    const validGroups = [biomeName, ...structureNames].filter(Boolean).map(g => g.toLowerCase());
+                    console.log("Loading Assets - Valid Groups:", validGroups);
 
                     const allPacks = [fetchedBiome, ...fetchedStructures].filter(Boolean);
                     const allTextures = allPacks.flatMap(p => {
                         const isManual = !!(p as any).packId;
-                        return (p.textures || []).map((t: any) => ({ ...t, isManual }));
-                    })
-                        .filter((t: any) => t && t.metadata && !t.metadata.isHidden) // Safety check: t and t.metadata must exist
-                        .filter((t: any) => {
-                            if (t.isManual) return true; // Everything in a curated manual pack is intended to be used
-                            if (validGroups.length === 0) return true; // fallback
-                            const groupName = t.metadata?.grouping?.name;
-                            return groupName && validGroups.includes(groupName);
+                        return (p.textures || []).map((t: any) => {
+                            let url = t.url;
+                            if (url && url.includes("/api/textures/batches/")) {
+                                url = url.replace("/api/textures/batches/", "/api/textures/").replace("/textures/", "/");
+                            }
+                            return { ...t, url, isManual };
                         });
+                    })
+                        .filter((t: any) => t && t.metadata && !t.metadata.isHidden)
+                        .filter((t: any) => {
+                            if (t.isManual) return true;
+                            if (validGroups.length === 0) return true;
+                            const groupName = t.metadata?.grouping?.name?.toLowerCase();
+                            // Lenient match: includes or exact
+                            return groupName && validGroups.some(v => groupName.includes(v) || v.includes(groupName));
+                        });
+
+                    console.log(`Found ${allTextures.length} eligible textures.`);
 
                     const groundTextures = allTextures.filter((t: any) => t.metadata?.isPassable !== false);
                     const wallTextures = allTextures.filter((t: any) => t.metadata?.isPassable === false);
 
+                    let assignedCount = 0;
                     newTiles.forEach(tile => {
                         if (!tile.textureUrl) {
                             if (tile.type === "wall") {
                                 if (wallTextures.length > 0) {
                                     const rand = Math.floor(Math.random() * wallTextures.length);
                                     tile.textureUrl = wallTextures[rand].url;
+                                    assignedCount++;
                                 }
                             } else {
                                 if (groundTextures.length > 0) {
                                     const rand = Math.floor(Math.random() * groundTextures.length);
                                     tile.textureUrl = groundTextures[rand].url;
+                                    assignedCount++;
                                 } else if (allTextures.length > 0) {
-                                    // Extreme fallback: use any texture if no ground textures found
                                     const rand = Math.floor(Math.random() * allTextures.length);
                                     tile.textureUrl = allTextures[rand].url;
+                                    assignedCount++;
                                 }
                             }
                         }
                     });
+                    console.log(`Assigned textures to ${assignedCount} tiles.`);
 
                     const newObjects = prev.objects.map(obj => {
                         if (!obj.textureUrl) {
@@ -172,6 +202,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
             const centerX = containerRef.current.clientWidth / 2 - p.x * ts;
             const centerY = containerRef.current.clientHeight / 2 - p.y * ts;
             setOffset({ x: centerX, y: centerY });
+            containerRef.current.focus();
         }
     }, []);
 
@@ -262,6 +293,11 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
         if (!canvas || !map) return;
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
+
+        if (map.tiles.length === 0) {
+            console.warn("Render skipping - tiles empty");
+            return;
+        }
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -456,7 +492,8 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
 
             const startX = Math.round(pawn.x);
             const startY = Math.round(pawn.y);
-            const walkableGrid = map.tiles.map(t => t.walkable);
+            const walkableGrid = new Uint8Array(map.width * map.height);
+            map.tiles.forEach((t, i) => walkableGrid[i] = t.walkable ? 1 : 0);
 
             // Objects block pathfinding if not passable
             map.objects.forEach(obj => {
@@ -466,7 +503,7 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
                             const tx = obj.x + ox;
                             const ty = obj.y + oy;
                             if (tx >= 0 && tx < map.width && ty >= 0 && ty < map.height) {
-                                walkableGrid[ty * map.width + tx] = false;
+                                walkableGrid[ty * map.width + tx] = 0;
                             }
                         }
                     }
@@ -474,7 +511,12 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
             });
 
             try {
-                const pathResult = find_path_wasm(startX, startY, tileX, tileY, map.width, map.height, walkableGrid);
+                if (!wasmRef.current?.find_path_wasm) {
+                    console.error("WASM pathfind function not available yet.");
+                    return;
+                }
+                // @ts-ignore - Uint8Array usually expected
+                const pathResult = wasmRef.current.find_path_wasm(startX, startY, tileX, tileY, map.width, map.height, walkableGrid);
                 if (pathResult) {
                     const path = pathResult.map((pt: [number, number]) => ({ x: pt[0], y: pt[1] }));
                     setMap(prev => ({
@@ -508,7 +550,12 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
     };
 
     return (
-        <div ref={containerRef} className="w-full h-full relative bg-[#050505] overflow-hidden select-none">
+        <div
+            ref={containerRef}
+            tabIndex={0}
+            onMouseDown={() => containerRef.current?.focus()}
+            className="w-full h-full relative bg-[#050505] overflow-hidden select-none outline-none focus:ring-1 focus:ring-emerald-500/20"
+        >
             <canvas
                 ref={canvasRef}
                 onMouseDown={handleCanvasClick}
@@ -552,10 +599,20 @@ export function LocationExploration({ initialMap, initialSelectedPawnId, onExit 
             </div>
 
             {/* Loading Overlay */}
-            {isAssetsLoading && (
-                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-50 animate-in fade-in duration-300">
-                    <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mb-4" />
-                    <div className="text-[10px] font-black text-white uppercase tracking-[0.4em] animate-pulse">Syncing Asset Lattice...</div>
+            {(!wasmReady || isAssetsLoading) && (
+                <div className="absolute inset-0 bg-black/90 backdrop-blur-2xl flex flex-col items-center justify-center z-[200]">
+                    <div className="relative w-24 h-24 mb-6">
+                        <div className="absolute inset-0 border-4 border-[#E6E6FA]/10 rounded-full" />
+                        <div className="absolute inset-0 border-t-4 border-[#E6E6FA] rounded-full animate-spin" />
+                    </div>
+                    <h2 className="text-[12px] font-black tracking-[0.3em] text-[#E6E6FA] uppercase animate-pulse">
+                        {!wasmReady ? "Initializing Matrix..." : "Syncing Asset Lattice..."}
+                    </h2>
+                    {error && (
+                        <div className="mt-8 px-6 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[10px] font-bold tracking-widest uppercase">
+                            {error}
+                        </div>
+                    )}
                 </div>
             )}
 

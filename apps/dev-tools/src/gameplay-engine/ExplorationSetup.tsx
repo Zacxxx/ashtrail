@@ -73,7 +73,9 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                 // Pre-select first biome if available
                 if (biomeOptions.length > 0) {
                     const firstOption = biomeOptions[0];
-                    const name = firstOption.source === "pack" ? firstOption.grouping.name : firstOption.gameAsset.grouping.name;
+                    const name = firstOption.source === "pack"
+                        ? (firstOption.grouping?.name || firstOption.name)
+                        : (firstOption.gameAsset?.grouping?.name || firstOption.batchName);
                     setSelectedBiomeName(name);
                     setSelectedPackId(firstOption.batchId);
                     setIsPackMode(firstOption.source === "pack");
@@ -98,20 +100,20 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
             const selectedBiome = availableBiomes.find(b => b.batchId === selectedPackId);
             const selectedStructures = availableStructures.filter(s => selectedStructureIds.includes(s.batchId));
 
-            const prompt = buildExplorationMapPrompt(
+            const mapData = buildExplorationMapPrompt(
                 mapPrompt,
                 rows,
                 cols,
-                selectedBiome ? { name: selectedBiome.gameAsset.grouping.name } : undefined,
+                selectedBiome ? { name: selectedBiome.grouping?.name || selectedBiome.gameAsset?.grouping?.name || selectedBiome.batchName } : undefined,
                 selectedStructures.map(s => ({
-                    name: s.gameAsset.grouping.name,
-                    description: s.gameAsset.grouping.description
+                    name: s.grouping?.name || s.gameAsset?.grouping?.name || s.batchName,
+                    description: s.grouping?.description || s.gameAsset?.grouping?.description || ""
                 }))
             );
             const res = await fetch('http://127.0.0.1:8787/api/text/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt }),
+                body: JSON.stringify({ prompt: mapData }),
             });
             const data = await res.json();
             const text = data.text || data.result || "";
@@ -304,12 +306,12 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                                             </div>
                                             <div className="flex flex-col min-w-0">
                                                 <div className="flex items-center gap-2 mb-1">
-                                                    <span className="text-[11px] font-bold text-white tracking-wide uppercase truncate">{struct.source === "pack" ? struct.name : struct.gameAsset.grouping.name}</span>
+                                                    <span className="text-[11px] font-bold text-white tracking-wide uppercase truncate">{struct.source === "pack" ? (struct.grouping?.name || struct.name) : (struct.gameAsset?.grouping?.name || struct.batchName)}</span>
                                                     {selectedStructureIds.includes(struct.batchId) && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />}
                                                 </div>
-                                                <span className="text-[9px] text-gray-500 font-medium leading-relaxed line-clamp-2 italic">
-                                                    {struct.source === "pack" ? struct.description : (struct.gameAsset.grouping.description || "No architectural description provided.")}
-                                                </span>
+                                                <div className="text-[9px] text-gray-500 line-clamp-2 mt-1 min-h-[2.5em]">
+                                                    {struct.source === "pack" ? (struct.grouping?.description || struct.description) : (struct.gameAsset?.grouping?.description || "No architectural description provided.")}
+                                                </div>
                                                 {struct.source === "pack" && (
                                                     <span className="mt-2 w-fit px-1.5 py-0.5 border border-purple-500/30 bg-purple-500/10 text-purple-400 text-[7px] font-black uppercase tracking-tighter rounded">MANUAL PACK</span>
                                                 )}

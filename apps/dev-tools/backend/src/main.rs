@@ -2197,7 +2197,7 @@ fn default_gm_settings(world_id: &str) -> serde_json::Value {
             "criticalLore": true,
             "majorLore": true,
             "minorLore": false,
-            "regions": false,
+            "regions": true,
             "locations": true,
             "factions": true,
             "characters": true,
@@ -2205,6 +2205,15 @@ fn default_gm_settings(world_id: &str) -> serde_json::Value {
         },
         "maxLoreSnippets": 8,
         "systemDirective": "You are the Ashtrail Game Master. Treat the world canon as fixed context and generate events that reinforce it rather than overwrite it.",
+        "ambience": {
+            "atmosphere": "high",
+            "pressure": "high",
+            "scarcity": "medium",
+            "socialTension": "high",
+            "groundedConsequences": "high",
+            "tones": ["bleak", "frontier"],
+            "notes": ""
+        },
         "ambienceDirective": "Favor atmosphere, pressure, scarcity, social tension, and grounded consequences that match the world's established tone.",
         "negativeDirective": "Do not contradict established lore, invent unrelated genre shifts, or let events rewrite canon history.",
         "eventPromptPrefix": "Use the following world canon and ambience as hard context for event generation.",
@@ -2212,10 +2221,146 @@ fn default_gm_settings(world_id: &str) -> serde_json::Value {
     })
 }
 
+fn normalize_gm_intensity(value: Option<&serde_json::Value>, fallback: &str) -> serde_json::Value {
+    let normalized = value
+        .and_then(|entry| entry.as_str())
+        .map(|entry| entry.trim().to_lowercase())
+        .filter(|entry| matches!(entry.as_str(), "low" | "medium" | "high"))
+        .unwrap_or_else(|| fallback.to_string());
+    serde_json::Value::String(normalized)
+}
+
+fn normalize_gm_ambience_value(
+    input: Option<&serde_json::Value>,
+    defaults: &serde_json::Value,
+    legacy_ambience_directive: Option<&str>,
+    default_legacy_ambience_directive: &str,
+) -> serde_json::Value {
+    let input = input.and_then(|value| value.as_object()).cloned().unwrap_or_default();
+    let defaults = defaults.as_object().cloned().unwrap_or_default();
+
+    let default_notes = defaults
+        .get("notes")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let legacy_notes = legacy_ambience_directive
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != default_legacy_ambience_directive)
+        .unwrap_or(default_notes);
+
+    let tones = input
+        .get("tones")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            let mut deduped = Vec::<String>::new();
+            for item in items {
+                if let Some(value) = item.as_str() {
+                    let normalized = value.trim().to_lowercase();
+                    if !normalized.is_empty() && !deduped.contains(&normalized) {
+                        deduped.push(normalized);
+                    }
+                }
+            }
+            deduped
+        })
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(|| {
+            defaults
+                .get("tones")
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().map(str::to_string))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        });
+
+    let notes = input
+        .get("notes")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(legacy_notes);
+
+    serde_json::json!({
+        "atmosphere": normalize_gm_intensity(input.get("atmosphere"), defaults.get("atmosphere").and_then(|value| value.as_str()).unwrap_or("high")),
+        "pressure": normalize_gm_intensity(input.get("pressure"), defaults.get("pressure").and_then(|value| value.as_str()).unwrap_or("high")),
+        "scarcity": normalize_gm_intensity(input.get("scarcity"), defaults.get("scarcity").and_then(|value| value.as_str()).unwrap_or("medium")),
+        "socialTension": normalize_gm_intensity(input.get("socialTension"), defaults.get("socialTension").and_then(|value| value.as_str()).unwrap_or("high")),
+        "groundedConsequences": normalize_gm_intensity(input.get("groundedConsequences"), defaults.get("groundedConsequences").and_then(|value| value.as_str()).unwrap_or("high")),
+        "tones": tones,
+        "notes": notes
+    })
+}
+
+fn compile_gm_ambience_directive(
+    ambience: Option<&serde_json::Value>,
+    legacy_ambience_directive: Option<&str>,
+) -> String {
+    let Some(ambience) = ambience.and_then(|value| value.as_object()) else {
+        return legacy_ambience_directive
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Favor atmosphere, pressure, scarcity, social tension, and grounded consequences that match the world's established tone.")
+            .to_string();
+    };
+
+    let read_level = |key: &str, fallback: &str| -> String {
+        ambience
+            .get(key)
+            .and_then(|value| value.as_str())
+            .unwrap_or(fallback)
+            .to_string()
+    };
+
+    let tones = ambience
+        .get("tones")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .filter(|item| !item.trim().is_empty())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    let notes = ambience
+        .get("notes")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .unwrap_or("");
+
+    let mut parts = vec![format!(
+        "Keep atmosphere {atmosphere}, narrative pressure {pressure}, scarcity {scarcity}, social tension {social_tension}, and grounded consequences {grounded_consequences}.",
+        atmosphere = read_level("atmosphere", "high"),
+        pressure = read_level("pressure", "high"),
+        scarcity = read_level("scarcity", "medium"),
+        social_tension = read_level("socialTension", "high"),
+        grounded_consequences = read_level("groundedConsequences", "high"),
+    )];
+
+    if !tones.is_empty() {
+        parts.push(format!("Lean into tonal accents such as {tones}."));
+    }
+    if !notes.is_empty() {
+        parts.push(format!("Additional ambience notes: {notes}"));
+    }
+
+    parts.join(" ")
+}
+
 fn normalize_gm_settings_value(value: serde_json::Value, world_id: &str) -> serde_json::Value {
     let defaults = default_gm_settings(world_id);
     let mut normalized = defaults.as_object().cloned().unwrap_or_default();
     let input = value.as_object().cloned().unwrap_or_default();
+    let default_legacy_ambience_directive = normalized
+        .get("ambienceDirective")
+        .and_then(|value| value.as_str())
+        .unwrap_or("Favor atmosphere, pressure, scarcity, social tension, and grounded consequences that match the world's established tone.")
+        .to_string();
 
     if let Some(context_defaults) = normalized
         .get("contextSources")
@@ -2257,6 +2402,17 @@ fn normalize_gm_settings_value(value: serde_json::Value, world_id: &str) -> serd
                 .into(),
         ),
     );
+
+    let normalized_ambience = normalize_gm_ambience_value(
+        input.get("ambience"),
+        defaults.get("ambience").unwrap_or(&serde_json::Value::Null),
+        input
+            .get("ambienceDirective")
+            .and_then(|value| value.as_str())
+            .or_else(|| normalized.get("ambienceDirective").and_then(|value| value.as_str())),
+        &default_legacy_ambience_directive,
+    );
+    normalized.insert("ambience".to_string(), normalized_ambience);
 
     for key in [
         "worldPrompt",
@@ -2323,6 +2479,32 @@ fn summarize_named_records(data: &serde_json::Value, text_key: &str, limit: usiz
                 .join("\n")
         })
         .unwrap_or_default()
+}
+
+fn build_context_section_summary(
+    key: &str,
+    label: &str,
+    enabled: bool,
+    item_count: usize,
+    preview: String,
+    meta: Option<String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "key": key,
+        "label": label,
+        "enabled": enabled,
+        "itemCount": item_count,
+        "preview": if preview.trim().is_empty() {
+            if enabled {
+                "No canon records are available yet.".to_string()
+            } else {
+                "Excluded from the compiled GM context.".to_string()
+            }
+        } else {
+            preview
+        },
+        "meta": meta
+    })
 }
 
 async fn get_gm_settings(
@@ -2481,6 +2663,12 @@ async fn get_gm_context(
         .get("worldPrompt")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    let compiled_ambience_directive = compile_gm_ambience_directive(
+        settings.get("ambience"),
+        settings
+            .get("ambienceDirective")
+            .and_then(|value| value.as_str()),
+    );
 
     let lore_block = selected_lore
         .iter()
@@ -2512,6 +2700,158 @@ async fn get_gm_context(
         }
     }
 
+    let lore_preview = selected_lore
+        .iter()
+        .take(3)
+        .map(|snippet| {
+            let title = snippet
+                .get("title")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| snippet.get("location").and_then(|value| value.as_str()))
+                .unwrap_or("Untitled");
+            let content = snippet
+                .get("content")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .trim();
+            if content.is_empty() {
+                title.to_string()
+            } else {
+                format!("{title}: {content}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let factions_enabled = context_sources.get("factions").and_then(|v| v.as_bool()).unwrap_or(false);
+    let locations_enabled = context_sources.get("locations").and_then(|v| v.as_bool()).unwrap_or(false);
+    let characters_enabled = context_sources.get("characters").and_then(|v| v.as_bool()).unwrap_or(false);
+    let regions_enabled = context_sources.get("regions").and_then(|v| v.as_bool()).unwrap_or(false);
+    let temporality_enabled = context_sources.get("temporality").and_then(|v| v.as_bool()).unwrap_or(false);
+    let factions_preview = summarize_named_records(&factions, "lore", 3);
+    let locations_preview = summarize_named_records(&locations, "lore", 3);
+    let characters_preview = summarize_named_records(&characters, "lore", 3);
+    let regions_preview = summarize_named_records(&regions, "lore", 3);
+    let temporality_preview = serde_json::to_string_pretty(&temporality).unwrap_or_else(|_| "Unavailable".to_string());
+    let lore_enabled = context_sources
+        .get("mainLore")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true)
+        || context_sources
+            .get("criticalLore")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true)
+        || context_sources
+            .get("majorLore")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true)
+        || context_sources
+            .get("minorLore")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+    let source_sections = vec![
+        build_context_section_summary(
+            "lore",
+            "Lore / History",
+            lore_enabled,
+            selected_lore.len(),
+            lore_preview,
+            Some(format!(
+                "{used_main} main, {used_critical} critical, {used_major} major, {used_minor} minor",
+                used_main = used_counts.get("main").and_then(|value| value.as_u64()).unwrap_or(0),
+                used_critical = used_counts.get("critical").and_then(|value| value.as_u64()).unwrap_or(0),
+                used_major = used_counts.get("major").and_then(|value| value.as_u64()).unwrap_or(0),
+                used_minor = used_counts.get("minor").and_then(|value| value.as_u64()).unwrap_or(0),
+            )),
+        ),
+        build_context_section_summary(
+            "factions",
+            "Factions",
+            factions_enabled,
+            factions.as_array().map(|items| items.len()).unwrap_or(0),
+            factions_preview.clone(),
+            Some("Dynamic faction canon from History".to_string()),
+        ),
+        build_context_section_summary(
+            "locations",
+            "Locations",
+            locations_enabled,
+            locations.as_array().map(|items| items.len()).unwrap_or(0),
+            locations_preview.clone(),
+            Some("Scene anchors and place-state injected at runtime".to_string()),
+        ),
+        build_context_section_summary(
+            "characters",
+            "Characters",
+            characters_enabled,
+            characters.as_array().map(|items| items.len()).unwrap_or(0),
+            characters_preview.clone(),
+            Some("Live NPC and world-character context".to_string()),
+        ),
+        build_context_section_summary(
+            "regions",
+            "Regions",
+            regions_enabled,
+            regions.as_array().map(|items| items.len()).unwrap_or(0),
+            regions_preview.clone(),
+            Some("Geographic context stays dynamic".to_string()),
+        ),
+        build_context_section_summary(
+            "temporality",
+            "Temporality",
+            temporality_enabled,
+            if temporality.is_null() { 0 } else { 1 },
+            temporality_preview.clone(),
+            Some("Timeline state and calendar context".to_string()),
+        ),
+    ];
+
+    let framework_section = format!(
+        "{event_prefix}\n\nNegative Directive:\n{negative_directive}\n\nUse this material as ambient canon and hard context. Generated gameplay events must fit within it and must not rewrite or replace it.",
+        event_prefix = settings.get("eventPromptPrefix").and_then(|value| value.as_str()).unwrap_or("Use the following world canon and ambience as hard context for event generation."),
+        negative_directive = settings.get("negativeDirective").and_then(|value| value.as_str()).unwrap_or(""),
+    );
+    let authoring_section = format!(
+        "World: {world_name}\nCanonical World Prompt:\n{world_prompt_block}\n\nSystem Directive:\n{system_directive}\n\nAmbience Directive:\n{ambience_directive}",
+        world_name = world_name,
+        world_prompt_block = if world_prompt.trim().is_empty() {
+            "MISSING - write a canonical world prompt in Game Master before using this context."
+        } else {
+            world_prompt
+        },
+        system_directive = settings.get("systemDirective").and_then(|v| v.as_str()).unwrap_or(""),
+        ambience_directive = compiled_ambience_directive,
+    );
+    let dynamic_context_section = format!(
+        "Canon Lore:\n{lore_block}\n\nFactions:\n{factions_block}\n\nLocations:\n{locations_block}\n\nCharacters:\n{characters_block}\n\nRegions:\n{regions_block}\n\nTemporality:\n{temporality_block}",
+        lore_block = lore_block,
+        factions_block = if factions_enabled {
+            factions_preview.clone()
+        } else {
+            "Disabled".to_string()
+        },
+        locations_block = if locations_enabled {
+            locations_preview.clone()
+        } else {
+            "Disabled".to_string()
+        },
+        characters_block = if characters_enabled {
+            characters_preview.clone()
+        } else {
+            "Disabled".to_string()
+        },
+        regions_block = if regions_enabled {
+            regions_preview.clone()
+        } else {
+            "Disabled".to_string()
+        },
+        temporality_block = if temporality_enabled {
+            temporality_preview.clone()
+        } else {
+            "Disabled".to_string()
+        },
+    );
+
     let prompt_block = format!(
         "{event_prefix}\n\nWorld: {world_name}\nCanonical World Prompt:\n{world_prompt_block}\n\nSystem Directive:\n{system_directive}\n\nAmbience Directive:\n{ambience_directive}\n\nNegative Directive:\n{negative_directive}\n\nCanon Lore:\n{lore_block}\n\nFactions:\n{factions_block}\n\nLocations:\n{locations_block}\n\nCharacters:\n{characters_block}\n\nRegions:\n{regions_block}\n\nTemporality:\n{temporality_block}\n\nUse this material as ambient canon and hard context. Generated gameplay events must fit within it and must not rewrite or replace it.",
         event_prefix = settings.get("eventPromptPrefix").and_then(|v| v.as_str()).unwrap_or("Use the following world canon and ambience as hard context for event generation."),
@@ -2521,29 +2861,29 @@ async fn get_gm_context(
             world_prompt
         },
         system_directive = settings.get("systemDirective").and_then(|v| v.as_str()).unwrap_or(""),
-        ambience_directive = settings.get("ambienceDirective").and_then(|v| v.as_str()).unwrap_or(""),
+        ambience_directive = compiled_ambience_directive,
         negative_directive = settings.get("negativeDirective").and_then(|v| v.as_str()).unwrap_or(""),
-        factions_block = if context_sources.get("factions").and_then(|v| v.as_bool()).unwrap_or(false) {
+        factions_block = if factions_enabled {
             summarize_named_records(&factions, "lore", 12)
         } else {
             "Disabled".to_string()
         },
-        locations_block = if context_sources.get("locations").and_then(|v| v.as_bool()).unwrap_or(false) {
+        locations_block = if locations_enabled {
             summarize_named_records(&locations, "lore", 12)
         } else {
             "Disabled".to_string()
         },
-        characters_block = if context_sources.get("characters").and_then(|v| v.as_bool()).unwrap_or(false) {
+        characters_block = if characters_enabled {
             summarize_named_records(&characters, "lore", 12)
         } else {
             "Disabled".to_string()
         },
-        regions_block = if context_sources.get("regions").and_then(|v| v.as_bool()).unwrap_or(false) {
+        regions_block = if regions_enabled {
             summarize_named_records(&regions, "lore", 12)
         } else {
             "Disabled".to_string()
         },
-        temporality_block = if context_sources.get("temporality").and_then(|v| v.as_bool()).unwrap_or(false) {
+        temporality_block = if temporality_enabled {
             serde_json::to_string_pretty(&temporality).unwrap_or_else(|_| "Unavailable".to_string())
         } else {
             "Disabled".to_string()
@@ -2555,14 +2895,21 @@ async fn get_gm_context(
         "worldName": world_name,
         "worldPrompt": world_prompt,
         "worldSeedPrompt": world_seed_prompt,
+        "ambience": settings.get("ambience").cloned().unwrap_or(serde_json::Value::Null),
         "settings": settings,
         "snippets": selected_lore,
         "promptBlock": prompt_block,
+        "compiledSections": {
+            "framework": framework_section,
+            "authoring": authoring_section,
+            "dynamicContext": dynamic_context_section
+        },
         "sourceSummary": {
             "enabledSources": enabled_sources,
             "loreCounts": lore_counts,
             "usedLoreCounts": used_counts,
-            "maxLoreSnippets": max_lore
+            "maxLoreSnippets": max_lore,
+            "sections": source_sections
         }
     });
 
