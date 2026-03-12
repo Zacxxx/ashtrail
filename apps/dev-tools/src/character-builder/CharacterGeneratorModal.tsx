@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from "react";
 import { Modal, Slider } from "@ashtrail/ui";
-import { Character, GameRegistry, Trait, Occupation, Stats, CharacterType } from "@ashtrail/core";
+import { Character, GameRegistry, Trait, Occupation, Stats, CharacterType, DEFAULT_CHARACTER_CREDITS } from "@ashtrail/core";
 
 interface CharacterGeneratorModalProps {
     open: boolean;
@@ -150,6 +150,7 @@ export function CharacterGeneratorModal({
                 maxHp: hp,
                 xp: 0,
                 level: s.level || minLevel,
+                credits: { ...DEFAULT_CHARACTER_CREDITS },
                 inventory: [],
                 skills: [],
                 faction: faction || undefined,

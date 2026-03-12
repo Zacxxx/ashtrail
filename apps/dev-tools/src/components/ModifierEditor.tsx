@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { GameplayEffect, EffectType } from "@ashtrail/core";
+import { GameplayEffect, EffectType, ResourceType } from "@ashtrail/core";
 
 interface ModifierEditorProps {
     effects: GameplayEffect[];
@@ -19,14 +19,23 @@ const EFFECT_TYPES: EffectType[] = [
     'WEAPON_DAMAGE_REPLACEMENT',
     'PROTECTION_STANCE',
     'STEALTH',
+    'ANALYZED',
     'LORE_EFFECT'
 ];
 
 const COMMON_TARGETS = [
     'strength', 'agility', 'intelligence', 'wisdom', 'endurance', 'charisma',
     'maxHp', 'hp', 'maxAp', 'ap', 'maxMp', 'mp',
-    'evasion', 'defense', 'critChance', 'resistance',
+    'evasion', 'defense', 'critChance', 'resistance', 'socialBonus',
     'fire_damage', 'poison_damage', 'physical_damage', 'damage',
+    'meleeDamage', 'rangedAccuracy', 'healingPower',
+    'travelFuelCost', 'travelTime', 'ambushChance', 'encounterChance', 'poiRevealChance',
+    'salvageYield', 'repairCost', 'craftingYield', 'inventoryCapacity', 'spoilageRate',
+    'moraleLoss', 'moraleRecovery', 'moraleFloor', 'trustGain', 'trustDecay', 'conflictChance',
+    'traderPriceMultiplier', 'negotiationSuccess', 'peacefulResolutionChance', 'heatGenerated',
+    'resourceConsumption', 'xpGain', 'lootMultiplier', 'breakdownChance', 'mapDiscoveryRadius',
+    'hazardDamage', 'criticalFailureChance', 'criticalFailureIgnoreChance', 'doubleLootChance',
+    'diseaseChance', 'radiationPenalty', 'campSafety',
     'mainHand', 'offHand', 'protection', 'stealth',
     'food', 'water', 'fuel', 'parts'
 ];
@@ -34,6 +43,12 @@ const COMMON_TARGETS = [
 const TRIGGERS = [
     'passive', 'on_hit', 'on_turn_start', 'on_turn_end', 'on_defend', 'on_kill'
 ];
+
+const SCOPES = ['global', 'combat', 'travel', 'exploration', 'camp', 'economy', 'social'] as const;
+const STACKING = ['additive', 'multiplicative'] as const;
+const TIME_OF_DAY = ['day', 'night'] as const;
+const LOCATION_KINDS = ['settlement', 'road', 'ruins', 'combat'] as const;
+const RESOURCE_TYPES: ResourceType[] = ['FOOD', 'WATER', 'FUEL', 'PARTS', 'AMMO', 'MEDS'];
 
 export function ModifierEditor({ effects, onChange, colorScheme = 'orange' }: ModifierEditorProps) {
     const [isAdding, setIsAdding] = useState(false);
@@ -171,6 +186,139 @@ export function ModifierEditor({ effects, onChange, colorScheme = 'orange' }: Mo
                                 >
                                     {TRIGGERS.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
                                 </select>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-4">
+                            <div className="space-y-1">
+                                <label className="text-[8px] font-black text-gray-600 uppercase">Scope</label>
+                                <select
+                                    value={eff.scope || 'global'}
+                                    onChange={e => updateEffect(i, { scope: e.target.value as any })}
+                                    className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-[10px] text-white font-mono outline-none"
+                                >
+                                    {SCOPES.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-[8px] font-black text-gray-600 uppercase">Stacking</label>
+                                <select
+                                    value={eff.stacking || 'additive'}
+                                    onChange={e => updateEffect(i, { stacking: e.target.value as any })}
+                                    className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-[10px] text-white font-mono outline-none"
+                                >
+                                    {STACKING.map(mode => <option key={mode} value={mode}>{mode}</option>)}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-4 pt-2 border-t border-white/5">
+                            <div className="space-y-1">
+                                <label className="text-[8px] font-black text-gray-600 uppercase">Time Of Day</label>
+                                <select
+                                    value={eff.condition?.timeOfDay || ''}
+                                    onChange={e => updateEffect(i, {
+                                        condition: {
+                                            ...eff.condition,
+                                            timeOfDay: (e.target.value || undefined) as any,
+                                        },
+                                    })}
+                                    className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-[10px] text-white font-mono outline-none"
+                                >
+                                    <option value="">Any</option>
+                                    {TIME_OF_DAY.map(value => <option key={value} value={value}>{value}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-[8px] font-black text-gray-600 uppercase">Location</label>
+                                <select
+                                    value={eff.condition?.locationKind || ''}
+                                    onChange={e => updateEffect(i, {
+                                        condition: {
+                                            ...eff.condition,
+                                            locationKind: (e.target.value || undefined) as any,
+                                        },
+                                    })}
+                                    className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-[10px] text-white font-mono outline-none"
+                                >
+                                    <option value="">Any</option>
+                                    {LOCATION_KINDS.map(value => <option key={value} value={value}>{value}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-[8px] font-black text-gray-600 uppercase">HP Below %</label>
+                                <input
+                                    type="number"
+                                    value={eff.condition?.hpBelowPct ?? ''}
+                                    onChange={e => updateEffect(i, {
+                                        condition: {
+                                            ...eff.condition,
+                                            hpBelowPct: e.target.value ? parseFloat(e.target.value) : undefined,
+                                        },
+                                    })}
+                                    className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-[10px] text-white font-mono outline-none"
+                                />
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-[8px] font-black text-gray-600 uppercase">Alone Only</label>
+                                <select
+                                    value={typeof eff.condition?.isAlone === 'boolean' ? String(eff.condition?.isAlone) : ''}
+                                    onChange={e => updateEffect(i, {
+                                        condition: {
+                                            ...eff.condition,
+                                            isAlone: e.target.value === '' ? undefined : e.target.value === 'true',
+                                        },
+                                    })}
+                                    className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-[10px] text-white font-mono outline-none"
+                                >
+                                    <option value="">Either</option>
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-4">
+                            <div className="space-y-1">
+                                <label className="text-[8px] font-black text-gray-600 uppercase">Resource Trigger</label>
+                                <select
+                                    value={eff.condition?.resourceBelow?.type || ''}
+                                    onChange={e => updateEffect(i, {
+                                        condition: {
+                                            ...eff.condition,
+                                            resourceBelow: e.target.value ? {
+                                                type: e.target.value as ResourceType,
+                                                amount: eff.condition?.resourceBelow?.amount || 1,
+                                            } : undefined,
+                                        },
+                                    })}
+                                    className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-[10px] text-white font-mono outline-none"
+                                >
+                                    <option value="">None</option>
+                                    {RESOURCE_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-[8px] font-black text-gray-600 uppercase">Below Amount</label>
+                                <input
+                                    type="number"
+                                    value={eff.condition?.resourceBelow?.amount ?? ''}
+                                    onChange={e => updateEffect(i, {
+                                        condition: eff.condition?.resourceBelow ? {
+                                            ...eff.condition,
+                                            resourceBelow: {
+                                                ...eff.condition.resourceBelow,
+                                                amount: e.target.value ? parseFloat(e.target.value) : 0,
+                                            },
+                                        } : eff.condition,
+                                    })}
+                                    className="w-full bg-black/60 border border-white/10 rounded px-2 py-1.5 text-[10px] text-white font-mono outline-none"
+                                />
                             </div>
                         </div>
                     </div>

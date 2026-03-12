@@ -88,7 +88,25 @@ bun install
 Create a `.env.local` in the root (or specific app directories):
 
 ```env
+# Used by the Rust dev-tools backend image/text generation endpoints
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Used by other app surfaces still reading the legacy key name
 GOOGLE_GENAI_API_KEY=your_gemini_api_key_here
+
+# Optional: image model catalog shown in /worldgen refinement UI
+# Format: model_id|Display Label,model_id|Display Label
+AI_IMAGE_MODELS=gemini-3.1-flash-image-preview|Nano Banana 2,gemini-3-pro-image-preview|Gemini 3 Pro Image Preview,gemini-2.5-flash-image|Gemini 2.5 Flash Image
+
+# Optional: must match one model_id from AI_IMAGE_MODELS
+AI_IMAGE_DEFAULT_MODEL=gemini-3.1-flash-image-preview
+
+# Optional: ordered fallback chain (comma-separated model IDs)
+AI_IMAGE_FALLBACK_CHAIN=gemini-3-pro-image-preview,gemini-2.5-flash-image
+
+# Optional: refine job protection (queue/concurrency)
+WORLDGEN_REFINE_MAX_CONCURRENT=1
+WORLDGEN_REFINE_MAX_QUEUE=3
 ```
 
 ### 3. Running the Apps

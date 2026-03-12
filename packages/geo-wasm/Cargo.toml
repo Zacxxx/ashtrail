@@ -11,6 +11,7 @@ wasm-bindgen = "0.2.92"
 serde-wasm-bindgen = "0.6"
 console_error_panic_hook = "0.1.7"
 web-sys = { version = "0.3.69", features = ["console"] }
+getrandom = { version = "0.2", features = ["js"] }
 geo-core = { path = "../geo-core" }
 
 [dev-dependencies]

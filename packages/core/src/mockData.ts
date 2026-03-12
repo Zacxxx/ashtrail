@@ -1,8 +1,12 @@
 import { ResourceType, Node, CrewMember, Resources, Trait, Occupation, OccupationCategory, Skill } from './types';
-import skillsData from './data/skills.json';
+import {
+  ALL_OCCUPATIONS as CONTENT_OCCUPATIONS,
+  ALL_SKILLS as CONTENT_SKILLS,
+  ALL_TRAITS as CONTENT_TRAITS,
+} from './content';
 
 // ── Combat Skills ──
-export const ALL_SKILLS: Skill[] = skillsData as Skill[];
+export const ALL_SKILLS: Skill[] = CONTENT_SKILLS;
 
 export const INITIAL_RESOURCES: Resources = {
   [ResourceType.FOOD]: 20,
@@ -13,7 +17,9 @@ export const INITIAL_RESOURCES: Resources = {
   [ResourceType.MEDS]: 3,
 };
 
-export const ALL_TRAITS: Trait[] = [
+export const ALL_TRAITS: Trait[] = CONTENT_TRAITS;
+
+const LEGACY_ALL_TRAITS: Trait[] = [
   // Age-based Intrinsic Traits (Applied based on character age)
   { id: 'age-juvenile', name: 'Juvenile', description: 'Underdeveloped frame but high energy. +1 Agility, -1 Strength.', cost: 0, type: 'neutral', effects: [{ type: 'STAT_MODIFIER', target: 'agility', value: 1 }, { type: 'STAT_MODIFIER', target: 'strength', value: -1 }] },
   { id: 'age-elder', name: 'Elder', description: 'Decades of survival. +1 Wisdom, -1 Endurance.', cost: 0, type: 'neutral', effects: [{ type: 'STAT_MODIFIER', target: 'wisdom', value: 1 }, { type: 'STAT_MODIFIER', target: 'endurance', value: -1 }] },
@@ -100,7 +106,9 @@ export const ALL_TRAITS: Trait[] = [
   { id: 't-bonded-companion', name: 'Bonded Companion', description: 'Forms strong attachment. Gains buffs near one specific crew member, heavy debuff if separated.', cost: 0, type: 'neutral' },
 ];
 
-export const ALL_OCCUPATIONS: Occupation[] = [
+export const ALL_OCCUPATIONS: Occupation[] = CONTENT_OCCUPATIONS;
+
+const LEGACY_ALL_OCCUPATIONS: Occupation[] = [
   // --- SECURITY ---
   { id: 'occ-soldier', name: 'Soldier', category: 'SECURITY', shortDescription: 'Trained combatant with military discipline.', description: 'Served in an organized fighting force before the collapse. Knows formations, weapon maintenance, and how to follow orders under fire. Discipline is second nature.', perks: ['Increased accuracy under suppressive fire', 'Faster weapon handling', 'Bonus morale in combat situations'] },
   { id: 'occ-guard', name: 'Guard', category: 'SECURITY', shortDescription: 'Watchman who kept settlements safe.', description: 'Stood post at settlement gates, watchtowers, and supply depots. Trained to spot threats early and hold ground. Reliable but not aggressive.', perks: ['Earlier detection of incoming threats', 'Reduced ambush chance at camp', 'Bonus to defensive positioning'] },
@@ -251,9 +259,9 @@ export const MAP_NODES: Node[] = [
 ];
 
 export const INITIAL_CREW: CrewMember[] = [
-  { id: 'c1', name: 'Jaxon', role: 'driver', traits: ['Skilled', 'Paranoid'], morale: 80, trust: 70, spIndex: 20 },
-  { id: 'c2', name: 'Miri', role: 'mechanic', traits: ['Efficient', 'Addicted'], morale: 65, trust: 60, spIndex: 30 },
-  { id: 'c3', name: 'Kael', role: 'muscle', traits: ['Loyal', 'Traumatized'], morale: 75, trust: 85, spIndex: 10 },
+  { id: 'c1', name: 'Jaxon', role: 'driver', traits: ['t-lead-foot', 't-paranoid'], morale: 80, trust: 70, spIndex: 20 },
+  { id: 'c2', name: 'Miri', role: 'mechanic', traits: ['t-tinker', 't-chem-reliant'], morale: 65, trust: 60, spIndex: 30 },
+  { id: 'c3', name: 'Kael', role: 'muscle', traits: ['t-martyr', 't-fragile-mind'], morale: 75, trust: 85, spIndex: 10 },
 ];
 
 export const WORLD_LORE = {

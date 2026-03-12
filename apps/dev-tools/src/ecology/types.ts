@@ -1,3 +1,5 @@
+import type { DirectionalSpriteBinding } from "@ashtrail/core";
+
 export type EcologyStatus = "missing" | "draft" | "approved";
 export type EntryStatus = "draft" | "approved";
 export type BaselineScope = "world" | "kingdom" | "duchy";
@@ -45,7 +47,10 @@ export interface FloraEntry {
     edibility: FloraEdibility;
     agricultureValue: number;
     climateProfileIds: string[];
+    biomeIds: string[];
     provinceIds: number[];
+    vegetationAssetBatchIds: string[];
+    illustrationAssetBatchIds: string[];
     approvedAt?: string;
 }
 
@@ -71,12 +76,17 @@ export interface FaunaEntry {
     domesticationPotential: number;
     dangerLevel: number;
     climateProfileIds: string[];
+    biomeIds: string[];
     provinceIds: number[];
     earthAnalog: string;
     ancestralStock: string;
     evolutionaryPressures: string[];
     mutationSummary: string;
     divergenceSummary: string;
+    familyId?: string;
+    familyName?: string;
+    illustrationAssetBatchIds: string[];
+    explorationSprite?: DirectionalSpriteBinding;
     approvedAt?: string;
 }
 
@@ -90,10 +100,53 @@ export interface ProvinceEcologyRecord {
     climateProfileIds: string[];
     floraIds: string[];
     faunaIds: string[];
+    biomeId?: string;
     ecologicalPotential: number;
     agriculturePotential: number;
     consistencyNotes: string[];
     generatedAt?: string;
+    approvedAt?: string;
+}
+
+export interface EnvironmentalEnvelope {
+    temperatureMin: number;
+    temperatureMax: number;
+    precipitationMin: number;
+    precipitationMax: number;
+    elevationMin: number;
+    elevationMax: number;
+    slopeMin: number;
+    slopeMax: number;
+}
+
+export interface ColorProfile {
+    h: number;
+    s: number;
+    v: number;
+}
+
+export interface BiomeArchetype {
+    id: string;
+    name: string;
+    hexColor: string;
+    envConditions: EnvironmentalEnvelope;
+    colorProfile: ColorProfile;
+    suitabilityWeight: number;
+}
+
+export interface BiomeRegistry {
+    archetypes: BiomeArchetype[];
+}
+
+export interface BiomeEntry {
+    id: string;
+    status: EntryStatus;
+    name: string;
+    biomeType: string;
+    description: string;
+    typicalFloraIds: string[];
+    typicalFaunaIds: string[];
+    provinceIds: number[];
     approvedAt?: string;
 }
 
@@ -104,6 +157,8 @@ export interface EcologyBundle {
     climates: ClimateProfile[];
     flora: FloraEntry[];
     fauna: FaunaEntry[];
+    biomes: BiomeEntry[];
+    archetypes: BiomeRegistry;
     provinces: ProvinceEcologyRecord[];
 }
 

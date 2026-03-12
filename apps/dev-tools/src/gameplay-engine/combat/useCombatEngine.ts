@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Trait } from '@ashtrail/core';
+import { CharacterProgression, Occupation, Trait, applyResolvedModifier, resolveCharacterEffects } from '@ashtrail/core';
 import { GameRulesManager } from "../rules/useGameRules";
 
 export interface BaseStats {
@@ -28,6 +28,8 @@ export interface CombatEntity extends BaseStats {
     socialBonus: number;
     equipped?: Record<string, any>;
     traits: Trait[];
+    occupation?: Occupation;
+    progression?: CharacterProgression;
     activeEffects?: any[]; // GameplayEffect[] but avoid circular/type issues if any
     baseStats: BaseStats; // Immortal source of truth
 }
@@ -46,6 +48,18 @@ const toNum = (val: any, fallback: number) => {
 export function calculateEffectiveStats(baseEntity: CombatEntity, traits: Trait[] = []): CombatEntity {
     const rules = GameRulesManager.get();
     const source = baseEntity.baseStats || baseEntity;
+    const resolved = resolveCharacterEffects({
+        traits: traits.length > 0 ? traits : baseEntity.traits,
+        occupation: baseEntity.occupation,
+        progression: baseEntity.progression,
+        equipped: baseEntity.equipped,
+        activeEffects: baseEntity.activeEffects,
+    }, {
+        scope: 'combat',
+        locationKind: 'combat',
+        currentHpPct: baseEntity.maxHp > 0 ? ((baseEntity.hp ?? baseEntity.maxHp) / baseEntity.maxHp) * 100 : 100,
+        isAlone: false,
+    });
 
     // Project everything from baseStats to avoid feedback loops
     const stats = {
@@ -62,71 +76,17 @@ export function calculateEffectiveStats(baseEntity: CombatEntity, traits: Trait[
     let maxHpBonus = 0;
     let maxApBonus = 0;
     let maxMpBonus = 0;
-
-    // Apply trait effects (Passive)
-    traits.forEach(trait => {
-        if (!trait.effects) return;
-        trait.effects.forEach(effect => {
-            if (effect.trigger !== 'passive') return;
-
-            if (effect.type === 'STAT_MODIFIER' || effect.type === 'COMBAT_BONUS') {
-                const target = effect.target as string;
-                const val = toNum(effect.value, 0);
-                if (target === 'maxHp' || target === 'hp') {
-                    maxHpBonus += val;
-                } else if (target === 'maxAp' || target === 'ap') {
-                    maxApBonus += val;
-                } else if (target === 'maxMp' || target === 'mp') {
-                    maxMpBonus += val;
-                } else if (target && (target in stats || target === 'armor')) {
-                    const finalTarget = target === 'armor' ? 'defense' : target;
-                    (stats as any)[finalTarget] += val;
-                }
-            }
-        });
-    });
-
-    // Apply Equipment effects
-    if (baseEntity.equipped) {
-        Object.values(baseEntity.equipped).forEach(item => {
-            if (!item || !item.effects) return;
-            item.effects.forEach((effect: any) => {
-                const target = effect.target as string;
-                const val = toNum(effect.value, 0);
-                if (effect.type === 'STAT_MODIFIER' || effect.type === 'COMBAT_BONUS') {
-                    if (target === 'maxHp' || target === 'hp') {
-                        maxHpBonus += val;
-                    } else if (target === 'maxAp' || target === 'ap') {
-                        maxApBonus += val;
-                    } else if (target === 'maxMp' || target === 'mp') {
-                        maxMpBonus += val;
-                    } else if (target && (target in stats || target === 'armor')) {
-                        const finalTarget = target === 'armor' ? 'defense' : target;
-                        (stats as any)[finalTarget] += val;
-                    }
-                }
-            });
-        });
-    }
-
-    // Apply Active Effects (Buffs/Debuffs)
-    const baseEntityEffects = (baseEntity.activeEffects || []);
-    baseEntityEffects.forEach((eff: any) => {
-        if (eff.type === 'STAT_MODIFIER') {
-            const val = toNum(eff.value, 0);
-            if (eff.target === 'strength') stats.strength += val;
-            if (eff.target === 'agility') stats.agility += val;
-            if (eff.target === 'endurance') stats.endurance += val;
-            if (eff.target === 'intelligence') stats.intelligence += val;
-            if (eff.target === 'wisdom') stats.wisdom += val;
-            if (eff.target === 'charisma') stats.charisma += val;
-            if (eff.target === 'defense') stats.defense += val;
-            if (eff.target === 'evasion') stats.evasion += val;
-            if (eff.target === 'maxHp') maxHpBonus += val;
-            if (eff.target === 'maxAp') maxApBonus += val;
-            if (eff.target === 'maxMp') maxMpBonus += val;
-        }
-    });
+    stats.strength = applyResolvedModifier(stats.strength, resolved.modifiers.strength);
+    stats.agility = applyResolvedModifier(stats.agility, resolved.modifiers.agility);
+    stats.endurance = applyResolvedModifier(stats.endurance, resolved.modifiers.endurance);
+    stats.intelligence = applyResolvedModifier(stats.intelligence, resolved.modifiers.intelligence);
+    stats.wisdom = applyResolvedModifier(stats.wisdom, resolved.modifiers.wisdom);
+    stats.charisma = applyResolvedModifier(stats.charisma, resolved.modifiers.charisma);
+    stats.defense = applyResolvedModifier(stats.defense, resolved.modifiers.defense || resolved.modifiers.armor);
+    stats.evasion = applyResolvedModifier(stats.evasion, resolved.modifiers.evasion);
+    maxHpBonus = applyResolvedModifier(maxHpBonus, resolved.modifiers.maxHp || resolved.modifiers.hp);
+    maxApBonus = applyResolvedModifier(maxApBonus, resolved.modifiers.maxAp || resolved.modifiers.ap);
+    maxMpBonus = applyResolvedModifier(maxMpBonus, resolved.modifiers.maxMp || resolved.modifiers.mp);
 
     // Derived from rules
     const maxHp = Math.max(1, (stats.endurance * (toNum(rules.core.hpPerEndurance, 5))) + (toNum(rules.core.hpBase, 10)) + maxHpBonus);
@@ -142,9 +102,18 @@ export function calculateEffectiveStats(baseEntity: CombatEntity, traits: Trait[
     );
     const finalDefense = baseArmorLog + stats.defense;
 
-    const critChance = stats.intelligence * (toNum(rules.core.critPerIntelligence, 0.02));
-    const resistance = stats.wisdom * (toNum(rules.core.resistPerWisdom, 0.05));
-    const socialBonus = stats.charisma * (toNum(rules.core.charismaBonusPerCharisma, 0.03));
+    const critChance = applyResolvedModifier(
+        stats.intelligence * (toNum(rules.core.critPerIntelligence, 0.02)),
+        resolved.modifiers.critChance,
+    );
+    const resistance = applyResolvedModifier(
+        stats.wisdom * (toNum(rules.core.resistPerWisdom, 0.05)),
+        resolved.modifiers.resistance,
+    );
+    const socialBonus = applyResolvedModifier(
+        stats.charisma * (toNum(rules.core.charismaBonusPerCharisma, 0.03)),
+        resolved.modifiers.socialBonus,
+    );
 
     const effective: CombatEntity = {
         id: baseEntity.id || Math.random().toString(36).substring(7),
@@ -168,7 +137,9 @@ export function calculateEffectiveStats(baseEntity: CombatEntity, traits: Trait[
         defense: finalDefense,
         evasion: stats.evasion,
         equipped: baseEntity.equipped,
-        traits,
+        traits: resolved.traits,
+        occupation: baseEntity.occupation,
+        progression: baseEntity.progression,
         activeEffects: baseEntity.activeEffects,
         baseStats: source // Keep the unmutated base
     };

@@ -1,6 +1,9 @@
 import { TalentTree } from './types';
+import { TALENT_TREE_LOOKUP } from './content';
 
-export const MOCK_TALENT_TREES: Record<string, TalentTree> = {
+export const MOCK_TALENT_TREES: Record<string, TalentTree> = TALENT_TREE_LOOKUP;
+
+const LEGACY_MOCK_TALENT_TREES: Record<string, TalentTree> = {
     'occ-soldier': {
         occupationId: 'occ-soldier',
         nodes: [

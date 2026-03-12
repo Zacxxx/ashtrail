@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { TabBar } from "@ashtrail/ui";
-import { Link } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { CharacterRulePanel } from "./CharacterRulePanel";
 import { TraitsView } from "./TraitsView";
 import { OccupationsView } from "./OccupationsView";
@@ -10,12 +9,19 @@ import { CombatSimulator } from "./combat/CombatSimulator";
 import { SkillBuilder } from "./SkillBuilder";
 import { GameRulesView } from "./GameRulesView";
 import { EventsView } from "./EventsView";
+import { ExplorationView } from "./ExplorationView";
+import { GameplayValidationPanel } from "./GameplayValidationPanel";
 import { GameRegistry, Trait, Occupation, Character, Item } from "@ashtrail/core";
 
 export type GameplayStep = "RULES" | "EXPLORATION" | "EVENTS" | "COMBAT" | "CHARACTER" | "SKILLS";
 
+function isGameplayStep(value: string | null): value is GameplayStep {
+    return value === "RULES" || value === "EXPLORATION" || value === "EVENTS" || value === "COMBAT" || value === "CHARACTER" || value === "SKILLS";
+}
+
 export function GameplayEnginePage() {
-    const [activeStep, setActiveStep] = useState<GameplayStep>("CHARACTER");
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [activeStep, setActiveStep] = useState<GameplayStep>(isGameplayStep(searchParams.get("step")) ? searchParams.get("step") as GameplayStep : "CHARACTER");
     const [combatInitData, setCombatInitData] = useState<{ players: string[], enemies: string[] } | null>(null);
 
     // Character Data State for live editing
@@ -45,6 +51,16 @@ export function GameplayEnginePage() {
         loadRegistryData();
     }, []);
 
+    React.useEffect(() => {
+        const step = searchParams.get("step");
+        if (isGameplayStep(step) && step !== activeStep) {
+            setActiveStep(step);
+        }
+        if (!isGameplayStep(step)) {
+            setSearchParams({ step: "CHARACTER" }, { replace: true });
+        }
+    }, [activeStep, searchParams, setSearchParams]);
+
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
             <div className="absolute inset-0 z-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-orange-900/20 via-[#030508] to-[#030508]" />
@@ -61,7 +77,10 @@ export function GameplayEnginePage() {
                         {(["RULES", "EXPLORATION", "EVENTS", "COMBAT", "CHARACTER", "SKILLS"] as GameplayStep[]).map((step) => (
                             <button
                                 key={step}
-                                onClick={() => setActiveStep(step)}
+                                onClick={() => {
+                                    setActiveStep(step);
+                                    setSearchParams({ step });
+                                }}
                                 className={`relative px-4 py-1.5 text-[9px] font-black tracking-[0.2em] rounded-full transition-all duration-300 overflow-hidden ${activeStep === step
                                     ? "text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
                                     : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
@@ -83,26 +102,32 @@ export function GameplayEnginePage() {
                 {activeStep === "CHARACTER" && (
                     <aside className="w-[360px] h-full flex flex-col gap-4 shrink-0 transition-transform duration-500 ease-in-out">
                         {!isLoading && (
-                            <CharacterRulePanel
-                                traits={customTraits}
-                                setTraits={setCustomTraits}
-                                occupations={customOccupations}
-                                setOccupations={setCustomOccupations}
-                                characters={customCharacters}
-                                setCharacters={setCustomCharacters}
-                                items={customItems}
-                                setItems={setCustomItems}
-                                selectedTrait={selectedTrait}
-                                setSelectedTrait={setSelectedTrait}
-                                selectedOccupation={selectedOccupation}
-                                setSelectedOccupation={setSelectedOccupation}
-                                selectedCharacter={selectedCharacter}
-                                setSelectedCharacter={setSelectedCharacter}
-                                selectedItem={selectedItem}
-                                setSelectedItem={setSelectedItem}
-                                activeTab={activeDetailTab}
-                                setActiveTab={setActiveDetailTab}
-                            />
+                            <>
+                                <CharacterRulePanel
+                                    traits={customTraits}
+                                    setTraits={setCustomTraits}
+                                    occupations={customOccupations}
+                                    setOccupations={setCustomOccupations}
+                                    characters={customCharacters}
+                                    setCharacters={setCustomCharacters}
+                                    items={customItems}
+                                    setItems={setCustomItems}
+                                    selectedTrait={selectedTrait}
+                                    setSelectedTrait={setSelectedTrait}
+                                    selectedOccupation={selectedOccupation}
+                                    setSelectedOccupation={setSelectedOccupation}
+                                    selectedCharacter={selectedCharacter}
+                                    setSelectedCharacter={setSelectedCharacter}
+                                    selectedItem={selectedItem}
+                                    setSelectedItem={setSelectedItem}
+                                    activeTab={activeDetailTab}
+                                    setActiveTab={setActiveDetailTab}
+                                />
+                                <GameplayValidationPanel
+                                    traits={customTraits}
+                                    occupations={customOccupations}
+                                />
+                            </>
                         )}
                     </aside>
                 )}
@@ -148,6 +173,12 @@ export function GameplayEnginePage() {
                         </div>
                     )}
 
+                    {activeStep === "EXPLORATION" && (
+                        <div className="w-full h-full">
+                            <ExplorationView />
+                        </div>
+                    )}
+
                     {activeStep === "EVENTS" && (
                         <div className="w-full h-full p-8 flex justify-center items-start overflow-y-auto">
                             <div className="w-full h-full max-w-[1200px]">
@@ -160,6 +191,7 @@ export function GameplayEnginePage() {
                                     onCombatRedirect={(players, enemies) => {
                                         setCombatInitData({ players, enemies });
                                         setActiveStep("COMBAT");
+                                        setSearchParams({ step: "COMBAT" });
                                     }}
                                 />
                             </div>

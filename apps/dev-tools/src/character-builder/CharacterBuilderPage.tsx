@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType } from "@ashtrail/core";
+import { Link, useSearchParams } from "react-router-dom";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits } from "@ashtrail/core";
 import { TabBar, Modal } from "@ashtrail/ui";
 import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
@@ -97,7 +97,17 @@ const ALL_BADGES = [
     "👤", "💀", "⚔️", "🛡️", "🧬", "⚡", "🔥", "☢️", "☣️", "🪦", "🔋", "🩸"
 ];
 
+const SPRITE_ENABLED_TYPES = new Set(["Human", "Monster", "Mutant", "Construct"]);
+const CHARACTER_SPRITE_TYPE_MAP: Record<string, "human" | "monster" | "mutant" | "construct" | null> = {
+    Human: "human",
+    Monster: "monster",
+    Mutant: "mutant",
+    Construct: "construct",
+    Animal: null,
+};
+
 export function CharacterBuilderPage() {
+    const [searchParams] = useSearchParams();
     const [isLoading, setIsLoading] = useState(true);
     const [savedCharacters, setSavedCharacters] = useState<Character[]>([]);
     const [libraryItems, setLibraryItems] = useState<Item[]>([]);
@@ -113,6 +123,7 @@ export function CharacterBuilderPage() {
     const [currentStory, setCurrentStory] = useState("");
     const [isNPC, setIsNPC] = useState(false);
     const [characterType, setCharacterType] = useState<CharacterType>("Human");
+    const [explorationSprite, setExplorationSprite] = useState<DirectionalSpriteBinding | undefined>(undefined);
     const [isFamily, setIsFamily] = useState(false);
     const [familyId, setFamilyId] = useState("");
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
@@ -259,6 +270,9 @@ export function CharacterBuilderPage() {
 
     const activeBaseTypes = worldSettings?.baseTypes && worldSettings.baseTypes.length > 0 ? worldSettings.baseTypes : DEFAULT_BASE_TYPES;
     const activeRules = currentBaseTypeRules || activeBaseTypes.find(t => t.id === characterType) || DEFAULT_BASE_TYPES[0];
+    const supportsExplorationSprite = SPRITE_ENABLED_TYPES.has(characterType);
+    const spriteActorType = CHARACTER_SPRITE_TYPE_MAP[characterType] ?? "human";
+    const spriteGeneratorLink = `/asset-generator?tab=sprites&mode=directional-set&spriteType=${spriteActorType}&targetKind=character&targetId=${charId}`;
 
     const selectedWorld = generationHistory.find(h => h.id === worldId);
 
@@ -271,6 +285,7 @@ export function CharacterBuilderPage() {
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, slotIndex: number | null } | null>(null);
     const [hoverInfo, setHoverInfo] = useState<{ x: number, y: number, item: Item } | null>(null);
     const [animatingSlot, setAnimatingSlot] = useState<{ index: number, type: 'destroy' | 'throw' } | null>(null);
+    const [credits, setCredits] = useState<CharacterCredits>({ ...DEFAULT_CHARACTER_CREDITS });
 
     // Equipment State
     const [equippedItems, setEquippedItems] = useState<Record<string, Item | null>>({
@@ -468,11 +483,7 @@ export function CharacterBuilderPage() {
         setInventory(prev => [...prev, newItem]);
     };
 
-    // Currency Values
-    const [gold] = useState(10);
-    const [silver] = useState(24);
-    const [copper] = useState(0);
-    const totalCredits = (gold * 100) + (silver * 10) + copper;
+    const totalCredits = useMemo(() => getCharacterCreditsTotal(credits), [credits]);
 
     useEffect(() => {
         async function load() {
@@ -484,6 +495,18 @@ export function CharacterBuilderPage() {
         }
         load();
     }, []);
+
+    useEffect(() => {
+        if (isLoading) return;
+        const requestedId = searchParams.get("id");
+        if (!requestedId) return;
+        const match = savedCharacters.find((character) => character.id === requestedId);
+        if (!match) return;
+        loadCharacter(match);
+        if (searchParams.get("focus") === "sprite") {
+            setActiveTab("IDENTITY");
+        }
+    }, [isLoading, savedCharacters, searchParams]);
 
     useEffect(() => {
         if (activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT") return;
@@ -547,6 +570,13 @@ export function CharacterBuilderPage() {
         } else {
             setSelectedSkills(p => [...p, skill]);
         }
+    };
+
+    const updateCredits = (key: keyof CharacterCredits, value: number) => {
+        setCredits(prev => ({
+            ...prev,
+            [key]: Math.max(0, Math.floor(Number.isFinite(value) ? value : 0)),
+        }));
     };
 
     const updateLevel = (nextLevel: number, grantAttributePoint = false) => {
@@ -627,6 +657,7 @@ export function CharacterBuilderPage() {
         setHistory(loadedHistory);
         setIsNPC(char.isNPC || false);
         setCharacterType(char.type || "Human");
+        setExplorationSprite(char.explorationSprite);
         setIsFamily(char.isFamily || false);
         setFamilyId(char.familyId || "");
         setWorldId(char.worldId || "665774da-472d-4570-adfb-1242ceefdfd9");
@@ -651,6 +682,7 @@ export function CharacterBuilderPage() {
         setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
         setInventory(char.inventory || []);
+        setCredits(normalizeCharacterCredits(char.credits));
         setSelectedSkills(char.skills || []);
         if (char.equipped) {
             setEquippedItems(char.equipped);
@@ -682,6 +714,7 @@ export function CharacterBuilderPage() {
         setBackstory("");
         setIsNPC(false);
         setCharacterType("Human");
+        setExplorationSprite(undefined);
         setIsFamily(false);
         setFamilyId("");
         setWorldId("665774da-472d-4570-adfb-1242ceefdfd9");
@@ -702,6 +735,7 @@ export function CharacterBuilderPage() {
         setRedispatchPoints(null);
         setRedispatchUpgrades(null);
         setSelectedOccupation(null);
+        setCredits({ ...DEFAULT_CHARACTER_CREDITS });
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
         });
@@ -749,6 +783,7 @@ export function CharacterBuilderPage() {
             maxHp: derivedStats.hp,
             xp: 0,
             level: level,
+            credits: normalizeCharacterCredits(credits),
             inventory: inventory,
             skills: selectedSkills,
             equipped: equippedItems,
@@ -757,6 +792,7 @@ export function CharacterBuilderPage() {
             faction: faction,
             alignment: alignment,
             currentStory: currentStory,
+            explorationSprite,
             parents: { father: relationships.find(r => r.type === 'father')?.targetId || null, mother: relationships.find(r => r.type === 'mother')?.targetId || null },
             relationships,
         };
@@ -1048,6 +1084,38 @@ export function CharacterBuilderPage() {
                                             {isNPC ? "NPC / Archetype" : "Player Character"}
                                         </button>
                                     </div>
+
+                                    {supportsExplorationSprite && (
+                                        <div className={`rounded-2xl border p-4 ${searchParams.get("focus") === "sprite" ? "border-emerald-500/40 bg-emerald-500/5" : "border-white/5 bg-black/30"}`}>
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div>
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400">Exploration Sprite</p>
+                                                    <p className="mt-1 text-[10px] text-gray-500">Used by the gameplay-engine location exploration actors.</p>
+                                                </div>
+                                                <Link
+                                                    to={spriteGeneratorLink}
+                                                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-emerald-300 transition-all hover:bg-emerald-500/20"
+                                                >
+                                                    {explorationSprite ? "Replace Sprite" : "Generate Sprite"}
+                                                </Link>
+                                            </div>
+
+                                            {explorationSprite ? (
+                                                <div className="mt-4 flex items-center gap-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                                                    <img src={explorationSprite.previewUrl} alt="Exploration sprite preview" className="h-20 w-20 rounded-lg border border-white/10 object-contain bg-black/30" />
+                                                    <div className="space-y-1">
+                                                        <p className="text-[10px] font-bold uppercase tracking-widest text-white">{explorationSprite.actorType}</p>
+                                                        <p className="text-[10px] text-gray-500">Batch {explorationSprite.batchId}</p>
+                                                        <p className="text-[10px] text-gray-500">Sprite {explorationSprite.spriteId}</p>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-black/20 p-4 text-[10px] uppercase tracking-widest text-gray-600">
+                                                    No exploration sprite bound.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-1">
@@ -2573,18 +2641,22 @@ export function CharacterBuilderPage() {
                                                         <span className="text-sm font-black text-[#c2410c]">{totalCredits.toLocaleString()}</span>
                                                     </div>
                                                     <div className="flex gap-2 pr-1 scale-90">
-                                                        <div className="flex items-center gap-1 opacity-50">
-                                                            <span className="text-[9px] text-white font-bold">{gold.toString().padStart(2, '0')}</span>
-                                                            <div className="w-2 h-2 rounded-full bg-yellow-600" />
-                                                        </div>
-                                                        <div className="flex items-center gap-1 opacity-50">
-                                                            <span className="text-[9px] text-white font-bold">{silver.toString().padStart(2, '0')}</span>
-                                                            <div className="w-2 h-2 rounded-full bg-slate-400" />
-                                                        </div>
-                                                        <div className="flex items-center gap-1 opacity-50">
-                                                            <span className="text-[9px] text-white font-bold">{copper.toString().padStart(2, '0')}</span>
-                                                            <div className="w-2 h-2 rounded-full bg-orange-700" />
-                                                        </div>
+                                                        {([
+                                                            { key: "gold", color: "bg-yellow-600" },
+                                                            { key: "silver", color: "bg-slate-400" },
+                                                            { key: "copper", color: "bg-orange-700" },
+                                                        ] as const).map(({ key, color }) => (
+                                                            <label key={key} className="flex items-center gap-1.5 opacity-80">
+                                                                <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    value={credits[key]}
+                                                                    onChange={e => updateCredits(key, Number.parseInt(e.target.value, 10))}
+                                                                    className="w-12 bg-black/50 border border-white/10 text-[9px] text-white font-bold text-center px-1.5 py-1 outline-none focus:border-[#c2410c]/40"
+                                                                />
+                                                                <div className={`w-2 h-2 rounded-full ${color}`} />
+                                                            </label>
+                                                        ))}
                                                     </div>
                                                 </div>
                                             </div>

@@ -18,11 +18,11 @@ const TOOLS = [
         color: "bg-amber-500",
     },
     {
-        id: "travel",
-        name: "Node Travel",
-        description: "Explore the connected graph of system nodes, packets, and jump gates.",
-        icon: "🚀",
-        status: "PLANNED",
+        id: "game-master",
+        name: "Game Master",
+        description: "World-scoped AI GM settings, canon context, and event guidance orchestration.",
+        icon: "🧠",
+        status: "WIP",
         color: "bg-indigo-500",
     },
     {
@@ -64,6 +64,14 @@ const TOOLS = [
         icon: "🌿",
         status: "WIP",
         color: "bg-emerald-500",
+    },
+    {
+        id: "quests",
+        name: "Quests",
+        description: "Generate, run, persist, and resume world-scoped multi-ending quest runs.",
+        icon: "🧭",
+        status: "WIP",
+        color: "bg-amber-500",
     }
 ];
 

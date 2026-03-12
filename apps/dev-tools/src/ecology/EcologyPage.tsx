@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Modal, TabBar } from "@ashtrail/ui";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
@@ -9,39 +9,72 @@ import { useEcologyData } from "./useEcologyData";
 import type {
     ClimateProfile,
     EcologyBaseline,
+    EcologyStatus,
     FaunaEntry,
     FloraEntry,
+    BiomeEntry,
     ProvinceEcologyRecord,
+    BiomeArchetype,
 } from "./types";
+import { BiomeArchetypeEditor } from "./BiomeArchetypeEditor";
 
-type EcologyTab = "provinces" | "flora" | "fauna" | "climates" | "baselines";
+type EcologyTab = "provinces" | "flora" | "fauna" | "climates" | "biomes" | "baselines";
 
 function linesToArray(text: string) {
     return text.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
-function arrayToLines(values: string[]) {
-    return values.join("\n");
+function arrayToLines(values: string[] | undefined) {
+    return (values ?? []).join("\n");
 }
 
 export function EcologyPage() {
-    const [activeTab, setActiveTab] = useState<EcologyTab>("provinces");
+    const [searchParams, setSearchParams] = useSearchParams();
+    const requestedTab = searchParams.get("tab");
+    const initialTab: EcologyTab =
+        requestedTab === "flora" || requestedTab === "fauna" || requestedTab === "climates" || requestedTab === "biomes" || requestedTab === "baselines"
+            ? requestedTab
+            : "provinces";
+    const [activeTab, setActiveTab] = useState<EcologyTab>(initialTab);
     const [showGalleryModal, setShowGalleryModal] = useState(false);
     const [selectedProvinceId, setSelectedProvinceId] = useState<number | null>(null);
     const [selectedFloraId, setSelectedFloraId] = useState<string | null>(null);
     const [selectedFaunaId, setSelectedFaunaId] = useState<string | null>(null);
     const [selectedClimateId, setSelectedClimateId] = useState<string | null>(null);
+    const [selectedBiomeId, setSelectedBiomeId] = useState<string | null>(null);
+    const [selectedArchetypeId, setSelectedArchetypeId] = useState<string | null>(null);
+    const [biomeSubTab, setBiomeSubTab] = useState<"instances" | "archetypes">("instances");
     const [floraSearch, setFloraSearch] = useState("");
     const [faunaSearch, setFaunaSearch] = useState("");
     const [climateSearch, setClimateSearch] = useState("");
+    const [biomeSearch, setBiomeSearch] = useState("");
+    const [archetypeSearch, setArchetypeSearch] = useState("");
     const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
     const selectedWorld = history.find((item) => item.id === activeWorldId) ?? null;
     const ecology = useEcologyData(activeWorldId);
 
     useEffect(() => {
+        const tab = searchParams.get("tab");
+        const requestedId = searchParams.get("id");
+        if (tab === "flora") {
+            setActiveTab("flora");
+            if (requestedId) setSelectedFloraId(requestedId);
+        } else if (tab === "fauna") {
+            setActiveTab("fauna");
+            if (requestedId) setSelectedFaunaId(requestedId);
+        } else if (tab === "biomes") {
+            setActiveTab("biomes");
+            if (requestedId) setSelectedBiomeId(requestedId);
+        } else if (tab === "climates") {
+            setActiveTab("climates");
+            if (requestedId) setSelectedClimateId(requestedId);
+        }
+    }, [searchParams]);
+
+    useEffect(() => {
         if (!selectedProvinceId) {
-            const firstProvince = ecology.regionsByType.provinces[0];
+            const firstProvince = ecology.regionsByType.provinces?.[0];
             if (firstProvince?.rawId !== undefined) {
                 setSelectedProvinceId(firstProvince.rawId);
             }
@@ -49,10 +82,27 @@ export function EcologyPage() {
     }, [ecology.regionsByType.provinces, selectedProvinceId]);
 
     useEffect(() => {
-        if (!selectedFloraId && ecology.bundle?.flora[0]) setSelectedFloraId(ecology.bundle.flora[0].id);
-        if (!selectedFaunaId && ecology.bundle?.fauna[0]) setSelectedFaunaId(ecology.bundle.fauna[0].id);
-        if (!selectedClimateId && ecology.bundle?.climates[0]) setSelectedClimateId(ecology.bundle.climates[0].id);
-    }, [ecology.bundle, selectedClimateId, selectedFaunaId, selectedFloraId]);
+        if (!selectedFloraId && ecology.bundle?.flora?.[0]) setSelectedFloraId(ecology.bundle.flora[0].id);
+        if (!selectedFaunaId && ecology.bundle?.fauna?.[0]) setSelectedFaunaId(ecology.bundle.fauna[0].id);
+        if (!selectedClimateId && ecology.bundle?.climates?.[0]) setSelectedClimateId(ecology.bundle.climates[0].id);
+        if (!selectedBiomeId && ecology.bundle?.biomes?.[0]) setSelectedBiomeId(ecology.bundle.biomes[0].id);
+        if (!selectedArchetypeId && ecology.bundle?.archetypes?.archetypes?.[0]) setSelectedArchetypeId(ecology.bundle.archetypes.archetypes[0].id);
+    }, [ecology.bundle, selectedClimateId, selectedFaunaId, selectedFloraId, selectedBiomeId, selectedArchetypeId]);
+
+    useEffect(() => {
+        const next = new URLSearchParams(searchParams);
+        next.set("tab", activeTab);
+        if (activeTab === "flora" && selectedFloraId) next.set("id", selectedFloraId);
+        else if (activeTab === "fauna" && selectedFaunaId) next.set("id", selectedFaunaId);
+        else if (activeTab === "biomes" && selectedBiomeId) next.set("id", selectedBiomeId);
+        else if (activeTab === "climates" && selectedClimateId) next.set("id", selectedClimateId);
+        else next.delete("id");
+        const current = searchParams.toString();
+        const updated = next.toString();
+        if (current !== updated) {
+            setSearchParams(next, { replace: true });
+        }
+    }, [activeTab, searchParams, selectedBiomeId, selectedClimateId, selectedFaunaId, selectedFloraId, setSearchParams]);
 
     const selectedProvinceRegion = useMemo(
         () => ecology.regionsByType.provinces.find((entry) => entry.rawId === selectedProvinceId) ?? null,
@@ -61,11 +111,11 @@ export function EcologyPage() {
     const selectedProvinceRecord = useMemo(() => {
         if (!selectedProvinceRegion?.rawId) return null;
         return (
-            ecology.bundle?.provinces.find((entry) => entry.provinceId === selectedProvinceRegion.rawId) ?? {
+            ecology.bundle?.provinces?.find((entry) => entry.provinceId === selectedProvinceRegion.rawId) ?? {
                 provinceId: selectedProvinceRegion.rawId,
                 duchyId: selectedProvinceRegion.duchyId ?? 0,
                 kingdomId: selectedProvinceRegion.kingdomId ?? 0,
-                status: "missing",
+                status: "missing" as EcologyStatus,
                 sourceIsolatedImageUrl: "",
                 description: "",
                 climateProfileIds: [],
@@ -78,9 +128,11 @@ export function EcologyPage() {
         );
     }, [ecology.bundle?.provinces, selectedProvinceRegion]);
 
-    const selectedFlora = ecology.bundle?.flora.find((entry) => entry.id === selectedFloraId) ?? null;
-    const selectedFauna = ecology.bundle?.fauna.find((entry) => entry.id === selectedFaunaId) ?? null;
-    const selectedClimate = ecology.bundle?.climates.find((entry) => entry.id === selectedClimateId) ?? null;
+    const selectedFlora = ecology.bundle?.flora?.find((entry) => entry.id === selectedFloraId) ?? null;
+    const selectedFauna = ecology.bundle?.fauna?.find((entry) => entry.id === selectedFaunaId) ?? null;
+    const selectedClimate = ecology.bundle?.climates?.find((entry) => entry.id === selectedClimateId) ?? null;
+    const selectedBiome = ecology.bundle?.biomes?.find((entry) => entry.id === selectedBiomeId) ?? null;
+    const selectedArchetype = ecology.bundle?.archetypes?.archetypes?.find((a) => a.id === selectedArchetypeId) ?? null;
 
     const filteredFlora = (ecology.bundle?.flora ?? []).filter((entry) =>
         entry.name.toLowerCase().includes(floraSearch.toLowerCase()),
@@ -90,6 +142,12 @@ export function EcologyPage() {
     );
     const filteredClimates = (ecology.bundle?.climates ?? []).filter((entry) =>
         entry.name.toLowerCase().includes(climateSearch.toLowerCase()),
+    );
+    const filteredBiomes = (ecology.bundle?.biomes ?? []).filter((entry) =>
+        entry.name.toLowerCase().includes(biomeSearch.toLowerCase()),
+    );
+    const filteredArchetypes = (ecology.bundle?.archetypes?.archetypes ?? []).filter((a) =>
+        a.name.toLowerCase().includes(archetypeSearch.toLowerCase()) || a.id.toLowerCase().includes(archetypeSearch.toLowerCase()),
     );
     const baselineCards = useMemo(() => {
         const worldBaseline =
@@ -201,7 +259,7 @@ export function EcologyPage() {
 
                 <div className="h-8 flex-1 max-w-xl scale-90">
                     <TabBar
-                        tabs={["provinces", "flora", "fauna", "climates", "baselines"]}
+                        tabs={["provinces", "flora", "fauna", "climates", "biomes", "baselines"]}
                         activeTab={activeTab}
                         onTabChange={(tab) => setActiveTab(tab as EcologyTab)}
                     />
@@ -331,6 +389,8 @@ export function EcologyPage() {
                     editor={selectedFlora && (
                         <FloraEditor
                             item={selectedFlora}
+                            biomes={ecology.bundle?.biomes ?? []}
+                            worldId={activeWorldId}
                             onSave={(entry) => void ecology.updateFlora(entry)}
                             onApprove={() => void ecology.approveEntryById("flora", selectedFlora.id)}
                         />
@@ -350,6 +410,8 @@ export function EcologyPage() {
                     editor={selectedFauna && (
                         <FaunaEditor
                             item={selectedFauna}
+                            biomes={ecology.bundle?.biomes ?? []}
+                            worldId={activeWorldId}
                             onSave={(entry) => void ecology.updateFauna(entry)}
                             onApprove={() => void ecology.approveEntryById("fauna", selectedFauna.id)}
                         />
@@ -374,6 +436,100 @@ export function EcologyPage() {
                         />
                     )}
                 />
+            )}
+
+            {activeTab === "biomes" && (
+                <div className="flex-1 min-h-0 flex flex-col gap-4">
+                    <div className="flex gap-2 border-b border-white/5 pb-2 items-center justify-between">
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setBiomeSubTab("instances")}
+                                className={`px-4 py-1 text-[10px] font-bold tracking-widest uppercase transition-all rounded-full ${biomeSubTab === "instances" ? "bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500/30" : "text-gray-500 hover:text-gray-300"}`}
+                            >
+                                Biome Instances
+                            </button>
+                            <button
+                                onClick={() => setBiomeSubTab("archetypes")}
+                                className={`px-4 py-1 text-[10px] font-bold tracking-widest uppercase transition-all rounded-full ${biomeSubTab === "archetypes" ? "bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/30" : "text-gray-500 hover:text-gray-300"}`}
+                            >
+                                Archetype Registry
+                            </button>
+                        </div>
+                        {biomeSubTab === "instances" && (
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm("Are you sure you want to SYNC biomes from the world map? This will re-add biomes defined in worldgen and associate them with provinces.")) {
+                                            void ecology.syncBiomesWithMap();
+                                        }
+                                    }}
+                                    className="px-4 py-1 text-[10px] font-bold tracking-widest uppercase transition-all rounded-full text-cyan-500/70 hover:text-cyan-400 hover:bg-cyan-500/10 border border-cyan-500/20"
+                                >
+                                    Sync From World Map
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm("Are you sure you want to clear ALL biome instances? This will also remove biome assignments from all flora and fauna.")) {
+                                            void ecology.clearBiomes();
+                                        }
+                                    }}
+                                    className="px-4 py-1 text-[10px] font-bold tracking-widest uppercase transition-all rounded-full text-red-500/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20"
+                                >
+                                    Clear All Biomes
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {biomeSubTab === "instances" ? (
+                        <LibraryTab
+                            title="Biome Instances"
+                            search={biomeSearch}
+                            setSearch={setBiomeSearch}
+                            items={filteredBiomes}
+                            selectedId={selectedBiomeId}
+                            setSelectedId={setSelectedBiomeId}
+                            renderLabel={(item) => `${item.name} [Type: ${item.biomeType}]`}
+                            editor={selectedBiome && (
+                                <BiomeEditor
+                                    item={selectedBiome}
+                                    flora={ecology.bundle?.flora ?? []}
+                                    fauna={ecology.bundle?.fauna ?? []}
+                                    worldId={activeWorldId}
+                                    onSave={(entry) => void ecology.updateBiome(entry)}
+                                    onOpenFlora={(id) => {
+                                        setActiveTab("flora");
+                                        setSelectedFloraId(id);
+                                    }}
+                                    onOpenFauna={(id) => {
+                                        setActiveTab("fauna");
+                                        setSelectedFaunaId(id);
+                                    }}
+                                    onApprove={() => void ecology.approveEntryById("biomes", selectedBiome.id)}
+                                    onGenerate={() => void ecology.generateBiomeDescription(selectedBiome.id)}
+                                    isGenerating={ecology.jobState.status === "running" || ecology.jobState.status === "queued"}
+                                />
+                            )}
+                        />
+                    ) : (
+                        <LibraryTab
+                            title="Biome Archetypes"
+                            search={archetypeSearch}
+                            setSearch={setArchetypeSearch}
+                            items={filteredArchetypes}
+                            selectedId={selectedArchetypeId}
+                            setSelectedId={setSelectedArchetypeId}
+                            renderLabel={(item) => item.name}
+                            editor={selectedArchetype && (
+                                <BiomeArchetypeEditor
+                                    archetype={selectedArchetype}
+                                    onSave={(a) => void ecology.updateArchetype(a)}
+                                    onDelete={(id) => void ecology.deleteArchetype(id)}
+                                />
+                            )}
+                        />
+                    )}
+                </div>
             )}
 
             {activeTab === "baselines" && (
@@ -428,7 +584,7 @@ export function EcologyPage() {
                                     {baseline.scope === "kingdom" && typeof baseline.entityId === "number" && (
                                         <button
                                             type="button"
-                                            onClick={() => void ecology.generateKingdomBaseline(baseline.entityId)}
+                                            onClick={() => void ecology.generateKingdomBaseline(baseline.entityId as number)}
                                             disabled={ecology.baselineLookup.get("world:world")?.status !== "approved"}
                                             className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:opacity-40"
                                         >
@@ -438,7 +594,7 @@ export function EcologyPage() {
                                     {baseline.scope === "duchy" && typeof baseline.entityId === "number" && (
                                         <button
                                             type="button"
-                                            onClick={() => void ecology.generateDuchyBaseline(baseline.entityId)}
+                                            onClick={() => void ecology.generateDuchyBaseline(baseline.entityId as number)}
                                             disabled={
                                                 typeof baseline.parentEntityId !== "number"
                                                 || ecology.baselineLookup.get(`kingdom:${baseline.parentEntityId}`)?.status !== "approved"
@@ -563,10 +719,14 @@ function ClimateEditor({
 
 function FloraEditor({
     item,
+    biomes,
+    worldId,
     onSave,
     onApprove,
 }: {
     item: FloraEntry;
+    biomes: BiomeEntry[];
+    worldId: string | null;
     onSave: (entry: FloraEntry) => void;
     onApprove: () => void;
 }) {
@@ -579,16 +739,45 @@ function FloraEditor({
             <TextArea label="Ecological Roles" value={arrayToLines(item.ecologicalRoles)} onChange={(value) => onSave({ ...item, ecologicalRoles: linesToArray(value) })} />
             <TextArea label="Adaptations" value={arrayToLines(item.adaptations)} onChange={(value) => onSave({ ...item, adaptations: linesToArray(value) })} />
             <TextInput label="Edibility" value={item.edibility} onChange={(value) => onSave({ ...item, edibility: value as FloraEntry["edibility"] })} />
+            <BiomeSelector
+                title="Biome Attribution"
+                biomes={biomes}
+                selectedIds={item.biomeIds}
+                onToggle={(biomeId) => onSave({ ...item, biomeIds: toggleString(item.biomeIds, biomeId) })}
+            />
+            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <h3 className="mb-3 text-[10px] font-bold tracking-widest text-emerald-300 uppercase">Asset Links</h3>
+                <div className="flex flex-wrap gap-2">
+                    <Link
+                        to={`/asset-generator?tab=game-assets&assetType=vegetation&targetKind=flora&targetId=${encodeURIComponent(item.id)}${worldId ? `&worldId=${encodeURIComponent(worldId)}` : ""}${item.biomeIds[0] ? `&biomeId=${encodeURIComponent(item.biomeIds[0])}` : ""}`}
+                        className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-emerald-300 transition-all hover:bg-emerald-500/20"
+                    >
+                        GENERATE VEGETATION ASSET
+                    </Link>
+                    <Link
+                        to={`/asset-generator?tab=world-assets&mode=illustration&targetKind=flora&targetId=${encodeURIComponent(item.id)}${worldId ? `&worldId=${encodeURIComponent(worldId)}` : ""}`}
+                        className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20"
+                    >
+                        GENERATE ILLUSTRATION
+                    </Link>
+                </div>
+                <AssetBatchChips label="Vegetation Batches" batchIds={item.vegetationAssetBatchIds} tab="game-assets" />
+                <AssetBatchChips label="Illustrations" batchIds={item.illustrationAssetBatchIds} tab="world-assets" />
+            </div>
         </div>
     );
 }
 
 function FaunaEditor({
     item,
+    biomes,
+    worldId,
     onSave,
     onApprove,
 }: {
     item: FaunaEntry;
+    biomes: BiomeEntry[];
+    worldId: string | null;
     onSave: (entry: FaunaEntry) => void;
     onApprove: () => void;
 }) {
@@ -602,9 +791,225 @@ function FaunaEditor({
             <TextArea label="Adaptations" value={arrayToLines(item.adaptations)} onChange={(value) => onSave({ ...item, adaptations: linesToArray(value) })} />
             <TextInput label="Earth Analog" value={item.earthAnalog} onChange={(value) => onSave({ ...item, earthAnalog: value })} />
             <TextInput label="Ancestral Stock" value={item.ancestralStock} onChange={(value) => onSave({ ...item, ancestralStock: value })} />
+            <TextInput label="Family ID" value={item.familyId ?? ""} onChange={(value) => onSave({ ...item, familyId: value || undefined })} />
+            <TextInput label="Family Name" value={item.familyName ?? ""} onChange={(value) => onSave({ ...item, familyName: value || undefined })} />
             <TextArea label="Evolutionary Pressures" value={arrayToLines(item.evolutionaryPressures)} onChange={(value) => onSave({ ...item, evolutionaryPressures: linesToArray(value) })} />
             <TextArea label="Mutation Summary" value={item.mutationSummary} onChange={(value) => onSave({ ...item, mutationSummary: value })} />
             <TextArea label="Divergence Summary" value={item.divergenceSummary} onChange={(value) => onSave({ ...item, divergenceSummary: value })} />
+            <BiomeSelector
+                title="Biome Attribution"
+                biomes={biomes}
+                selectedIds={item.biomeIds}
+                onToggle={(biomeId) => onSave({ ...item, biomeIds: toggleString(item.biomeIds, biomeId) })}
+            />
+            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <h3 className="mb-3 text-[10px] font-bold tracking-widest text-amber-300 uppercase">Asset Links</h3>
+                <div className="mb-3 flex flex-wrap gap-2">
+                    <Link
+                        to={`/asset-generator?tab=sprites&mode=directional-set&spriteType=animal&targetKind=fauna&targetId=${encodeURIComponent(item.id)}${worldId ? `&worldId=${encodeURIComponent(worldId)}` : ""}${item.biomeIds.length ? `&biomeIds=${encodeURIComponent(item.biomeIds.join(","))}` : ""}`}
+                        className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-amber-300 transition-all hover:bg-amber-500/20"
+                    >
+                        GENERATE EXPLORATION SPRITE
+                    </Link>
+                    <Link
+                        to={`/asset-generator?tab=sprites&mode=illustration&spriteType=animal&targetKind=fauna&targetId=${encodeURIComponent(item.id)}${worldId ? `&worldId=${encodeURIComponent(worldId)}` : ""}`}
+                        className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20"
+                    >
+                        GENERATE ILLUSTRATION
+                    </Link>
+                </div>
+                {item.explorationSprite && (
+                    <div className="mb-3 flex items-center gap-3 rounded-lg border border-white/10 bg-[#0a0f14] p-3">
+                        <img src={item.explorationSprite.previewUrl} alt="" className="h-16 w-16 rounded-lg border border-white/10 object-contain bg-black/30" />
+                        <div>
+                            <p className="text-[10px] font-bold tracking-widest text-gray-100 uppercase">Current Sprite</p>
+                            <p className="text-[10px] text-gray-500">{item.explorationSprite.batchId}</p>
+                        </div>
+                    </div>
+                )}
+                <AssetBatchChips label="Illustrations" batchIds={item.illustrationAssetBatchIds} tab="sprites" />
+            </div>
+        </div>
+    );
+}
+
+function BiomeEditor({
+    item,
+    flora,
+    fauna,
+    worldId,
+    onSave,
+    onOpenFlora,
+    onOpenFauna,
+    onApprove,
+    onGenerate,
+    isGenerating,
+}: {
+    item: BiomeEntry;
+    flora: FloraEntry[];
+    fauna: FaunaEntry[];
+    worldId: string | null;
+    onSave: (entry: BiomeEntry) => void;
+    onOpenFlora: (id: string) => void;
+    onOpenFauna: (id: string) => void;
+    onApprove: () => void;
+    onGenerate: () => void;
+    isGenerating: boolean;
+}) {
+    const linkedFlora = flora.filter((entry) => entry.biomeIds.includes(item.id));
+    const linkedFauna = fauna.filter((entry) => entry.biomeIds.includes(item.id));
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div>
+                    <h2 className="text-lg font-bold tracking-widest text-gray-100 uppercase">{item.name}</h2>
+                    <p className="text-[10px] tracking-widest text-gray-500 uppercase">{item.status} • Type {item.biomeType}</p>
+                </div>
+                <div className="flex gap-2">
+                    <button
+                        type="button"
+                        onClick={onGenerate}
+                        disabled={isGenerating}
+                        className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:opacity-40"
+                    >
+                        GENERATE DESCRIPTION
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onApprove}
+                        className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-2 text-[10px] font-bold tracking-widest text-green-300 transition-all hover:bg-green-500/20"
+                    >
+                        APPROVE
+                    </button>
+                </div>
+            </div>
+            <TextInput label="Name" value={item.name} onChange={(value) => onSave({ ...item, name: value })} />
+            <TextArea label="Description" value={item.description} onChange={(value) => onSave({ ...item, description: value })} />
+            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-[10px] font-bold tracking-widest text-emerald-300 uppercase">Linked Flora</h3>
+                    <span className="text-[10px] text-gray-500">{linkedFlora.length}</span>
+                </div>
+                <div className="space-y-2">
+                    {linkedFlora.map((entry) => (
+                        <div key={entry.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-[#0a0f14] p-3">
+                            <div>
+                                <p className="text-sm font-bold text-gray-100">{entry.name}</p>
+                                <p className="text-[10px] uppercase tracking-widest text-gray-500">{entry.category}</p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenFlora(entry.id)}
+                                    className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-[10px] font-bold tracking-widest text-cyan-300"
+                                >
+                                    OPEN
+                                </button>
+                                <Link
+                                    to={`/asset-generator?tab=game-assets&assetType=vegetation&targetKind=flora&targetId=${encodeURIComponent(entry.id)}${worldId ? `&worldId=${encodeURIComponent(worldId)}` : ""}&biomeId=${encodeURIComponent(item.id)}`}
+                                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-bold tracking-widest text-emerald-300"
+                                >
+                                    VEGETATION
+                                </Link>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-[10px] font-bold tracking-widest text-amber-300 uppercase">Linked Fauna</h3>
+                    <span className="text-[10px] text-gray-500">{linkedFauna.length}</span>
+                </div>
+                <div className="space-y-2">
+                    {linkedFauna.map((entry) => (
+                        <div key={entry.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-[#0a0f14] p-3">
+                            <div>
+                                <p className="text-sm font-bold text-gray-100">{entry.name}</p>
+                                <p className="text-[10px] uppercase tracking-widest text-gray-500">{entry.familyName || entry.familyId || entry.category}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => onOpenFauna(entry.id)}
+                                className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-[10px] font-bold tracking-widest text-cyan-300"
+                            >
+                                OPEN
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="mt-8 border-t border-white/10 pt-6">
+                <h3 className="mb-4 text-xs font-bold tracking-widest text-gray-400 uppercase">Provinces with this Biome</h3>
+                <div className="grid grid-cols-2 gap-2">
+                    {item.provinceIds?.map(pid => (
+                        <div key={pid} className="rounded-lg bg-black/30 border border-white/5 p-2 text-[10px] text-gray-300">
+                            ID: #{pid}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function toggleString(values: string[], value: string) {
+    return values.includes(value) ? values.filter((entry) => entry !== value) : [...values, value];
+}
+
+function BiomeSelector({
+    title,
+    biomes,
+    selectedIds,
+    onToggle,
+}: {
+    title: string;
+    biomes: BiomeEntry[];
+    selectedIds: string[];
+    onToggle: (id: string) => void;
+}) {
+    return (
+        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+            <h3 className="mb-3 text-[10px] font-bold tracking-widest text-gray-400 uppercase">{title}</h3>
+            <div className="flex flex-wrap gap-2">
+                {biomes.map((biome) => {
+                    const selected = selectedIds.includes(biome.id);
+                    return (
+                        <button
+                            key={biome.id}
+                            type="button"
+                            onClick={() => onToggle(biome.id)}
+                            className={`rounded-full border px-3 py-1.5 text-[10px] font-bold tracking-widest transition-all ${selected
+                                ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
+                                : "border-white/10 bg-[#0a0f14] text-gray-400 hover:border-white/20"
+                                }`}
+                        >
+                            {biome.name}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+function AssetBatchChips({ label, batchIds, tab }: { label: string; batchIds: string[]; tab: string }) {
+    if (batchIds.length === 0) return null;
+    return (
+        <div className="mt-4">
+            <p className="mb-2 text-[10px] font-bold tracking-widest text-gray-500 uppercase">{label}</p>
+            <div className="flex flex-wrap gap-2">
+                {batchIds.map((batchId) => (
+                    <Link
+                        key={batchId}
+                        to={`/asset-generator?tab=${encodeURIComponent(tab)}&batchId=${encodeURIComponent(batchId)}`}
+                        className="rounded-full border border-white/10 bg-[#0a0f14] px-3 py-1 text-[10px] font-mono text-gray-300 hover:border-cyan-500/30 hover:text-cyan-300"
+                    >
+                        {batchId}
+                    </Link>
+                ))}
+            </div>
         </div>
     );
 }
@@ -627,7 +1032,7 @@ function EditorHeader({ title, status, onApprove }: { title: string; status: str
     );
 }
 
-function TextInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+export function TextInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
     return (
         <label className="flex flex-col gap-2">
             <span className="text-[10px] font-bold tracking-widest text-gray-500 uppercase">{label}</span>
@@ -640,7 +1045,7 @@ function TextInput({ label, value, onChange }: { label: string; value: string; o
     );
 }
 
-function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+export function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
     return (
         <label className="flex flex-col gap-2">
             <span className="text-[10px] font-bold tracking-widest text-gray-500 uppercase">{label}</span>

@@ -327,32 +327,18 @@ export function useWorldgenPipeline(planetId: string | null) {
         }
     }, [planetId, config]);
 
-    // Reset a stage (and downstream)
+    // Reset a stage (isolated)
     const resetStage = useCallback((stageId: string) => {
         setStages(prev => {
             const next = { ...prev };
-            const toReset = new Set<string>([stageId]);
-            // Find all downstream stages
-            let changed = true;
-            while (changed) {
-                changed = false;
-                for (const stage of PIPELINE_STAGES) {
-                    if (!toReset.has(stage.id) && stage.requires.some(dep => toReset.has(dep))) {
-                        toReset.add(stage.id);
-                        changed = true;
-                    }
-                }
-            }
-            for (const id of toReset) {
-                next[id] = { status: "pending", progress: 0, jobId: null, error: null, completedAt: null };
-            }
-            // Recompute readiness
-            for (const stage of PIPELINE_STAGES) {
-                if (next[stage.id].status === "pending") {
-                    const depsCompleted = stage.requires.every(dep => next[dep]?.status === "completed");
-                    if (depsCompleted) {
-                        next[stage.id] = { ...next[stage.id], status: "ready" };
-                    }
+            next[stageId] = { status: "pending", progress: 0, jobId: null, error: null, completedAt: null };
+
+            // Recompute readiness only for this stage
+            const stage = PIPELINE_STAGES.find(s => s.id === stageId);
+            if (stage) {
+                const depsCompleted = stage.requires.every(dep => next[dep]?.status === "completed");
+                if (depsCompleted) {
+                    next[stageId] = { ...next[stageId], status: "ready" };
                 }
             }
             return next;

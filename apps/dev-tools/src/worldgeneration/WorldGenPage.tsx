@@ -12,6 +12,7 @@ import { GeologyPanel } from "./GeologyPanel";
 import { GeographyPipelinePanel } from "./GeographyPipelinePanel";
 import { GeographyInspectorPanel, type InspectorLayer } from "./GeographyInspectorPanel";
 import { GeographyIsolatorPanel } from "./GeographyIsolatorPanel";
+import { ProvinceRefinementPanel } from "./ProvinceRefinementPanel";
 import { EcologyPanel } from "./EcologyPanel";
 import { HumanityPanel } from "./HumanityPanel";
 import { WorldCanvas } from "./WorldCanvas";
@@ -25,7 +26,7 @@ export function WorldGenPage() {
     const [viewMode, setViewMode] = useState<ViewMode>("3d");
     const [activeStep, setActiveStep] = useState<WorkflowStep>("GEO");
     const [inspectorTab, setInspectorTab] = useState<InspectorTab>("base");
-    const [geographyTab, setGeographyTab] = useState<"pipeline" | "inspector" | "isolator">("pipeline");
+    const [geographyTab, setGeographyTab] = useState<"pipeline" | "inspector" | "isolator" | "refinement">("pipeline");
     const [geoSelectedId, setGeoSelectedId] = useState<number | null>(null);
     const [geoHoveredId, setGeoHoveredId] = useState<number | null>(null);
     const [geoBulkSelectedIds, setGeoBulkSelectedIds] = useState<number[]>([]);
@@ -41,27 +42,36 @@ export function WorldGenPage() {
     // ── History ──
     const { history, saveToHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
-    const [activeHistoryId, setActiveHistoryId] = useState<string | null>(activeWorldId);
 
-    // Sync local activeHistoryId with persistent activeWorldId
+    // Sync local state with activeWorldId on mount and when it changes
     useEffect(() => {
-        if (activeWorldId && activeWorldId !== activeHistoryId) {
-            setActiveHistoryId(activeWorldId);
-            // Also load the world data if it's in history
+        if (activeWorldId) {
             const item = history.find(h => h.id === activeWorldId);
             if (item) {
-                setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
+                setGlobeWorld({
+                    cols: 512,
+                    rows: 256,
+                    cellData: [],
+                    textureUrl: item.textureUrl,
+                    provinceOverlays: item.provinceOverlays || [],
+                });
                 setConfig(item.config);
-                setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
+                // Extract prompt title if present
+                const displayPrompt = item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt;
+                setPrompt(displayPrompt);
             }
         }
-    }, [activeWorldId, activeHistoryId, history]);
+    }, [activeWorldId, history]);
 
-    // Update persistent state when local activeHistoryId changes
-    const handleUpdateActiveHistoryId = (item: any) => {
-        setActiveHistoryId(item.id);
+    const handleSelectWorldFromHistory = (item: any) => {
         setActiveWorldId(item.id);
-        setGlobeWorld({ cols: 512, rows: 256, cellData: [], textureUrl: item.textureUrl });
+        setGlobeWorld({
+            cols: 512,
+            rows: 256,
+            cellData: [],
+            textureUrl: item.textureUrl,
+            provinceOverlays: item.provinceOverlays || [],
+        });
         setConfig(item.config);
         setPrompt(item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt);
     };
@@ -112,7 +122,7 @@ export function WorldGenPage() {
         prompt, config, aiResolution, aiTemperature, continents,
         ecoPrompt, ecoVegetation, ecoFauna,
         humPrompt, humSettlements, humTech,
-        globeWorld, saveToHistory, setGlobeWorld, setContinents, setActiveHistoryId,
+        globeWorld, saveToHistory, setGlobeWorld, setContinents, setActiveWorldId,
         saveCellSubTiles: () => { } // Stub — old cell pipeline deprecated
     });
 
@@ -143,7 +153,10 @@ export function WorldGenPage() {
         setGeoBulkSelectedIds([]);
     }, []);
 
-    const selectedWorld = history.find(h => h.id === activeHistoryId);
+    const selectedWorld = history.find(h => h.id === activeWorldId);
+    const sidebarWidth = 340;
+    const sidebarOffset = 370;
+    const sidebarHiddenOffset = 400;
 
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
@@ -161,13 +174,16 @@ export function WorldGenPage() {
                                 onTabChange={(tab) => setInspectorTab(tab as InspectorTab)}
                                 className="h-8"
                             />
-                            <button
-                                onClick={() => setShowConfigPanel(prev => !prev)}
-                                className="flex items-center justify-center w-8 h-8 ml-2 rounded-full border border-white/5 text-gray-400 hover:text-white hover:bg-white/5 transition-all"
-                                title={showConfigPanel ? "Collapse config" : "Expand config"}
-                            >
-                                <svg className={`w-4 h-4 transition-transform ${showConfigPanel ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                            </button>
+                        </div>
+                    )}
+                    {activeStep === "GEOGRAPHY" && (
+                        <div className="flex items-center">
+                            <TabBar
+                                tabs={["pipeline", "inspector", "isolator", "refinement"]}
+                                activeTab={geographyTab}
+                                onTabChange={(tab) => setGeographyTab(tab as any)}
+                                className="h-8"
+                            />
                         </div>
                     )}
                 </div>
@@ -178,7 +194,16 @@ export function WorldGenPage() {
                 </div>
 
                 {/* Right: Map Controls */}
-                <div className="flex items-center justify-end gap-4 scale-90">
+                <div className="flex items-center justify-end gap-3 scale-90">
+                    <button
+                        onClick={() => setShowHistory(true)}
+                        className="flex items-center justify-center w-8 h-8 rounded-full border transition-all shadow-lg bg-[#E6E6FA]/10 border-[#E6E6FA]/40 text-[#E6E6FA] hover:bg-[#E6E6FA]/20"
+                        title="Pick World"
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                    </button>
                     <div className="flex items-center bg-[#1e1e1e]/60 border border-white/5 rounded-full p-0.5 shadow-lg">
                         <button onClick={() => setViewMode("2d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "2d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 2D</button>
                         <button onClick={() => setViewMode("map3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "map3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 3D</button>
@@ -189,11 +214,15 @@ export function WorldGenPage() {
             </div>
 
             {/* ══ Main Layout ══ */}
-            <div className="flex-1 flex overflow-hidden relative z-10 pt-[80px] pb-12">
+            <div className="flex-1 flex overflow-hidden relative z-10 pt-28 pb-12">
 
                 {/* Left Sidebar Flow */}
                 <aside
-                    className={`absolute left-4 top-[80px] bottom-12 w-[340px] z-20 flex flex-col gap-4 overflow-y-auto scrollbar-none transition-transform duration-500 ease-in-out ${isMaxView ? '-translate-x-[400px]' : 'translate-x-0'}`}
+                    className="absolute left-4 top-28 bottom-12 z-20 flex flex-col gap-4 overflow-y-auto scrollbar-none transition-transform duration-500 ease-in-out"
+                    style={{
+                        width: `${sidebarWidth}px`,
+                        transform: isMaxView ? `translateX(-${sidebarHiddenOffset}px)` : "translateX(0)",
+                    }}
                 >
                     {activeStep === "GEO" && showConfigPanel && (
                         <GeologyPanel
@@ -210,23 +239,16 @@ export function WorldGenPage() {
                         />
                     )}
                     {activeStep === "GEOGRAPHY" && (
-                        <div className="flex flex-col gap-4 h-full">
-                            <div className="shrink-0 flex items-center justify-center p-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md">
-                                <TabBar
-                                    tabs={["pipeline", "inspector", "isolator"]}
-                                    activeTab={geographyTab}
-                                    onTabChange={(t) => setGeographyTab(t as any)}
-                                />
-                            </div>
+                        <div className="flex flex-col h-full">
                             <div className="flex-1 overflow-y-auto scrollbar-none pb-12">
                                 {geographyTab === "pipeline" ? (
                                     <GeographyPipelinePanel
-                                        activeHistoryId={activeHistoryId}
+                                        activeHistoryId={activeWorldId}
                                         globeWorld={globeWorld}
                                     />
                                 ) : geographyTab === "inspector" ? (
                                     <GeographyInspectorPanel
-                                        planetId={activeHistoryId}
+                                        planetId={activeWorldId}
                                         selectedId={geoSelectedId}
                                         hoveredId={geoHoveredId}
                                         bulkSelectedIds={geoBulkSelectedIds}
@@ -237,11 +259,17 @@ export function WorldGenPage() {
                                         activeLayer={inspectorLayer}
                                         onHierarchyChanged={() => setProvinceTextureVersion(v => v + 1)}
                                     />
-                                ) : (
+                                ) : geographyTab === "isolator" ? (
                                     <GeographyIsolatorPanel
-                                        planetId={activeHistoryId}
+                                        planetId={activeWorldId}
                                         selectedId={geoSelectedId}
-                                        activeLayer={inspectorLayer}
+                                        activeLayer={inspectorLayer as any}
+                                    />
+                                ) : (
+                                    <ProvinceRefinementPanel
+                                        planetId={activeWorldId}
+                                        selectedId={geoSelectedId}
+                                        activeLayer={inspectorLayer as any}
                                         onAppliedVariant={({ historyItem, variantId, textureUrl }) => {
                                             const normalizedItem = {
                                                 ...(historyItem || {}),
@@ -250,13 +278,24 @@ export function WorldGenPage() {
                                                 prompt: historyItem?.prompt || prompt,
                                                 config: historyItem?.config || config,
                                                 textureUrl: historyItem?.textureUrl || textureUrl,
+                                                provinceOverlays: historyItem?.provinceOverlays || [],
+                                                worldgenSourceId: historyItem?.worldgenSourceId || historyItem?.id || variantId,
                                             };
                                             saveToHistory(normalizedItem as any).catch(console.error);
-                                            setActiveHistoryId(normalizedItem.id);
                                             setActiveWorldId(normalizedItem.id);
                                             setGlobeWorld(prev => prev
-                                                ? { ...prev, textureUrl: normalizedItem.textureUrl }
-                                                : { cols: 512, rows: 256, cellData: [], textureUrl: normalizedItem.textureUrl });
+                                                ? {
+                                                    ...prev,
+                                                    textureUrl: normalizedItem.textureUrl,
+                                                    provinceOverlays: normalizedItem.provinceOverlays,
+                                                }
+                                                : {
+                                                    cols: 512,
+                                                    rows: 256,
+                                                    cellData: [],
+                                                    textureUrl: normalizedItem.textureUrl,
+                                                    provinceOverlays: normalizedItem.provinceOverlays,
+                                                });
                                         }}
                                     />
                                 )}
@@ -265,7 +304,7 @@ export function WorldGenPage() {
                     )}
                     {activeStep === "ECO" && (
                         <EcologyPanel
-                            planetId={activeHistoryId}
+                            planetId={activeWorldId}
                         />
                     )}
                     {activeStep === "HUMANITY" && (
@@ -281,9 +320,8 @@ export function WorldGenPage() {
 
                 {/* Center Canvas Wrapper */}
                 <div
-                    className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden
-                        ${isMaxView ? 'ml-0' : 'ml-[370px]'}
-                    `}
+                    className="flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden"
+                    style={{ marginLeft: isMaxView ? 0 : `${sidebarOffset}px` }}
                 >
                     <WorldCanvas
                         viewMode={viewMode} globeWorld={globeWorld}
@@ -306,7 +344,7 @@ export function WorldGenPage() {
                         provinceTextureVersion={provinceTextureVersion}
                         isMaxView={isMaxView}
                         setIsMaxView={setIsMaxView}
-                        activeHistoryId={activeHistoryId}
+                        activeHistoryId={activeWorldId}
                     />
                 </div>
 
@@ -314,15 +352,23 @@ export function WorldGenPage() {
                 <Modal open={showHistory} onClose={() => setShowHistory(false)} title="ARCHIVES">
                     <HistoryGallery
                         history={history}
-                        activePlanetId={activeHistoryId}
+                        activePlanetId={activeWorldId}
                         deleteFromHistory={deleteFromHistory}
                         onRenameWorld={renameInHistory}
                         onSelectPlanet={(item) => {
-                            handleUpdateActiveHistoryId(item);
+                            handleSelectWorldFromHistory(item);
                             setShowHistory(false);
                         }}
-                        onSelectTexture={(_, textureUrl) => {
-                            setGlobeWorld(prev => prev ? { ...prev, textureUrl } : { cols: 512, rows: 256, cellData: [], textureUrl });
+                        onSelectTexture={(targetId, textureUrl) => {
+                            const historyItem = history.find((item) => item.id === targetId);
+                            if (historyItem) {
+                                handleSelectWorldFromHistory(historyItem);
+                                setShowHistory(false);
+                                return;
+                            }
+                            setGlobeWorld(prev => prev
+                                ? { ...prev, textureUrl }
+                                : { cols: 512, rows: 256, cellData: [], textureUrl, provinceOverlays: [] });
                             setShowHistory(false);
                         }}
                     />

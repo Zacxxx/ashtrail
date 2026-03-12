@@ -1,30 +1,36 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
-use std::fs;
 use crate::AppState;
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use std::fs;
 
-pub async fn get_traits(State(state): State<AppState>) -> Result<impl IntoResponse, (StatusCode, String)> {
+pub async fn get_traits(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
     // Navigate up from backend to packages/core/src/data/traits.json
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/traits.json");
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/traits.json");
     match fs::read_to_string(&path) {
         Ok(data) => {
-            let json: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            let json: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
             Ok((StatusCode::OK, Json(json)))
-        },
+        }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
 
-pub async fn save_traits(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/traits.json");
-    
+pub async fn save_traits(
+    State(_state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/traits.json");
+
     let mut traits: Vec<serde_json::Value> = match fs::read_to_string(&path) {
         Ok(data) => {
-            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            let val: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
             if val.is_array() {
                 val.as_array().unwrap().clone()
             } else if val.is_object() {
@@ -32,13 +38,16 @@ pub async fn save_traits(State(_state): State<AppState>, Json(payload): Json<ser
             } else {
                 Vec::new()
             }
-        },
+        }
         Err(_) => Vec::new(),
     };
 
     let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if !id.is_empty() {
-        if let Some(pos) = traits.iter().position(|t| t.get("id").and_then(|v| v.as_str()) == Some(id)) {
+        if let Some(pos) = traits
+            .iter()
+            .position(|t| t.get("id").and_then(|v| v.as_str()) == Some(id))
+        {
             traits[pos] = payload;
         } else {
             traits.push(payload);
@@ -52,23 +61,34 @@ pub async fn save_traits(State(_state): State<AppState>, Json(payload): Json<ser
     }
 }
 
-pub async fn get_occupations(State(state): State<AppState>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/occupations.json");
+pub async fn get_occupations(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/occupations.json");
     match fs::read_to_string(&path) {
         Ok(data) => {
-            let json: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            let json: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
             Ok((StatusCode::OK, Json(json)))
-        },
+        }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
 
-pub async fn save_occupations(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/occupations.json");
-    
+pub async fn save_occupations(
+    State(_state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/occupations.json");
+
     let mut occupations: Vec<serde_json::Value> = match fs::read_to_string(&path) {
         Ok(data) => {
-            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            let val: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
             if val.is_array() {
                 val.as_array().unwrap().clone()
             } else if val.is_object() {
@@ -76,13 +96,16 @@ pub async fn save_occupations(State(_state): State<AppState>, Json(payload): Jso
             } else {
                 Vec::new()
             }
-        },
+        }
         Err(_) => Vec::new(),
     };
 
     let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if !id.is_empty() {
-        if let Some(pos) = occupations.iter().position(|o| o.get("id").and_then(|v| v.as_str()) == Some(id)) {
+        if let Some(pos) = occupations
+            .iter()
+            .position(|o| o.get("id").and_then(|v| v.as_str()) == Some(id))
+        {
             occupations[pos] = payload;
         } else {
             occupations.push(payload);
@@ -96,26 +119,95 @@ pub async fn save_occupations(State(_state): State<AppState>, Json(payload): Jso
     }
 }
 
-pub async fn get_items(State(_state): State<AppState>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/items.json");
+pub async fn get_items(
+    State(_state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/items.json");
     match fs::read_to_string(&path) {
         Ok(data) => {
-            let json: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            let json: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
             Ok((StatusCode::OK, Json(json)))
-        },
+        }
         Err(e) => {
             // It's okay if items.json is brand new or doesn't exist
             Ok((StatusCode::OK, Json(serde_json::json!([]))))
-        },
+        }
     }
 }
 
-pub async fn save_items(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/items.json");
-    
+pub async fn get_talent_trees(
+    State(_state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/talentTrees.json");
+    match fs::read_to_string(&path) {
+        Ok(data) => {
+            let json: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            Ok((StatusCode::OK, Json(json)))
+        }
+        Err(_) => Ok((StatusCode::OK, Json(serde_json::json!([])))),
+    }
+}
+
+pub async fn save_talent_tree(
+    State(_state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/talentTrees.json");
+
+    let mut trees: Vec<serde_json::Value> = match fs::read_to_string(&path) {
+        Ok(data) => {
+            let val: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            if val.is_array() {
+                val.as_array().unwrap().clone()
+            } else {
+                Vec::new()
+            }
+        }
+        Err(_) => Vec::new(),
+    };
+
+    let occupation_id = payload
+        .get("occupationId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !occupation_id.is_empty() {
+        if let Some(pos) = trees.iter().position(|tree| {
+            tree.get("occupationId").and_then(|v| v.as_str()) == Some(occupation_id)
+        }) {
+            trees[pos] = payload;
+        } else {
+            trees.push(payload);
+        }
+    }
+
+    let json_string = serde_json::to_string_pretty(&trees).unwrap();
+    match fs::write(&path, json_string) {
+        Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+}
+
+pub async fn save_items(
+    State(_state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/items.json");
+
     let mut items: Vec<serde_json::Value> = match fs::read_to_string(&path) {
         Ok(data) => {
-            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            let val: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
             if val.is_array() {
                 val.as_array().unwrap().clone()
             } else if val.is_object() {
@@ -123,13 +215,16 @@ pub async fn save_items(State(_state): State<AppState>, Json(payload): Json<serd
             } else {
                 Vec::new()
             }
-        },
+        }
         Err(_) => Vec::new(),
     };
 
     let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if !id.is_empty() {
-        if let Some(pos) = items.iter().position(|i| i.get("id").and_then(|v| v.as_str()) == Some(id)) {
+        if let Some(pos) = items
+            .iter()
+            .position(|i| i.get("id").and_then(|v| v.as_str()) == Some(id))
+        {
             items[pos] = payload;
         } else {
             items.push(payload);
@@ -143,8 +238,13 @@ pub async fn save_items(State(_state): State<AppState>, Json(payload): Json<serd
     }
 }
 
-pub async fn get_characters(State(_state): State<AppState>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dir = std::env::current_dir().unwrap().join("generated").join("characters");
+pub async fn get_characters(
+    State(_state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let dir = std::env::current_dir()
+        .unwrap()
+        .join("generated")
+        .join("characters");
     let mut characters = Vec::new();
 
     if let Ok(entries) = fs::read_dir(&dir) {
@@ -163,15 +263,27 @@ pub async fn get_characters(State(_state): State<AppState>) -> Result<impl IntoR
     Ok((StatusCode::OK, Json(serde_json::Value::Array(characters))))
 }
 
-pub async fn save_character(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dir = std::env::current_dir().unwrap().join("generated").join("characters");
+pub async fn save_character(
+    State(_state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let dir = std::env::current_dir()
+        .unwrap()
+        .join("generated")
+        .join("characters");
     if let Err(e) = fs::create_dir_all(&dir) {
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create characters dir: {}", e)));
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create characters dir: {}", e),
+        ));
     }
 
-    let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let id = payload
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     let path = dir.join(format!("{}.json", id));
-    
+
     let json_string = serde_json::to_string_pretty(&payload).unwrap();
     match fs::write(&path, json_string) {
         Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
@@ -179,26 +291,37 @@ pub async fn save_character(State(_state): State<AppState>, Json(payload): Json<
     }
 }
 
-pub async fn get_skills(State(_state): State<AppState>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/skills.json");
+pub async fn get_skills(
+    State(_state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/skills.json");
     match fs::read_to_string(&path) {
         Ok(data) => {
-            let json: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            let json: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
             Ok((StatusCode::OK, Json(json)))
-        },
+        }
         Err(_) => {
             // It's okay if it doesn't exist yet
             Ok((StatusCode::OK, Json(serde_json::json!([]))))
-        },
+        }
     }
 }
 
-pub async fn save_skill(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/skills.json");
-    
+pub async fn save_skill(
+    State(_state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/skills.json");
+
     let mut skills: Vec<serde_json::Value> = match fs::read_to_string(&path) {
         Ok(data) => {
-            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            let val: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
             if val.is_array() {
                 val.as_array().unwrap().clone()
             } else if val.is_object() {
@@ -206,13 +329,16 @@ pub async fn save_skill(State(_state): State<AppState>, Json(payload): Json<serd
             } else {
                 Vec::new()
             }
-        },
+        }
         Err(_) => Vec::new(),
     };
 
     let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if !id.is_empty() {
-        if let Some(pos) = skills.iter().position(|s| s.get("id").and_then(|v| v.as_str()) == Some(id)) {
+        if let Some(pos) = skills
+            .iter()
+            .position(|s| s.get("id").and_then(|v| v.as_str()) == Some(id))
+        {
             skills[pos] = payload;
         } else {
             skills.push(payload);
@@ -226,26 +352,32 @@ pub async fn save_skill(State(_state): State<AppState>, Json(payload): Json<serd
     }
 }
 
-pub async fn delete_skill(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
+pub async fn delete_skill(
+    State(_state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
     tracing::info!("Deleting skill with ID: {}", id);
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/skills.json");
-    
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/skills.json");
+
     let mut data: Vec<serde_json::Value> = match fs::read_to_string(&path) {
         Ok(data) => {
-            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            let val: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
             if val.is_array() {
                 val.as_array().unwrap().clone()
             } else {
                 Vec::new()
             }
-        },
+        }
         Err(_) => Vec::new(),
     };
 
     let initial_len = data.len();
     data.retain(|v| v.get("id").and_then(|id_val| id_val.as_str()) != Some(id.as_str()));
     tracing::info!("Removed {} items", initial_len - data.len());
-    
+
     let json_string = serde_json::to_string_pretty(&data).unwrap();
     match fs::write(&path, json_string) {
         Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
@@ -253,9 +385,14 @@ pub async fn delete_skill(State(_state): State<AppState>, axum::extract::Path(id
     }
 }
 
-pub async fn delete_trait(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
+pub async fn delete_trait(
+    State(_state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
     tracing::info!("Deleting trait with ID: {}", id);
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/traits.json");
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/traits.json");
     let mut data: Vec<serde_json::Value> = load_json_array(&path);
     let initial_len = data.len();
     data.retain(|v| v.get("id").and_then(|id_val| id_val.as_str()) != Some(id.as_str()));
@@ -263,9 +400,14 @@ pub async fn delete_trait(State(_state): State<AppState>, axum::extract::Path(id
     save_json_array(&path, data)
 }
 
-pub async fn delete_occupation(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
+pub async fn delete_occupation(
+    State(_state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
     tracing::info!("Deleting occupation with ID: {}", id);
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/occupations.json");
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/occupations.json");
     let mut data: Vec<serde_json::Value> = load_json_array(&path);
     let initial_len = data.len();
     data.retain(|v| v.get("id").and_then(|id_val| id_val.as_str()) != Some(id.as_str()));
@@ -273,12 +415,36 @@ pub async fn delete_occupation(State(_state): State<AppState>, axum::extract::Pa
     save_json_array(&path, data)
 }
 
-pub async fn delete_item(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
+pub async fn delete_item(
+    State(_state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
     tracing::info!("Deleting item with ID: {}", id);
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/items.json");
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/items.json");
     let mut data: Vec<serde_json::Value> = load_json_array(&path);
     let initial_len = data.len();
     data.retain(|v| v.get("id").and_then(|id_val| id_val.as_str()) != Some(id.as_str()));
+    tracing::info!("Removed {} items", initial_len - data.len());
+    save_json_array(&path, data)
+}
+
+pub async fn delete_talent_tree(
+    State(_state): State<AppState>,
+    axum::extract::Path(occupation_id): axum::extract::Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    tracing::info!("Deleting talent tree with occupationId: {}", occupation_id);
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/talentTrees.json");
+    let mut data: Vec<serde_json::Value> = load_json_array(&path);
+    let initial_len = data.len();
+    data.retain(|v| {
+        v.get("occupationId")
+            .and_then(|id_val| id_val.as_str())
+            != Some(occupation_id.as_str())
+    });
     tracing::info!("Removed {} items", initial_len - data.len());
     save_json_array(&path, data)
 }
@@ -286,7 +452,8 @@ pub async fn delete_item(State(_state): State<AppState>, axum::extract::Path(id)
 fn load_json_array(path: &std::path::PathBuf) -> Vec<serde_json::Value> {
     match fs::read_to_string(path) {
         Ok(data) => {
-            let val: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            let val: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
             if val.is_array() {
                 val.as_array().unwrap().clone()
             } else if val.is_object() {
@@ -294,12 +461,15 @@ fn load_json_array(path: &std::path::PathBuf) -> Vec<serde_json::Value> {
             } else {
                 Vec::new()
             }
-        },
+        }
         Err(_) => Vec::new(),
     }
 }
 
-fn save_json_array(path: &std::path::PathBuf, data: Vec<serde_json::Value>) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
+fn save_json_array(
+    path: &std::path::PathBuf,
+    data: Vec<serde_json::Value>,
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
     let json_string = serde_json::to_string_pretty(&data).unwrap();
     match fs::write(path, json_string) {
         Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
@@ -307,23 +477,33 @@ fn save_json_array(path: &std::path::PathBuf, data: Vec<serde_json::Value>) -> R
     }
 }
 
-pub async fn get_game_rules(State(_state): State<AppState>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/game_rules.json");
+pub async fn get_game_rules(
+    State(_state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/game_rules.json");
     match fs::read_to_string(&path) {
         Ok(data) => {
-            let json: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
+            let json: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
             Ok((StatusCode::OK, Json(json)))
-        },
+        }
         Err(_) => {
             // Return empty object if file doesn't exist
             Ok((StatusCode::OK, Json(serde_json::json!({}))))
-        },
+        }
     }
 }
 
-pub async fn save_game_rules(State(_state): State<AppState>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir().unwrap().join("../../packages/core/src/data/game_rules.json");
-    
+pub async fn save_game_rules(
+    State(_state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/game_rules.json");
+
     let json_string = serde_json::to_string_pretty(&payload).unwrap();
     match fs::write(&path, json_string) {
         Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
@@ -331,26 +511,44 @@ pub async fn save_game_rules(State(_state): State<AppState>, Json(payload): Json
     }
 }
 
-pub async fn get_world_settings(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dir = std::env::current_dir().unwrap().join("generated").join("settings");
+pub async fn get_world_settings(
+    State(_state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let dir = std::env::current_dir()
+        .unwrap()
+        .join("generated")
+        .join("settings");
     let path = dir.join(format!("{}.json", id));
     match fs::read_to_string(&path) {
         Ok(data) => {
-            let json: serde_json::Value = serde_json::from_str(&data).unwrap_or(serde_json::json!({ "worldId": id, "baseTypes": [] }));
+            let json: serde_json::Value = serde_json::from_str(&data)
+                .unwrap_or(serde_json::json!({ "worldId": id, "baseTypes": [] }));
             Ok((StatusCode::OK, Json(json)))
-        },
-        Err(_) => {
-            Ok((StatusCode::OK, Json(serde_json::json!({ "worldId": id, "baseTypes": [] }))))
-        },
+        }
+        Err(_) => Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({ "worldId": id, "baseTypes": [] })),
+        )),
     }
 }
 
-pub async fn save_world_settings(State(_state): State<AppState>, axum::extract::Path(id): axum::extract::Path<String>, Json(payload): Json<serde_json::Value>) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dir = std::env::current_dir().unwrap().join("generated").join("settings");
+pub async fn save_world_settings(
+    State(_state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let dir = std::env::current_dir()
+        .unwrap()
+        .join("generated")
+        .join("settings");
     if let Err(e) = fs::create_dir_all(&dir) {
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create settings dir: {}", e)));
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create settings dir: {}", e),
+        ));
     }
-    
+
     let path = dir.join(format!("{}.json", id));
     let json_string = serde_json::to_string_pretty(&payload).unwrap();
     match fs::write(&path, json_string) {

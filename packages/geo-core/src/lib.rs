@@ -3,6 +3,7 @@ mod climate;
 mod color_utils;
 mod geo_noise;
 mod hydrology;
+pub mod pathfinding;
 mod types;
 
 use crate::biomes::{classify_biome, classify_soil, get_biome_color};

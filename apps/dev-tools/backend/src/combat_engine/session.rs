@@ -8,7 +8,7 @@ use axum::{
     response::IntoResponse,
 };
 use tokio::time::{sleep, Duration};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use super::ai::run_ai_turn;
 use super::combat::CombatState;

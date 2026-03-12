@@ -1,0 +1,26 @@
+{
+  "packId": "59d6f9ad-da15-45d9-9fc7-d298112593d7",
+  "name": "test1",
+  "description": null,
+  "createdAt": "2026-03-11T16:04:23.151456973+00:00",
+  "grouping": {
+    "type": "biome",
+    "name": "Grassland",
+    "description": ""
+  },
+  "textures": [
+    {
+      "batchId": "test3",
+      "filename": "001.png",
+      "url": "/api/textures/batches/test3/textures/001.png",
+      "metadata": {
+        "grouping": {
+          "description": "A grass tile for grass, very basic and usable. ",
+          "name": "Grasslands",
+          "type": "biome"
+        }
+      }
+    }
+  ],
+  "sprites": []
+}

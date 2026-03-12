@@ -1,113 +1,17 @@
+use crate::biome_archetype::BiomeRegistry;
 use crate::landmask::rgb_to_hsv;
 use crate::raster::distance_transform;
 use crate::WorldgenConfig;
 use image::RgbImage;
 
-/// Biome indices (stored as u8 in biome.png).
-pub const BIOME_OCEAN: u8 = 0;
-pub const BIOME_TUNDRA: u8 = 1;
-pub const BIOME_TAIGA: u8 = 2;
-pub const BIOME_TEMPERATE: u8 = 3;
-pub const BIOME_GRASSLAND: u8 = 4;
-pub const BIOME_DESERT: u8 = 5;
-pub const BIOME_SAVANNA: u8 = 6;
-pub const BIOME_TROPICAL: u8 = 7;
-pub const BIOME_MOUNTAIN: u8 = 8;
-pub const BIOME_ICE: u8 = 9;
-pub const BIOME_VOLCANIC: u8 = 10;
-
-/// Readable names for biome indices.
-pub const BIOME_NAMES: [&str; 11] = [
-    "ocean",
-    "tundra",
-    "taiga",
-    "temperate_forest",
-    "grassland",
-    "desert",
-    "savanna",
-    "tropical_forest",
-    "mountain",
-    "ice",
-    "volcanic",
-];
-
-struct BiomeColor {
-    biome: u8,
-    h: f32,
-    s: f32,
-    v: f32,
-}
-
-const BIOME_COLORS: &[BiomeColor] = &[
-    BiomeColor {
-        biome: BIOME_ICE,
-        h: 0.0,
-        s: 0.0,
-        v: 0.9,
-    }, // White
-    BiomeColor {
-        biome: BIOME_TUNDRA,
-        h: 60.0,
-        s: 0.2,
-        v: 0.6,
-    }, // Pale brown/gray
-    BiomeColor {
-        biome: BIOME_TAIGA,
-        h: 120.0,
-        s: 0.4,
-        v: 0.3,
-    }, // Dark green
-    BiomeColor {
-        biome: BIOME_TEMPERATE,
-        h: 100.0,
-        s: 0.5,
-        v: 0.4,
-    }, // Green
-    BiomeColor {
-        biome: BIOME_GRASSLAND,
-        h: 80.0,
-        s: 0.4,
-        v: 0.6,
-    }, // Light green/yellow
-    BiomeColor {
-        biome: BIOME_DESERT,
-        h: 45.0,
-        s: 0.5,
-        v: 0.8,
-    }, // Sand/yellow
-    BiomeColor {
-        biome: BIOME_SAVANNA,
-        h: 60.0,
-        s: 0.6,
-        v: 0.6,
-    }, // Dry yellow/green
-    BiomeColor {
-        biome: BIOME_TROPICAL,
-        h: 140.0,
-        s: 0.7,
-        v: 0.3,
-    }, // Deep lush green
-    BiomeColor {
-        biome: BIOME_MOUNTAIN,
-        h: 0.0,
-        s: 0.0,
-        v: 0.4,
-    }, // Gray
-    BiomeColor {
-        biome: BIOME_VOLCANIC,
-        h: 0.0,
-        s: 0.0,
-        v: 0.1,
-    }, // Black/dark gray
-];
-
 /// Stage 5: Biome classification.
-/// Inputs: latitude (from y position), elevation, slope, coast distance.
+/// Uses the provided BiomeRegistry to match environmental conditions and colors.
 pub fn classify_biomes(
     height: &[u16],
     landmask: &[bool],
     img: &RgbImage,
     config: &WorldgenConfig,
+    registry: &BiomeRegistry,
     width: u32,
     height_dim: u32,
     on_progress: &mut dyn FnMut(f32, &str),
@@ -142,14 +46,19 @@ pub fn classify_biomes(
 
     on_progress(50.0, "Classifying biomes");
 
-    let mut biome = vec![BIOME_OCEAN; n];
+    let mut biome_indices = vec![0u8; n]; // Default to first biome (usually ocean)
 
     for y in 0..height_dim {
         for x in 0..width {
             let i = (y * width + x) as usize;
 
             if !landmask[i] {
-                biome[i] = BIOME_OCEAN;
+                // Find "ocean" in registry if it exists, otherwise 0
+                biome_indices[i] = registry
+                    .archetypes
+                    .iter()
+                    .position(|a| a.id.contains("ocean"))
+                    .unwrap_or(0) as u8;
                 continue;
             }
 
@@ -167,62 +76,46 @@ pub fn classify_biomes(
             // Coast proximity bonus for rainfall
             let coast_prox = (1.0 - (coast_dist[i] / 200.0).min(1.0)).max(0.0);
 
-            // Simple rainfall estimate
-            let rain = 0.5 + coast_prox * 0.3 - elev * 0.2;
+            // Rainfall estimate: base 0.3, coast bonus 0.5, elevation penalty 0.3
+            let rain = (0.3 + coast_prox * 0.5 - elev * 0.3).clamp(0.0, 1.0);
 
-            // Base procedural classification (used as prior)
-            let mut proc_biome = BIOME_GRASSLAND;
-            if elev > 0.75 || s > 0.05 {
-                proc_biome = BIOME_MOUNTAIN;
-            } else if temp < 0.15 {
-                proc_biome = if elev > 0.5 { BIOME_ICE } else { BIOME_TUNDRA };
-            } else if temp < 0.3 {
-                proc_biome = BIOME_TAIGA;
-            } else if temp > 0.7 && rain < 0.3 {
-                proc_biome = BIOME_DESERT;
-            } else if temp > 0.7 && rain > 0.5 {
-                proc_biome = BIOME_TROPICAL;
-            } else if temp > 0.5 && rain < 0.4 {
-                proc_biome = BIOME_SAVANNA;
-            } else if rain > 0.5 {
-                proc_biome = BIOME_TEMPERATE;
-            }
+            let h: f32;
+            let satellite_s: f32;
+            let satellite_v: f32;
 
             if config.color_based_biomes {
                 let pixel = img.get_pixel(x, y);
-                let (h, s, v) = rgb_to_hsv(pixel[0], pixel[1], pixel[2]);
-
-                let mut best_biome = proc_biome;
-                let mut min_dist = f32::MAX;
-
-                for bc in BIOME_COLORS {
-                    let mut dh = (h - bc.h).abs();
-                    if dh > 180.0 {
-                        dh = 360.0 - dh;
-                    }
-                    dh /= 180.0;
-
-                    let ds = s - bc.s;
-                    let dv = v - bc.v;
-                    let hue_weight = s.max(bc.s);
-
-                    let dist = dh * dh * hue_weight + ds * ds + dv * dv;
-                    let penalty = if bc.biome == proc_biome { 0.0 } else { 0.15 };
-
-                    let total_score = dist + penalty;
-
-                    if total_score < min_dist {
-                        min_dist = total_score;
-                        best_biome = bc.biome;
-                    }
-                }
-                biome[i] = best_biome;
+                let (ph, ps, pv) = rgb_to_hsv(pixel[0], pixel[1], pixel[2]);
+                h = ph;
+                satellite_s = ps;
+                satellite_v = pv;
             } else {
-                biome[i] = proc_biome;
+                h = 0.0;
+                satellite_s = 0.0;
+                satellite_v = 0.0;
+            }
+
+            if let Some(best) = registry.find_best_match(
+                temp,
+                rain,
+                elev,
+                s,
+                h,
+                satellite_s,
+                satellite_v,
+                config.color_based_biomes,
+            ) {
+                // Find index in registry for map storage
+                let idx = registry
+                    .archetypes
+                    .iter()
+                    .position(|a| a.id == best.id)
+                    .unwrap_or(0);
+                biome_indices[i] = idx as u8;
             }
         }
     }
 
     on_progress(100.0, "Biome classification complete");
-    biome
+    biome_indices
 }

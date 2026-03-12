@@ -205,6 +205,26 @@ export function TraitsView({ trait, onSave }: TraitsViewProps) {
                 colorScheme="orange"
             />
 
+            <div className="space-y-2 border-t border-white/10 pt-6">
+                <h3 className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Resolved Metrics Preview</h3>
+                {effects.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-2">
+                        {effects.map((effect, index) => (
+                            <div key={`${effect.id || index}-preview`} className="bg-black/40 border border-white/5 rounded-xl p-3 text-[10px] font-mono">
+                                <div className="text-white uppercase font-black tracking-widest">{effect.name || effect.target || effect.type}</div>
+                                <div className="text-gray-500 mt-1">
+                                    {effect.scope || 'global'} • {effect.target || effect.type} • {effect.isPercentage ? `${effect.value}%` : effect.value}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="bg-black/20 border border-dashed border-white/5 rounded-xl p-4 text-[10px] font-mono uppercase text-gray-500">
+                        No gameplay modifiers configured yet.
+                    </div>
+                )}
+            </div>
+
             <div className="pt-4 border-t border-white/10">
                 <button
                     onClick={handleSave}

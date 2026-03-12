@@ -1,4 +1,4 @@
-use crate::biome::*;
+use crate::biome_archetype::BiomeRegistry;
 use crate::raster::distance_transform;
 
 /// Stage 6: Suitability map for settlement density.
@@ -7,7 +7,8 @@ pub fn compute_suitability(
     height: &[u16],
     landmask: &[bool],
     river_mask: &[u8],
-    biome: &[u8],
+    biome_indices: &[u8],
+    registry: &BiomeRegistry,
     width: u32,
     height_dim: u32,
     on_progress: &mut dyn FnMut(f32, &str),
@@ -61,18 +62,12 @@ pub fn compute_suitability(
         let elev_mid = 1.0 - (elev - 0.3).abs() * 2.0; // Peak at elevation 0.3
         let flat = (1.0 - slope[i] * 40.0).max(0.0);
 
-        // Biome weight
-        let biome_weight = match biome[i] {
-            BIOME_GRASSLAND => 0.9,
-            BIOME_TEMPERATE => 0.8,
-            BIOME_SAVANNA => 0.6,
-            BIOME_TROPICAL => 0.5,
-            BIOME_TAIGA => 0.3,
-            BIOME_DESERT => 0.15,
-            BIOME_TUNDRA => 0.1,
-            BIOME_MOUNTAIN => 0.05,
-            BIOME_ICE => 0.0,
-            _ => 0.4,
+        // Biome weight from registry
+        let idx = biome_indices[i] as usize;
+        let biome_weight = if let Some(archetype) = registry.archetypes.get(idx) {
+            archetype.suitability_weight
+        } else {
+            0.4 // Fallback
         };
 
         suitability[i] = (0.30 * river_prox
