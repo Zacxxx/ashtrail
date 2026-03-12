@@ -769,6 +769,7 @@ export function CharacterBuilderPage() {
         backstory,
         appearancePrompt,
         portraitUrl: portraitUrl || undefined,
+        portraitName: name.trim() || charId,
         stats: { ...stats },
         traits: selectedTraits,
         occupation: selectedOccupation || undefined,

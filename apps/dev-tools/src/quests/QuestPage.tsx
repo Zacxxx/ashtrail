@@ -578,7 +578,11 @@ export function QuestPage() {
                 body: JSON.stringify({ prompt }),
             });
             if (response.dataUrl) {
-                await persistCharacters([{ ...character, portraitUrl: response.dataUrl }]);
+                await persistCharacters([{
+                    ...character,
+                    portraitUrl: response.dataUrl,
+                    portraitName: character.name || character.id,
+                }]);
                 setNotices((previous) => [`Generated portrait for ${character.name}.`, ...previous]);
             }
         } catch (error) {

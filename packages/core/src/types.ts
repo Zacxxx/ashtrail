@@ -258,6 +258,7 @@ export interface Character {
   history: string;
   appearancePrompt: string;
   portraitUrl?: string;
+  portraitName?: string;
   explorationSprite?: DirectionalSpriteBinding;
   stats: Stats;
   traits: Trait[];

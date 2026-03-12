@@ -217,7 +217,7 @@ export function HistoryGallery({
                     .filter((c: any) => typeof c?.portraitUrl === "string" && c.portraitUrl.length > 0)
                     .map((c: any, index: number) => ({
                         id: c.id || c.name || `character-${index}`,
-                        name: c.name || `Character ${index + 1}`,
+                        name: c.portraitName || c.name || `Character ${index + 1}`,
                         portraitUrl: c.portraitUrl,
                     } as CharacterPortraitItem));
 

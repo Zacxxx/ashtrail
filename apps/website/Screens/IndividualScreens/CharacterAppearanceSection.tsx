@@ -214,7 +214,7 @@ export const CharacterAppearanceSection: React.FC<CharacterAppearanceSectionProp
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden pl-10">
-        <div className="group relative flex h-[560px] min-h-[560px] shrink-0 flex-col overflow-hidden rounded-sm border border-zinc-800 bg-zinc-950/50">
+        <div className="group relative flex flex-1 min-h-0 flex-col overflow-hidden rounded-sm border border-zinc-800 bg-zinc-950/50">
           <div className="absolute left-0 right-0 top-0 z-10 flex justify-between border-b border-zinc-800 bg-zinc-900/80 px-4 py-1.5 text-[9px] uppercase text-zinc-500 transition-colors group-hover:bg-zinc-900">
             <div className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-orange-500" />
@@ -250,7 +250,7 @@ export const CharacterAppearanceSection: React.FC<CharacterAppearanceSectionProp
             </div>
           </div>
 
-          <div className="flex flex-1 items-center justify-center bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] p-8">
+          <div className="flex flex-1 min-h-0 items-center justify-center bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] p-8">
             {portraitUrl ? (
               <div className="group relative h-full w-full overflow-hidden rounded-sm border border-zinc-800/50 bg-black/40 p-2 shadow-[0_0_50px_rgba(0,0,0,0.6)]">
                 <img src={portraitUrl} alt="Portrait" className="h-full w-full animate-in object-contain duration-1000 fade-in zoom-in" />
@@ -276,7 +276,7 @@ export const CharacterAppearanceSection: React.FC<CharacterAppearanceSectionProp
           )}
         </div>
 
-        <div className="group relative flex min-h-[280px] flex-1 flex-col overflow-hidden rounded-sm border border-zinc-800 bg-zinc-900/30 p-6">
+        <div className="group relative flex shrink-0 min-h-[160px] h-1/3 flex-col overflow-hidden rounded-sm border border-zinc-800 bg-zinc-900/30 p-6">
           <div className="pointer-events-none absolute right-0 top-0 -mr-16 -mt-16 h-32 w-32 bg-orange-600/5 blur-[80px] transition-all group-hover:bg-orange-600/10" />
           <label className="mb-3 flex items-center justify-between border-b border-orange-900/40 pb-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-orange-500/80">
             <div className="flex items-center gap-2">
