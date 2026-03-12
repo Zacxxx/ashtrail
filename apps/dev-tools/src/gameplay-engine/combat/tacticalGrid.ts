@@ -9,7 +9,7 @@ export interface GridCell {
     walkable: boolean;
     occupantId: string | null;
     isSpawnZone?: 'player' | 'enemy';
-    highlight?: 'move' | 'attack' | 'path' | null;
+    highlight?: 'move' | 'attack' | 'attack-blocked' | 'path' | null;
     textureUrl?: string;
 }
 
@@ -135,12 +135,50 @@ export function findPath(grid: Grid, fromRow: number, fromCol: number, toRow: nu
     return null; // No path exists
 }
 
+// ── Line of Sight Calculation (Bresenham) ──
+
+export function checkLoS(grid: Grid, r0: number, c0: number, r1: number, c1: number): boolean {
+    if (r0 === r1 && c0 === c1) return true;
+
+    const dr = Math.abs(r1 - r0);
+    const dc = Math.abs(c1 - c0);
+    const sr = r0 < r1 ? 1 : -1;
+    const sc = c0 < c1 ? 1 : -1;
+    let err = dr - dc;
+
+    let r = r0;
+    let c = c0;
+
+    while (true) {
+        if (r === r1 && c === c1) break;
+
+        if (r !== r0 || c !== c0) {
+            const cell = grid[r]?.[c];
+            if (!cell) return false;
+            if (!cell.walkable || cell.occupantId) return false;
+        }
+
+        const e2 = 2 * err;
+        if (e2 > -dc) {
+            err -= dc;
+            r += sr;
+        }
+        if (e2 < dr) {
+            err += dr;
+            c += sc;
+        }
+    }
+
+    return true;
+}
+
 // ── Attack range: cells within N manhattan distance with LoS ──
 
 import { SkillAreaType } from '@ashtrail/core';
 
-export function getAttackableCells(grid: Grid, row: number, col: number, minRange: number, maxRange: number): GridCell[] {
-    const results: GridCell[] = [];
+export function getAttackableCells(grid: Grid, row: number, col: number, minRange: number, maxRange: number, ignoreLoS: boolean = false): { valid: GridCell[], blocked: GridCell[] } {
+    const valid: GridCell[] = [];
+    const blocked: GridCell[] = [];
     const rows = grid.length;
     const cols = grid[0].length;
 
@@ -150,12 +188,16 @@ export function getAttackableCells(grid: Grid, row: number, col: number, minRang
 
             const dist = Math.abs(r - row) + Math.abs(c - col);
             if (dist >= minRange && dist <= maxRange) {
-                results.push(grid[r][c]);
+                if (ignoreLoS || checkLoS(grid, row, col, r, c)) {
+                    valid.push(grid[r][c]);
+                } else {
+                    blocked.push(grid[r][c]);
+                }
             }
         }
     }
 
-    return results;
+    return { valid, blocked };
 }
 
 // ── AoE Calculation ──
@@ -172,26 +214,51 @@ export function getAoECells(grid: Grid, centerRow: number, centerCol: number, ar
 
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-            const dist = Math.abs(r - centerRow) + Math.abs(c - centerCol);
+            const dr = r - centerRow;
+            const dc = c - centerCol;
+            const dist = Math.abs(dr) + Math.abs(dc);
             let inArea = false;
 
             if (areaType === 'circle') {
                 if (dist <= size) inArea = true;
+            } else if (areaType === 'splash') {
+                if (Math.max(Math.abs(dr), Math.abs(dc)) <= size) inArea = true;
             } else if (areaType === 'cross') {
-                if ((r === centerRow || c === centerCol) && dist <= size) inArea = true;
+                // Original Dofus Cross: Grid axes strictly
+                if ((dr === 0 || dc === 0) && dist <= size) inArea = true;
             } else if (areaType === 'line') {
-                // If we have a clear direction from caster to target, project the line
                 if (dirR !== 0 && dirC === 0) {
-                    if (c === centerCol && (r - centerRow) * dirR >= 0 && Math.abs(r - centerRow) <= size) inArea = true;
+                    if (dc === 0 && dr * dirR >= 0 && Math.abs(dr) <= size) inArea = true;
                 } else if (dirC !== 0 && dirR === 0) {
-                    if (r === centerRow && (c - centerCol) * dirC >= 0 && Math.abs(c - centerCol) <= size) inArea = true;
+                    if (dr === 0 && dc * dirC >= 0 && Math.abs(dc) <= size) inArea = true;
                 } else {
-                    // Fallback to cross if no valid straight line
-                    if ((r === centerRow || c === centerCol) && dist <= size) inArea = true;
+                    if ((dr === 0 || dc === 0) && dist <= size) inArea = true; // fallback
+                }
+            } else if (areaType === 'cone') {
+                if (dirR !== 0 && dirC === 0) {
+                    const depth = dr * dirR;
+                    if (depth >= 0 && depth <= size && Math.abs(dc) <= depth) inArea = true;
+                } else if (dirC !== 0 && dirR === 0) {
+                    const depth = dc * dirC;
+                    if (depth >= 0 && depth <= size && Math.abs(dr) <= depth) inArea = true;
+                } else {
+                    if (dist <= size) inArea = true; // fallback
+                }
+            } else if (areaType === 'perpendicular') {
+                if (dirR !== 0 && dirC === 0) {
+                    if (dr === 0 && Math.abs(dc) <= size) inArea = true;
+                } else if (dirC !== 0 && dirR === 0) {
+                    if (dc === 0 && Math.abs(dr) <= size) inArea = true;
+                } else {
+                    if (dist <= size) inArea = true; // fallback
                 }
             }
 
-            if (inArea) results.push(grid[r][c]);
+            if (inArea) {
+                if (checkLoS(grid, centerRow, centerCol, r, c)) {
+                    results.push(grid[r][c]);
+                }
+            }
         }
     }
 
@@ -229,8 +296,8 @@ export function clearHighlights(grid: Grid): Grid {
     return newGrid;
 }
 
-export function highlightCells(grid: Grid, cells: GridCell[], type: 'move' | 'attack' | 'path'): Grid {
-    const newGrid = clearHighlights(grid);
+export function highlightCells(grid: Grid, cells: GridCell[], type: 'move' | 'attack' | 'attack-blocked' | 'path', clearExisting: boolean = true): Grid {
+    const newGrid = clearExisting ? clearHighlights(grid) : cloneGrid(grid);
     for (const cell of cells) {
         newGrid[cell.row][cell.col].highlight = type;
     }

@@ -260,20 +260,20 @@ function ShovePreview({ rules }: { rules: GameRulesConfig }) {
 }
 
 function CombatPreview({ rules }: { rules: GameRulesConfig }) {
-    const strengths = [5, 10, 15, 20];
-    const baseSkillDmg = 8;
-    const defense = 3;
+    const statValues = [10, 20, 30, 40];
+    const weaponBaseDmg = 12; // Example weapon
+    const defense = 5;
     return (
         <div className="mt-4 space-y-3">
             <p className="text-[10px] text-gray-600 uppercase tracking-widest font-bold">
-                Live Preview — Skill dmg = {baseSkillDmg}, Target def = {defense}
+                Live Preview (Melee) — Weapon Base = {weaponBaseDmg}, Target def = {defense}
             </p>
             <div className="overflow-x-auto">
                 <table className="w-full text-[11px] font-mono border-collapse">
                     <thead>
                         <tr className="border-b border-white/10">
-                            <th className="py-1.5 text-left text-gray-500 font-bold pr-4">Strength</th>
-                            {strengths.map(v => (
+                            <th className="py-1.5 text-left text-gray-500 font-bold pr-4">{rules.combat.meleeScalingStat || 'Strength'} (Melee)</th>
+                            {statValues.map(v => (
                                 <th key={v} className="py-1.5 px-3 text-center text-gray-500 font-bold">{v}</th>
                             ))}
                         </tr>
@@ -281,25 +281,33 @@ function CombatPreview({ rules }: { rules: GameRulesConfig }) {
                     <tbody className="text-gray-300">
                         <tr className="border-b border-white/5">
                             <td className="py-1.5 pr-4 text-red-300 font-bold">Min dmg</td>
-                            {strengths.map(str => {
-                                const power = baseSkillDmg + str * rules.combat.strengthToPowerRatio;
+                            {statValues.map(val => {
+                                const scale = rules.combat.strengthScalingMin || 0.2;
+                                const power = weaponBaseDmg * (1 + (val * scale / 10));
                                 const raw = Math.floor(power * rules.combat.damageVarianceMin);
                                 const actual = Math.max(1, raw - defense);
-                                return <td key={str} className="py-1.5 px-3 text-center">{actual}</td>;
+                                return <td key={val} className="py-1.5 px-3 text-center">{actual}</td>;
                             })}
                         </tr>
                         <tr>
                             <td className="py-1.5 pr-4 text-orange-300 font-bold">Max dmg</td>
-                            {strengths.map(str => {
-                                const power = baseSkillDmg + str * rules.combat.strengthToPowerRatio;
+                            {statValues.map(val => {
+                                const scale = rules.combat.strengthScalingMax || 0.4;
+                                const power = weaponBaseDmg * (1 + (val * scale / 10));
                                 const raw = Math.floor(power * rules.combat.damageVarianceMax);
                                 const actual = Math.max(1, raw - defense);
-                                return <td key={str} className="py-1.5 px-3 text-center">{actual}</td>;
+                                return <td key={val} className="py-1.5 px-3 text-center">{actual}</td>;
                             })}
                         </tr>
                     </tbody>
                 </table>
             </div>
+            <div className="bg-blue-500/10 border border-blue-500/20 p-2 rounded text-[10px] text-blue-300">
+                <span className="font-bold">Ranged Note:</span> Ranged weapons ignore stats for damage. For this example ({weaponBaseDmg} base), Ranged would deal ~{Math.floor(weaponBaseDmg * rules.combat.damageVarianceMin - defense)} to ~{Math.floor(weaponBaseDmg * rules.combat.damageVarianceMax - defense)} damage regardless of stats.
+            </div>
+            <p className="text-[9px] text-gray-600 italic">
+                Formula: WeaponBase × (1 + (Stat × ScaleFactor ÷ 10)) × Variance - Defense
+            </p>
         </div>
     );
 }
@@ -381,6 +389,10 @@ export function GameRulesView() {
                 strengthToPowerRatio: 0.3,
                 strengthScalingMin: 0.2,
                 strengthScalingMax: 0.4,
+                agilityScalingMin: 0.2,
+                agilityScalingMax: 0.4,
+                meleeScalingStat: 'strength',
+                rangedScalingStat: 'agility',
                 shovePushDamageRatio: 0.1,
                 shoveShockDamageRatio: 0.3,
                 defendPartialThreshold: 5,
@@ -600,9 +612,93 @@ Initiative: descending Agility → Endurance tiebreak`}
                                     format={v => v.toFixed(2)}
                                     onChange={v => patch("combat", "strengthToPowerRatio", v)}
                                 />
+                                <div className="space-y-4 pt-4 col-span-3 border-t border-white/5">
+                                    <p className="text-[10px] text-orange-400 font-black uppercase tracking-widest">Melee vs Ranged Scaling</p>
+                                    <div className="grid grid-cols-2 gap-8">
+                                        <div className="space-y-4">
+                                            <p className="text-[9px] text-gray-500 uppercase font-bold italic">Melee Scaling (Min-Max)</p>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <RuleNumber
+                                                    label="Melee Min"
+                                                    desc="Min scale"
+                                                    value={rules.combat.strengthScalingMin || 0.2}
+                                                    min={0} max={2} step={0.05}
+                                                    onChange={v => patch("combat", "strengthScalingMin", v)}
+                                                />
+                                                <RuleNumber
+                                                    label="Melee Max"
+                                                    desc="Max scale"
+                                                    value={rules.combat.strengthScalingMax || 0.4}
+                                                    min={0} max={2} step={0.05}
+                                                    onChange={v => patch("combat", "strengthScalingMax", v)}
+                                                />
+                                            </div>
+                                            <div className="flex items-center justify-between pt-2">
+                                                <span className="text-[10px] font-bold text-gray-400 uppercase">Melee Stat:</span>
+                                                <select
+                                                    value={rules.combat.meleeScalingStat || 'strength'}
+                                                    onChange={e => {
+                                                        const updated = { ...rules, combat: { ...rules.combat, meleeScalingStat: e.target.value } };
+                                                        updateRules(updated);
+                                                        setHasUnsaved(true);
+                                                    }}
+                                                    className="bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-orange-300 focus:outline-none"
+                                                >
+                                                    {['strength', 'agility', 'intelligence', 'wisdom', 'endurance', 'charisma'].map(s => (
+                                                        <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-4 opacity-40 grayscale pointer-events-none relative">
+                                            <div className="absolute inset-0 flex items-center justify-center z-10">
+                                                <span className="bg-black/80 px-2 py-1 border border-white/10 rounded text-[8px] font-black text-white uppercase tracking-tighter">Disabled for Ranged</span>
+                                            </div>
+                                            <p className="text-[9px] text-gray-500 uppercase font-bold italic">Ranged Scaling (Min-Max)</p>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <RuleNumber
+                                                    label="Ranged Min"
+                                                    desc="Min scale"
+                                                    value={rules.combat.agilityScalingMin || 0.2}
+                                                    min={0} max={2} step={0.05}
+                                                    onChange={v => patch("combat", "agilityScalingMin", v)}
+                                                />
+                                                <RuleNumber
+                                                    label="Ranged Max"
+                                                    desc="Max scale"
+                                                    value={rules.combat.agilityScalingMax || 0.4}
+                                                    min={0} max={2} step={0.05}
+                                                    onChange={v => patch("combat", "agilityScalingMax", v)}
+                                                />
+                                            </div>
+                                            <div className="flex items-center justify-between pt-2">
+                                                <span className="text-[10px] font-bold text-gray-400 uppercase">Ranged Stat:</span>
+                                                <select
+                                                    value={rules.combat.rangedScalingStat || 'agility'}
+                                                    onChange={e => {
+                                                        const updated = { ...rules, combat: { ...rules.combat, rangedScalingStat: e.target.value } };
+                                                        updateRules(updated);
+                                                        setHasUnsaved(true);
+                                                    }}
+                                                    className="bg-black/40 border border-white/10 rounded px-2 py-1 text-xs text-orange-300 focus:outline-none"
+                                                >
+                                                    {['strength', 'agility', 'intelligence', 'wisdom', 'endurance', 'charisma'].map(s => (
+                                                        <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            <FormulaBox>{`Variance     = random(${rules.combat.damageVarianceMin.toFixed(2)}, ${rules.combat.damageVarianceMax.toFixed(2)})\nPower        = Skill.Damage + (Strength × ${rules.combat.strengthToPowerRatio.toFixed(2)})\nRawDamage    = floor(Power × Variance)\nActualDamage = max(1, RawDamage − Target.Defense)\n\nHit Logic (Physical only):\n  HitChance = 100 − Target.Evasion\n  if random(0,100) > HitChance → Miss`}</FormulaBox>
+                            <FormulaBox>{`Variance     = random(${rules.combat.damageVarianceMin.toFixed(2)}, ${rules.combat.damageVarianceMax.toFixed(2)})
+
+MELEE Power  = Weapon.Damage × (1 + (Stat × Factor ÷ 10))
+RANGED Power = Weapon.Damage (No Stat Scaling)
+
+RawDamage    = floor(Power × Variance)
+ActualDamage = max(1, RawDamage − Target.Defense)`}</FormulaBox>
 
                             <div className="grid grid-cols-2 gap-6 pt-4 border-t border-white/5">
                                 <div className="space-y-4">

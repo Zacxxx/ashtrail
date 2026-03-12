@@ -231,7 +231,12 @@ export function useTacticalCombat(
         if (phase !== 'combat' || !activeEntity || !isPlayerTurn || !selectedSkill) return;
         if (playerAction === 'targeting_skill') {
             const attackable = getAttackableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, selectedSkill.minRange, selectedSkill.maxRange);
-            setGrid(prev => highlightCells(prev, attackable, 'attack'));
+            setGrid(prev => {
+                let newGrid = clearHighlights(prev);
+                newGrid = highlightCells(newGrid, attackable.valid, 'attack', false);
+                newGrid = highlightCells(newGrid, attackable.blocked, 'attack-blocked', false);
+                return newGrid;
+            });
         }
     }, [selectedSkill, playerAction]);
 
@@ -291,11 +296,9 @@ export function useTacticalCombat(
         const dr = targetRow - caster.gridPos.row;
         const dc = targetCol - caster.gridPos.col;
         let dirR = 0; let dirC = 0;
-        if (skill.areaType === 'line') {
-            if (Math.abs(dr) > Math.abs(dc)) dirR = dr > 0 ? 1 : -1;
-            else if (Math.abs(dc) > Math.abs(dr)) dirC = dc > 0 ? 1 : -1;
-            else { dirR = dr > 0 ? 1 : -1; dirC = 0; }
-        }
+        if (Math.abs(dr) > Math.abs(dc)) dirR = dr > 0 ? 1 : -1;
+        else if (Math.abs(dc) > Math.abs(dr)) dirC = dc > 0 ? 1 : -1;
+        else { dirR = dr > 0 ? 1 : -1; dirC = 0; }
 
         const affectedCells = getAoECells(grid, targetRow, targetCol, skill.areaType, skill.areaSize || 0, dirR, dirC);
 
@@ -405,9 +408,9 @@ export function useTacticalCombat(
                 // --- NEW DAMAGE CALCULATION LOGIC ---
                 let baseDmg = skill.damage;
                 const weaponReplacement = skill.effects?.find(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT');
+                const weapon = c.equipped?.mainHand;
 
-                if (weaponReplacement && c.equipped?.mainHand) {
-                    const weapon = c.equipped.mainHand;
+                if (weaponReplacement && weapon) {
                     // Find a damage effect on the weapon
                     const weaponDmgEffect = weapon.effects?.find((e: any) =>
                         e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS'
@@ -420,9 +423,6 @@ export function useTacticalCombat(
                             // Flat replace
                             baseDmg = weaponDmgEffect.value;
                         }
-                    } else if (weapon.id) {
-                        // Fallback: If it's a weapon but no dmg effect found, maybe it has inherent value or we use a small bonus?
-                        // For now we keep baseDmg = 10 (fists) if no damage effect is found on the item.
                     }
                 }
                 // ------------------------------------
@@ -432,20 +432,32 @@ export function useTacticalCombat(
                 const finalCritChance = c.critChance + (analyzedBonus / 100);
                 const isCrit = Math.random() < finalCritChance;
 
-                // Special handling for push damage
-                let strBonus = 0;
+                // Special handling for scaling
+                let statBonus = 0;
+                const isRanged = weapon?.weaponType === 'ranged';
+                const scalingStatName = isRanged
+                    ? (rules.combat?.rangedScalingStat || 'agility')
+                    : (rules.combat?.meleeScalingStat || 'strength');
+                const scalingVal = (c as any)[scalingStatName] || 0;
+
                 if (skill.pushDistance && skill.pushDistance > 0) {
-                    strBonus = c.strength * (rules.combat.shovePushDamageRatio || 0.1);
+                    // Push damage is still additive/fixed for physics
+                    statBonus = scalingVal * (rules.combat.shovePushDamageRatio || 0.1);
+                } else if (isRanged) {
+                    // RANGED: Pure weapon damage, no stat scaling bonus
+                    statBonus = 0;
                 } else {
-                    const minStrengthBonus = c.strength * (rules.combat.strengthScalingMin || 0.2);
-                    const maxStrengthBonus = c.strength * (rules.combat.strengthScalingMax || 0.4);
-                    strBonus = minStrengthBonus + (Math.random() * (maxStrengthBonus - minStrengthBonus));
+                    // MELEE: Multiplicative scaling with stat
+                    const minScale = rules.combat.strengthScalingMin || 0.2;
+                    const maxScale = rules.combat.strengthScalingMax || 0.4;
+                    const factor = minScale + (Math.random() * (maxScale - minScale));
+                    statBonus = (baseDmg * factor * scalingVal) / 10;
                 }
 
                 // Apply variance to the whole package
                 const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
 
-                let scaledDamage = Math.floor((baseDmg + strBonus) * variance);
+                let scaledDamage = Math.floor((baseDmg + statBonus) * variance);
 
                 if (isCrit) {
                     scaledDamage = Math.floor(scaledDamage * 1.5);
@@ -730,7 +742,10 @@ export function useTacticalCombat(
                 const target = entities.get(cell.occupantId);
                 if (target && !target.isPlayer) {
                     const dist = Math.abs(row - activeEntity.gridPos.row) + Math.abs(col - activeEntity.gridPos.col);
-                    if (dist <= MELEE_RANGE && activeEntity.ap >= MELEE_ATTACK_COST) {
+                    const weapon = activeEntity.equipped?.mainHand;
+                    const weaponRange = weapon?.weaponRange || MELEE_RANGE;
+
+                    if (dist <= weaponRange && activeEntity.ap >= MELEE_ATTACK_COST) {
                         performAttack(activeEntity.id, cell.occupantId);
                         return;
                     }
@@ -820,7 +835,33 @@ export function useTacticalCombat(
 
         const rules = GameRulesManager.get();
         const variance = rules.combat.damageVarianceMin + (Math.random() * (rules.combat.damageVarianceMax - rules.combat.damageVarianceMin));
-        let rawDamage = Math.floor(attacker.strength * variance);
+
+        const weapon = attacker.equipped?.mainHand;
+        const isRanged = weapon?.weaponType === 'ranged';
+        const scalingStatName = isRanged
+            ? (rules.combat?.rangedScalingStat || 'agility')
+            : (rules.combat?.meleeScalingStat || 'strength');
+        const scalingVal = (attacker as any)[scalingStatName] || 0;
+
+        // Base damage for simple attack: check weapon effects or default to 5 (fists)
+        let weaponBaseDmg = 5;
+        const weaponDmgEffect = weapon?.effects?.find((e: any) =>
+            e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS'
+        );
+        if (weaponDmgEffect) weaponBaseDmg = weaponDmgEffect.value;
+
+        // Formula:
+        let rawDamage = 0;
+        if (isRanged) {
+            // RANGED: Only weapon damage * variance
+            rawDamage = Math.floor(weaponBaseDmg * variance);
+        } else {
+            // MELEE: WeaponBase * (1 + (Stat * Factor / 10)) * variance
+            const minScale = rules.combat.strengthScalingMin || 0.2;
+            const maxScale = rules.combat.strengthScalingMax || 0.4;
+            const factor = minScale + (Math.random() * (maxScale - minScale));
+            rawDamage = Math.floor(weaponBaseDmg * (1 + (scalingVal * factor / 10)) * variance);
+        }
 
         if (isCrit) {
             rawDamage = Math.floor(rawDamage * 1.5);
@@ -1037,7 +1078,7 @@ export function useTacticalCombat(
                         }
                     } else if (updatedAi.ap >= MELEE_ATTACK_COST && closestDist <= MELEE_RANGE) {
                         addLog(`🎯 ${updatedAi.name} swings blindly around!`, 'info');
-                        executeSkill(updatedAi.id, targetPos.row, targetPos.col, { id: 'basic', name: 'Slash', apCost: 3, damage: 10, icon: '⚔️' } as Skill);
+                        executeSkill(updatedAi.id, targetPos.row, targetPos.col, { id: 'use-weapon', name: 'Attack', apCost: 3, damage: 10, icon: '⚔️' } as Skill);
                     }
                 } else if (targetId) {
                     const updatedTarget = entitiesRef.current.get(targetId);
@@ -1070,10 +1111,12 @@ export function useTacticalCombat(
         const rules = GameRulesManager.get();
         const isMagical = skill.effectType === 'magical';
 
+        // ── Resolve base damage from weapon modifier (WEAPON_DAMAGE_REPLACEMENT) ──
         let baseDmg = skill.damage || 0;
         const weaponReplacement = skill.effects?.find(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT');
-        if (weaponReplacement && attacker.equipped?.mainHand) {
-            const weapon = attacker.equipped.mainHand;
+        const weapon = attacker.equipped?.mainHand;
+
+        if (weaponReplacement && weapon) {
             const weaponDmgEffect = weapon.effects?.find((e: any) =>
                 e.target === 'damage' || e.target === 'physical_damage' || e.type === 'COMBAT_BONUS'
             );
@@ -1083,8 +1126,23 @@ export function useTacticalCombat(
             }
         }
 
-        const minStrBonus = skill.pushDistance ? attacker.strength * (rules.combat.shovePushDamageRatio || 0.1) : attacker.strength * (rules.combat.strengthScalingMin || 0.2);
-        const maxStrBonus = skill.pushDistance ? attacker.strength * (rules.combat.shovePushDamageRatio || 0.1) : attacker.strength * (rules.combat.strengthScalingMax || 0.4);
+        // ── Determine scaling ──
+        const isRanged = weapon?.weaponType === 'ranged';
+        const scalingStatName = isRanged
+            ? (rules.combat?.rangedScalingStat || 'agility')
+            : (rules.combat?.meleeScalingStat || 'strength');
+        const scalingVal = (attacker as any)[scalingStatName] || 0;
+
+        // Shove uses strength push ratio; ranged has NO stat scaling; melee uses min/max factor
+        const minStatBonus = skill.pushDistance
+            ? scalingVal * (rules.combat.shovePushDamageRatio || 0.1)
+            : isRanged ? 0
+                : (baseDmg * (rules.combat.strengthScalingMin || 0.2) * scalingVal) / 10;
+
+        const maxStatBonus = skill.pushDistance
+            ? scalingVal * (rules.combat.shovePushDamageRatio || 0.1)
+            : isRanged ? 0
+                : (baseDmg * (rules.combat.strengthScalingMax || 0.4) * scalingVal) / 10;
 
         const vMin = rules.combat.damageVarianceMin || 0.85;
         const vMax = rules.combat.damageVarianceMax || 1.15;
@@ -1093,8 +1151,8 @@ export function useTacticalCombat(
         const analyzedBonus = target.activeEffects?.filter((e: any) => e.type === 'ANALYZED').reduce((sum: number, e: any) => sum + (e.value || 0), 0) || 0;
         const finalCritChance = attacker.critChance + (analyzedBonus / 100);
 
-        const calc = (str: number, v: number, crit: boolean) => {
-            let d = Math.floor((baseDmg + str) * v);
+        const calc = (statBonus: number, v: number, crit: boolean) => {
+            let d = Math.floor((baseDmg + statBonus) * v);
             if (crit) d = Math.floor(d * 1.5);
             if (isMagical) {
                 const resist = Math.floor(d * (target.resistance || 0));
@@ -1105,10 +1163,10 @@ export function useTacticalCombat(
         };
 
         return {
-            min: calc(minStrBonus, vMin, false),
-            max: calc(maxStrBonus, vMax, false),
-            critMin: calc(minStrBonus, vMin, true),
-            critMax: calc(maxStrBonus, vMax, true),
+            min: calc(minStatBonus, vMin, false),
+            max: calc(maxStatBonus, vMax, false),
+            critMin: calc(minStatBonus, vMin, true),
+            critMax: calc(maxStatBonus, vMax, true),
             isMagical,
             critChance: isNaN(finalCritChance) ? (attacker.critChance || 0) : finalCritChance
         };

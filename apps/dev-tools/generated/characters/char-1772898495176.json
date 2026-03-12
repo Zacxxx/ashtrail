@@ -11,7 +11,28 @@
     "gloves": null,
     "head": null,
     "legs": null,
-    "mainHand": null,
+    "mainHand": {
+      "bagIndex": 0,
+      "category": "weapon",
+      "cost": 0,
+      "description": "old but efficient as fuck",
+      "effects": [
+        {
+          "target": "damage",
+          "type": "COMBAT_BONUS",
+          "value": 50
+        }
+      ],
+      "equipSlot": "",
+      "icon": "📦",
+      "id": "item-1773235390183-1773235482652",
+      "name": "Old fkcin bazooka",
+      "rarity": "relic",
+      "weaponAreaSize": 3,
+      "weaponAreaType": "circle",
+      "weaponRange": 5,
+      "weaponType": "ranged"
+    },
     "offHand": null,
     "waist": null
   },
@@ -21,6 +42,7 @@
   "hp": 30,
   "id": "char-1772898495176",
   "inventory": [],
+  "isFamily": false,
   "isNPC": false,
   "level": 100,
   "maxHp": 30,
@@ -37,6 +59,17 @@
     ],
     "shortDescription": "Coordinates teams and complex projects."
   },
+  "parents": {
+    "father": null,
+    "mother": null
+  },
+  "relationships": [
+    {
+      "note": "Cofounded moebius with Tristan, his associate and bestfriend.",
+      "targetId": "char-1772901007990",
+      "type": "best_friend"
+    }
+  ],
   "skills": [
     {
       "apCost": 3,
@@ -174,6 +207,33 @@
       "minRange": 1,
       "name": "Analyze",
       "targetType": "enemy"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 0,
+      "damage": 5,
+      "description": "Strike with your equipped weapon. Replaces base damage with weapon's flat damage modifier. Melee: scales with Strength. Ranged: fixed damage only.",
+      "effectType": "physical",
+      "effects": [
+        {
+          "description": "Replaces skill base damage with the equipped weapon's flat damage value.",
+          "id": "effect-1773078073638",
+          "name": "Weapon Damage Replacement",
+          "target": "mainHand",
+          "trigger": "passive",
+          "type": "WEAPON_DAMAGE_REPLACEMENT",
+          "value": 0
+        }
+      ],
+      "icon": "⚔️",
+      "id": "use-weapon",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Use Weapon",
+      "targetType": "enemy"
     }
   ],
   "stats": {
@@ -243,5 +303,7 @@
       "type": "neutral"
     }
   ],
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
   "xp": 0
 }

@@ -19,6 +19,10 @@ export interface GameRulesConfig {
         strengthToPowerRatio: number;
         strengthScalingMin: number;
         strengthScalingMax: number;
+        agilityScalingMin: number;
+        agilityScalingMax: number;
+        meleeScalingStat: string;
+        rangedScalingStat: string;
         shovePushDamageRatio: number;
         shoveShockDamageRatio: number;
         defendPartialThreshold: number;
@@ -74,6 +78,10 @@ const DEFAULT_RULES: GameRulesConfig = {
         strengthToPowerRatio: 0.3,
         strengthScalingMin: 0.2,
         strengthScalingMax: 0.4,
+        agilityScalingMin: 0.2,
+        agilityScalingMax: 0.4,
+        meleeScalingStat: 'strength',
+        rangedScalingStat: 'agility',
         shovePushDamageRatio: 0.1,
         shoveShockDamageRatio: 0.3,
         defendPartialThreshold: 5,

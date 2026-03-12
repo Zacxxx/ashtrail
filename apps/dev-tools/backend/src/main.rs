@@ -637,6 +637,10 @@ async fn main() {
             post(ai_characters::generate_character_handler),
         )
         .route(
+            "/api/ai/character-story",
+            post(ai_characters::generate_story_handler),
+        )
+        .route(
             "/api/quests/generate-run",
             post(ai_quests::generate_quest_run_handler),
         )

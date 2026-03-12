@@ -7,20 +7,81 @@
   "currentStory": "",
   "equipped": {
     "boots": null,
-    "chest": null,
+    "chest": {
+      "bagIndex": 0,
+      "category": "armor",
+      "cost": 0,
+      "description": "A tuxedo made for the C-suite of Moebius.",
+      "effects": [
+        {
+          "target": "charisma",
+          "type": "STAT_MODIFIER",
+          "value": 10
+        },
+        {
+          "target": "agility",
+          "type": "STAT_MODIFIER",
+          "value": 10
+        }
+      ],
+      "equipSlot": "chest",
+      "icon": "📦",
+      "id": "item-1772901624775-1773232774462",
+      "name": "Moebius' Tuxedo",
+      "rarity": "specialized"
+    },
     "gloves": null,
-    "head": null,
+    "head": {
+      "bagIndex": 0,
+      "category": "armor",
+      "cost": 2026,
+      "description": "A cap made for the C-Suite of Moebius",
+      "effects": [
+        {
+          "target": "wisdom",
+          "type": "STAT_MODIFIER",
+          "value": 10
+        }
+      ],
+      "equipSlot": "head",
+      "icon": "📦",
+      "id": "item-1772901546306-1773232774064",
+      "name": "Moebius' Cap",
+      "rarity": "relic"
+    },
     "legs": null,
-    "mainHand": null,
+    "mainHand": {
+      "bagIndex": 0,
+      "category": "weapon",
+      "cost": 0,
+      "description": "old but efficient as fuck",
+      "effects": [
+        {
+          "target": "damage",
+          "type": "COMBAT_BONUS",
+          "value": 50
+        }
+      ],
+      "equipSlot": "mainHand",
+      "icon": "📦",
+      "id": "item-1773235390183-1773252044414",
+      "name": "Old fkcin bazooka",
+      "rarity": "relic",
+      "weaponAreaSize": 2,
+      "weaponAreaType": "splash",
+      "weaponRange": 5,
+      "weaponType": "ranged"
+    },
     "offHand": null,
     "waist": null
   },
   "faction": "",
   "gender": "Male",
-  "history": "Before the heavens suffocated under a permanent blanket of soot, Tristan was defined by a different life. Built on the legacy of The CLO of Moebius, a multination tech company and the right hand of the CEO Zach, they participated in the shimmering final years of the 20th century, before the sky darkened and the world dissolved.\n\nThe end did not arrive with a scream, but with the silent, creeping advance of the Great Fog. Tristan witnessed the terrifying transition as the horizon vanished and the sun became a pale, dying ember. They navigated the frantic desperation of the era, where the last vestiges of sovereignty were traded for drops of fuel.\n\nWhen the surface finally became uninhabitable, the migration into the deep began. Tristan lived through the agonizing silence of the underground vaults, surviving for years behind reinforced structural shells as the world they remembered slowly turned to dust.\n\nEmerging from the vaults, Tristan found a planet that no longer recognized its masters. They became a scavenger of the wastes, reclaiming artifacts of the past to build the foundations of a new, fractured society, proving to be a vital component in the machinery of reclamation.\n\nToday, as a specialized Wanderer, Tristan has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Each step is a testament to a spirit for whom the Ash has finally become home.",
+  "history": "Tristan, twenty-four years old by the reckoning of the new age, once held the title of Chief Logistics Officer for Moebius, a corporate behemoth that spanned continents. His life was a calibrated sequence of data streams, market analyses, and executive directives, all delivered from a sky-high office overlooking a city that hummed with manufactured purpose. He was Zach’s right hand, not merely a functionary but an architect of Moebius’s sprawling influence, accustomed to command and the absolute clarity of a world where every variable could, theoretically, be controlled. His ambition was a cold, precise flame, fueled by the relentless expansion of Moebius’s technological dominion, envisioning a future where the corporation’s algorithms dictated the very flow of human existence.\n\nThe arrival of the Great Fog was not a gradual dimming but an abrupt, violent suffocation of the sky. Tristan witnessed the collapse from within Moebius’s highest echelons, first as a series of red alerts and then as the frantic unraveling of global infrastructure. The meticulously charted supply lines he oversaw dissolved into chaos, the market forecasts spiraled into meaninglessness, and the absolute control he once wielded became a phantom limb. He saw the sun become a dying ember through reinforced plasteel, watched the screens flicker out, and felt the primal terror of humanity’s sophisticated veneer shattering, revealing the raw, desperate scramble beneath. His world, built on order and predictable profit, simply ceased to be.\n\nThe immediate aftermath was a brutal education in irrelevance. Tristan, a man whose power resided in spreadsheets and networked systems, found himself adrift in a new reality where a well-placed fist held more sway than a billion-credit portfolio. He navigated the initial resource wars not with corporate might, but with sheer, desperate cunning, leveraging what little pre-collapse knowledge he possessed to secure passage into the deepest of Moebius’s abandoned data vaults. There, amidst the silent, server farms, he learned the grim calculus of survival: where to find potable water, how to ration scavenged nutrient paste, and the absolute necessity of silence when shadows moved just beyond the airlock. His executive mind, once focused on global logistics, now fixated on the next meal, the next breath.\n\nYears inside the decaying structural shells of the forgotten world forged Tristan into something new, something sharper. The softness of his executive life was stripped away, replaced by the hardened muscle and calculating gaze of a scavenger. He learned to read the subtle signs of the Ash-Trail – the shifting dust, the tell-tale echoes in derelict corridors, the scent of proximity to danger. His corporate knack for assessing risk and opportunity transmuted into a primal instinct for survival, making him adept at navigating ruins and evading threats. The name Moebius, once a beacon of his identity, became a dangerous secret, a relic of a past that could earn him either suspicion or a swift, violent end. He became a ghost in the shell, shedding his former self to simply *be*.\n\nToday, Tristan walks the Ash-Trail as a Scout, a solitary figure whose reputation for quiet efficiency precedes him. He moves between the fledgling City-States and the vast, unknown wastes, trading information for passage, guiding others through treacherous zones, or charting paths to rumored caches. His past is a tightly guarded secret, a potential leverage or a fatal weakness depending on who uncovers it. He begins his journey today not for ambition or profit in the Old World sense, but for the immediate survival of himself and those who pay for his services. A new contract has come, speaking of forgotten Moebius installations, and the cold, precise survival math dictates that the risks, however immense, might just outweigh the potential for discovery, for some forgotten truth.",
   "hp": 35,
   "id": "char-1772901007990",
   "inventory": [],
+  "isFamily": false,
   "isNPC": false,
   "level": 100,
   "maxHp": 35,
@@ -37,23 +98,23 @@
     ],
     "shortDescription": "Eyes and ears of every expedition."
   },
-  "skills": [
+  "parents": {
+    "father": null,
+    "mother": null
+  },
+  "relationships": [
     {
-      "apCost": 3,
-      "areaSize": 0,
-      "areaType": "single",
-      "category": "base",
-      "cooldown": 0,
-      "damage": 12,
-      "description": "A quick melee strike with a blade.",
-      "effectType": "physical",
-      "icon": "⚔️",
-      "id": "slash",
-      "maxRange": 1,
-      "minRange": 1,
-      "name": "Slash",
-      "targetType": "enemy"
+      "note": "Tristan's bestfriend and associate at moebius",
+      "targetId": "char-1772898495176",
+      "type": "best_friend"
     },
+    {
+      "note": "AF is a loved friend of tristan",
+      "targetId": "char-1772210022882",
+      "type": "protégé"
+    }
+  ],
+  "skills": [
     {
       "apCost": 4,
       "areaSize": 0,
@@ -174,6 +235,59 @@
       "minRange": 1,
       "name": "Analyze",
       "targetType": "enemy"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 0,
+      "damage": 5,
+      "description": "Strike with your equipped weapon. Replaces base damage with weapon's flat damage modifier. Melee: scales with Strength. Ranged: fixed damage only.",
+      "effectType": "physical",
+      "effects": [
+        {
+          "description": "Replaces skill base damage with the equipped weapon's flat damage value.",
+          "id": "effect-1773078073638",
+          "name": "Weapon Damage Replacement",
+          "target": "mainHand",
+          "trigger": "passive",
+          "type": "WEAPON_DAMAGE_REPLACEMENT",
+          "value": 0
+        }
+      ],
+      "icon": "⚔️",
+      "id": "use-weapon",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Use Weapon",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 2,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 2,
+      "description": "A quick burst of speed. +3 Movement Points for the current turn.",
+      "effects": [
+        {
+          "description": "Increases Movement Points.",
+          "duration": 1,
+          "id": "effect-sprint-mp",
+          "name": "Sprint Bonus",
+          "target": "mp",
+          "trigger": "passive",
+          "type": "STAT_MODIFIER",
+          "value": 3
+        }
+      ],
+      "icon": "👟",
+      "id": "sprint",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Sprint",
+      "targetType": "self"
     }
   ],
   "stats": {
@@ -236,5 +350,7 @@
       "type": "positive"
     }
   ],
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
   "xp": 0
 }
