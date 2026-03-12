@@ -9,6 +9,51 @@
       "Increased accuracy under suppressive fire",
       "Faster weapon handling",
       "Bonus morale in combat situations"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "rangedAccuracy",
+        "value": 8,
+        "isPercentage": true,
+        "name": "Security Accuracy",
+        "id": "occ-soldier-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Threat Anticipation",
+        "id": "occ-soldier-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "additive",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleFloor",
+        "value": 5,
+        "name": "Steady Resolve",
+        "id": "occ-soldier-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Morale Support",
+        "id": "occ-soldier-effect-4"
+      }
     ]
   },
   {
@@ -21,6 +66,51 @@
       "Earlier detection of incoming threats",
       "Reduced ambush chance at camp",
       "Bonus to defensive positioning"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "rangedAccuracy",
+        "value": 8,
+        "isPercentage": true,
+        "name": "Security Accuracy",
+        "id": "occ-guard-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Threat Anticipation",
+        "id": "occ-guard-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "additive",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleFloor",
+        "value": 5,
+        "name": "Steady Resolve",
+        "id": "occ-guard-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Ambush Discipline",
+        "id": "occ-guard-effect-4"
+      }
     ]
   },
   {
@@ -33,6 +123,51 @@
       "Bonus morale when defending settlements",
       "Slightly faster melee attacks",
       "Crew rallies faster after losses"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "rangedAccuracy",
+        "value": 8,
+        "isPercentage": true,
+        "name": "Security Accuracy",
+        "id": "occ-militia-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Threat Anticipation",
+        "id": "occ-militia-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "additive",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleFloor",
+        "value": 5,
+        "name": "Steady Resolve",
+        "id": "occ-militia-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Morale Support",
+        "id": "occ-militia-effect-4"
+      }
     ]
   },
   {
@@ -45,6 +180,51 @@
       "Bonus rewards from combat contracts",
       "Intimidation bonuses in negotiations",
       "Adapts faster to new weapons"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "rangedAccuracy",
+        "value": 8,
+        "isPercentage": true,
+        "name": "Security Accuracy",
+        "id": "occ-mercenary-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Threat Anticipation",
+        "id": "occ-mercenary-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "additive",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleFloor",
+        "value": 5,
+        "name": "Steady Resolve",
+        "id": "occ-mercenary-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "lootMultiplier",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Contract Yield",
+        "id": "occ-mercenary-effect-4"
+      }
     ]
   },
   {
@@ -57,6 +237,51 @@
       "Enhanced tracking of hostiles",
       "Bonus rewards from bounty contracts",
       "Reduced Heat decay time"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "rangedAccuracy",
+        "value": 8,
+        "isPercentage": true,
+        "name": "Security Accuracy",
+        "id": "occ-bounty-hunter-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Threat Anticipation",
+        "id": "occ-bounty-hunter-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "additive",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleFloor",
+        "value": 5,
+        "name": "Steady Resolve",
+        "id": "occ-bounty-hunter-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "lootMultiplier",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Contract Yield",
+        "id": "occ-bounty-hunter-effect-4"
+      }
     ]
   },
   {
@@ -69,6 +294,51 @@
       "Reduced ambush chance during travel",
       "Crew takes less damage on the road",
       "Faster threat response time"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "rangedAccuracy",
+        "value": 8,
+        "isPercentage": true,
+        "name": "Security Accuracy",
+        "id": "occ-caravan-guard-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Threat Anticipation",
+        "id": "occ-caravan-guard-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "additive",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleFloor",
+        "value": 5,
+        "name": "Steady Resolve",
+        "id": "occ-caravan-guard-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Ambush Discipline",
+        "id": "occ-caravan-guard-effect-4"
+      }
     ]
   },
   {
@@ -81,6 +351,51 @@
       "Predicts raider ambush patterns",
       "Bonus loot from hostile camps",
       "Intimidation from reputation"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "rangedAccuracy",
+        "value": 8,
+        "isPercentage": true,
+        "name": "Security Accuracy",
+        "id": "occ-reformed-raider-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Threat Anticipation",
+        "id": "occ-reformed-raider-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "additive",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleFloor",
+        "value": 5,
+        "name": "Steady Resolve",
+        "id": "occ-reformed-raider-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Ambush Discipline",
+        "id": "occ-reformed-raider-effect-4"
+      }
     ]
   },
   {
@@ -93,6 +408,52 @@
       "Vehicle repairs cost 40% less parts",
       "Chance to salvage broken equipment",
       "Fuel efficiency increased"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Technical Repairs",
+        "id": "occ-mechanic-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "salvageYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Technical Salvage",
+        "id": "occ-mechanic-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Efficiency",
+        "id": "occ-mechanic-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -20,
+        "isPercentage": true,
+        "name": "Repair Savings",
+        "id": "occ-mechanic-effect-4"
+      }
     ]
   },
   {
@@ -105,6 +466,52 @@
       "Crafting yields bonus items",
       "Can repair advanced tech",
       "Fortification building is faster"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Technical Repairs",
+        "id": "occ-engineer-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "salvageYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Technical Salvage",
+        "id": "occ-engineer-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Efficiency",
+        "id": "occ-engineer-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -20,
+        "isPercentage": true,
+        "name": "Repair Savings",
+        "id": "occ-engineer-effect-4"
+      }
     ]
   },
   {
@@ -117,6 +524,52 @@
       "Can restore power at abandoned sites",
       "Electronic locks easier to bypass",
       "Reduced resource cost for tech crafting"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Technical Repairs",
+        "id": "occ-electrician-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "salvageYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Technical Salvage",
+        "id": "occ-electrician-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Efficiency",
+        "id": "occ-electrician-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Craft Output",
+        "id": "occ-electrician-effect-4"
+      }
     ]
   },
   {
@@ -129,6 +582,52 @@
       "Vehicle and armor repairs are faster",
       "Barricade construction costs less",
       "Bonus durability on repaired equipment"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Technical Repairs",
+        "id": "occ-welder-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "salvageYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Technical Salvage",
+        "id": "occ-welder-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Efficiency",
+        "id": "occ-welder-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -20,
+        "isPercentage": true,
+        "name": "Repair Savings",
+        "id": "occ-welder-effect-4"
+      }
     ]
   },
   {
@@ -141,6 +640,41 @@
       "Extra parts from dismantling",
       "Identifies valuable salvage faster",
       "Reduced weight of collected scrap"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Technical Repairs",
+        "id": "occ-scrapper-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "salvageYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Technical Salvage",
+        "id": "occ-scrapper-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Efficiency",
+        "id": "occ-scrapper-effect-3"
+      }
     ]
   },
   {
@@ -153,6 +687,41 @@
       "Settlement structures cost less resources",
       "Buildings have increased durability",
       "Construction time reduced"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Technical Repairs",
+        "id": "occ-builder-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "salvageYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Technical Salvage",
+        "id": "occ-builder-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Efficiency",
+        "id": "occ-builder-effect-3"
+      }
     ]
   },
   {
@@ -165,6 +734,52 @@
       "Food spoils 50% slower",
       "Chance to find extra food in the wild",
       "Higher morale in settlements"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Craft Yield",
+        "id": "occ-farmer-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "spoilageRate",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Preservation",
+        "id": "occ-farmer-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Logistics",
+        "id": "occ-farmer-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Morale Support",
+        "id": "occ-farmer-effect-4"
+      }
     ]
   },
   {
@@ -177,6 +792,41 @@
       "Food production bonus at settlements",
       "Early warning of nearby wildlife threats",
       "Trade value of animal goods increased"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Craft Yield",
+        "id": "occ-shepherd-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "spoilageRate",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Preservation",
+        "id": "occ-shepherd-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Logistics",
+        "id": "occ-shepherd-effect-3"
+      }
     ]
   },
   {
@@ -189,6 +839,52 @@
       "Caravan carry capacity increased",
       "Animal-based food lasts longer",
       "Bonus resources from animal husbandry"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Craft Yield",
+        "id": "occ-livestock-keeper-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "spoilageRate",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Preservation",
+        "id": "occ-livestock-keeper-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Logistics",
+        "id": "occ-livestock-keeper-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Cargo Planning",
+        "id": "occ-livestock-keeper-effect-4"
+      }
     ]
   },
   {
@@ -201,6 +897,52 @@
       "Clothing and light armor repairs cheaper",
       "Crafted gear has bonus durability",
       "Cold and exposure resistance slightly increased"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Craft Yield",
+        "id": "occ-tailor-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "spoilageRate",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Preservation",
+        "id": "occ-tailor-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Logistics",
+        "id": "occ-tailor-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -20,
+        "isPercentage": true,
+        "name": "Repair Savings",
+        "id": "occ-tailor-effect-4"
+      }
     ]
   },
   {
@@ -213,6 +955,52 @@
       "Wooden construction costs reduced",
       "Tool crafting yields extra items",
       "Settlement comfort bonus"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Craft Yield",
+        "id": "occ-carpenter-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "spoilageRate",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Preservation",
+        "id": "occ-carpenter-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Logistics",
+        "id": "occ-carpenter-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Craft Output",
+        "id": "occ-carpenter-effect-4"
+      }
     ]
   },
   {
@@ -225,6 +1013,52 @@
       "Leather goods sell for more",
       "Armor crafting material costs reduced",
       "Crafted leather gear lasts longer"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Craft Yield",
+        "id": "occ-tanner-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "spoilageRate",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Preservation",
+        "id": "occ-tanner-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Logistics",
+        "id": "occ-tanner-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Craft Output",
+        "id": "occ-tanner-effect-4"
+      }
     ]
   },
   {
@@ -237,6 +1071,52 @@
       "Food crafting yields extra rations",
       "Settlement morale bonus from meals",
       "Reduced food consumption for the party"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Craft Yield",
+        "id": "occ-baker-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "spoilageRate",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Preservation",
+        "id": "occ-baker-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Logistics",
+        "id": "occ-baker-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Morale Support",
+        "id": "occ-baker-effect-4"
+      }
     ]
   },
   {
@@ -249,6 +1129,41 @@
       "Raw material processing is faster",
       "Bonus yield from grain and ore",
       "Reduced waste from resource processing"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Craft Yield",
+        "id": "occ-miller-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "spoilageRate",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Preservation",
+        "id": "occ-miller-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Logistics",
+        "id": "occ-miller-effect-3"
+      }
     ]
   },
   {
@@ -261,6 +1176,52 @@
       "Weapon and tool crafting costs reduced",
       "Forged items have bonus damage or durability",
       "Can repair metal equipment in the field"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "craftingYield",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Craft Yield",
+        "id": "occ-blacksmith-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "spoilageRate",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Preservation",
+        "id": "occ-blacksmith-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Workshop Logistics",
+        "id": "occ-blacksmith-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -20,
+        "isPercentage": true,
+        "name": "Repair Savings",
+        "id": "occ-blacksmith-effect-4"
+      }
     ]
   },
   {
@@ -273,6 +1234,52 @@
       "Resource tracking is more accurate",
       "Trade deals yield 10% more value",
       "Waste from resource management reduced"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "ACTION_MODIFIER",
+        "target": "traderPriceMultiplier",
+        "value": -8,
+        "isPercentage": true,
+        "name": "Administrative Leverage",
+        "id": "occ-accountant-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Operational Trust",
+        "id": "occ-accountant-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "conflictChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Conflict Mediation",
+        "id": "occ-accountant-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Target Discovery",
+        "id": "occ-accountant-effect-4"
+      }
     ]
   },
   {
@@ -285,6 +1292,52 @@
       "Travel route planning costs less fuel",
       "Supply deliveries arrive faster",
       "Reduced resource spoilage during transport"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "ACTION_MODIFIER",
+        "target": "traderPriceMultiplier",
+        "value": -8,
+        "isPercentage": true,
+        "name": "Administrative Leverage",
+        "id": "occ-logistician-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Operational Trust",
+        "id": "occ-logistician-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "conflictChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Conflict Mediation",
+        "id": "occ-logistician-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "RESOURCE_MODIFIER",
+        "target": "travelFuelCost",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Fuel Control",
+        "id": "occ-logistician-effect-4"
+      }
     ]
   },
   {
@@ -297,6 +1350,41 @@
       "Settlement productivity increased",
       "Crew task assignments are more efficient",
       "Daily resource consumption slightly reduced"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "ACTION_MODIFIER",
+        "target": "traderPriceMultiplier",
+        "value": -8,
+        "isPercentage": true,
+        "name": "Administrative Leverage",
+        "id": "occ-steward-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Operational Trust",
+        "id": "occ-steward-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "conflictChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Conflict Mediation",
+        "id": "occ-steward-effect-3"
+      }
     ]
   },
   {
@@ -309,6 +1397,52 @@
       "Lore discoveries yield extra XP",
       "Can decipher old-world terminals and documents",
       "Map accuracy improved"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "ACTION_MODIFIER",
+        "target": "traderPriceMultiplier",
+        "value": -8,
+        "isPercentage": true,
+        "name": "Administrative Leverage",
+        "id": "occ-archivist-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Operational Trust",
+        "id": "occ-archivist-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "conflictChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Conflict Mediation",
+        "id": "occ-archivist-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Target Discovery",
+        "id": "occ-archivist-effect-4"
+      }
     ]
   },
   {
@@ -321,6 +1455,52 @@
       "Inventory capacity increased 20%",
       "Items degrade slower in storage",
       "Faster access to stored supplies"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "ACTION_MODIFIER",
+        "target": "traderPriceMultiplier",
+        "value": -8,
+        "isPercentage": true,
+        "name": "Administrative Leverage",
+        "id": "occ-warehouse-manager-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Operational Trust",
+        "id": "occ-warehouse-manager-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "conflictChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Conflict Mediation",
+        "id": "occ-warehouse-manager-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Cargo Planning",
+        "id": "occ-warehouse-manager-effect-4"
+      }
     ]
   },
   {
@@ -333,6 +1513,41 @@
       "Crew efficiency bonus on group tasks",
       "Project completion times reduced",
       "Better coordination during emergencies"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "ACTION_MODIFIER",
+        "target": "traderPriceMultiplier",
+        "value": -8,
+        "isPercentage": true,
+        "name": "Administrative Leverage",
+        "id": "occ-operations-manager-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Operational Trust",
+        "id": "occ-operations-manager-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "conflictChance",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Conflict Mediation",
+        "id": "occ-operations-manager-effect-3"
+      }
     ]
   },
   {
@@ -345,6 +1560,52 @@
       "Healing items 30% more effective",
       "Chance to save a crew member from death",
       "Meds consumption reduced"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "negotiationSuccess",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Social Leverage",
+        "id": "occ-medic-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "peacefulResolutionChance",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Peaceful Resolution",
+        "id": "occ-medic-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Camp Morale",
+        "id": "occ-medic-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "healingPower",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Medical Throughput",
+        "id": "occ-medic-effect-4"
+      }
     ]
   },
   {
@@ -357,6 +1618,52 @@
       "Recovery speed from injuries increased",
       "Disease and infection chance reduced",
       "Crew morale bonus when healing"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "negotiationSuccess",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Social Leverage",
+        "id": "occ-nurse-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "peacefulResolutionChance",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Peaceful Resolution",
+        "id": "occ-nurse-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Camp Morale",
+        "id": "occ-nurse-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Morale Support",
+        "id": "occ-nurse-effect-4"
+      }
     ]
   },
   {
@@ -369,6 +1676,52 @@
       "Crew morale recovers faster",
       "Chance to de-escalate hostile encounters",
       "Settlement reputation gains increased"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "negotiationSuccess",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Social Leverage",
+        "id": "occ-preacher-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "peacefulResolutionChance",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Peaceful Resolution",
+        "id": "occ-preacher-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Camp Morale",
+        "id": "occ-preacher-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Morale Support",
+        "id": "occ-preacher-effect-4"
+      }
     ]
   },
   {
@@ -381,6 +1734,52 @@
       "XP gain increased for the whole party",
       "Crew learns new skills faster",
       "Lore and discovery rewards increased"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "negotiationSuccess",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Social Leverage",
+        "id": "occ-teacher-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "peacefulResolutionChance",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Peaceful Resolution",
+        "id": "occ-teacher-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Camp Morale",
+        "id": "occ-teacher-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "lootMultiplier",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Contract Yield",
+        "id": "occ-teacher-effect-4"
+      }
     ]
   },
   {
@@ -393,6 +1792,52 @@
       "Party morale floor increased",
       "Better prices at bars and taverns",
       "Crew trust grows faster"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "negotiationSuccess",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Social Leverage",
+        "id": "occ-entertainer-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "peacefulResolutionChance",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Peaceful Resolution",
+        "id": "occ-entertainer-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Camp Morale",
+        "id": "occ-entertainer-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Morale Support",
+        "id": "occ-entertainer-effect-4"
+      }
     ]
   },
   {
@@ -405,6 +1850,52 @@
       "Faction disputes resolved more favorably",
       "Crew internal conflicts reduced",
       "Diplomatic options appear more often"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "negotiationSuccess",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Social Leverage",
+        "id": "occ-mediator-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "peacefulResolutionChance",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Peaceful Resolution",
+        "id": "occ-mediator-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Camp Morale",
+        "id": "occ-mediator-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "negotiationSuccess",
+        "value": 8,
+        "isPercentage": true,
+        "name": "Pressure Negotiation",
+        "id": "occ-mediator-effect-4"
+      }
     ]
   },
   {
@@ -417,6 +1908,52 @@
       "Map discovery range doubled",
       "Reduced encounter danger on roads",
       "POIs revealed earlier"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "RESOURCE_MODIFIER",
+        "target": "travelFuelCost",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Travel Economy",
+        "id": "occ-scout-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "travelTime",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Field Tempo",
+        "id": "occ-scout-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Field Awareness",
+        "id": "occ-scout-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Target Discovery",
+        "id": "occ-scout-effect-4"
+      }
     ]
   },
   {
@@ -429,6 +1966,52 @@
       "Travel fuel costs reduced 20%",
       "Reduced chance of getting lost",
       "Weather prediction bonuses"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "RESOURCE_MODIFIER",
+        "target": "travelFuelCost",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Travel Economy",
+        "id": "occ-navigator-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "travelTime",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Field Tempo",
+        "id": "occ-navigator-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Field Awareness",
+        "id": "occ-navigator-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "RESOURCE_MODIFIER",
+        "target": "travelFuelCost",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Fuel Control",
+        "id": "occ-navigator-effect-4"
+      }
     ]
   },
   {
@@ -441,6 +2024,52 @@
       "Vehicle speed increased",
       "Fuel consumption reduced while driving",
       "Better handling in hazardous terrain"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "RESOURCE_MODIFIER",
+        "target": "travelFuelCost",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Travel Economy",
+        "id": "occ-driver-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "travelTime",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Field Tempo",
+        "id": "occ-driver-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Field Awareness",
+        "id": "occ-driver-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "RESOURCE_MODIFIER",
+        "target": "travelFuelCost",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Fuel Control",
+        "id": "occ-driver-effect-4"
+      }
     ]
   },
   {
@@ -453,6 +2082,52 @@
       "Convoy travel speed increased",
       "Reduced breakdown chance for all vehicles",
       "Better resource distribution during travel"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "RESOURCE_MODIFIER",
+        "target": "travelFuelCost",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Travel Economy",
+        "id": "occ-convoy-operator-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "travelTime",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Field Tempo",
+        "id": "occ-convoy-operator-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Field Awareness",
+        "id": "occ-convoy-operator-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "travelTime",
+        "value": -12,
+        "isPercentage": true,
+        "name": "Travel Speed",
+        "id": "occ-convoy-operator-effect-4"
+      }
     ]
   },
   {
@@ -465,6 +2140,52 @@
       "Travel time between known locations reduced",
       "Bonus rewards from delivery contracts",
       "Less likely to be intercepted on routes"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "RESOURCE_MODIFIER",
+        "target": "travelFuelCost",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Travel Economy",
+        "id": "occ-courier-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "travelTime",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Field Tempo",
+        "id": "occ-courier-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Field Awareness",
+        "id": "occ-courier-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "lootMultiplier",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Contract Yield",
+        "id": "occ-courier-effect-4"
+      }
     ]
   },
   {
@@ -477,6 +2198,52 @@
       "Reduced Heat from illegal actions",
       "Hidden stash slots in inventory",
       "Faster travel through tunnels and back routes"
+    ],
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "RESOURCE_MODIFIER",
+        "target": "travelFuelCost",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Travel Economy",
+        "id": "occ-smuggler-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "travelTime",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Field Tempo",
+        "id": "occ-smuggler-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Field Awareness",
+        "id": "occ-smuggler-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Cargo Planning",
+        "id": "occ-smuggler-effect-4"
+      }
     ]
   }
 ]

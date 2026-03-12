@@ -6,12 +6,20 @@
       {
         "target": "agility",
         "type": "STAT_MODIFIER",
-        "value": 1
+        "value": 1,
+        "id": "age-juvenile-effect-1",
+        "trigger": "passive",
+        "scope": "combat",
+        "stacking": "additive"
       },
       {
         "target": "strength",
         "type": "STAT_MODIFIER",
-        "value": -1
+        "value": -1,
+        "id": "age-juvenile-effect-2",
+        "trigger": "passive",
+        "scope": "combat",
+        "stacking": "additive"
       }
     ],
     "id": "age-juvenile",
@@ -25,12 +33,20 @@
       {
         "target": "wisdom",
         "type": "STAT_MODIFIER",
-        "value": 1
+        "value": 1,
+        "id": "age-elder-effect-1",
+        "trigger": "passive",
+        "scope": "combat",
+        "stacking": "additive"
       },
       {
         "target": "endurance",
         "type": "STAT_MODIFIER",
-        "value": -1
+        "value": -1,
+        "id": "age-elder-effect-2",
+        "trigger": "passive",
+        "scope": "combat",
+        "stacking": "additive"
       }
     ],
     "id": "age-elder",
@@ -42,7 +58,31 @@
     "description": "Peak physical condition. No inherent penalties.",
     "id": "age-prime",
     "name": "In Prime",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "In Prime Bond",
+        "id": "age-prime-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "In Prime Exposure",
+        "id": "age-prime-effect-2"
+      }
+    ]
   },
   {
     "cost": 10,
@@ -52,7 +92,10 @@
         "target": "maxHp",
         "trigger": "passive",
         "type": "STAT_MODIFIER",
-        "value": 15
+        "value": 15,
+        "id": "t-hardy-effect-1",
+        "scope": "combat",
+        "stacking": "additive"
       }
     ],
     "id": "t-hardy",
@@ -64,35 +107,111 @@
     "description": "You know where the high-grade components are hidden. +25% Parts found.",
     "id": "t-scrapper",
     "name": "Expert Scrapper",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "global",
+        "type": "ACTION_MODIFIER",
+        "target": "xpGain",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Experience Shift",
+        "id": "t-scrapper-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "salvageYield",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Salvage Yield",
+        "id": "t-scrapper-effect-2"
+      }
+    ]
   },
   {
     "cost": 12,
     "description": "Basic anatomy knowledge is a rarity. Medicine is 50% more effective.",
     "id": "t-field-medic",
     "name": "Field Medic",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "healingPower",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Healing Throughput",
+        "id": "t-field-medic-effect-1"
+      }
+    ]
   },
   {
     "cost": 6,
     "description": "You speak the language of the low-life. Rumors you hear are 20% more likely to be accurate.",
     "id": "t-streetwise",
     "name": "Streetwise",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Streetwise Recovery",
+        "id": "t-streetwise-effect-1"
+      }
+    ]
   },
   {
     "cost": 9,
     "description": "You can squeeze every drop of torque out of a rusted engine. -10% Fuel cost for travel.",
     "id": "t-lead-foot",
     "name": "Lead Foot",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "RESOURCE_MODIFIER",
+        "target": "travelFuelCost",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Fuel Efficiency",
+        "id": "t-lead-foot-effect-1"
+      }
+    ]
   },
   {
     "cost": 11,
     "description": "You sleep with one eye open. -50% Chance of being ambushed during Nightfall.",
     "id": "t-vigilant",
     "name": "Vigilant",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "EXPLORATION_BONUS",
+        "target": "ambushChance",
+        "value": -25,
+        "isPercentage": true,
+        "name": "Ambush Mitigation",
+        "id": "t-vigilant-effect-1"
+      }
+    ]
   },
   {
     "cost": 7,
@@ -102,7 +221,10 @@
         "target": "evasion",
         "trigger": "passive",
         "type": "COMBAT_BONUS",
-        "value": 10
+        "value": 10,
+        "id": "t-nimble-effect-1",
+        "scope": "combat",
+        "stacking": "additive"
       }
     ],
     "id": "t-nimble",
@@ -114,133 +236,455 @@
     "description": "You can actually read the old manuals. +15% XP Gain.",
     "id": "t-scholar",
     "name": "Pre-Ash Scholar",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "global",
+        "type": "ACTION_MODIFIER",
+        "target": "xpGain",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Experience Shift",
+        "id": "t-scholar-effect-1"
+      }
+    ]
   },
   {
     "cost": 6,
     "description": "Broad shoulders meant for heavy lifting. +20% Inventory capacity.",
     "id": "t-stout",
     "name": "Stout",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Cargo Capacity",
+        "id": "t-stout-effect-1"
+      }
+    ]
   },
   {
     "cost": 12,
     "description": "You can make a feast out of a handful of dirt. -20% Daily resource consumption.",
     "id": "t-survivalist",
     "name": "Survivalist",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "resourceConsumption",
+        "value": -20,
+        "isPercentage": true,
+        "name": "Supply Consumption",
+        "id": "t-survivalist-effect-1"
+      }
+    ]
   },
   {
     "cost": 8,
     "description": "Steady hands and a cold heart. +10% Accuracy with ranged weapons.",
     "id": "t-marksman",
     "name": "Marksman",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "rangedAccuracy",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Ranged Accuracy",
+        "id": "t-marksman-effect-1"
+      }
+    ]
   },
   {
     "cost": 11,
     "description": "You can fix a radiator with a gum wrapper. Repair actions cost 50% less Parts.",
     "id": "t-tinker",
     "name": "Master Tinker",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "repairCost",
+        "value": -50,
+        "isPercentage": true,
+        "name": "Repair Efficiency",
+        "id": "t-tinker-effect-1"
+      }
+    ]
   },
   {
     "cost": 8,
     "description": "Exceptional visual acuity. Easier to spot distant POIs.",
     "id": "t1",
     "name": "Keen Sight",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 25,
+        "isPercentage": true,
+        "name": "Exploration Clarity",
+        "id": "t1-effect-1"
+      }
+    ]
   },
   {
     "cost": 10,
     "description": "Less likely to bleed from minor wounds and environment hazards.",
     "id": "t3",
     "name": "Thick Skinned",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "hazardDamage",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Hazard Mitigation",
+        "id": "t3-effect-1"
+      }
+    ]
   },
   {
     "cost": 6,
     "description": "Massive resistance to food poisoning and radiation sickness from water.",
     "id": "t9",
     "name": "Iron Gut",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 25,
+        "isPercentage": true,
+        "name": "Exploration Clarity",
+        "id": "t9-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "STATUS_IMMUNITY",
+        "target": "diseaseChance",
+        "value": -35,
+        "isPercentage": true,
+        "name": "Disease Exposure",
+        "id": "t9-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "STATUS_IMMUNITY",
+        "target": "radiationPenalty",
+        "value": -25,
+        "isPercentage": true,
+        "name": "Radiation Pressure",
+        "id": "t9-effect-3"
+      }
+    ]
   },
   {
     "cost": 8,
     "description": "Small chance for critical failures to be ignored or loot to be doubled.",
     "id": "t15",
     "name": "Lucky",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "additive",
+        "scope": "global",
+        "type": "ACTION_MODIFIER",
+        "target": "criticalFailureIgnoreChance",
+        "value": 10,
+        "name": "Failure Insurance",
+        "id": "t15-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "additive",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "doubleLootChance",
+        "value": 5,
+        "name": "Double Loot Chance",
+        "id": "t15-effect-2"
+      }
+    ]
   },
   {
     "cost": 7,
     "description": "Charisma that works even in the Ash. Better rates with all traders.",
     "id": "t21",
     "name": "Silver Tongue",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "ACTION_MODIFIER",
+        "target": "traderPriceMultiplier",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Trade Pressure",
+        "id": "t21-effect-1"
+      }
+    ]
   },
   {
     "cost": 9,
     "description": "Deals 20% extra damage when initiating combat from stealth.",
     "id": "t22",
     "name": "Bushwhacker",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": -20,
+        "isPercentage": true,
+        "name": "Heat Signature",
+        "id": "t22-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "stealthChance",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Stealth Control",
+        "id": "t22-effect-2"
+      }
+    ]
   },
   {
     "cost": 9,
     "description": "Instinct for forgotten routes. Travel encounters are 25% less likely, and map discovery range is increased.",
     "id": "t-pathfinder",
     "name": "Pathfinder",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 25,
+        "isPercentage": true,
+        "name": "Exploration Clarity",
+        "id": "t-pathfinder-effect-1"
+      }
+    ]
   },
   {
     "cost": 8,
     "description": "Knows where to dig. Containers have a small chance to yield rare materials.",
     "id": "t-scavenger-instinct",
     "name": "Scavenger's Instinct",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Scavenger's Instinct Recovery",
+        "id": "t-scavenger-instinct-effect-1"
+      }
+    ]
   },
   {
     "cost": 10,
     "description": "Remains calm under pressure. Party morale drops 30% slower during emergencies.",
     "id": "t-crisis-manager",
     "name": "Crisis Manager",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": -30,
+        "isPercentage": true,
+        "name": "Emergency Poise",
+        "id": "t-crisis-manager-effect-1"
+      }
+    ]
   },
   {
     "cost": 7,
     "description": "Moves like drifting ash. Stealth actions generate 20% less Heat.",
     "id": "t-ghost-walker",
     "name": "Ghost Walker",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": -20,
+        "isPercentage": true,
+        "name": "Heat Signature",
+        "id": "t-ghost-walker-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "stealthChance",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Stealth Control",
+        "id": "t-ghost-walker-effect-2"
+      }
+    ]
   },
   {
     "cost": 11,
     "description": "Inventory is war. Supplies spoil 50% slower and stack more efficiently.",
     "id": "t-quartermaster",
     "name": "Quartermaster",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Cargo Capacity",
+        "id": "t-quartermaster-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 25,
+        "isPercentage": true,
+        "name": "Exploration Clarity",
+        "id": "t-quartermaster-effect-2"
+      }
+    ]
   },
   {
     "cost": 10,
     "description": "Improvised surgery expert. Healing in combat restores 20% more HP.",
     "id": "t-battlefield-surgeon",
     "name": "Battlefield Surgeon",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "global",
+        "type": "ACTION_MODIFIER",
+        "target": "xpGain",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Experience Shift",
+        "id": "t-battlefield-surgeon-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "healingPower",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Healing Throughput",
+        "id": "t-battlefield-surgeon-effect-2"
+      }
+    ]
   },
   {
     "cost": 8,
     "description": "Nothing is truly broken. Destroyed equipment yields extra parts.",
     "id": "t-salvage-engineer",
     "name": "Salvage Engineer",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "salvageYield",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Salvage Yield",
+        "id": "t-salvage-engineer-effect-1"
+      }
+    ]
   },
   {
     "cost": 9,
     "description": "Always finds common ground. Conflict events have a chance to be resolved peacefully.",
     "id": "t-negotiator",
     "name": "Negotiator",
-    "type": "positive"
+    "type": "positive",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "social",
+        "type": "ACTION_MODIFIER",
+        "target": "peacefulResolutionChance",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Peaceful Resolution",
+        "id": "t-negotiator-effect-1"
+      }
+    ]
   },
   {
     "cost": -10,
@@ -250,7 +694,10 @@
         "target": "maxHp",
         "trigger": "passive",
         "type": "STAT_MODIFIER",
-        "value": -15
+        "value": -15,
+        "id": "t-frail-effect-1",
+        "scope": "combat",
+        "stacking": "additive"
       }
     ],
     "id": "t-frail",
@@ -262,329 +709,1182 @@
     "description": "Wounds take a long time to clot. Bleeding effects last twice as long.",
     "id": "t-anemic",
     "name": "Anemic",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "hazardDamage",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Hazard Mitigation",
+        "id": "t-anemic-effect-1"
+      }
+    ]
   },
   {
     "cost": -12,
     "description": "The Ash is too much to bear sober. Morale drops 2x faster if Meds are empty.",
     "id": "t-chem-reliant",
     "name": "Chem-Reliant",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 100,
+        "isPercentage": true,
+        "name": "Morale Spiral",
+        "condition": {
+          "resourceBelow": {
+            "type": "MEDS",
+            "amount": 1
+          }
+        },
+        "id": "t-chem-reliant-effect-1"
+      }
+    ]
   },
   {
     "cost": -6,
     "description": "You lack the grace for subtlety. Increases Heat generated by actions by 15%.",
     "id": "t-loud",
     "name": "Heavy Stepper",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Heat Signature",
+        "id": "t-loud-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "stealthChance",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Stealth Control",
+        "id": "t-loud-effect-2"
+      }
+    ]
   },
   {
     "cost": -7,
     "description": "The constant hum of the Dead Zone gets to you. -10% Ranged accuracy.",
     "id": "t-jittery",
     "name": "Jittery",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "rangedAccuracy",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Ranged Accuracy",
+        "id": "t-jittery-effect-1"
+      }
+    ]
   },
   {
     "cost": -6,
     "description": "You can't bear to leave anything behind. Inventory weight increases by 15%.",
     "id": "t-hoarder",
     "name": "Sentimental Hoarder",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "RESOURCE_MODIFIER",
+        "target": "inventoryCapacity",
+        "value": -15,
+        "isPercentage": true,
+        "name": "Cargo Capacity",
+        "id": "t-hoarder-effect-1"
+      }
+    ]
   },
   {
     "cost": -8,
     "description": "Your eyes never adjusted to the dark. Heavy penalties to all actions during Nightfall.",
     "id": "t-night-blind",
     "name": "Night Blind",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Night Blind Pressure",
+        "id": "t-night-blind-effect-1"
+      }
+    ]
   },
   {
     "cost": -12,
     "description": "Cannot hear sounds. Massive penalty to surprise attacks and noise detection.",
     "id": "t41",
     "name": "Deaf",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Deaf Pressure",
+        "id": "t41-effect-1"
+      }
+    ]
   },
   {
     "cost": -7,
     "description": "A permanent leg injury. 20% slower travel speed on foot.",
     "id": "t52",
     "name": "Limper",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "travelTime",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Travel Tempo",
+        "id": "t52-effect-1"
+      }
+    ]
   },
   {
     "cost": -6,
     "description": "A chronic, rattling cough that can alert nearby hostiles.",
     "id": "t54",
     "name": "Ash-Lung",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Ash-Lung Pressure",
+        "id": "t54-effect-1"
+      }
+    ]
   },
   {
     "cost": -4,
     "description": "Quickly becomes panicked when HP drops below 40%.",
     "id": "t50",
     "name": "Cowardly",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Cowardly Pressure",
+        "id": "t50-effect-1"
+      }
+    ]
   },
   {
     "cost": -5,
     "description": "10% chance to fail complex manual tasks and waste resources.",
     "id": "t48",
     "name": "Clumsy",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Clumsy Pressure",
+        "id": "t48-effect-1"
+      }
+    ]
   },
   {
     "cost": -5,
     "description": "You hate the sight of blood. -20% Melee damage.",
     "id": "t-pacifist-neg",
     "name": "Pacifist",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "meleeDamage",
+        "value": -20,
+        "isPercentage": true,
+        "name": "Melee Output",
+        "id": "t-pacifist-neg-effect-1"
+      }
+    ]
   },
   {
     "cost": -7,
     "description": "Trusts no one. Crew Trust decays slowly over time.",
     "id": "t-paranoid",
     "name": "Paranoid",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustDecay",
+        "value": -25,
+        "isPercentage": true,
+        "name": "Trust Decay",
+        "id": "t-paranoid-effect-1"
+      }
+    ]
   },
   {
     "cost": -9,
     "description": "Nightmares of the old world. Morale recovers 40% slower.",
     "id": "t-fragile-mind",
     "name": "Fragile Mind",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleRecovery",
+        "value": -40,
+        "isPercentage": true,
+        "name": "Morale Recovery",
+        "id": "t-fragile-mind-effect-1"
+      }
+    ]
   },
   {
     "cost": -6,
     "description": "Chemical sensitivity. Using damaged equipment sometimes causes HP loss.",
     "id": "t-rust-allergy",
     "name": "Rust Allergy",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Rust Allergy Pressure",
+        "id": "t-rust-allergy-effect-1"
+      }
+    ]
   },
   {
     "cost": -5,
     "description": "Obsessive focus. Misses secondary objectives more often.",
     "id": "t-tunnel-vision",
     "name": "Tunnel Vision",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Tunnel Vision Pressure",
+        "id": "t-tunnel-vision-effect-1"
+      }
+    ]
   },
   {
     "cost": -7,
     "description": "Careless with supplies. Ammo and tools are consumed 15% faster.",
     "id": "t-reckless-loader",
     "name": "Reckless Loader",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Reckless Loader Pressure",
+        "id": "t-reckless-loader-effect-1"
+      }
+    ]
   },
   {
     "cost": -6,
     "description": "Cannot stay still. Penalties when remaining too long in one settlement.",
     "id": "t-nomadic-restlessness",
     "name": "Nomadic Restlessness",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Nomadic Restlessness Pressure",
+        "id": "t-nomadic-restlessness-effect-1"
+      }
+    ]
   },
   {
     "cost": -5,
     "description": "Hears voices in radio static. Random morale fluctuations.",
     "id": "t-static-whispers",
     "name": "Static Whispers",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 100,
+        "isPercentage": true,
+        "name": "Morale Spiral",
+        "id": "t-static-whispers-effect-1"
+      }
+    ]
   },
   {
     "cost": -8,
     "description": "Old fractures never healed. Takes extra damage from falls and impacts.",
     "id": "t-brittle-bones",
     "name": "Brittle Bones",
-    "type": "negative"
+    "type": "negative",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "hazardDamage",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Hazard Mitigation",
+        "id": "t-brittle-bones-effect-1"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "The road is your only home. +1 Agility while traveling, -1 Wisdom while in settlements.",
     "id": "t-nomad",
     "name": "Wasteland Nomad",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Wasteland Nomad Bond",
+        "id": "t-nomad-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Wasteland Nomad Exposure",
+        "id": "t-nomad-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "You miss the concrete jungle. +1 Wisdom in settlements, -1 Endurance on the road.",
     "id": "t-urbanite",
     "name": "Former Urbanite",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Former Urbanite Bond",
+        "id": "t-urbanite-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Former Urbanite Exposure",
+        "id": "t-urbanite-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Loyalty is bought, not earned. +10 Morale when Resources are high, -10 Trust from crew.",
     "id": "t-mercenary",
     "name": "Mercenary Heart",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Mercenary Heart Bond",
+        "id": "t-mercenary-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Mercenary Heart Exposure",
+        "id": "t-mercenary-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "You hear god in the white noise. Immune to Fear effects, -10% XP Gain.",
     "id": "t-zealot",
     "name": "Static Zealot",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "global",
+        "type": "ACTION_MODIFIER",
+        "target": "xpGain",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Experience Shift",
+        "id": "t-zealot-effect-1"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "You’d die for the group. +10 Crew Morale when you take damage, but you lose 2x more Morale when resting.",
     "id": "t-martyr",
     "name": "Selfless Martyr",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Selfless Martyr Bond",
+        "id": "t-martyr-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Selfless Martyr Exposure",
+        "id": "t-martyr-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Utility above all. +5% Trade efficiency, -1 Charisma.",
     "id": "t-pragmatist",
     "name": "Cold Pragmatist",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Cold Pragmatist Bond",
+        "id": "t-pragmatist-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Cold Pragmatist Exposure",
+        "id": "t-pragmatist-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Danger is the only thing that makes you feel alive. +10% Crit chance, +10% Damage received.",
     "id": "t-daredevil",
     "name": "Reckless Daredevil",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Reckless Daredevil Bond",
+        "id": "t-daredevil-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Reckless Daredevil Exposure",
+        "id": "t-daredevil-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "The world broke you long ago. Immune to Morale shifts (positive or negative).",
     "id": "t-stoic",
     "name": "Stoic Outcast",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Stoic Outcast Bond",
+        "id": "t-stoic-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Stoic Outcast Exposure",
+        "id": "t-stoic-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "You’ve seen it all before. +1 Intelligence, -10% Trust gain with new crew members.",
     "id": "t-cynic",
     "name": "Bitter Cynic",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Bitter Cynic Bond",
+        "id": "t-cynic-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Bitter Cynic Exposure",
+        "id": "t-cynic-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Company is a curse. +1 Endurance when solo, -1 Agility when in a crew.",
     "id": "t-hermit",
     "name": "Solitary Hermit",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Solitary Hermit Bond",
+        "id": "t-hermit-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Solitary Hermit Exposure",
+        "id": "t-hermit-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Enjoys socializing with crew. Boosts others morale slightly, but uses 10% more water.",
     "id": "t82",
     "name": "Talkative",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "RESOURCE_MODIFIER",
+        "target": "resourceConsumption",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Supply Consumption",
+        "id": "t82-effect-1"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Obvious physical mutations. Intimidates enemies, but traders are more wary of you.",
     "id": "t83",
     "name": "Rad-Scars",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "ACTION_MODIFIER",
+        "target": "traderPriceMultiplier",
+        "value": 8,
+        "isPercentage": true,
+        "name": "Trade Pressure",
+        "id": "t83-effect-1"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Rarely shares details. Harder for enemies to read you, but crew trust grows slowly.",
     "id": "t88",
     "name": "Mysterious",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustDecay",
+        "value": 25,
+        "isPercentage": true,
+        "name": "Trust Curve",
+        "id": "t88-effect-1"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Diligent and precise. Better crafting quality, but tasks take 25% longer.",
     "id": "t90",
     "name": "Perfectionist",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Perfectionist Bond",
+        "id": "t90-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Perfectionist Exposure",
+        "id": "t90-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Avoids \"cursed\" ruins. Randomly refuses certain dangerous actions.",
     "id": "t91",
     "name": "Superstitious",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Superstitious Bond",
+        "id": "t91-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Superstitious Exposure",
+        "id": "t91-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Alert at night, sluggish by day. Inverts the standard Day/Night penalties.",
     "id": "t92",
     "name": "Nocturnal",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Nocturnal Bond",
+        "id": "t92-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Nocturnal Exposure",
+        "id": "t92-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Driven to investigate. Reveals POIs easier, but generates more Heat.",
     "id": "t94",
     "name": "Curious",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 25,
+        "isPercentage": true,
+        "name": "Exploration Clarity",
+        "id": "t94-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "economy",
+        "type": "ACTION_MODIFIER",
+        "target": "traderPriceMultiplier",
+        "value": -10,
+        "isPercentage": true,
+        "name": "Trade Pressure",
+        "id": "t94-effect-2"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 25,
+        "isPercentage": true,
+        "name": "Curiosity",
+        "id": "t94-effect-3"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Heat Signature",
+        "id": "t94-effect-4"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Finds hope in ash. Higher Morale floor, but takes longer to realize a situation is fatal.",
     "id": "t96",
     "name": "Optimist",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "additive",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleFloor",
+        "value": 10,
+        "name": "Morale Floor",
+        "id": "t96-effect-1"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Collects Old World relics. High sanity, but easily distracted in ruins.",
     "id": "t98",
     "name": "Nostalgic",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Nostalgic Bond",
+        "id": "t98-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Nostalgic Exposure",
+        "id": "t98-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Documents everything. Extra lore and journal entries, slight XP bonus from discoveries.",
     "id": "t-chronicler",
     "name": "Chronicler",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "global",
+        "type": "ACTION_MODIFIER",
+        "target": "xpGain",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Experience Shift",
+        "id": "t-chronicler-effect-1"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Plans better alone. Tactical bonuses when separated from crew.",
     "id": "t-lone-strategist",
     "name": "Lone Strategist",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "damage",
+        "value": 12,
+        "isPercentage": true,
+        "name": "Solo Tactics",
+        "condition": {
+          "isAlone": true
+        },
+        "id": "t-lone-strategist-effect-1"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Adapted to toxic zones. Radiation resistance increased, but normal zones feel dull.",
     "id": "t-ash-born",
     "name": "Ash-Born",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "STATUS_IMMUNITY",
+        "target": "radiationPenalty",
+        "value": -25,
+        "isPercentage": true,
+        "name": "Radiation Pressure",
+        "id": "t-ash-born-effect-1"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Obsessed with Old World tech. Special POIs appear more often.",
     "id": "t-relic-seeker",
     "name": "Relic Seeker",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "exploration",
+        "type": "EXPLORATION_BONUS",
+        "target": "poiRevealChance",
+        "value": 25,
+        "isPercentage": true,
+        "name": "Exploration Clarity",
+        "id": "t-relic-seeker-effect-1"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Performs daily rites. Minor morale buff if routines are respected.",
     "id": "t-ritualist",
     "name": "Ritualist",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Ritualist Bond",
+        "id": "t-ritualist-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Ritualist Exposure",
+        "id": "t-ritualist-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Blends into any group. Reduced penalties in hostile settlements.",
     "id": "t-crowd-chameleon",
     "name": "Crowd Chameleon",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "travel",
+        "type": "ACTION_MODIFIER",
+        "target": "heatGenerated",
+        "value": -20,
+        "isPercentage": true,
+        "name": "Heat Signature",
+        "id": "t-crowd-chameleon-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "stealthChance",
+        "value": 20,
+        "isPercentage": true,
+        "name": "Stealth Control",
+        "id": "t-crowd-chameleon-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Calculates odds constantly. Crit chance and failure chance both slightly increased.",
     "id": "t-risk-accountant",
     "name": "Risk Accountant",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "combat",
+        "type": "COMBAT_BONUS",
+        "target": "critChance",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Risk Curve",
+        "id": "t-risk-accountant-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "global",
+        "type": "ACTION_MODIFIER",
+        "target": "criticalFailureChance",
+        "value": 5,
+        "isPercentage": true,
+        "name": "Failure Exposure",
+        "id": "t-risk-accountant-effect-2"
+      }
+    ]
   },
   {
     "cost": 0,
     "description": "Forms strong attachment. Gains buffs near one specific crew member, heavy debuff if separated.",
     "id": "t-bonded-companion",
     "name": "Bonded Companion",
-    "type": "neutral"
+    "type": "neutral",
+    "effects": [
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "trustGain",
+        "value": 10,
+        "isPercentage": true,
+        "name": "Bonded Boost",
+        "id": "t-bonded-companion-effect-1"
+      },
+      {
+        "trigger": "passive",
+        "stacking": "multiplicative",
+        "scope": "camp",
+        "type": "ACTION_MODIFIER",
+        "target": "moraleLoss",
+        "value": 15,
+        "isPercentage": true,
+        "name": "Separation Strain",
+        "condition": {
+          "isAlone": true
+        },
+        "id": "t-bonded-companion-effect-2"
+      }
+    ]
   },
   {
     "cost": -6,
@@ -597,7 +1897,9 @@
         "target": "intelligence",
         "trigger": "passive",
         "type": "STAT_MODIFIER",
-        "value": -10
+        "value": -10,
+        "scope": "combat",
+        "stacking": "additive"
       }
     ],
     "icon": "🧬",

@@ -1,6 +1,7 @@
-export {
-  calculateTravelCost,
-  consumeResources,
-  updateCrewTension,
-  INITIAL_CREW as generateInitialCrew,
-} from '@ashtrail/core';
+import { INITIAL_CREW, calculateTravelCost, consumeResources, updateCrewTension } from '@ashtrail/core';
+
+export { calculateTravelCost, consumeResources, updateCrewTension };
+
+export function generateInitialCrew() {
+  return INITIAL_CREW.map((member) => ({ ...member, traits: [...member.traits] }));
+}
