@@ -542,6 +542,11 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
     }
   };
 
+  const handleOpenTalentTree = (occupation: Occupation) => {
+    handleOccupationSelect(occupation);
+    setShowTalentTree(true);
+  };
+
   return (
     <Container centered className="h-screen py-8 flex flex-col">
       <Card
@@ -878,10 +883,15 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                   {/* OCCUPATION SECTION */}
                   <div className="max-w-4xl mx-auto mt-6 border-t border-zinc-800 pt-6">
                     <div className="flex justify-between items-center mb-4 gap-4">
-                      <h4 className="text-xs text-orange-500 mono font-bold uppercase tracking-widest flex items-center gap-2 shrink-0">
-                        <div className="w-1 h-1 rounded-full bg-orange-500" />
-                        Occupation
-                      </h4>
+                      <div className="shrink-0">
+                        <h4 className="text-xs text-orange-500 mono font-bold uppercase tracking-widest flex items-center gap-2">
+                          <div className="w-1 h-1 rounded-full bg-orange-500" />
+                          Occupation
+                        </h4>
+                        <p className="mt-1 text-[8px] mono uppercase tracking-wider text-zinc-600">
+                          Select a role, then open its tree.
+                        </p>
+                      </div>
                       <div className="flex items-center gap-2 flex-1 justify-end">
                         <div className="flex gap-1">
                           {(['ALL', 'SECURITY', 'TECHNICAL', 'CRAFT', 'ADMIN', 'SOCIAL', 'FIELD'] as const).map(cat => (
@@ -936,12 +946,14 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                           <span className="text-[8px] mono uppercase bg-zinc-950 text-zinc-400 px-2 py-1 rounded-sm border border-zinc-800 tracking-wider">
                             {unlockedTalentNodeIds.length} unlocked / {availableTalentPoints} points left
                           </span>
+                        </div>
+                        <div className="mt-3 flex justify-end">
                           <button
-                            onClick={() => setShowTalentTree(true)}
-                            className="ml-auto text-[8px] mono uppercase bg-zinc-900 text-zinc-400 hover:text-orange-400 px-3 py-1 rounded-sm border border-zinc-800 hover:border-orange-500/50 transition-all font-black tracking-widest flex items-center gap-2 group"
+                            onClick={() => handleOpenTalentTree(selectedOccupation)}
+                            className="text-[9px] mono uppercase bg-zinc-950 text-orange-300 hover:text-orange-200 px-4 py-2 rounded-sm border border-orange-500/40 hover:border-orange-500 transition-all font-black tracking-[0.2em] flex items-center gap-2 shadow-[0_0_20px_rgba(249,115,22,0.12)]"
                           >
-                            <div className="w-1 h-1 bg-zinc-600 group-hover:bg-orange-500 rounded-full" />
-                            View Talent Tree
+                            <div className="w-1.5 h-1.5 bg-orange-500 rounded-full" />
+                            Open Talent Tree
                           </button>
                         </div>
                       </div>
@@ -957,9 +969,17 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         })
                         .map(occ => (
                           <Tooltip key={occ.id} content={`${occ.description} — ${occ.perks.join(' • ')}`}>
-                          <button
+                            <div
+                              role="button"
+                              tabIndex={0}
                               onClick={() => handleOccupationSelect(selectedOccupation?.id === occ.id ? null : occ)}
-                              className={`w-full p-3 text-left border rounded-sm transition-all group flex items-center justify-between ${selectedOccupation?.id === occ.id
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  handleOccupationSelect(selectedOccupation?.id === occ.id ? null : occ);
+                                }
+                              }}
+                              className={`w-full p-3 text-left border rounded-sm transition-all group flex items-center justify-between gap-3 cursor-pointer ${selectedOccupation?.id === occ.id
                                 ? 'bg-orange-600/20 border-orange-500 shadow-[inset_0_0_10px_rgba(249,115,22,0.1)]'
                                 : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
                                 }`}
@@ -974,7 +994,17 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                                   {occ.name}
                                 </span>
                               </div>
-                            </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleOpenTalentTree(occ);
+                                }}
+                                className="shrink-0 px-3 py-1.5 text-[8px] mono uppercase font-black tracking-[0.15em] border rounded-sm bg-zinc-950 text-zinc-400 border-zinc-700 hover:text-orange-300 hover:border-orange-500/50 transition-all"
+                              >
+                                Open Tree
+                              </button>
+                            </div>
                           </Tooltip>
                         ))}
                     </div>
