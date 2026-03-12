@@ -644,6 +644,10 @@ async fn main() {
             "/api/quests/advance",
             post(ai_quests::advance_quest_handler),
         )
+        .route(
+            "/api/gm/generate-character-portrait",
+            post(ai_quests::generate_character_portrait_handler),
+        )
         .route("/api/planet/ecology", post(start_ecology_job))
         .route("/api/planet/ecology/{job_id}", get(get_job_status))
         .route(
@@ -718,6 +722,26 @@ async fn main() {
         .route(
             "/api/planet/quests/{world_id}",
             get(ai_quests::list_quest_runs),
+        )
+        .route(
+            "/api/planet/quests/{world_id}/chains",
+            get(ai_quests::list_quest_chains),
+        )
+        .route(
+            "/api/planet/quests/{world_id}/chains/{chain_id}",
+            get(ai_quests::get_quest_chain),
+        )
+        .route(
+            "/api/planet/quests/{world_id}/glossary",
+            get(ai_quests::get_quest_glossary).post(ai_quests::upsert_quest_glossary_entry),
+        )
+        .route(
+            "/api/planet/quests/{world_id}/illustrations/{illustration_id}",
+            get(ai_quests::get_quest_illustration),
+        )
+        .route(
+            "/api/planet/quests/{world_id}/illustrations/{illustration_id}/image",
+            get(ai_quests::get_quest_illustration_image),
         )
         .route(
             "/api/planet/quests/{world_id}/{run_id}",
@@ -865,6 +889,14 @@ async fn main() {
         .route("/api/data/occupations/{id}", delete(cms::delete_occupation))
         .route("/api/data/items", get(cms::get_items).post(cms::save_items))
         .route("/api/data/items/{id}", delete(cms::delete_item))
+        .route(
+            "/api/data/talent-trees",
+            get(cms::get_talent_trees).post(cms::save_talent_tree),
+        )
+        .route(
+            "/api/data/talent-trees/{occupation_id}",
+            delete(cms::delete_talent_tree),
+        )
         .route(
             "/api/data/characters",
             get(cms::get_characters).post(cms::save_character),

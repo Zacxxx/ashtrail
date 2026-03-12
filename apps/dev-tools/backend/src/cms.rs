@@ -138,6 +138,64 @@ pub async fn get_items(
     }
 }
 
+pub async fn get_talent_trees(
+    State(_state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/talentTrees.json");
+    match fs::read_to_string(&path) {
+        Ok(data) => {
+            let json: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            Ok((StatusCode::OK, Json(json)))
+        }
+        Err(_) => Ok((StatusCode::OK, Json(serde_json::json!([])))),
+    }
+}
+
+pub async fn save_talent_tree(
+    State(_state): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/talentTrees.json");
+
+    let mut trees: Vec<serde_json::Value> = match fs::read_to_string(&path) {
+        Ok(data) => {
+            let val: serde_json::Value =
+                serde_json::from_str(&data).unwrap_or(serde_json::json!([]));
+            if val.is_array() {
+                val.as_array().unwrap().clone()
+            } else {
+                Vec::new()
+            }
+        }
+        Err(_) => Vec::new(),
+    };
+
+    let occupation_id = payload
+        .get("occupationId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !occupation_id.is_empty() {
+        if let Some(pos) = trees.iter().position(|tree| {
+            tree.get("occupationId").and_then(|v| v.as_str()) == Some(occupation_id)
+        }) {
+            trees[pos] = payload;
+        } else {
+            trees.push(payload);
+        }
+    }
+
+    let json_string = serde_json::to_string_pretty(&trees).unwrap();
+    match fs::write(&path, json_string) {
+        Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
+}
+
 pub async fn save_items(
     State(_state): State<AppState>,
     Json(payload): Json<serde_json::Value>,
@@ -368,6 +426,25 @@ pub async fn delete_item(
     let mut data: Vec<serde_json::Value> = load_json_array(&path);
     let initial_len = data.len();
     data.retain(|v| v.get("id").and_then(|id_val| id_val.as_str()) != Some(id.as_str()));
+    tracing::info!("Removed {} items", initial_len - data.len());
+    save_json_array(&path, data)
+}
+
+pub async fn delete_talent_tree(
+    State(_state): State<AppState>,
+    axum::extract::Path(occupation_id): axum::extract::Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    tracing::info!("Deleting talent tree with occupationId: {}", occupation_id);
+    let path = std::env::current_dir()
+        .unwrap()
+        .join("../../packages/core/src/data/talentTrees.json");
+    let mut data: Vec<serde_json::Value> = load_json_array(&path);
+    let initial_len = data.len();
+    data.retain(|v| {
+        v.get("occupationId")
+            .and_then(|id_val| id_val.as_str())
+            != Some(occupation_id.as_str())
+    });
     tracing::info!("Removed {} items", initial_len - data.len());
     save_json_array(&path, data)
 }

@@ -2,7 +2,8 @@ import { ALL_SKILLS } from './mockData';
 import traitsData from './data/traits.json';
 import occupationsData from './data/occupations.json';
 import itemsData from './data/items.json';
-import { Trait, Occupation, Item, Character, Skill } from './types';
+import { ALL_TALENT_TREES } from './content';
+import { Trait, Occupation, Item, Character, Skill, TalentTree } from './types';
 
 export class GameRegistry {
     private static traits: Map<string, Trait> = new Map();
@@ -10,6 +11,7 @@ export class GameRegistry {
     private static items: Map<string, Item> = new Map();
     private static characters: Map<string, Character> = new Map();
     private static skills: Map<string, Skill> = new Map();
+    private static talentTrees: Map<string, TalentTree> = new Map();
     private static initialized = false;
 
     private static readonly SKILLS_STORAGE_KEY = 'ashtrail_custom_skills';
@@ -31,6 +33,8 @@ export class GameRegistry {
         itemsArray.forEach(i => this.items.set(i.id, i));
 
         ALL_SKILLS.forEach(s => this.skills.set(s.id, s));
+
+        ALL_TALENT_TREES.forEach((tree: TalentTree) => this.talentTrees.set(tree.occupationId, tree));
 
         // Load from LocalStorage (overrides static, but overridden by backend)
         this.loadSkillsFromLocalStorage();
@@ -120,6 +124,15 @@ export class GameRegistry {
                 }
             }
 
+            const ttRes = await fetch(`${urlToUse}/api/data/talent-trees`);
+            if (ttRes.ok) {
+                const ttData: TalentTree[] = await ttRes.json();
+                if (Array.isArray(ttData)) {
+                    this.talentTrees.clear();
+                    ttData.forEach(tree => this.talentTrees.set(tree.occupationId, tree));
+                }
+            }
+
             console.log("[GameRegistry] Sync complete.");
             this.initialized = true;
         } catch (e) {
@@ -181,6 +194,17 @@ export class GameRegistry {
     public static getSkill(id: string): Skill | undefined {
         if (!this.initialized) this.initialize();
         return this.skills.get(id);
+    }
+
+    // --- TALENT TREES ---
+    public static getAllTalentTrees(): TalentTree[] {
+        if (!this.initialized) this.initialize();
+        return Array.from(this.talentTrees.values());
+    }
+
+    public static getTalentTree(occupationId: string): TalentTree | undefined {
+        if (!this.initialized) this.initialize();
+        return this.talentTrees.get(occupationId);
     }
 
     public static addSkill(skill: Skill) {

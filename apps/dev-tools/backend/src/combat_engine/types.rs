@@ -70,6 +70,10 @@ pub struct TacticalEntity {
     pub defense: i32,
     pub traits: Vec<Trait>,
     pub skills: Vec<Skill>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub occupation: Option<Occupation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progression: Option<CharacterProgression>,
     #[serde(default)]
     pub skill_cooldowns: HashMap<String, u32>,
     pub ap: i32,
@@ -118,6 +122,47 @@ pub enum EffectType {
     LoreEffect,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum EffectScope {
+    Combat,
+    Travel,
+    Exploration,
+    Camp,
+    Economy,
+    Social,
+    Global,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum EffectStacking {
+    Additive,
+    Multiplicative,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectResourceCondition {
+    pub r#type: String,
+    pub amount: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectCondition {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_of_day: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hp_below_pct: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_alone: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_below: Option<EffectResourceCondition>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameplayEffect {
@@ -138,6 +183,12 @@ pub struct GameplayEffect {
     pub duration: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trigger: Option<EffectTrigger>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<EffectScope>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stacking: Option<EffectStacking>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub condition: Option<EffectCondition>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -184,6 +235,28 @@ pub enum TraitType {
     Positive,
     Negative,
     Neutral,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Occupation {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub description: String,
+    pub short_description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effects: Option<Vec<GameplayEffect>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterProgression {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree_occupation_id: Option<String>,
+    pub unlocked_talent_node_ids: Vec<String>,
+    pub available_talent_points: i32,
+    pub spent_talent_points: i32,
 }
 
 // ── Skill Types ─────────────────────────────────────────────

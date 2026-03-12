@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GameRegistry, Character, Skill } from '@ashtrail/core';
+import { GameRegistry, Character, Skill, Trait, resolveCharacterSkills, resolveOccupationTree } from '@ashtrail/core';
 import type { TacticalEntity, CombatConfig, DamagePreview, CombatResolutionSummary } from '@ashtrail/core';
 import { TacticalArena } from './TacticalArena';
 import { useCombatWebSocket } from './useCombatWebSocket';
@@ -14,11 +14,46 @@ function getDefaultEnemySkills(): Skill[] {
     return GameRegistry.getAllSkills().filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
 }
 
+function buildCombatTraits(char: Character): Trait[] {
+    const traits: Trait[] = [...char.traits];
+
+    if (char.occupation?.effects?.length) {
+        traits.push({
+            id: `${char.occupation.id}-combat-baseline`,
+            name: `${char.occupation.name} Baseline`,
+            description: `Resolved occupation effects for ${char.occupation.name}.`,
+            cost: 0,
+            type: 'neutral',
+            effects: char.occupation.effects.filter((effect) => !effect.scope || effect.scope === 'combat' || effect.scope === 'global'),
+        });
+    }
+
+    const treeState = resolveOccupationTree(
+        char.progression?.treeOccupationId || char.occupation?.id,
+        char.progression?.unlockedTalentNodeIds || [],
+    );
+
+    treeState.unlockedNodes.forEach((node) => {
+        if (!node.effects?.length) return;
+        traits.push({
+            id: `${char.id}-${node.id}-resolved`,
+            name: node.name,
+            description: node.description,
+            cost: 0,
+            type: 'neutral',
+            effects: node.effects.filter((effect) => !effect.scope || effect.scope === 'combat' || effect.scope === 'global'),
+        });
+    });
+
+    return traits;
+}
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number, defaultPlayerSkills: Skill[], defaultEnemySkills: Skill[]): TacticalEntity {
-    const skills = char.skills && char.skills.length > 0
-        ? char.skills
+    const resolvedSkills = resolveCharacterSkills(char);
+    const skills = resolvedSkills.length > 0
+        ? resolvedSkills
         : isPlayer ? defaultPlayerSkills : defaultEnemySkills;
+    const traits = buildCombatTraits(char);
 
     const rules = GameRulesManager.get();
     const maxHp = rules.core.hpBase + char.stats.endurance * rules.core.hpPerEndurance;
@@ -47,8 +82,10 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
         critChance: char.stats.intelligence * rules.core.critPerIntelligence,
         resistance: char.stats.wisdom * rules.core.resistPerWisdom,
         socialBonus: char.stats.charisma * rules.core.charismaBonusPerCharisma,
-        traits: char.traits,
+        traits,
         skills,
+        occupation: char.occupation,
+        progression: char.progression,
         skillCooldowns: {},
         gridPos: { row: 0, col: 0 },
         equipped: char.equipped,

@@ -5,9 +5,13 @@ import {
     Character,
     CombatResolutionSummary,
     GameRegistry,
+    QuestChainRecord,
+    QuestGlossaryEntry,
+    QuestIllustrationRecord,
     QuestRunRecord,
     QuestRunSummary,
     QuestSeedConfig,
+    QuestTermRef,
     Skill,
     Trait,
     type Item,
@@ -43,6 +47,7 @@ interface EcologyOption {
 interface QuestEngineResponse {
     run: QuestRunRecord;
     materializedCharacters?: Character[];
+    restoredCharacters?: Character[];
     partyUpdates?: PartyUpdate[];
     warnings?: string[];
 }
@@ -196,6 +201,38 @@ function buildEcologyOptions(bundle: EcologyBundle | null): EcologyOption[] {
     ];
 }
 
+function isDiscussionKind(kind?: string | null): boolean {
+    return kind === "discussion" || kind === "dialogue";
+}
+
+function buildMaterializationNotice(characters?: Character[]): string | null {
+    if (!characters?.length) return null;
+    const names = characters
+        .map((character) => character.name)
+        .filter(Boolean)
+        .slice(0, 3);
+    const label = characters.length === 1 ? "quest NPC" : "quest NPCs";
+    const suffix = characters.length > names.length ? ", ..." : "";
+    const details = names.length > 0 ? `: ${names.join(", ")}${suffix}` : "";
+    return `Added ${characters.length} ${label} to Character Builder${details}.`;
+}
+
+function buildQuestNotices(response: QuestEngineResponse): string[] {
+    const notices = [...(response.warnings || [])];
+    if (response.restoredCharacters?.length) {
+        notices.unshift("Run reset to the opening state and the party was restored from the retry snapshot.");
+    }
+    const materializationNotice = buildMaterializationNotice(response.materializedCharacters);
+    if (materializationNotice) {
+        notices.unshift(materializationNotice);
+    }
+    return notices;
+}
+
+function escapeRegex(input: string): string {
+    return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function QuestPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [activeTab, setActiveTab] = useState<QuestTab>(isQuestTab(searchParams.get("tab")) ? searchParams.get("tab") as QuestTab : "seed");
@@ -216,6 +253,10 @@ export function QuestPage() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [isAdvancing, setIsAdvancing] = useState(false);
     const [notices, setNotices] = useState<string[]>([]);
+    const [activeChain, setActiveChain] = useState<QuestChainRecord | null>(null);
+    const [glossaryEntries, setGlossaryEntries] = useState<Record<string, QuestGlossaryEntry>>({});
+    const [currentIllustration, setCurrentIllustration] = useState<QuestIllustrationRecord | null>(null);
+    const [generatingPortraitIds, setGeneratingPortraitIds] = useState<string[]>([]);
 
     const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
@@ -273,6 +314,26 @@ export function QuestPage() {
         return run;
     }, []);
 
+    const refreshChains = useCallback(async (worldId: string, preferredChainId?: string | null) => {
+        const chains = await fetchJson<QuestChainRecord[]>(`${API_BASE}/planet/quests/${worldId}/chains`).catch(() => []);
+        const selected = (chains || []).find((chain) => chain.id === preferredChainId)
+            || (chains || []).find((chain) => chain.status === "active")
+            || (chains || [])[0]
+            || null;
+        setActiveChain(selected);
+        return selected;
+    }, []);
+
+    const loadIllustration = useCallback(async (worldId: string, illustrationId?: string | null) => {
+        if (!illustrationId) {
+            setCurrentIllustration(null);
+            return null;
+        }
+        const illustration = await fetchJson<QuestIllustrationRecord>(`${API_BASE}/planet/quests/${worldId}/illustrations/${illustrationId}`).catch(() => null);
+        setCurrentIllustration(illustration);
+        return illustration;
+    }, []);
+
     useEffect(() => {
         if (!activeWorldId) {
             setActiveRun(null);
@@ -284,6 +345,9 @@ export function QuestPage() {
             setGmContext(null);
             setEcologyBundle(null);
             setSelectedPartyIds([]);
+            setActiveChain(null);
+            setGlossaryEntries({});
+            setCurrentIllustration(null);
             return;
         }
 
@@ -292,13 +356,14 @@ export function QuestPage() {
             setIsLoadingWorldData(true);
             try {
                 await refreshBuilderCharacters();
-                const [nextFactions, nextLocations, nextHistoryCharacters, nextGmContext, nextEcology, archive] = await Promise.all([
+                const [nextFactions, nextLocations, nextHistoryCharacters, nextGmContext, nextEcology, archive, nextChain] = await Promise.all([
                     fetchJson<Faction[]>(`${API_BASE}/planet/factions/${activeWorldId}`).catch(() => []),
                     fetchJson<Area[]>(`${API_BASE}/planet/locations/${activeWorldId}`).catch(() => []),
                     fetchJson<HistoryCharacterRecord[]>(`${API_BASE}/planet/characters/${activeWorldId}`).catch(() => []),
                     fetchJson<any>(`${API_BASE}/planet/gm-context/${activeWorldId}`).catch(() => null),
                     fetchJson<EcologyBundle>(`${API_BASE}/planet/ecology-data/${activeWorldId}`).catch(() => null),
                     refreshArchive(activeWorldId).catch(() => []),
+                    refreshChains(activeWorldId).catch(() => null),
                 ]);
                 if (cancelled) return;
                 setFactions(Array.isArray(nextFactions) ? nextFactions : []);
@@ -306,6 +371,7 @@ export function QuestPage() {
                 setHistoryCharacters(Array.isArray(nextHistoryCharacters) ? nextHistoryCharacters : []);
                 setGmContext(nextGmContext);
                 setEcologyBundle(nextEcology);
+                setActiveChain(nextChain);
 
                 const firstActive = Array.isArray(archive)
                     ? archive.find((run) => run.status === "active")
@@ -326,7 +392,7 @@ export function QuestPage() {
         return () => {
             cancelled = true;
         };
-    }, [activeWorldId, loadRunDetail, refreshArchive, refreshBuilderCharacters]);
+    }, [activeWorldId, loadRunDetail, refreshArchive, refreshBuilderCharacters, refreshChains]);
 
     useEffect(() => {
         if (availablePartyCharacters.length === 0) {
@@ -339,6 +405,30 @@ export function QuestPage() {
             return availablePartyCharacters.slice(0, 1).map((character) => character.id);
         });
     }, [availablePartyCharacters]);
+
+    useEffect(() => {
+        if (!activeRun?.worldId || !activeRun.currentNode?.illustrationId) {
+            setCurrentIllustration(null);
+            return;
+        }
+
+        let cancelled = false;
+        let intervalId: number | undefined;
+
+        async function syncIllustration() {
+            const illustration = await loadIllustration(activeRun.worldId, activeRun.currentNode?.illustrationId);
+            if (cancelled || !illustration) return;
+            if (illustration.status === "queued" || illustration.status === "generating") {
+                intervalId = window.setTimeout(syncIllustration, 2500);
+            }
+        }
+
+        void syncIllustration();
+        return () => {
+            cancelled = true;
+            if (intervalId) window.clearTimeout(intervalId);
+        };
+    }, [activeRun?.currentNode?.illustrationId, activeRun?.worldId, loadIllustration]);
 
     const applyPartyUpdates = useCallback(
         async (updates: PartyUpdate[]) => {
@@ -446,6 +536,59 @@ export function QuestPage() {
         [activeWorldId, refreshBuilderCharacters],
     );
 
+    const persistCharacters = useCallback(async (characters: Character[]) => {
+        if (!characters.length) return;
+        await Promise.all(characters.map((character) =>
+            fetchJson(`${API_BASE}/data/characters`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(character),
+            }),
+        ));
+        await refreshBuilderCharacters();
+    }, [refreshBuilderCharacters]);
+
+    const ensureGlossaryEntry = useCallback(async (termRef: QuestTermRef) => {
+        if (!activeWorldId) return null;
+        if (glossaryEntries[termRef.slug]) return glossaryEntries[termRef.slug];
+        const entry = await fetchJson<QuestGlossaryEntry>(
+            `${API_BASE}/planet/quests/${activeWorldId}/glossary?term=${encodeURIComponent(termRef.term)}`,
+        ).catch(() => null);
+        if (entry) {
+            setGlossaryEntries((previous) => ({ ...previous, [entry.slug]: entry }));
+        }
+        return entry;
+    }, [activeWorldId, glossaryEntries]);
+
+    const handleGenerateNpcPortrait = useCallback(async (npcId: string) => {
+        const character = builderCharacters.find((entry) => entry.id === npcId);
+        if (!character || generatingPortraitIds.includes(npcId)) return;
+        const prompt = [
+            character.name,
+            character.occupation?.name || character.title || character.type,
+            character.backstory || character.history || character.currentStory || "",
+            character.faction || "",
+        ].filter(Boolean).join(". ");
+
+        setGeneratingPortraitIds((previous) => [...previous, npcId]);
+        try {
+            const response = await fetchJson<{ dataUrl?: string | null }>(`${API_BASE}/gm/generate-character-portrait`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt }),
+            });
+            if (response.dataUrl) {
+                await persistCharacters([{ ...character, portraitUrl: response.dataUrl }]);
+                setNotices((previous) => [`Generated portrait for ${character.name}.`, ...previous]);
+            }
+        } catch (error) {
+            console.error("Failed to generate NPC portrait", error);
+            setNotices((previous) => [error instanceof Error ? error.message : "Failed to generate NPC portrait.", ...previous]);
+        } finally {
+            setGeneratingPortraitIds((previous) => previous.filter((id) => id !== npcId));
+        }
+    }, [builderCharacters, generatingPortraitIds, persistCharacters]);
+
     const buildQuestPayload = useCallback(() => ({
         worldId: activeWorldId,
         seed: questSeed,
@@ -473,9 +616,10 @@ export function QuestPage() {
             await saveRun(response.run);
             await refreshBuilderCharacters();
             await refreshArchive(activeWorldId);
+            await refreshChains(activeWorldId, response.run.chainId);
             setActiveRun(response.run);
             setSelectedArchiveRun(response.run);
-            setNotices(response.warnings || []);
+            setNotices(buildQuestNotices(response));
             setActiveTab("run");
             setSearchParams({ tab: "run" });
         } catch (error) {
@@ -484,7 +628,7 @@ export function QuestPage() {
         } finally {
             setIsGenerating(false);
         }
-    }, [activeWorldId, buildQuestPayload, gmContext, partyCharacters.length, refreshArchive, refreshBuilderCharacters, saveRun, setSearchParams]);
+    }, [activeWorldId, buildQuestPayload, gmContext, partyCharacters.length, refreshArchive, refreshBuilderCharacters, refreshChains, saveRun, setSearchParams]);
 
     const handleAdvanceQuest = useCallback(async (choice?: string, combatResolution?: CombatResolutionSummary, freeform?: string) => {
         if (!activeRun || !gmContext) return;
@@ -510,26 +654,31 @@ export function QuestPage() {
                     combatResolution,
                 }),
             });
+            if (response.restoredCharacters?.length) {
+                await persistCharacters(response.restoredCharacters);
+            }
             if (response.partyUpdates?.length) {
                 await applyPartyUpdates(response.partyUpdates);
             }
             await saveRun(response.run);
             await refreshArchive(activeRun.worldId);
+            await refreshChains(activeRun.worldId, response.run.chainId);
             setActiveRun(response.run);
             setSelectedArchiveRun(response.run);
             setFreeformAction("");
-            setNotices(response.warnings || []);
+            setNotices(buildQuestNotices(response));
         } catch (error) {
             console.error("Failed to advance quest", error);
             setNotices([error instanceof Error ? error.message : "Failed to advance quest."]);
         } finally {
             setIsAdvancing(false);
         }
-    }, [activeRun, activeRunParty, applyPartyUpdates, ecologyBundle?.updatedAt, ecologyOptions, factions, gmContext, historyCharacters, locations, refreshArchive, saveRun]);
+    }, [activeRun, activeRunParty, applyPartyUpdates, ecologyBundle?.updatedAt, ecologyOptions, factions, gmContext, historyCharacters, locations, persistCharacters, refreshArchive, refreshChains, saveRun]);
 
     const handleResumeRun = useCallback(async (summary: QuestRunSummary) => {
         try {
             const run = await loadRunDetail(summary.worldId, summary.id);
+            await refreshChains(summary.worldId, run.chainId);
             setActiveRun(run);
             setSelectedArchiveRun(run);
             setActiveTab("run");
@@ -538,7 +687,7 @@ export function QuestPage() {
             console.error("Failed to load quest run", error);
             setNotices([error instanceof Error ? error.message : "Failed to load quest run."]);
         }
-    }, [loadRunDetail, setSearchParams]);
+    }, [loadRunDetail, refreshChains, setSearchParams]);
 
     const handleDeleteRun = useCallback(async (summary: QuestRunSummary) => {
         await fetch(`${API_BASE}/planet/quests/${summary.worldId}/${summary.id}`, { method: "DELETE" });
@@ -572,6 +721,45 @@ export function QuestPage() {
 
     const currentNode = activeRun?.currentNode;
     const hasPendingCombat = currentNode?.kind === "combat" && !!currentNode.pendingCombat?.enemyIds?.length;
+    const isDiscussionNode = isDiscussionKind(currentNode?.kind);
+    const currentTermRefs = useMemo(
+        () => [...(currentNode?.termRefs || [])].sort((a, b) => b.term.length - a.term.length),
+        [currentNode?.termRefs],
+    );
+    const contentContainerClass = activeTab === "run"
+        ? "pt-28 px-6 pb-8 flex-1 overflow-hidden"
+        : "pt-28 px-6 pb-8 flex-1 overflow-y-auto custom-scrollbar";
+
+    const renderGlossaryText = useCallback((text: string) => {
+        if (!text || currentTermRefs.length === 0) {
+            return <>{text}</>;
+        }
+
+        const pattern = new RegExp(`(${currentTermRefs.map((termRef) => escapeRegex(termRef.term)).join("|")})`, "gi");
+        return text.split(pattern).map((part, index) => {
+            const termRef = currentTermRefs.find((candidate) => candidate.term.toLowerCase() === part.toLowerCase());
+            if (!termRef) {
+                return <span key={`${part}-${index}`}>{part}</span>;
+            }
+            const glossaryEntry = glossaryEntries[termRef.slug];
+            return (
+                <span
+                    key={`${termRef.slug}-${index}`}
+                    className="group relative inline-flex"
+                    onMouseEnter={() => {
+                        void ensureGlossaryEntry(termRef);
+                    }}
+                >
+                    <span className="cursor-help rounded px-1 py-0.5 text-amber-200 underline decoration-dotted underline-offset-4">
+                        {part}
+                    </span>
+                    <span className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-72 rounded-xl border border-amber-500/20 bg-[#081018] px-3 py-3 text-xs leading-relaxed text-amber-50 shadow-2xl group-hover:block">
+                        {glossaryEntry?.flavorText || "Compiling local flavor text..."}
+                    </span>
+                </span>
+            );
+        });
+    }, [currentTermRefs, ensureGlossaryEntry, glossaryEntries]);
 
     if (!activeWorldId || !selectedWorld) {
         return (
@@ -651,7 +839,7 @@ export function QuestPage() {
                 </div>
             </div>
 
-            <div className="pt-28 px-6 pb-8 flex-1 overflow-y-auto custom-scrollbar">
+            <div className={contentContainerClass}>
                 {notices.length > 0 && (
                     <div className="max-w-6xl mx-auto mb-4 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
                         {notices.map((notice) => (
@@ -1020,59 +1208,61 @@ export function QuestPage() {
                 )}
 
                 {activeTab === "run" && (
-                    <div className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)_320px] gap-6 h-full">
-                        <Card className="bg-[#121820] border border-white/5 p-4 flex flex-col gap-4">
+                    <div className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)_320px] gap-6 h-full min-h-0">
+                        <Card className="bg-[#121820] border border-white/5 p-4 flex flex-col gap-4 min-h-0 overflow-hidden">
                             <div>
                                 <div className="text-[10px] font-bold tracking-widest uppercase text-amber-300 mb-2">Party</div>
                                 <h2 className="text-lg font-black text-white">{activeRun?.title || "No Active Run"}</h2>
                             </div>
 
-                            {activeRunParty.length > 0 ? activeRunParty.map((character) => (
-                                <div key={character.id} className="rounded-xl border border-white/5 bg-black/20 p-4">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div>
-                                            <div className="text-sm font-bold text-white">{character.name}</div>
-                                            <div className="text-[10px] uppercase tracking-widest text-gray-500">
-                                                Lvl {character.level} • {character.occupation?.name || character.type || "Wanderer"}
+                            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
+                                {activeRunParty.length > 0 ? activeRunParty.map((character) => (
+                                    <div key={character.id} className="rounded-xl border border-white/5 bg-black/20 p-4 mb-3 last:mb-0">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <div className="text-sm font-bold text-white">{character.name}</div>
+                                                <div className="text-[10px] uppercase tracking-widest text-gray-500">
+                                                    Lvl {character.level} • {character.occupation?.name || character.type || "Wanderer"}
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-xs font-bold text-white">{character.hp}/{character.maxHp}</div>
+                                                <div className="text-[10px] uppercase tracking-widest text-gray-500">HP</div>
                                             </div>
                                         </div>
-                                        <div className="text-right">
-                                            <div className="text-xs font-bold text-white">{character.hp}/{character.maxHp}</div>
-                                            <div className="text-[10px] uppercase tracking-widest text-gray-500">HP</div>
+                                        <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] uppercase tracking-widest text-gray-500">
+                                            <span>STR {character.stats.strength}</span>
+                                            <span>AGI {character.stats.agility}</span>
+                                            <span>INT {character.stats.intelligence}</span>
+                                            <span>WIS {character.stats.wisdom}</span>
+                                            <span>END {character.stats.endurance}</span>
+                                            <span>CHA {character.stats.charisma}</span>
                                         </div>
                                     </div>
-                                    <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] uppercase tracking-widest text-gray-500">
-                                        <span>STR {character.stats.strength}</span>
-                                        <span>AGI {character.stats.agility}</span>
-                                        <span>INT {character.stats.intelligence}</span>
-                                        <span>WIS {character.stats.wisdom}</span>
-                                        <span>END {character.stats.endurance}</span>
-                                        <span>CHA {character.stats.charisma}</span>
+                                )) : (
+                                    <div className="text-sm text-gray-500">
+                                        {activeRun ? "The run is loaded, but the party is not available in the builder registry." : "No active run selected."}
                                     </div>
-                                </div>
-                            )) : (
-                                <div className="text-sm text-gray-500">
-                                    {activeRun ? "The run is loaded, but the party is not available in the builder registry." : "No active run selected."}
-                                </div>
-                            )}
+                                )}
 
-                            {activeRun && (
-                                <div className="rounded-xl border border-white/5 bg-black/20 p-4">
-                                    <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2">Current Effects</div>
-                                    {(activeRun.currentEffects || []).length > 0 ? (
-                                        <div className="flex flex-col gap-2">
-                                            {(activeRun.currentEffects || []).map((effect) => (
-                                                <div key={effect} className="text-sm text-gray-300">{effect}</div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <div className="text-sm text-gray-500">No active quest-side deltas.</div>
-                                    )}
-                                </div>
-                            )}
+                                {activeRun && (
+                                    <div className="rounded-xl border border-white/5 bg-black/20 p-4">
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2">Current Effects</div>
+                                        {(activeRun.currentEffects || []).length > 0 ? (
+                                            <div className="flex flex-col gap-2">
+                                                {(activeRun.currentEffects || []).map((effect) => (
+                                                    <div key={effect} className="text-sm text-gray-300">{effect}</div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="text-sm text-gray-500">No active quest-side deltas.</div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </Card>
 
-                        <div className="flex flex-col gap-6 min-w-0">
+                        <div className="flex flex-col gap-6 min-w-0 min-h-0">
                             {!activeRun ? (
                                 <Card className="bg-[#121820] border border-white/5 p-8 text-center">
                                     <div className="text-4xl mb-4">🧭</div>
@@ -1082,16 +1272,28 @@ export function QuestPage() {
                                     </p>
                                 </Card>
                             ) : hasPendingCombat && currentNode ? (
-                                <Card className="bg-[#121820] border border-white/5 p-4 flex flex-col gap-4 min-w-0">
+                                <Card className="bg-[#121820] border border-white/5 p-4 flex flex-col gap-4 min-w-0 min-h-0 overflow-hidden">
                                     <div className="flex items-start justify-between gap-4">
                                         <div>
                                             <div className="text-[10px] font-bold tracking-widest uppercase text-red-300 mb-2">Combat Node</div>
                                             <h2 className="text-xl font-black text-white">{currentNode.title}</h2>
-                                            <p className="text-sm text-gray-400 mt-3">{currentNode.text}</p>
+                                            <div className="text-sm text-gray-400 mt-3 leading-relaxed whitespace-pre-wrap">{renderGlossaryText(currentNode.text)}</div>
                                         </div>
                                         <div className="text-right text-[10px] uppercase tracking-widest text-gray-500">
                                             {currentNode.pendingCombat?.encounterLabel || "Combat"}
                                         </div>
+                                    </div>
+                                    <div className="rounded-2xl border border-red-500/10 bg-black/20 min-h-[220px] overflow-hidden flex items-center justify-center">
+                                        {currentIllustration?.assetPath && currentIllustration.status === "ready" ? (
+                                            <img src={currentIllustration.assetPath} alt={currentNode.title} className="h-full w-full object-cover" />
+                                        ) : (
+                                            <div className="text-center px-6">
+                                                <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-red-300">Combat Illustration</div>
+                                                <div className="mt-3 text-sm text-gray-500">
+                                                    {currentIllustration?.status === "failed" ? "Illustration generation failed." : "Generating a key-beat illustration..."}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                     <CombatSimulator
                                         initialPlayerIds={activeRun.partyCharacterIds}
@@ -1111,15 +1313,128 @@ export function QuestPage() {
                                         }}
                                     />
                                 </Card>
+                            ) : currentNode && isDiscussionNode ? (
+                                <Card className="bg-[#121820] border border-white/5 p-5 flex flex-col gap-5 min-w-0 min-h-0 overflow-y-auto custom-scrollbar">
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div>
+                                            <div className="text-[10px] font-bold tracking-widest uppercase text-cyan-300 mb-2">
+                                                Discussion • Act {currentNode.act} • Node {activeRun.nodeCount}/{activeRun.maxNodeCount}
+                                            </div>
+                                            <h2 className="text-2xl font-black text-white">{currentNode.title}</h2>
+                                        </div>
+                                        <div className="px-3 py-1.5 rounded-full border border-cyan-500/20 bg-cyan-500/10 text-cyan-200 text-[10px] font-bold uppercase tracking-widest">
+                                            reply
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-cyan-500/10 bg-gradient-to-br from-cyan-500/10 via-[#0b1720] to-[#05080c] p-5">
+                                        {currentIllustration?.assetPath && currentIllustration.status === "ready" && (
+                                            <img src={currentIllustration.assetPath} alt={currentNode.title} className="mb-4 h-52 w-full rounded-xl object-cover" />
+                                        )}
+                                        <div className="text-sm leading-relaxed text-gray-200 whitespace-pre-wrap">{renderGlossaryText(currentNode.text)}</div>
+                                    </div>
+
+                                    {(currentNode.npcs || []).length > 0 && (
+                                        <div className="flex flex-wrap gap-3">
+                                            {currentNode.npcs.map((npc) => (
+                                                <div key={npc.id} className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 min-w-[180px]">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <div className="text-xs font-bold uppercase tracking-widest text-white">{npc.name}</div>
+                                                            <div className="mt-1 text-[10px] uppercase tracking-widest text-gray-500">
+                                                                {npc.role || "speaker"} {npc.isHostile ? "• tense" : ""}
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void handleGenerateNpcPortrait(npc.id)}
+                                                            disabled={generatingPortraitIds.includes(npc.id)}
+                                                            className="text-[9px] uppercase tracking-widest text-cyan-200 hover:text-white disabled:opacity-40"
+                                                        >
+                                                            {generatingPortraitIds.includes(npc.id) ? "..." : "portrait"}
+                                                        </button>
+                                                    </div>
+                                                    <div className="mt-2 text-[10px] text-gray-500">
+                                                        {npc.role || "speaker"} {npc.isHostile ? "• tense" : ""}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {(currentNode.contextRefs || []).length > 0 && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {currentNode.contextRefs.map((reference) => (
+                                                <span key={`${reference.kind}-${reference.id}`} className="px-2 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] uppercase tracking-widest text-gray-300">
+                                                    {reference.kind}: {reference.label}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {(currentNode.choices || []).length > 0 && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {currentNode.choices.map((choice) => (
+                                                <button
+                                                    key={choice.id}
+                                                    onClick={() => void handleAdvanceQuest(undefined, undefined, choice.label)}
+                                                    disabled={isAdvancing}
+                                                    className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-left text-xs font-bold tracking-wide text-cyan-100 transition-colors hover:bg-cyan-500/20 disabled:opacity-50"
+                                                >
+                                                    {choice.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <div className="rounded-xl border border-white/5 bg-black/20 p-4">
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2">Your Reply</div>
+                                        <textarea
+                                            value={freeformAction}
+                                            onChange={(event) => setFreeformAction(event.target.value)}
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter" && !event.shiftKey && freeformAction.trim() && !isAdvancing) {
+                                                    event.preventDefault();
+                                                    void handleAdvanceQuest(undefined, undefined, freeformAction);
+                                                }
+                                            }}
+                                            rows={2}
+                                            className="w-full resize-none bg-[#05080c] border border-cyan-500/10 rounded-xl p-4 text-sm text-gray-100 focus:outline-none focus:border-cyan-500/40"
+                                            placeholder="Type what your party says or asks."
+                                        />
+                                        <div className="mt-3 flex items-center justify-between gap-3">
+                                            <div className="text-xs text-gray-500">Press Enter to send. Shift+Enter adds a new line.</div>
+                                            <Button
+                                                onClick={() => void handleAdvanceQuest(undefined, undefined, freeformAction)}
+                                                disabled={isAdvancing || !freeformAction.trim()}
+                                                className="bg-cyan-500/10 text-cyan-200 border border-cyan-500/30 hover:bg-cyan-500/20"
+                                            >
+                                                {isAdvancing ? "Sending..." : "Send Reply"}
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between pt-4 border-t border-white/5">
+                                        <div className="text-xs text-gray-500">
+                                            Discussion NPCs are persisted to the Character Builder when the AI introduces them.
+                                        </div>
+                                        <Button
+                                            onClick={() => void handleAbandonRun()}
+                                            className="bg-red-500/10 text-red-300 border border-red-500/30 hover:bg-red-500/20"
+                                        >
+                                            Abandon Run
+                                        </Button>
+                                    </div>
+                                </Card>
                             ) : currentNode ? (
-                                <Card className="bg-[#121820] border border-white/5 p-6 flex flex-col gap-6 min-w-0">
+                                <Card className="bg-[#121820] border border-white/5 p-6 flex flex-col gap-6 min-w-0 min-h-0 overflow-y-auto custom-scrollbar">
                                     <div className="flex items-start justify-between gap-4">
                                         <div>
                                             <div className="text-[10px] font-bold tracking-widest uppercase text-amber-300 mb-2">
                                                 Act {currentNode.act} • Node {activeRun.nodeCount}/{activeRun.maxNodeCount}
                                             </div>
                                             <h2 className="text-2xl font-black text-white">{currentNode.title}</h2>
-                                            <p className="text-sm text-gray-400 mt-4 leading-relaxed whitespace-pre-wrap">{currentNode.text}</p>
+                                            <div className="text-sm text-gray-400 mt-4 leading-relaxed whitespace-pre-wrap">{renderGlossaryText(currentNode.text)}</div>
                                         </div>
                                         <div className="text-right">
                                             <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500">Node Type</div>
@@ -1127,6 +1442,19 @@ export function QuestPage() {
                                                 {currentNode.kind}
                                             </div>
                                         </div>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-amber-500/10 bg-black/20 min-h-[240px] overflow-hidden flex items-center justify-center">
+                                        {currentIllustration?.assetPath && currentIllustration.status === "ready" ? (
+                                            <img src={currentIllustration.assetPath} alt={currentNode.title} className="h-full w-full object-cover" />
+                                        ) : (
+                                            <div className="text-center px-6">
+                                                <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-300">Key Beat</div>
+                                                <div className="mt-3 text-sm text-gray-500">
+                                                    {currentIllustration?.status === "failed" ? "Illustration generation failed." : "Generating a key-beat illustration..."}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="flex flex-wrap gap-2">
@@ -1144,9 +1472,21 @@ export function QuestPage() {
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                             {currentNode.npcs.map((npc) => (
                                                 <div key={npc.id} className="rounded-xl border border-white/5 bg-black/20 p-4">
-                                                    <div className="text-sm font-bold text-white">{npc.name}</div>
-                                                    <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-1">
-                                                        {npc.role || "NPC"} {npc.isHostile ? "• hostile" : ""}
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <div className="text-sm font-bold text-white">{npc.name}</div>
+                                                            <div className="text-[10px] uppercase tracking-widest text-gray-500 mt-1">
+                                                                {npc.role || "NPC"} {npc.isHostile ? "• hostile" : ""}
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void handleGenerateNpcPortrait(npc.id)}
+                                                            disabled={generatingPortraitIds.includes(npc.id)}
+                                                            className="text-[9px] uppercase tracking-widest text-amber-200 hover:text-white disabled:opacity-40"
+                                                        >
+                                                            {generatingPortraitIds.includes(npc.id) ? "..." : "portrait"}
+                                                        </button>
                                                     </div>
                                                 </div>
                                             ))}
@@ -1221,14 +1561,54 @@ export function QuestPage() {
                             )}
                         </div>
 
-                        <Card className="bg-[#121820] border border-white/5 p-4 flex flex-col gap-4">
+                        <Card className="bg-[#121820] border border-white/5 p-4 flex flex-col gap-4 min-h-0 overflow-hidden">
                             <div>
                                 <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2">Run Log</div>
                                 <h2 className="text-lg font-black text-white">{activeRun?.title || "Archive"}</h2>
                             </div>
 
                             {activeRun && (
-                                <>
+                                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1 space-y-4">
+                                    {activeChain && (
+                                        <div className="rounded-xl border border-cyan-500/15 bg-cyan-500/10 p-4">
+                                            <div className="text-[10px] font-bold tracking-widest uppercase text-cyan-300 mb-2">Quest Chain</div>
+                                            <div className="text-sm font-bold text-white">{activeChain.title}</div>
+                                            <div className="mt-2 text-xs leading-relaxed text-gray-300">{activeChain.premise}</div>
+                                            <div className="mt-3 text-[10px] uppercase tracking-widest text-gray-500">
+                                                {activeChain.completedRunIds.length} completed runs • {activeChain.nextQuestHooks.length} live hooks
+                                            </div>
+                                            {(activeChain.nextQuestHooks || []).slice(0, 4).map((hook) => (
+                                                <div key={hook} className="mt-2 text-xs text-cyan-50/90">{hook}</div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {(currentTermRefs || []).length > 0 && (
+                                        <div className="rounded-xl border border-amber-500/15 bg-amber-500/10 p-4">
+                                            <div className="text-[10px] font-bold tracking-widest uppercase text-amber-300 mb-2">Glossary Links</div>
+                                            <div className="flex flex-col gap-3">
+                                                {currentTermRefs.map((termRef) => {
+                                                    const entry = glossaryEntries[termRef.slug];
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            key={termRef.slug}
+                                                            onMouseEnter={() => {
+                                                                void ensureGlossaryEntry(termRef);
+                                                            }}
+                                                            className="text-left rounded-lg border border-white/5 bg-black/20 px-3 py-3"
+                                                        >
+                                                            <div className="text-xs font-bold uppercase tracking-widest text-white">{termRef.term}</div>
+                                                            <div className="mt-2 text-xs leading-relaxed text-gray-400">
+                                                                {entry?.flavorText || "Compiling local flavor text..."}
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div className="rounded-xl border border-white/5 bg-black/20 p-4">
                                         <div className="text-[10px] font-bold tracking-widest uppercase text-gray-500 mb-2">Arc Pressure</div>
                                         <div className="flex flex-col gap-2 text-sm text-gray-300">
@@ -1271,7 +1651,7 @@ export function QuestPage() {
                                             ))}
                                         </div>
                                     </div>
-                                </>
+                                </div>
                             )}
                         </Card>
                     </div>

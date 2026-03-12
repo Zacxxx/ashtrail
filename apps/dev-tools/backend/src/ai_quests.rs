@@ -1,8 +1,8 @@
-use crate::gemini::generate_text;
+use crate::gemini::{generate_image_bytes, generate_text};
 use crate::AppState;
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
+    extract::{Path, Query, State},
+    http::{header, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -57,6 +57,7 @@ pub struct AdvanceQuestRequest {
 pub struct QuestGenerationResponse {
     pub run: Value,
     pub materialized_characters: Vec<Value>,
+    pub restored_characters: Vec<Value>,
     pub warnings: Vec<String>,
 }
 
@@ -66,16 +67,42 @@ pub struct QuestAdvanceResponse {
     pub run: Value,
     pub party_updates: Vec<Value>,
     pub materialized_characters: Vec<Value>,
+    pub restored_characters: Vec<Value>,
     pub warnings: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestGlossaryQuery {
+    pub term: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertGlossaryEntryRequest {
+    pub term: String,
+    pub short_label: Option<String>,
+    pub flavor_text: Option<String>,
+    pub source_type: Option<String>,
+    pub source_id: Option<String>,
+    #[serde(default)]
+    pub related_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateQuestPortraitRequest {
+    pub prompt: String,
+}
+
 pub async fn generate_quest_run_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(payload): Json<GenerateQuestRunRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let mut warnings = Vec::new();
     let run_id = format!("quest-{}", Uuid::new_v4());
     let timestamp = now_ms();
+    let mut chain = load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
     let max_node_count = run_length_to_node_count(
         payload
             .seed
@@ -90,7 +117,7 @@ pub async fn generate_quest_run_handler(
         &payload.ecology,
     );
 
-    let generated = match parse_json_with_retry(&build_generate_prompt(&payload)).await {
+    let generated = match parse_json_with_retry(&build_generate_prompt(&payload, Some(&chain))).await {
         Ok(value) => value,
         Err(err) => {
             warnings.push(err);
@@ -155,7 +182,35 @@ pub async fn generate_quest_run_handler(
             )
         });
 
-    let run = json!({
+    let introduced_npc_ids = current_node
+        .get("npcs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|npc| npc.get("id").and_then(Value::as_str).map(str::to_string))
+        .collect::<Vec<_>>();
+
+    let illustration_id = attach_node_metadata(
+        &mut current_node,
+        &state,
+        &payload.world_id,
+        &run_id,
+        title,
+        &payload.gm_context,
+    )?;
+    let key_beat_ids = illustration_id
+        .map(|id| vec![Value::String(id)])
+        .unwrap_or_default();
+    let world_consequences = build_world_consequences(
+        &run_id,
+        &current_node,
+        &Value::Array(introduced_npc_ids.iter().cloned().map(Value::String).collect()),
+        &Vec::<Value>::new(),
+        &Vec::<Value>::new(),
+    );
+
+    let mut run = json!({
         "id": run_id,
         "worldId": payload.world_id,
         "status": "active",
@@ -184,17 +239,42 @@ pub async fn generate_quest_run_handler(
         "pendingCombat": current_node.get("pendingCombat").cloned().unwrap_or(Value::Null),
         "lastOutcomeText": Value::Null,
         "selectedInfluences": Value::Array(selected_influences),
+        "chainId": chain.get("id").cloned().unwrap_or(Value::Null),
+        "retrySnapshotId": Value::Null,
+        "worldConsequences": Value::Array(world_consequences),
+        "introducedNpcIds": Value::Array(introduced_npc_ids.iter().cloned().map(Value::String).collect()),
+        "keyBeatIds": Value::Array(key_beat_ids),
     });
+
+    let retry_snapshot_id = create_retry_snapshot(
+        &state.planets_dir,
+        &payload.world_id,
+        run.get("id").and_then(Value::as_str).unwrap_or("unknown-run"),
+        &payload.party,
+        &run,
+    )?;
+    if let Some(run_obj) = run.as_object_mut() {
+        run_obj.insert("retrySnapshotId".to_string(), Value::String(retry_snapshot_id.clone()));
+    }
+    update_chain_with_active_run(
+        &mut chain,
+        run.get("id").and_then(Value::as_str).unwrap_or("unknown-run"),
+        &introduced_npc_ids,
+        extract_referenced_faction_ids(&current_node),
+    );
+    persist_chain(&state.planets_dir, &payload.world_id, &chain)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
     Ok(Json(QuestGenerationResponse {
         run,
         materialized_characters,
+        restored_characters: vec![],
         warnings,
     }))
 }
 
 pub async fn advance_quest_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(payload): Json<AdvanceQuestRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let mut warnings = Vec::new();
@@ -221,6 +301,8 @@ pub async fn advance_quest_handler(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let mut chain = load_chain_for_run(&state.planets_dir, world_id, &current_run)
+        .unwrap_or_else(|| load_or_create_active_chain(&state.planets_dir, world_id, current_run.get("seed").unwrap_or(&Value::Null)));
 
     let generated = match parse_json_with_retry(&build_advance_prompt(&payload)).await {
         Ok(value) => value,
@@ -230,14 +312,20 @@ pub async fn advance_quest_handler(
         }
     };
 
+    let effect_summaries = generated
+        .get("effectSummaries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let new_flags = generated
+        .get("newFlags")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let party_updates = normalize_party_updates(
         generated.get("partyUpdates"),
         &payload.party,
-        generated
-            .get("effectSummaries")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
+        effect_summaries.clone(),
     );
     let mut next_node = generated.get("nextNode").cloned().unwrap_or(Value::Null);
     let mut status = generated
@@ -245,6 +333,14 @@ pub async fn advance_quest_handler(
         .and_then(Value::as_str)
         .unwrap_or("active")
         .to_string();
+    let combat_outcome = payload
+        .combat_resolution
+        .as_ref()
+        .and_then(|resolution| resolution.get("outcome"))
+        .and_then(Value::as_str);
+    if combat_outcome == Some("defeat") {
+        status = "failed".to_string();
+    }
 
     if status == "active" {
         if next_node.is_null() {
@@ -298,6 +394,7 @@ pub async fn advance_quest_handler(
     }
 
     let mut materialized_characters = Vec::new();
+    let mut restored_characters = Vec::new();
     if !next_node.is_null() {
         let (characters, npc_entries, enemy_ids, npc_warnings) = materialize_node_characters(
             run_id,
@@ -317,6 +414,17 @@ pub async fn advance_quest_handler(
                 pending.insert("enemyIds".to_string(), Value::Array(enemy_ids));
             }
         }
+        attach_node_metadata(
+            &mut next_node,
+            &state,
+            world_id,
+            run_id,
+            current_run
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("Untitled Quest"),
+            &payload.gm_context,
+        )?;
     }
 
     let timestamp = now_ms();
@@ -325,11 +433,9 @@ pub async fn advance_quest_handler(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if let Some(new_flags) = generated.get("newFlags").and_then(Value::as_array) {
-        for flag in new_flags {
-            if !flags.iter().any(|existing| existing == flag) {
-                flags.push(flag.clone());
-            }
+    for flag in &new_flags {
+        if !flags.iter().any(|existing| existing == flag) {
+            flags.push(flag.clone());
         }
     }
     if let Some(clear_flags) = generated.get("clearFlags").and_then(Value::as_array) {
@@ -370,11 +476,6 @@ pub async fn advance_quest_handler(
                 .map(str::to_string),
         ));
     }
-    let effect_summaries = generated
-        .get("effectSummaries")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
     let last_outcome_text = generated
         .get("lastOutcomeText")
         .and_then(Value::as_str)
@@ -430,6 +531,74 @@ pub async fn advance_quest_handler(
             .unwrap_or(Value::Null)
     };
 
+    let introduced_npc_ids = merge_string_ids(
+        current_run.get("introducedNpcIds").and_then(Value::as_array),
+        next_node.get("npcs").and_then(Value::as_array),
+        "id",
+    );
+    let mut key_beat_ids = current_run
+        .get("keyBeatIds")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(illustration_id) = next_node
+        .get("illustrationId")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    {
+        if !key_beat_ids.iter().any(|item| item.as_str() == Some(illustration_id.as_str())) {
+            key_beat_ids.push(Value::String(illustration_id));
+        }
+    }
+    let world_consequences = build_world_consequences(
+        run_id,
+        &next_node,
+        &Value::Array(introduced_npc_ids.iter().cloned().map(Value::String).collect()),
+        &effect_summaries,
+        &new_flags,
+    );
+
+    if status == "failed" {
+        if let Some(snapshot) = load_retry_snapshot(
+            &state.planets_dir,
+            world_id,
+            current_run
+                .get("retrySnapshotId")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+        ) {
+            restored_characters = snapshot
+                .get("party")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let mut reset_run = snapshot
+                .get("runState")
+                .cloned()
+                .unwrap_or_else(|| current_run.clone());
+            if let Some(run_obj) = reset_run.as_object_mut() {
+                run_obj.insert("updatedAt".to_string(), Value::Number(timestamp.into()));
+                run_obj.insert("status".to_string(), Value::String("active".to_string()));
+                run_obj.insert("completedAt".to_string(), Value::Null);
+                run_obj.insert("lastOutcomeText".to_string(), Value::String(last_outcome_text.to_string()));
+            }
+            warnings.push(format!(
+                "Quest failure reset the run to its opening state. {}",
+                generated
+                    .get("endingSummary")
+                    .and_then(Value::as_str)
+                    .unwrap_or("The party pulls back and can try again.")
+            ));
+            return Ok(Json(QuestAdvanceResponse {
+                run: reset_run,
+                party_updates: vec![],
+                materialized_characters: vec![],
+                restored_characters,
+                warnings,
+            }));
+        }
+    }
+
     let pending_combat = next_node
         .get("pendingCombat")
         .cloned()
@@ -456,12 +625,41 @@ pub async fn advance_quest_handler(
         "pendingCombat": pending_combat,
         "lastOutcomeText": last_outcome_text,
         "selectedInfluences": Value::Array(selected_influences),
+        "chainId": current_run.get("chainId").cloned().unwrap_or(chain.get("id").cloned().unwrap_or(Value::Null)),
+        "retrySnapshotId": current_run.get("retrySnapshotId").cloned().unwrap_or(Value::Null),
+        "worldConsequences": Value::Array(world_consequences.clone()),
+        "introducedNpcIds": Value::Array(introduced_npc_ids.iter().cloned().map(Value::String).collect()),
+        "keyBeatIds": Value::Array(key_beat_ids.clone()),
     });
+
+    if status == "completed" {
+        update_chain_on_completion(
+            &mut chain,
+            run_id,
+            current_run
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("Untitled Quest"),
+            &world_consequences,
+            &introduced_npc_ids,
+            extract_referenced_faction_ids(&next_node),
+        );
+    } else {
+        update_chain_with_active_run(
+            &mut chain,
+            run_id,
+            &introduced_npc_ids,
+            extract_referenced_faction_ids(&next_node),
+        );
+    }
+    persist_chain(&state.planets_dir, world_id, &chain)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
     Ok(Json(QuestAdvanceResponse {
         run: updated_run,
         party_updates,
         materialized_characters,
+        restored_characters,
         warnings,
     }))
 }
@@ -545,7 +743,140 @@ pub async fn delete_quest_run(
     }
 }
 
-fn build_generate_prompt(payload: &GenerateQuestRunRequest) -> String {
+pub async fn list_quest_chains(
+    State(state): State<AppState>,
+    Path(world_id): Path<String>,
+) -> impl IntoResponse {
+    let dir = chain_dir(&state.planets_dir, &world_id);
+    let mut chains = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            if let Ok(raw) = fs::read_to_string(&path) {
+                if let Ok(value) = serde_json::from_str::<Value>(&raw) {
+                    chains.push(value);
+                }
+            }
+        }
+    }
+    chains.sort_by(|a, b| {
+        b.get("updatedAt")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            .cmp(&a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0))
+    });
+    (StatusCode::OK, Json(Value::Array(chains))).into_response()
+}
+
+pub async fn get_quest_chain(
+    State(state): State<AppState>,
+    Path((world_id, chain_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let path = chain_dir(&state.planets_dir, &world_id).join(format!("{chain_id}.json"));
+    match fs::read_to_string(path) {
+        Ok(raw) => match serde_json::from_str::<Value>(&raw) {
+            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        },
+        Err(_) => (StatusCode::NOT_FOUND, "Quest chain not found".to_string()).into_response(),
+    }
+}
+
+pub async fn get_quest_glossary(
+    State(state): State<AppState>,
+    Path(world_id): Path<String>,
+    Query(query): Query<QuestGlossaryQuery>,
+) -> impl IntoResponse {
+    if let Some(term) = query.term {
+        match load_or_generate_glossary_entry(&state.planets_dir, &world_id, &term).await {
+            Ok(entry) => (StatusCode::OK, Json(entry)).into_response(),
+            Err((code, message)) => (code, message).into_response(),
+        }
+    } else {
+        let entries = load_all_glossary_entries(&state.planets_dir, &world_id);
+        (StatusCode::OK, Json(Value::Array(entries))).into_response()
+    }
+}
+
+pub async fn upsert_quest_glossary_entry(
+    State(state): State<AppState>,
+    Path(world_id): Path<String>,
+    Json(payload): Json<UpsertGlossaryEntryRequest>,
+) -> impl IntoResponse {
+    let term = payload.term.clone();
+    let slug = slugify_term(term.as_str());
+    let short_label = payload.short_label.unwrap_or(term.clone());
+    let entry = json!({
+        "worldId": world_id,
+        "term": term,
+        "slug": slug,
+        "shortLabel": short_label,
+        "flavorText": payload.flavor_text.unwrap_or_else(|| "No flavor text written yet.".to_string()),
+        "sourceType": payload.source_type.unwrap_or_else(|| "system".to_string()),
+        "sourceId": payload.source_id,
+        "relatedIds": payload.related_ids,
+        "updatedAt": now_ms(),
+        "createdAt": now_ms(),
+    });
+    match persist_glossary_entry(&state.planets_dir, &world_id, &entry) {
+        Ok(_) => (StatusCode::OK, Json(entry)).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
+}
+
+pub async fn get_quest_illustration(
+    State(state): State<AppState>,
+    Path((world_id, illustration_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let path = illustration_record_dir(&state.planets_dir, &world_id).join(format!("{illustration_id}.json"));
+    match fs::read_to_string(path) {
+        Ok(raw) => match serde_json::from_str::<Value>(&raw) {
+            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        },
+        Err(_) => (StatusCode::NOT_FOUND, "Quest illustration not found".to_string()).into_response(),
+    }
+}
+
+pub async fn get_quest_illustration_image(
+    State(state): State<AppState>,
+    Path((world_id, illustration_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let path = illustration_image_dir(&state.planets_dir, &world_id).join(format!("{illustration_id}.png"));
+    match fs::read(path) {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "image/png")],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "Quest illustration image not found".to_string()).into_response(),
+    }
+}
+
+pub async fn generate_character_portrait_handler(
+    Json(payload): Json<GenerateQuestPortraitRequest>,
+) -> impl IntoResponse {
+    let wrapped_prompt = format!(
+        "A gritty, high-detail post-apocalyptic character portrait. Style: Realistic, atmospheric, cinematic lighting. Key Subject: {}",
+        payload.prompt.trim()
+    );
+    match generate_image_bytes(&wrapped_prompt, Some(0.7), 512, 512, Some("1:1")).await {
+        Ok(bytes) => {
+            let encoded = {
+                use base64::Engine as _;
+                base64::engine::general_purpose::STANDARD.encode(bytes)
+            };
+            (StatusCode::OK, Json(json!({ "dataUrl": format!("data:image/png;base64,{encoded}") }))).into_response()
+        }
+        Err((code, message)) => (code, message).into_response(),
+    }
+}
+
+fn build_generate_prompt(payload: &GenerateQuestRunRequest, chain: Option<&Value>) -> String {
     format!(
         "You are the Ashtrail Quest Architect.\n\
 Create a world-scoped, choice-based roguelike quest run.\n\
@@ -565,17 +896,21 @@ Ecology Summary:\n{}\n\
 \n\
 History Characters:\n{}\n\
 \n\
+Quest Chain State:\n{}\n\
+\n\
 Rules:\n\
 - The quest must fit the canon and not rewrite world history.\n\
 - The run must feel interactive, dangerous, and open-ended.\n\
 - Produce 3 acts and at least 3 ending tracks.\n\
-- The first node must have exactly 4 meaningful player choices.\n\
-- If the first node naturally implies combat, include pendingCombat.enemyNpcNames.\n\
+- The first node must have exactly 4 meaningful player choices unless it is a discussion node.\n\
+- Any node can introduce new quest NPCs; include 1-3 concrete NPCs whenever other actors are present.\n\
+- If the first node naturally implies combat, include hostile NPCs in npcs and exact matching pendingCombat.enemyNpcNames.\n\
+- Use kind \"discussion\" for lightweight conversations that should be answered with a typed reply instead of a large choice grid.\n\
 - NPCs should reference history characters when appropriate.\n\
 \n\
 Return raw JSON only. No markdown fences.\n\
 Schema:\n\
-{{\n  \"title\": \"string\",\n  \"summary\": \"string\",\n  \"arc\": {{\n    \"title\": \"string\",\n    \"premise\": \"string\",\n    \"acts\": [\"string\", \"string\", \"string\"],\n    \"recurringTensions\": [\"string\"],\n    \"endingTracks\": [{{\"id\":\"string\",\"title\":\"string\",\"description\":\"string\"}}],\n    \"likelyNpcRoles\": [\"string\"]\n  }},\n  \"currentNode\": {{\n    \"kind\": \"scene|dialogue|decision|combat\",\n    \"title\": \"string\",\n    \"text\": \"string\",\n    \"choices\": [{{\"id\":\"string\",\"label\":\"string\",\"intent\":\"string\",\"risk\":\"low|medium|high\",\"tags\":[\"string\"]}}],\n    \"npcs\": [{{\"name\":\"string\",\"role\":\"string\",\"isHostile\":false,\"sourceHistoryCharacterId\":\"optional string\",\"faction\":\"optional string\",\"lore\":\"optional string\"}}],\n    \"contextRefs\": [{{\"kind\":\"faction|location|ecology|history|character\",\"id\":\"string\",\"label\":\"string\"}}],\n    \"flags\": [\"string\"],\n    \"pendingCombat\": {{\"encounterLabel\":\"string\",\"stakes\":\"string\",\"enemyNpcNames\":[\"string\"]}}\n  }}\n}}",
+{{\n  \"title\": \"string\",\n  \"summary\": \"string\",\n  \"arc\": {{\n    \"title\": \"string\",\n    \"premise\": \"string\",\n    \"acts\": [\"string\", \"string\", \"string\"],\n    \"recurringTensions\": [\"string\"],\n    \"endingTracks\": [{{\"id\":\"string\",\"title\":\"string\",\"description\":\"string\"}}],\n    \"likelyNpcRoles\": [\"string\"]\n  }},\n  \"currentNode\": {{\n    \"kind\": \"scene|dialogue|discussion|decision|combat\",\n    \"title\": \"string\",\n    \"text\": \"string\",\n    \"choices\": [{{\"id\":\"string\",\"label\":\"string\",\"intent\":\"string\",\"risk\":\"low|medium|high\",\"tags\":[\"string\"]}}],\n    \"npcs\": [{{\"name\":\"string\",\"role\":\"string\",\"isHostile\":false,\"sourceHistoryCharacterId\":\"optional string\",\"faction\":\"optional string\",\"lore\":\"optional string\"}}],\n    \"contextRefs\": [{{\"kind\":\"faction|location|ecology|history|character\",\"id\":\"string\",\"label\":\"string\"}}],\n    \"flags\": [\"string\"],\n    \"pendingCombat\": {{\"encounterLabel\":\"string\",\"stakes\":\"string\",\"enemyNpcNames\":[\"string\"]}}\n  }}\n}}",
         pretty(&payload.seed),
         pretty(&payload.party),
         pretty(&payload.gm_context),
@@ -583,6 +918,7 @@ Schema:\n\
         pretty(&payload.locations),
         pretty(&payload.ecology),
         pretty(&payload.history_characters),
+        pretty(chain.unwrap_or(&Value::Null)),
     )
 }
 
@@ -624,11 +960,14 @@ Rules:\n\
 - When the run nears its max node count, move decisively toward an ending.\n\
 - Provide structured party consequences when justified.\n\
 - Only output one next node.\n\
+- Use kind \"discussion\" for lightweight social exchanges that should be answered via a typed reply.\n\
+- Introduce new quest NPCs whenever the next beat needs fresh actors, witnesses, rivals, or enemies.\n\
+- Combat nodes must include hostile NPCs in npcs and exact matching pendingCombat.enemyNpcNames.\n\
 - Use current history characters for NPCs when appropriate.\n\
 \n\
 Return raw JSON only. No markdown fences.\n\
 Schema:\n\
-{{\n  \"status\": \"active|completed|failed\",\n  \"lastOutcomeText\": \"string\",\n  \"endingSummary\": \"string optional\",\n  \"endingReached\": \"string optional\",\n  \"effectSummaries\": [\"string\"],\n  \"newFlags\": [\"string\"],\n  \"clearFlags\": [\"string\"],\n  \"partyUpdates\": [{{\n    \"characterId\": \"party character id or empty\",\n    \"characterName\": \"party character name\",\n    \"summary\": \"string\",\n    \"statChanges\": [{{\"target\":\"hp|maxHp|strength|agility|intelligence|wisdom|endurance|charisma\",\"value\":0}}],\n    \"addTraitNames\": [\"string\"],\n    \"removeTraitNames\": [\"string\"],\n    \"addItems\": [{{\"name\":\"string\",\"category\":\"weapon|armor|consumable|resource|junk\",\"rarity\":\"salvaged|reinforced|pre-ash|specialized|relic|ashmarked\",\"description\":\"string\"}}],\n    \"addSkills\": [{{\"name\":\"string\",\"description\":\"string\",\"category\":\"base|occupation|unique|equipment\"}}],\n    \"relationshipChanges\": [{{\"characterName\":\"string\",\"change\":0}}]\n  }}],\n  \"nextNode\": {{\n    \"kind\": \"scene|dialogue|decision|combat|ending\",\n    \"title\": \"string\",\n    \"text\": \"string\",\n    \"choices\": [{{\"id\":\"string\",\"label\":\"string\",\"intent\":\"string\",\"risk\":\"low|medium|high\",\"tags\":[\"string\"]}}],\n    \"npcs\": [{{\"name\":\"string\",\"role\":\"string\",\"isHostile\":false,\"sourceHistoryCharacterId\":\"optional string\",\"faction\":\"optional string\",\"lore\":\"optional string\"}}],\n    \"contextRefs\": [{{\"kind\":\"faction|location|ecology|history|character\",\"id\":\"string\",\"label\":\"string\"}}],\n    \"flags\": [\"string\"],\n    \"endingId\": \"string optional\",\n    \"pendingCombat\": {{\"encounterLabel\":\"string\",\"stakes\":\"string\",\"enemyNpcNames\":[\"string\"]}}\n  }}\n}}",
+{{\n  \"status\": \"active|completed|failed\",\n  \"lastOutcomeText\": \"string\",\n  \"endingSummary\": \"string optional\",\n  \"endingReached\": \"string optional\",\n  \"effectSummaries\": [\"string\"],\n  \"newFlags\": [\"string\"],\n  \"clearFlags\": [\"string\"],\n  \"partyUpdates\": [{{\n    \"characterId\": \"party character id or empty\",\n    \"characterName\": \"party character name\",\n    \"summary\": \"string\",\n    \"statChanges\": [{{\"target\":\"hp|maxHp|strength|agility|intelligence|wisdom|endurance|charisma\",\"value\":0}}],\n    \"addTraitNames\": [\"string\"],\n    \"removeTraitNames\": [\"string\"],\n    \"addItems\": [{{\"name\":\"string\",\"category\":\"weapon|armor|consumable|resource|junk\",\"rarity\":\"salvaged|reinforced|pre-ash|specialized|relic|ashmarked\",\"description\":\"string\"}}],\n    \"addSkills\": [{{\"name\":\"string\",\"description\":\"string\",\"category\":\"base|occupation|unique|equipment\"}}],\n    \"relationshipChanges\": [{{\"characterName\":\"string\",\"change\":0}}]\n  }}],\n  \"nextNode\": {{\n    \"kind\": \"scene|dialogue|discussion|decision|combat|ending\",\n    \"title\": \"string\",\n    \"text\": \"string\",\n    \"choices\": [{{\"id\":\"string\",\"label\":\"string\",\"intent\":\"string\",\"risk\":\"low|medium|high\",\"tags\":[\"string\"]}}],\n    \"npcs\": [{{\"name\":\"string\",\"role\":\"string\",\"isHostile\":false,\"sourceHistoryCharacterId\":\"optional string\",\"faction\":\"optional string\",\"lore\":\"optional string\"}}],\n    \"contextRefs\": [{{\"kind\":\"faction|location|ecology|history|character\",\"id\":\"string\",\"label\":\"string\"}}],\n    \"flags\": [\"string\"],\n    \"endingId\": \"string optional\",\n    \"pendingCombat\": {{\"encounterLabel\":\"string\",\"stakes\":\"string\",\"enemyNpcNames\":[\"string\"]}}\n  }}\n}}",
         pretty(&payload.run),
         pretty(&payload.party),
         pretty(&payload.gm_context),
@@ -655,6 +994,27 @@ async fn parse_json_with_retry(prompt: &str) -> Result<Value, String> {
         .await
         .map_err(|err| format!("Quest retry failed: {:?}", err))?;
     parse_json_value(&second)
+}
+
+async fn parse_text_with_retry(prompt: &str) -> Result<String, String> {
+    let first = generate_text(prompt)
+        .await
+        .map_err(|err| format!("Quest text generation failed: {:?}", err))?;
+    let cleaned = first.trim();
+    if !cleaned.is_empty() {
+        return Ok(cleaned.to_string());
+    }
+
+    let retry_prompt = format!("{prompt}\n\nThe previous answer was empty. Reply with plain text only.");
+    let second = generate_text(&retry_prompt)
+        .await
+        .map_err(|err| format!("Quest text retry failed: {:?}", err))?;
+    let cleaned_second = second.trim();
+    if cleaned_second.is_empty() {
+        Err("Generated text was empty".to_string())
+    } else {
+        Ok(cleaned_second.to_string())
+    }
 }
 
 fn parse_json_value(input: &str) -> Result<Value, String> {
@@ -839,10 +1199,17 @@ fn normalize_node(
             "flags": [],
         })
     });
-    let kind = raw
+    let kind = match raw
         .get("kind")
         .and_then(Value::as_str)
-        .unwrap_or("decision");
+        .unwrap_or("decision")
+    {
+        "dialogue" | "discussion" => "discussion",
+        "scene" => "scene",
+        "combat" => "combat",
+        "ending" => "ending",
+        _ => "decision",
+    };
     let title = raw
         .get("title")
         .and_then(Value::as_str)
@@ -856,7 +1223,11 @@ fn normalize_node(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if kind != "ending" && choices.len() < 4 {
+    if kind == "discussion" {
+        if choices.len() > 3 {
+            choices.truncate(3);
+        }
+    } else if kind != "ending" && choices.len() < 4 {
         while choices.len() < 4 {
             let choice_number = choices.len() + 1;
             choices.push(json!({
@@ -1058,14 +1429,18 @@ fn materialize_node_characters(
     let mut materialized = Vec::new();
     let mut npc_entries = Vec::new();
     let mut enemy_ids = Vec::new();
-    let combat_enemy_names = node
+    let combat_enemy_specs = node
         .get("pendingCombat")
         .and_then(|pending| pending.get("enemyNpcNames"))
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|value| value.as_str().map(|item| item.to_lowercase()))
+        .filter_map(|value| value.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    let combat_enemy_names = combat_enemy_specs
+        .iter()
+        .map(|item| item.to_lowercase())
         .collect::<Vec<_>>();
 
     let existing_characters = load_existing_builder_characters();
@@ -1077,13 +1452,40 @@ fn materialize_node_characters(
         .get("difficulty")
         .and_then(Value::as_str)
         .unwrap_or("medium");
-
-    for npc in node
+    let mut npc_hints = node
         .get("npcs")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default()
-    {
+        .unwrap_or_default();
+    let mut known_npc_names = npc_hints
+        .iter()
+        .filter_map(|npc| {
+            npc.get("name")
+                .and_then(Value::as_str)
+                .map(|name| name.to_lowercase())
+        })
+        .collect::<Vec<_>>();
+    let combat_stakes = node
+        .get("pendingCombat")
+        .and_then(|pending| pending.get("stakes"))
+        .and_then(Value::as_str)
+        .unwrap_or("A hostile force is pushing into the quest.");
+
+    for enemy_name in &combat_enemy_specs {
+        let normalized = enemy_name.to_lowercase();
+        if known_npc_names.iter().any(|name| name == &normalized) {
+            continue;
+        }
+        npc_hints.push(json!({
+            "name": enemy_name,
+            "role": "Enemy",
+            "isHostile": true,
+            "lore": combat_stakes,
+        }));
+        known_npc_names.push(normalized);
+    }
+
+    for npc in npc_hints {
         let npc_name = npc
             .get("name")
             .and_then(Value::as_str)
@@ -1132,11 +1534,13 @@ fn materialize_node_characters(
             .and_then(Value::as_str)
             .unwrap_or("unknown-npc")
             .to_string();
+        let is_named_enemy = combat_enemy_names.iter().any(|name| name == &npc_name.to_lowercase());
         let is_hostile = npc
             .get("isHostile")
             .and_then(Value::as_bool)
-            .unwrap_or(false);
-        if is_hostile || combat_enemy_names.iter().any(|name| name == &npc_name.to_lowercase()) {
+            .unwrap_or(false)
+            || is_named_enemy;
+        if is_hostile {
             enemy_ids.push(Value::String(character_id.clone()));
         }
 
@@ -1365,7 +1769,612 @@ fn summarize_run(run: &Value) -> Value {
         "partyCharacterIds": run.get("partyCharacterIds").cloned().unwrap_or(Value::Array(vec![])),
         "nodeCount": run.get("nodeCount").cloned().unwrap_or(Value::Number(0.into())),
         "endingReached": run.get("endingReached").cloned().unwrap_or(Value::Null),
+        "chainId": run.get("chainId").cloned().unwrap_or(Value::Null),
     })
+}
+
+fn chain_dir(planets_dir: &PathBuf, world_id: &str) -> PathBuf {
+    quest_dir(planets_dir, world_id).join("chains")
+}
+
+fn snapshot_dir(planets_dir: &PathBuf, world_id: &str) -> PathBuf {
+    quest_dir(planets_dir, world_id).join("snapshots")
+}
+
+fn glossary_dir(planets_dir: &PathBuf, world_id: &str) -> PathBuf {
+    quest_dir(planets_dir, world_id).join("glossary")
+}
+
+fn illustration_record_dir(planets_dir: &PathBuf, world_id: &str) -> PathBuf {
+    quest_dir(planets_dir, world_id).join("illustrations")
+}
+
+fn illustration_image_dir(planets_dir: &PathBuf, world_id: &str) -> PathBuf {
+    quest_dir(planets_dir, world_id).join("illustration-images")
+}
+
+fn load_chain_for_run(planets_dir: &PathBuf, world_id: &str, run: &Value) -> Option<Value> {
+    let chain_id = run.get("chainId").and_then(Value::as_str)?;
+    let path = chain_dir(planets_dir, world_id).join(format!("{chain_id}.json"));
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+}
+
+fn load_or_create_active_chain(planets_dir: &PathBuf, world_id: &str, seed: &Value) -> Value {
+    let dir = chain_dir(planets_dir, world_id);
+    let _ = fs::create_dir_all(&dir);
+    let mut chains = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            if let Ok(raw) = fs::read_to_string(path) {
+                if let Ok(value) = serde_json::from_str::<Value>(&raw) {
+                    chains.push(value);
+                }
+            }
+        }
+    }
+    chains.sort_by(|a, b| {
+        b.get("updatedAt")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            .cmp(&a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0))
+    });
+    if let Some(existing) = chains
+        .into_iter()
+        .find(|chain| chain.get("status").and_then(Value::as_str) == Some("active"))
+    {
+        return existing;
+    }
+
+    let title = seed
+        .get("objective")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| format!("Chain: {value}"))
+        .unwrap_or_else(|| "Chain: Ashtrail Continuum".to_string());
+    let premise = seed
+        .get("premise")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("A quest chain formed from the world's accumulating tensions.");
+    json!({
+        "id": format!("qchain-{}", Uuid::new_v4()),
+        "worldId": world_id,
+        "title": title,
+        "premise": premise,
+        "status": "active",
+        "activeRunId": Value::Null,
+        "completedRunIds": [],
+        "npcIds": [],
+        "factionIds": [],
+        "storyFlags": [],
+        "nextQuestHooks": [],
+        "createdAt": now_ms(),
+        "updatedAt": now_ms(),
+    })
+}
+
+fn persist_chain(planets_dir: &PathBuf, world_id: &str, chain: &Value) -> Result<(), std::io::Error> {
+    let dir = chain_dir(planets_dir, world_id);
+    fs::create_dir_all(&dir)?;
+    let id = chain.get("id").and_then(Value::as_str).unwrap_or("unknown");
+    let path = dir.join(format!("{id}.json"));
+    fs::write(path, serde_json::to_string_pretty(chain).unwrap_or_else(|_| "{}".to_string()))
+}
+
+fn update_chain_with_active_run(
+    chain: &mut Value,
+    run_id: &str,
+    npc_ids: &[String],
+    faction_ids: Vec<String>,
+) {
+    if let Some(obj) = chain.as_object_mut() {
+        obj.insert("activeRunId".to_string(), Value::String(run_id.to_string()));
+        obj.insert("updatedAt".to_string(), Value::Number(now_ms().into()));
+        merge_unique_string_field(obj, "npcIds", npc_ids);
+        merge_unique_string_field(obj, "factionIds", &faction_ids);
+    }
+}
+
+fn update_chain_on_completion(
+    chain: &mut Value,
+    run_id: &str,
+    run_title: &str,
+    world_consequences: &[Value],
+    npc_ids: &[String],
+    faction_ids: Vec<String>,
+) {
+    if let Some(obj) = chain.as_object_mut() {
+        append_unique_string_value(obj, "completedRunIds", run_id);
+        merge_unique_string_field(obj, "npcIds", npc_ids);
+        merge_unique_string_field(obj, "factionIds", &faction_ids);
+        let hooks = world_consequences
+            .iter()
+            .filter_map(|entry| entry.get("summary").and_then(Value::as_str))
+            .map(|summary| format!("After {run_title}: {summary}"))
+            .collect::<Vec<_>>();
+        merge_unique_string_field(obj, "nextQuestHooks", &hooks);
+        obj.insert("activeRunId".to_string(), Value::Null);
+        obj.insert("status".to_string(), Value::String("active".to_string()));
+        obj.insert("updatedAt".to_string(), Value::Number(now_ms().into()));
+    }
+}
+
+fn merge_unique_string_field(target: &mut serde_json::Map<String, Value>, field: &str, values: &[String]) {
+    let mut merged = target
+        .get(field)
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|item| item.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    for value in values {
+        if !merged.iter().any(|existing| existing == value) {
+            merged.push(value.clone());
+        }
+    }
+    target.insert(
+        field.to_string(),
+        Value::Array(merged.into_iter().map(Value::String).collect()),
+    );
+}
+
+fn append_unique_string_value(target: &mut serde_json::Map<String, Value>, field: &str, value: &str) {
+    let mut merged = target
+        .get(field)
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|item| item.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    if !merged.iter().any(|existing| existing == value) {
+        merged.push(value.to_string());
+    }
+    target.insert(
+        field.to_string(),
+        Value::Array(merged.into_iter().map(Value::String).collect()),
+    );
+}
+
+fn create_retry_snapshot(
+    planets_dir: &PathBuf,
+    world_id: &str,
+    run_id: &str,
+    party: &Value,
+    run: &Value,
+) -> Result<String, (StatusCode, String)> {
+    let snapshot_id = format!("qsnap-{}", Uuid::new_v4());
+    let dir = snapshot_dir(planets_dir, world_id);
+    fs::create_dir_all(&dir)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let path = dir.join(format!("{snapshot_id}.json"));
+    let snapshot = json!({
+        "id": snapshot_id,
+        "worldId": world_id,
+        "runId": run_id,
+        "createdAt": now_ms(),
+        "party": party,
+        "runState": run,
+    });
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".to_string()),
+    )
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(snapshot_id)
+}
+
+fn load_retry_snapshot(planets_dir: &PathBuf, world_id: &str, snapshot_id: &str) -> Option<Value> {
+    if snapshot_id.trim().is_empty() {
+        return None;
+    }
+    let path = snapshot_dir(planets_dir, world_id).join(format!("{snapshot_id}.json"));
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+}
+
+fn build_world_consequences(
+    run_id: &str,
+    node: &Value,
+    introduced_npcs: &Value,
+    effect_summaries: &[Value],
+    new_flags: &[Value],
+) -> Vec<Value> {
+    let mut consequences = Vec::new();
+    for summary in effect_summaries.iter().filter_map(Value::as_str) {
+        consequences.push(json!({
+            "id": format!("qwc-{}", Uuid::new_v4()),
+            "kind": "story",
+            "summary": summary,
+            "sourceRunId": run_id,
+            "relatedIds": [],
+        }));
+    }
+    for flag in new_flags.iter().filter_map(Value::as_str) {
+        consequences.push(json!({
+            "id": format!("qwc-{}", Uuid::new_v4()),
+            "kind": "story",
+            "summary": format!("Flag advanced: {flag}"),
+            "sourceRunId": run_id,
+            "relatedIds": [flag],
+        }));
+    }
+    for npc_id in introduced_npcs
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|item| item.as_str().map(str::to_string))
+    {
+        consequences.push(json!({
+            "id": format!("qwc-{}", Uuid::new_v4()),
+            "kind": "npc",
+            "summary": format!("A quest actor now matters to this world: {npc_id}"),
+            "sourceRunId": run_id,
+            "relatedIds": [npc_id],
+        }));
+    }
+    if let Some(title) = node.get("title").and_then(Value::as_str) {
+        consequences.push(json!({
+            "id": format!("qwc-{}", Uuid::new_v4()),
+            "kind": "story",
+            "summary": format!("The quest reached {title}."),
+            "sourceRunId": run_id,
+            "relatedIds": [],
+        }));
+    }
+    consequences
+}
+
+fn merge_string_ids(existing: Option<&Vec<Value>>, incoming: Option<&Vec<Value>>, field: &str) -> Vec<String> {
+    let mut merged = existing
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|item| item.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    for value in incoming.cloned().unwrap_or_default() {
+        if let Some(id) = value.get(field).and_then(Value::as_str) {
+            if !merged.iter().any(|existing| existing == id) {
+                merged.push(id.to_string());
+            }
+        }
+    }
+    merged
+}
+
+fn extract_referenced_faction_ids(node: &Value) -> Vec<String> {
+    node.get("contextRefs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|entry| entry.get("kind").and_then(Value::as_str) == Some("faction"))
+        .filter_map(|entry| entry.get("id").and_then(Value::as_str).map(str::to_string))
+        .collect()
+}
+
+fn attach_node_metadata(
+    node: &mut Value,
+    state: &AppState,
+    world_id: &str,
+    run_id: &str,
+    run_title: &str,
+    gm_context: &Value,
+) -> Result<Option<String>, (StatusCode, String)> {
+    let term_refs = collect_term_refs(node);
+    let layout_hint = match node.get("kind").and_then(Value::as_str).unwrap_or("scene") {
+        "discussion" | "dialogue" => "conversation",
+        "combat" => "combat",
+        "ending" => "ending",
+        "scene" if node.get("index").and_then(Value::as_u64) == Some(1) => "featured",
+        _ => "standard",
+    };
+    let illustration_id = if should_generate_illustration(node) {
+        Some(queue_quest_illustration(
+            state,
+            world_id,
+            run_id,
+            run_title,
+            node,
+            gm_context,
+        )?)
+    } else {
+        None
+    };
+    if let Some(obj) = node.as_object_mut() {
+        obj.insert("termRefs".to_string(), Value::Array(term_refs));
+        obj.insert("layoutHint".to_string(), Value::String(layout_hint.to_string()));
+        if let Some(id) = illustration_id.clone() {
+            obj.insert("illustrationId".to_string(), Value::String(id));
+            obj.insert("illustrationStatus".to_string(), Value::String("queued".to_string()));
+        } else {
+            obj.insert("illustrationId".to_string(), Value::Null);
+            obj.insert("illustrationStatus".to_string(), Value::String("idle".to_string()));
+        }
+    }
+    Ok(illustration_id)
+}
+
+fn collect_term_refs(node: &Value) -> Vec<Value> {
+    let mut refs = Vec::new();
+    let mut seen = Vec::<String>::new();
+    for context in node
+        .get("contextRefs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if let Some(label) = context.get("label").and_then(Value::as_str) {
+            let slug = slugify_term(label);
+            if !seen.iter().any(|item| item == &slug) {
+                refs.push(json!({
+                    "term": label,
+                    "slug": slug,
+                    "sourceType": "context",
+                    "sourceId": context.get("id").cloned().unwrap_or(Value::Null),
+                }));
+                seen.push(slugify_term(label));
+            }
+        }
+    }
+    for npc in node
+        .get("npcs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        if let Some(name) = npc.get("name").and_then(Value::as_str) {
+            let slug = slugify_term(name);
+            if !seen.iter().any(|item| item == &slug) {
+                refs.push(json!({
+                    "term": name,
+                    "slug": slug,
+                    "sourceType": "npc",
+                    "sourceId": npc.get("id").cloned().unwrap_or(Value::Null),
+                }));
+                seen.push(slugify_term(name));
+            }
+        }
+    }
+    if let Some(title) = node.get("title").and_then(Value::as_str) {
+        let slug = slugify_term(title);
+        if title.split_whitespace().count() > 1 && !seen.iter().any(|item| item == &slug) {
+            refs.push(json!({
+                "term": title,
+                "slug": slug,
+                "sourceType": "title",
+                "sourceId": node.get("id").cloned().unwrap_or(Value::Null),
+            }));
+        }
+    }
+    refs
+}
+
+fn should_generate_illustration(node: &Value) -> bool {
+    let index = node.get("index").and_then(Value::as_u64).unwrap_or(0);
+    match node.get("kind").and_then(Value::as_str).unwrap_or("scene") {
+        "combat" | "discussion" | "ending" => true,
+        _ if index == 1 => true,
+        _ if index > 0 && index % 3 == 0 => true,
+        _ => false,
+    }
+}
+
+fn queue_quest_illustration(
+    state: &AppState,
+    world_id: &str,
+    run_id: &str,
+    run_title: &str,
+    node: &Value,
+    gm_context: &Value,
+) -> Result<String, (StatusCode, String)> {
+    let illustration_id = format!("qill-{}", Uuid::new_v4());
+    let record_dir = illustration_record_dir(&state.planets_dir, world_id);
+    let image_dir = illustration_image_dir(&state.planets_dir, world_id);
+    fs::create_dir_all(&record_dir)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    fs::create_dir_all(&image_dir)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let kind = match node.get("kind").and_then(Value::as_str).unwrap_or("scene") {
+        "combat" => "combat",
+        "discussion" | "dialogue" => "discussion",
+        "ending" => "ending",
+        _ if node.get("index").and_then(Value::as_u64) == Some(1) => "intro",
+        _ => "turning-point",
+    };
+    let prompt = build_quest_illustration_prompt(run_title, node, gm_context);
+    let asset_path = format!("/api/planet/quests/{world_id}/illustrations/{illustration_id}/image");
+    let source_character_ids = node
+        .get("npcs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|npc| npc.get("id").and_then(Value::as_str).map(str::to_string))
+        .map(Value::String)
+        .collect::<Vec<_>>();
+    let record = json!({
+        "id": illustration_id,
+        "worldId": world_id,
+        "runId": run_id,
+        "nodeId": node.get("id").cloned().unwrap_or(Value::Null),
+        "kind": kind,
+        "prompt": prompt,
+        "assetPath": asset_path,
+        "status": "queued",
+        "sourceCharacterIds": source_character_ids,
+        "createdAt": now_ms(),
+        "updatedAt": now_ms(),
+        "error": Value::Null,
+    });
+    let record_path = record_dir.join(format!("{illustration_id}.json"));
+    fs::write(
+        &record_path,
+        serde_json::to_string_pretty(&record).unwrap_or_else(|_| "{}".to_string()),
+    )
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    let planets_dir = state.planets_dir.clone();
+    let world_id_owned = world_id.to_string();
+    let illustration_id_owned = illustration_id.clone();
+    let prompt_owned = prompt.clone();
+    tokio::spawn(async move {
+        let update_record = |status: &str, error_message: Option<String>| {
+            let path = illustration_record_dir(&planets_dir, &world_id_owned)
+                .join(format!("{illustration_id_owned}.json"));
+            if let Ok(raw) = fs::read_to_string(&path) {
+                if let Ok(mut value) = serde_json::from_str::<Value>(&raw) {
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert("status".to_string(), Value::String(status.to_string()));
+                        obj.insert("updatedAt".to_string(), Value::Number(now_ms().into()));
+                        obj.insert(
+                            "error".to_string(),
+                            error_message
+                                .map(Value::String)
+                                .unwrap_or(Value::Null),
+                        );
+                    }
+                    let _ = fs::write(
+                        path,
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
+                    );
+                }
+            }
+        };
+
+        update_record("generating", None);
+        match generate_image_bytes(&prompt_owned, Some(0.7), 1024, 1024, Some("1:1")).await {
+            Ok(bytes) => {
+                let image_path = illustration_image_dir(&planets_dir, &world_id_owned)
+                    .join(format!("{illustration_id_owned}.png"));
+                if fs::write(image_path, bytes).is_ok() {
+                    update_record("ready", None);
+                } else {
+                    update_record("failed", Some("Failed to save generated illustration.".to_string()));
+                }
+            }
+            Err((_, message)) => update_record("failed", Some(message)),
+        }
+    });
+
+    Ok(illustration_id)
+}
+
+fn build_quest_illustration_prompt(run_title: &str, node: &Value, gm_context: &Value) -> String {
+    let world_prompt = gm_context
+        .get("worldPrompt")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("A hostile ash-choked world.");
+    let node_kind = node.get("kind").and_then(Value::as_str).unwrap_or("scene");
+    let node_title = node.get("title").and_then(Value::as_str).unwrap_or("Quest Node");
+    let node_text = node.get("text").and_then(Value::as_str).unwrap_or("The quest advances.");
+    format!(
+        "Create a cinematic, grounded post-apocalyptic quest illustration. World canon: {world_prompt}. Quest: {run_title}. Node type: {node_kind}. Scene title: {node_title}. Scene beat: {node_text}. Focus on strong environmental storytelling, readable silhouettes, dramatic light, and no text overlay."
+    )
+}
+
+fn slugify_term(term: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+    for ch in term.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+fn load_all_glossary_entries(planets_dir: &PathBuf, world_id: &str) -> Vec<Value> {
+    let dir = glossary_dir(planets_dir, world_id);
+    let mut entries = Vec::new();
+    if let Ok(read_dir) = fs::read_dir(dir) {
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            if let Ok(raw) = fs::read_to_string(path) {
+                if let Ok(value) = serde_json::from_str::<Value>(&raw) {
+                    entries.push(value);
+                }
+            }
+        }
+    }
+    entries.sort_by(|a, b| {
+        a.get("term")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .cmp(b.get("term").and_then(Value::as_str).unwrap_or(""))
+    });
+    entries
+}
+
+fn persist_glossary_entry(planets_dir: &PathBuf, world_id: &str, entry: &Value) -> Result<(), std::io::Error> {
+    let dir = glossary_dir(planets_dir, world_id);
+    fs::create_dir_all(&dir)?;
+    let slug = entry.get("slug").and_then(Value::as_str).unwrap_or("unknown-term");
+    let path = dir.join(format!("{slug}.json"));
+    fs::write(path, serde_json::to_string_pretty(entry).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn load_or_generate_glossary_entry(
+    planets_dir: &PathBuf,
+    world_id: &str,
+    term: &str,
+) -> Result<Value, (StatusCode, String)> {
+    let slug = slugify_term(term);
+    let path = glossary_dir(planets_dir, world_id).join(format!("{slug}.json"));
+    if let Ok(raw) = fs::read_to_string(&path) {
+        if let Ok(value) = serde_json::from_str::<Value>(&raw) {
+            return Ok(value);
+        }
+    }
+    let world_prompt = read_world_prompt(planets_dir, world_id);
+    let prompt = format!(
+        "You are the Ashtrail glossary keeper. Write 2 short sentences of flavorful but clear explanation for the term \"{term}\" in the context of this world. World prompt: {world_prompt}. Return plain text only."
+    );
+    let flavor_text = parse_text_with_retry(&prompt)
+        .await
+        .unwrap_or_else(|_| format!("{term} is a significant concept in this world."));
+    let entry = json!({
+        "worldId": world_id,
+        "term": term,
+        "slug": slug,
+        "shortLabel": term,
+        "flavorText": flavor_text.trim(),
+        "sourceType": "system",
+        "sourceId": Value::Null,
+        "relatedIds": [],
+        "createdAt": now_ms(),
+        "updatedAt": now_ms(),
+    });
+    persist_glossary_entry(planets_dir, world_id, &entry)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(entry)
+}
+
+fn read_world_prompt(planets_dir: &PathBuf, world_id: &str) -> String {
+    let path = planets_dir.join(world_id).join("gm_settings.json");
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|value| value.get("worldPrompt").and_then(Value::as_str).map(str::to_string))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "A dangerous ash-swept frontier.".to_string())
 }
 
 fn quest_dir(planets_dir: &PathBuf, world_id: &str) -> PathBuf {

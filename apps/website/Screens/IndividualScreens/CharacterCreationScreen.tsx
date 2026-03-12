@@ -7,9 +7,12 @@ import {
   Trait,
   Occupation,
   OccupationCategory,
+  ALL_SKILLS,
   ALL_TRAITS,
   ALL_OCCUPATIONS,
-  MOCK_TALENT_TREES
+  getDefaultTalentPointsForLevel,
+  MOCK_TALENT_TREES,
+  DEFAULT_CHARACTER_CREDITS
 } from '@ashtrail/core';
 import { ReactFlow, Edge as RFEdge, Node as RFNode, Position, Handle, ConnectionLineType, Background, ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -344,6 +347,8 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
   const [occupationSearch, setOccupationSearch] = useState('');
   const [occupationCategory, setOccupationCategory] = useState<OccupationCategory | 'ALL'>('ALL');
   const [showTalentTree, setShowTalentTree] = useState(false);
+  const [unlockedTalentNodeIds, setUnlockedTalentNodeIds] = useState<string[]>([]);
+  const [availableTalentPoints, setAvailableTalentPoints] = useState(() => getDefaultTalentPointsForLevel(1));
 
   // Refs for auto-resize
   const biometricRef = useRef<HTMLTextAreaElement>(null);
@@ -482,10 +487,17 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
       stats: finalStats,
       traits: finalTraits,
       occupation: selectedOccupation || undefined,
+      progression: selectedOccupation ? {
+        treeOccupationId: selectedOccupation.id,
+        unlockedTalentNodeIds,
+        availableTalentPoints,
+        spentTalentPoints: unlockedTalentNodeIds.length,
+      } : undefined,
       hp: 10 + finalStats.endurance * 5,
       maxHp: 10 + finalStats.endurance * 5,
       xp: 0,
       level: 1,
+      credits: { ...DEFAULT_CHARACTER_CREDITS },
       inventory: []
     });
   };
@@ -513,6 +525,22 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
       </button>
     </Tooltip>
   );
+
+  const handleOccupationSelect = (occupation: Occupation | null) => {
+    if (!occupation) {
+      setSelectedOccupation(null);
+      setUnlockedTalentNodeIds([]);
+      setAvailableTalentPoints(getDefaultTalentPointsForLevel(1));
+      return;
+    }
+
+    const changedOccupation = selectedOccupation?.id !== occupation.id;
+    setSelectedOccupation(occupation);
+    if (changedOccupation) {
+      setUnlockedTalentNodeIds([]);
+      setAvailableTalentPoints(getDefaultTalentPointsForLevel(1));
+    }
+  };
 
   return (
     <Container centered className="h-screen py-8 flex flex-col">
@@ -893,18 +921,21 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                             </div>
                           </div>
                           <button
-                            onClick={() => setSelectedOccupation(null)}
+                            onClick={() => handleOccupationSelect(null)}
                             className="text-[9px] mono uppercase text-zinc-600 hover:text-red-500 font-black tracking-widest transition-colors"
                           >
                             remove
                           </button>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2 items-center">
-                          {selectedOccupation.perks.map((perk, i) => (
+                          {(selectedOccupation.perks || selectedOccupation.effects?.map(effect => effect.name || effect.target || effect.type) || []).map((perk, i) => (
                             <span key={i} className="text-[8px] mono uppercase bg-orange-500/10 text-orange-400 px-2 py-1 rounded-sm border border-orange-900/30 tracking-wider">
                               {perk}
                             </span>
                           ))}
+                          <span className="text-[8px] mono uppercase bg-zinc-950 text-zinc-400 px-2 py-1 rounded-sm border border-zinc-800 tracking-wider">
+                            {unlockedTalentNodeIds.length} unlocked / {availableTalentPoints} points left
+                          </span>
                           <button
                             onClick={() => setShowTalentTree(true)}
                             className="ml-auto text-[8px] mono uppercase bg-zinc-900 text-zinc-400 hover:text-orange-400 px-3 py-1 rounded-sm border border-zinc-800 hover:border-orange-500/50 transition-all font-black tracking-widest flex items-center gap-2 group"
@@ -926,8 +957,8 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
                         })
                         .map(occ => (
                           <Tooltip key={occ.id} content={`${occ.description} — ${occ.perks.join(' • ')}`}>
-                            <button
-                              onClick={() => setSelectedOccupation(selectedOccupation?.id === occ.id ? null : occ)}
+                          <button
+                              onClick={() => handleOccupationSelect(selectedOccupation?.id === occ.id ? null : occ)}
                               className={`w-full p-3 text-left border rounded-sm transition-all group flex items-center justify-between ${selectedOccupation?.id === occ.id
                                 ? 'bg-orange-600/20 border-orange-500 shadow-[inset_0_0_10px_rgba(249,115,22,0.1)]'
                                 : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
@@ -994,6 +1025,10 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
         <ReactFlowProvider>
           <TalentTreeOverlay
             selectedOccupation={selectedOccupation}
+            unlockedTalentNodeIds={unlockedTalentNodeIds}
+            setUnlockedTalentNodeIds={setUnlockedTalentNodeIds}
+            availableTalentPoints={availableTalentPoints}
+            setAvailableTalentPoints={setAvailableTalentPoints}
             onClose={() => setShowTalentTree(false)}
           />
         </ReactFlowProvider>
@@ -1003,10 +1038,23 @@ export const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = (
 };
 
 // Extracted for clean React Flow context/state
-const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation: Occupation, onClose: () => void }) => {
+const TalentTreeOverlay = ({
+  selectedOccupation,
+  unlockedTalentNodeIds,
+  setUnlockedTalentNodeIds,
+  availableTalentPoints,
+  setAvailableTalentPoints,
+  onClose,
+}: {
+  selectedOccupation: Occupation;
+  unlockedTalentNodeIds: string[];
+  setUnlockedTalentNodeIds: React.Dispatch<React.SetStateAction<string[]>>;
+  availableTalentPoints: number;
+  setAvailableTalentPoints: React.Dispatch<React.SetStateAction<number>>;
+  onClose: () => void;
+}) => {
   const { fitView } = useReactFlow();
-  const [unlockedNodes, setUnlockedNodes] = useState<Set<string>>(new Set());
-  const [availablePoints, setAvailablePoints] = useState(2); // Starting with 2 for demo
+  const unlockedNodes = useMemo(() => new Set(unlockedTalentNodeIds), [unlockedTalentNodeIds]);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -1014,13 +1062,11 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
   const tree = MOCK_TALENT_TREES[selectedOccupation.id];
 
   const handleUnlockNode = (nodeId: string) => {
-    if (availablePoints <= 0) return;
-    setUnlockedNodes(prev => {
-      const next = new Set(prev);
-      next.add(nodeId);
-      return next;
-    });
-    setAvailablePoints(prev => prev - 1);
+    const node = tree?.nodes.find(entry => entry.id === nodeId);
+    const nodeCost = node?.cost || 1;
+    if (availableTalentPoints < nodeCost) return;
+    setUnlockedTalentNodeIds(prev => Array.from(new Set([...prev, nodeId])));
+    setAvailableTalentPoints(prev => Math.max(0, prev - nodeCost));
   };
 
   // Check if current selection can be upgraded
@@ -1028,7 +1074,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
   const isSelectedNodeUnlockable = !!(
     selectedNode &&
     !unlockedNodes.has(selectedNode.id) &&
-    availablePoints > 0 &&
+    availableTalentPoints >= (selectedNode.cost || 1) &&
     (!selectedNode.dependencies || selectedNode.dependencies.every(d => unlockedNodes.has(d)))
   );
 
@@ -1098,7 +1144,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
     });
 
     return { nodes, edges };
-  }, [selectedOccupation, unlockedNodes, availablePoints, isConfirming]);
+  }, [selectedOccupation, unlockedNodes, availableTalentPoints, isConfirming]);
 
   // Display Logic Priority: Hovered node takes precedence over Selected node
   // When hover ends (null), it falls back to the Selected node.
@@ -1214,8 +1260,8 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
 
                     <div className="pt-4 border-t border-zinc-900 space-y-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-[9px] mono text-zinc-500 uppercase font-bold">Requirement</span>
-                        <span className="text-[9px] mono text-zinc-300 font-bold uppercase">Level 01</span>
+                        <span className="text-[9px] mono text-zinc-500 uppercase font-bold">Cost</span>
+                        <span className="text-[9px] mono text-zinc-300 font-bold uppercase">{activeNode.cost || 1} point</span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-[9px] mono text-zinc-500 uppercase font-bold">Status</span>
@@ -1224,12 +1270,39 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
                             <span className="w-1 h-1 rounded-full bg-orange-500" />
                             Unlocked
                           </span>
-                        ) : availablePoints > 0 && (!activeNode.dependencies || activeNode.dependencies.every(d => unlockedNodes.has(d))) ? (
+                        ) : availableTalentPoints >= (activeNode.cost || 1) && (!activeNode.dependencies || activeNode.dependencies.every(d => unlockedNodes.has(d))) ? (
                           <span className="text-[9px] mono text-blue-500 font-black uppercase animate-pulse">Available</span>
                         ) : (
                           <span className="text-[9px] mono text-zinc-700 font-black uppercase">Locked</span>
                         )}
                       </div>
+                      {activeNode.effects && activeNode.effects.length > 0 && (
+                        <div className="space-y-2">
+                          <span className="text-[9px] mono text-zinc-500 uppercase font-bold block">Effects</span>
+                          <div className="space-y-1">
+                            {activeNode.effects.map((effect, index) => (
+                              <div key={`${activeNode.id}-effect-${index}`} className="text-[9px] mono text-zinc-300 border border-zinc-800 rounded-sm px-2 py-1">
+                                {effect.name || effect.target || effect.type}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {activeNode.grantsSkillIds && activeNode.grantsSkillIds.length > 0 && (
+                        <div className="space-y-2">
+                          <span className="text-[9px] mono text-zinc-500 uppercase font-bold block">Granted Skills</span>
+                          <div className="space-y-1">
+                            {activeNode.grantsSkillIds.map((skillId) => {
+                              const skill = ALL_SKILLS.find((entry) => entry.id === skillId);
+                              return (
+                                <div key={`${activeNode.id}-${skillId}`} className="text-[9px] mono text-cyan-300 border border-cyan-900/30 rounded-sm px-2 py-1">
+                                  {skill?.name || skillId}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </Stack>
                 </div>
@@ -1244,7 +1317,7 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
               <div className="p-4 bg-zinc-900/40 border border-zinc-800 rounded-sm relative overflow-hidden group">
                 <div className="flex flex-col gap-1 items-center">
                   <span className="text-[8px] mono text-zinc-600 uppercase tracking-tighter">Ability points available</span>
-                  <span className="text-2xl mono font-black text-orange-500 group-hover:scale-110 transition-transform duration-500">{String(availablePoints).padStart(2, '0')}</span>
+                  <span className="text-2xl mono font-black text-orange-500 group-hover:scale-110 transition-transform duration-500">{String(availableTalentPoints).padStart(2, '0')}</span>
                 </div>
               </div>
             </div>
@@ -1258,8 +1331,8 @@ const TalentTreeOverlay = ({ selectedOccupation, onClose }: { selectedOccupation
           <div className="flex gap-4">
             <button
               onClick={() => {
-                setUnlockedNodes(new Set());
-                setAvailablePoints(2); // Reset to demo points
+                setUnlockedTalentNodeIds([]);
+                setAvailableTalentPoints(getDefaultTalentPointsForLevel(1));
                 setSelectedNodeId(null);
               }}
               className="px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-600 hover:text-zinc-300 mono uppercase text-[8px] font-black tracking-widest hover:bg-zinc-800 transition-colors"

@@ -19,6 +19,7 @@ export function OccupationsView({ occupation, onSave }: OccupationsViewProps) {
     const [shortDescription, setShortDescription] = useState("");
     const [effects, setEffects] = useState<GameplayEffect[]>([]);
     const [icon, setIcon] = useState("⚙️");
+    const talentTree = occupation ? GameRegistry.getTalentTree(occupation.id) : undefined;
 
     // Gallery State
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -198,6 +199,67 @@ export function OccupationsView({ occupation, onSave }: OccupationsViewProps) {
                 onChange={setEffects}
                 colorScheme="teal"
             />
+
+            <div className="space-y-2 border-t border-white/10 pt-6">
+                <h3 className="text-[10px] font-black text-teal-400 uppercase tracking-widest">Resolved Metrics Preview</h3>
+                {effects.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-2">
+                        {effects.map((effect, index) => (
+                            <div key={`${effect.id || index}-preview`} className="bg-black/40 border border-white/5 rounded-xl p-3 text-[10px] font-mono">
+                                <div className="text-white uppercase font-black tracking-widest">{effect.name || effect.target || effect.type}</div>
+                                <div className="text-gray-500 mt-1">
+                                    {effect.scope || 'global'} • {effect.target || effect.type} • {effect.isPercentage ? `${effect.value}%` : effect.value}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="bg-black/20 border border-dashed border-white/5 rounded-xl p-4 text-[10px] font-mono uppercase text-gray-500">
+                        No gameplay modifiers configured yet.
+                    </div>
+                )}
+            </div>
+
+            <div className="space-y-3 border-t border-white/10 pt-6">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">Talent Tree Inspection</h3>
+                    <span className="text-[9px] font-mono text-gray-500">{talentTree?.nodes.length || 0} nodes</span>
+                </div>
+                {talentTree ? (
+                    <div className="grid grid-cols-1 gap-2 max-h-[320px] overflow-y-auto custom-scrollbar pr-1">
+                        {talentTree.nodes.map(node => (
+                            <div key={node.id} className="bg-black/40 border border-white/5 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-white">{node.name}</div>
+                                        <div className="text-[9px] text-gray-500 font-mono">{node.id} • {node.type}</div>
+                                    </div>
+                                    <span className="text-[9px] font-mono text-cyan-300">cost {node.cost || 1}</span>
+                                </div>
+                                <div className="text-[10px] text-gray-500">{node.description}</div>
+                                {node.effects && node.effects.length > 0 && (
+                                    <div className="flex flex-wrap gap-2">
+                                        {node.effects.map((effect, index) => (
+                                            <span key={`${node.id}-${index}`} className="text-[8px] font-mono uppercase px-2 py-1 rounded border border-cyan-500/20 bg-cyan-500/10 text-cyan-300">
+                                                {effect.name || effect.target || effect.type}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                {node.grantsSkillIds && node.grantsSkillIds.length > 0 && (
+                                    <div className="text-[9px] font-mono text-orange-300">
+                                        grants: {node.grantsSkillIds.join(", ")}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="bg-black/30 border border-dashed border-white/5 rounded-xl p-4 text-[10px] font-mono uppercase text-gray-500">
+                        No talent tree registered for this occupation.
+                    </div>
+                )}
+            </div>
 
             <div className="pt-4 border-t border-white/10">
                 <button

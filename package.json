@@ -19,7 +19,8 @@
     "build:website": "bun run --cwd apps/website build",
     "start:server": "bun run --cwd apps/server start",
     "build:dev-tools": "bun run --cwd apps/dev-tools build",
-    "build:wasm": "cd packages/geo-wasm && wasm-pack build --target web --out-dir pkg"
+    "build:wasm": "cd packages/geo-wasm && wasm-pack build --target web --out-dir pkg",
+    "validate:content": "bun packages/core/scripts/validateGameplayContent.ts"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.0",

@@ -3,7 +3,7 @@
 // Mirrors Rust backend combat_engine/types.rs exactly.
 // ═══════════════════════════════════════════════════════════
 
-import type { Skill, Trait, Item, GameplayEffect } from './types';
+import type { CharacterProgression, Skill, Trait, Item, GameplayEffect, Occupation } from './types';
 
 // ── Grid Types (mirrored from tacticalGrid.ts) ─────────────
 // Defined here so packages/core is self-contained.
@@ -52,6 +52,8 @@ export interface TacticalEntity {
     defense: number;
     traits: Trait[];
     skills: Skill[];
+    occupation?: Occupation;
+    progression?: CharacterProgression;
     skillCooldowns: Record<string, number>;
     ap: number;
     maxAp: number;

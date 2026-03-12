@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits } from "@ashtrail/core";
 import { TabBar, Modal } from "@ashtrail/ui";
 import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
@@ -285,6 +285,7 @@ export function CharacterBuilderPage() {
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, slotIndex: number | null } | null>(null);
     const [hoverInfo, setHoverInfo] = useState<{ x: number, y: number, item: Item } | null>(null);
     const [animatingSlot, setAnimatingSlot] = useState<{ index: number, type: 'destroy' | 'throw' } | null>(null);
+    const [credits, setCredits] = useState<CharacterCredits>({ ...DEFAULT_CHARACTER_CREDITS });
 
     // Equipment State
     const [equippedItems, setEquippedItems] = useState<Record<string, Item | null>>({
@@ -482,11 +483,7 @@ export function CharacterBuilderPage() {
         setInventory(prev => [...prev, newItem]);
     };
 
-    // Currency Values
-    const [gold] = useState(10);
-    const [silver] = useState(24);
-    const [copper] = useState(0);
-    const totalCredits = (gold * 100) + (silver * 10) + copper;
+    const totalCredits = useMemo(() => getCharacterCreditsTotal(credits), [credits]);
 
     useEffect(() => {
         async function load() {
@@ -573,6 +570,13 @@ export function CharacterBuilderPage() {
         } else {
             setSelectedSkills(p => [...p, skill]);
         }
+    };
+
+    const updateCredits = (key: keyof CharacterCredits, value: number) => {
+        setCredits(prev => ({
+            ...prev,
+            [key]: Math.max(0, Math.floor(Number.isFinite(value) ? value : 0)),
+        }));
     };
 
     const updateLevel = (nextLevel: number, grantAttributePoint = false) => {
@@ -678,6 +682,7 @@ export function CharacterBuilderPage() {
         setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
         setInventory(char.inventory || []);
+        setCredits(normalizeCharacterCredits(char.credits));
         setSelectedSkills(char.skills || []);
         if (char.equipped) {
             setEquippedItems(char.equipped);
@@ -730,6 +735,7 @@ export function CharacterBuilderPage() {
         setRedispatchPoints(null);
         setRedispatchUpgrades(null);
         setSelectedOccupation(null);
+        setCredits({ ...DEFAULT_CHARACTER_CREDITS });
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
         });
@@ -777,6 +783,7 @@ export function CharacterBuilderPage() {
             maxHp: derivedStats.hp,
             xp: 0,
             level: level,
+            credits: normalizeCharacterCredits(credits),
             inventory: inventory,
             skills: selectedSkills,
             equipped: equippedItems,
@@ -2634,18 +2641,22 @@ export function CharacterBuilderPage() {
                                                         <span className="text-sm font-black text-[#c2410c]">{totalCredits.toLocaleString()}</span>
                                                     </div>
                                                     <div className="flex gap-2 pr-1 scale-90">
-                                                        <div className="flex items-center gap-1 opacity-50">
-                                                            <span className="text-[9px] text-white font-bold">{gold.toString().padStart(2, '0')}</span>
-                                                            <div className="w-2 h-2 rounded-full bg-yellow-600" />
-                                                        </div>
-                                                        <div className="flex items-center gap-1 opacity-50">
-                                                            <span className="text-[9px] text-white font-bold">{silver.toString().padStart(2, '0')}</span>
-                                                            <div className="w-2 h-2 rounded-full bg-slate-400" />
-                                                        </div>
-                                                        <div className="flex items-center gap-1 opacity-50">
-                                                            <span className="text-[9px] text-white font-bold">{copper.toString().padStart(2, '0')}</span>
-                                                            <div className="w-2 h-2 rounded-full bg-orange-700" />
-                                                        </div>
+                                                        {([
+                                                            { key: "gold", color: "bg-yellow-600" },
+                                                            { key: "silver", color: "bg-slate-400" },
+                                                            { key: "copper", color: "bg-orange-700" },
+                                                        ] as const).map(({ key, color }) => (
+                                                            <label key={key} className="flex items-center gap-1.5 opacity-80">
+                                                                <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    value={credits[key]}
+                                                                    onChange={e => updateCredits(key, Number.parseInt(e.target.value, 10))}
+                                                                    className="w-12 bg-black/50 border border-white/10 text-[9px] text-white font-bold text-center px-1.5 py-1 outline-none focus:border-[#c2410c]/40"
+                                                                />
+                                                                <div className={`w-2 h-2 rounded-full ${color}`} />
+                                                            </label>
+                                                        ))}
                                                     </div>
                                                 </div>
                                             </div>

@@ -23,6 +23,21 @@ export function CharactersView({ character }: CharactersViewProps) {
             maxHp: character.maxHp,
             evasion: Math.floor(character.stats.agility / 4),
             defense: Math.floor(character.stats.endurance / 2),
+            occupation: character.occupation,
+            progression: character.progression,
+            equipped: character.equipped,
+            activeEffects: [],
+            traits: character.traits,
+            baseStats: {
+                strength: character.stats.strength,
+                agility: character.stats.agility,
+                intelligence: character.stats.intelligence,
+                wisdom: character.stats.wisdom,
+                charisma: character.stats.charisma,
+                endurance: character.stats.endurance,
+                evasion: Math.floor(character.stats.agility / 4),
+                defense: Math.floor(character.stats.endurance / 2),
+            }
         } as any, character.traits);
     }, [character]);
 

@@ -7,7 +7,8 @@ import {
   ResourceType,
   INITIAL_RESOURCES,
   MAP_NODES,
-  INITIAL_CREW
+  INITIAL_CREW,
+  DEFAULT_CHARACTER_CREDITS
 } from '@ashtrail/core';
 
 // Screens
@@ -54,6 +55,7 @@ const App: React.FC = () => {
       maxHp: 25,
       xp: 0,
       level: 1,
+      credits: { ...DEFAULT_CHARACTER_CREDITS },
       inventory: []
     },
     resources: INITIAL_RESOURCES,
@@ -148,7 +150,7 @@ const App: React.FC = () => {
     if (actionType === 'END_DAY') {
       nextState.day += 1;
       nextState.ap = nextState.maxAp;
-      nextState.resources = consumeResources(nextState.resources, nextState.crew.length);
+      nextState.resources = consumeResources(nextState.resources, nextState.crew.length, nextState.player);
       nextState.crew = updateCrewTension(nextState.crew, nextState.resources);
       addLog(`CYCLE_END: Orbital shift confirmed. Day ${nextState.day} begins.`, 'system');
     } else {

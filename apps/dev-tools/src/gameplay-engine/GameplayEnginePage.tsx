@@ -10,6 +10,7 @@ import { SkillBuilder } from "./SkillBuilder";
 import { GameRulesView } from "./GameRulesView";
 import { EventsView } from "./EventsView";
 import { ExplorationView } from "./ExplorationView";
+import { GameplayValidationPanel } from "./GameplayValidationPanel";
 import { GameRegistry, Trait, Occupation, Character, Item } from "@ashtrail/core";
 
 export type GameplayStep = "RULES" | "EXPLORATION" | "EVENTS" | "COMBAT" | "CHARACTER" | "SKILLS";
@@ -101,26 +102,32 @@ export function GameplayEnginePage() {
                 {activeStep === "CHARACTER" && (
                     <aside className="w-[360px] h-full flex flex-col gap-4 shrink-0 transition-transform duration-500 ease-in-out">
                         {!isLoading && (
-                            <CharacterRulePanel
-                                traits={customTraits}
-                                setTraits={setCustomTraits}
-                                occupations={customOccupations}
-                                setOccupations={setCustomOccupations}
-                                characters={customCharacters}
-                                setCharacters={setCustomCharacters}
-                                items={customItems}
-                                setItems={setCustomItems}
-                                selectedTrait={selectedTrait}
-                                setSelectedTrait={setSelectedTrait}
-                                selectedOccupation={selectedOccupation}
-                                setSelectedOccupation={setSelectedOccupation}
-                                selectedCharacter={selectedCharacter}
-                                setSelectedCharacter={setSelectedCharacter}
-                                selectedItem={selectedItem}
-                                setSelectedItem={setSelectedItem}
-                                activeTab={activeDetailTab}
-                                setActiveTab={setActiveDetailTab}
-                            />
+                            <>
+                                <CharacterRulePanel
+                                    traits={customTraits}
+                                    setTraits={setCustomTraits}
+                                    occupations={customOccupations}
+                                    setOccupations={setCustomOccupations}
+                                    characters={customCharacters}
+                                    setCharacters={setCustomCharacters}
+                                    items={customItems}
+                                    setItems={setCustomItems}
+                                    selectedTrait={selectedTrait}
+                                    setSelectedTrait={setSelectedTrait}
+                                    selectedOccupation={selectedOccupation}
+                                    setSelectedOccupation={setSelectedOccupation}
+                                    selectedCharacter={selectedCharacter}
+                                    setSelectedCharacter={setSelectedCharacter}
+                                    selectedItem={selectedItem}
+                                    setSelectedItem={setSelectedItem}
+                                    activeTab={activeDetailTab}
+                                    setActiveTab={setActiveDetailTab}
+                                />
+                                <GameplayValidationPanel
+                                    traits={customTraits}
+                                    occupations={customOccupations}
+                                />
+                            </>
                         )}
                     </aside>
                 )}
