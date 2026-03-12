@@ -3967,7 +3967,7 @@ export function CharacterBuilderPage() {
                                     setShowGalleryModal(false);
                                 }}
                                 onSelectTexture={async (source, textureUrl) => {
-                                    if (source !== "characters") return;
+                                    if (!source.startsWith("characters")) return;
                                     setPortraitUrl(textureUrl);
                                     setIsProfileModified(false);
                                     try {

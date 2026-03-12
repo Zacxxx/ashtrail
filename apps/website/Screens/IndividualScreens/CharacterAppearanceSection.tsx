@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "../../UI/Primitives";
 
 export const APPEARANCE_SELECTORS = {
@@ -92,16 +93,49 @@ const CustomDropdown: React.FC<{
 }> = ({ value, options, onChange, align = "right" }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState({ top: 0, bottom: 0, left: 0, width: 0, direction: 'down' as 'up' | 'down', maxHeight: 256 });
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        containerRef.current && !containerRef.current.contains(target) &&
+        dropdownRef.current && !dropdownRef.current.contains(target)
+      ) {
         setIsOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const direction = spaceBelow < 280 && spaceAbove > spaceBelow ? 'up' : 'down';
+
+      setCoords({
+        top: rect.bottom,
+        bottom: window.innerHeight - rect.top,
+        left: rect.left,
+        width: rect.width,
+        direction,
+        maxHeight: Math.max(100, Math.min(320, (direction === 'down' ? spaceBelow : spaceAbove) - 16))
+      });
+    }
+  }, [isOpen]);
+
+  const dropdownStyle: React.CSSProperties = {
+    position: 'fixed',
+    zIndex: 9999,
+    minWidth: 160,
+    maxHeight: coords.maxHeight,
+    ...(coords.direction === 'down' ? { top: coords.top + 4 } : { bottom: coords.bottom + 4 }),
+    ...(align === 'right' ? { right: window.innerWidth - (coords.left + coords.width) } : { left: coords.left })
+  };
 
   return (
     <div className="relative" ref={containerRef}>
@@ -113,8 +147,8 @@ const CustomDropdown: React.FC<{
         <span className={`text-[8px] text-zinc-600 transition-transform duration-200 group-hover:text-orange-500 ${isOpen ? "rotate-180" : ""}`}>▼</span>
       </button>
 
-      {isOpen && (
-        <div className={`absolute top-full z-[100] mt-1 max-h-64 min-w-[160px] overflow-y-auto rounded-sm border border-zinc-800 bg-zinc-900 shadow-[0_0_30px_rgba(0,0,0,0.8)] custom-scrollbar animate-in fade-in zoom-in-95 duration-200 ${align === "right" ? "right-0" : "left-0"}`}>
+      {isOpen && createPortal(
+        <div ref={dropdownRef} style={dropdownStyle} className="overflow-y-auto rounded-sm border border-zinc-800 bg-zinc-900 shadow-[0_0_30px_rgba(0,0,0,0.8)] custom-scrollbar">
           <div className="py-1">
             {options.map((opt) => (
               <button
@@ -130,7 +164,8 @@ const CustomDropdown: React.FC<{
               </button>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -148,6 +183,7 @@ interface CharacterAppearanceSectionProps {
   onManifestIdentity: () => void;
   onRefreshPortrait: () => void;
   onOpenGallery?: () => void;
+  onDeletePortrait?: () => void;
 }
 
 export const CharacterAppearanceSection: React.FC<CharacterAppearanceSectionProps> = ({
@@ -162,6 +198,7 @@ export const CharacterAppearanceSection: React.FC<CharacterAppearanceSectionProp
   onManifestIdentity,
   onRefreshPortrait,
   onOpenGallery,
+  onDeletePortrait,
 }) => {
   const biometricRef = useRef<HTMLTextAreaElement>(null);
 
@@ -233,16 +270,30 @@ export const CharacterAppearanceSection: React.FC<CharacterAppearanceSectionProp
                 </button>
               )}
               {portraitUrl && (
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onRefreshPortrait();
-                  }}
-                  disabled={isGeneratingPortrait}
-                  className={`flex items-center text-[9px] font-black uppercase tracking-widest text-orange-500 transition-all hover:text-orange-400 disabled:opacity-50 ${isProfileModified ? "animate-pulse text-orange-300 drop-shadow-[0_0_5px_rgba(249,115,22,0.5)]" : ""}`}
-                >
-                  regenerate
-                </button>
+                <>
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRefreshPortrait();
+                    }}
+                    disabled={isGeneratingPortrait}
+                    className={`flex items-center text-[9px] font-black uppercase tracking-widest text-orange-500 transition-all hover:text-orange-400 disabled:opacity-50 ${isProfileModified ? "animate-pulse text-orange-300 drop-shadow-[0_0_5px_rgba(249,115,22,0.5)]" : ""}`}
+                  >
+                    regenerate
+                  </button>
+                  {onDeletePortrait && (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDeletePortrait();
+                      }}
+                      disabled={isGeneratingPortrait}
+                      className="flex items-center text-[9px] font-black uppercase tracking-widest text-red-500 transition-all hover:text-red-400 disabled:opacity-50"
+                    >
+                      delete
+                    </button>
+                  )}
+                </>
               )}
               <span className={portraitUrl ? "text-green-500" : "text-zinc-700"}>
                 {portraitUrl ? "Generated" : "No Signal"}

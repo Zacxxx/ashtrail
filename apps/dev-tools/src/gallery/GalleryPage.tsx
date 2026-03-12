@@ -14,6 +14,12 @@ interface CloudObject {
     publicUrl: string;
 }
 
+interface PreviewTexture {
+    url: string;
+    sourceId: string;
+    characterId?: string;
+}
+
 export function GalleryPage() {
     const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
@@ -32,7 +38,9 @@ export function GalleryPage() {
         setActivePlanetId(newId);
         setActiveWorldId(newId);
     };
-    const [previewTexture, setPreviewTexture] = useState<{ url: string, planetId: string } | null>(null);
+    const [previewTexture, setPreviewTexture] = useState<PreviewTexture | null>(null);
+    const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
+    const [isDeletingPortrait, setIsDeletingPortrait] = useState(false);
     const [isSyncingCloud, setIsSyncingCloud] = useState(false);
     const [syncResult, setSyncResult] = useState<string | null>(null);
     const [cloudError, setCloudError] = useState<string | null>(null);
@@ -86,6 +94,53 @@ export function GalleryPage() {
         }
     };
 
+    const handleDeleteCharacterPortrait = async () => {
+        if (!previewTexture?.characterId || isDeletingPortrait) return;
+
+        setIsDeletingPortrait(true);
+        setCloudError(null);
+        setSyncResult(null);
+
+        try {
+            const res = await fetch("/api/data/characters");
+            const payload = res.ok ? await res.json() : [];
+            const characters = Array.isArray(payload) ? payload : [];
+            const character = characters.find((entry: any) => entry?.id === previewTexture.characterId);
+
+            if (!character) {
+                throw new Error("Character not found in local storage");
+            }
+
+            const updatedCharacter = {
+                ...character,
+                portraitUrl: undefined,
+                portraitName: undefined,
+            };
+
+            delete updatedCharacter.portraitUrl;
+            delete updatedCharacter.portraitName;
+
+            const saveRes = await fetch("/api/data/characters", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(updatedCharacter),
+            });
+
+            if (!saveRes.ok) {
+                throw new Error("Failed to delete character portrait");
+            }
+
+            setSyncResult(`Portrait removed for ${character.name || previewTexture.characterId}.`);
+            setPreviewTexture(null);
+            setGalleryRefreshKey((previous) => previous + 1);
+        } catch (e) {
+            const message = e instanceof Error ? e.message : "Failed to delete character portrait";
+            setCloudError(message);
+        } finally {
+            setIsDeletingPortrait(false);
+        }
+    };
+
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
             <div className="absolute inset-0 z-0 pointer-events-none opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-teal-900/20 via-[#030508] to-[#030508]" />
@@ -128,6 +183,7 @@ export function GalleryPage() {
                     <HistoryGallery
                         history={history}
                         activePlanetId={activePlanetId}
+                        extendedRefreshKey={galleryRefreshKey}
                         showExtendedTabs={true}
                         onRenameWorld={renameInHistory}
                         deleteFromHistory={(id) => {
@@ -137,8 +193,9 @@ export function GalleryPage() {
                         onSelectPlanet={(item: GenerationHistoryItem) => {
                             handleSelectPlanet(item);
                         }}
-                        onSelectTexture={(planetId, textureUrl) => {
-                            setPreviewTexture({ url: textureUrl, planetId });
+                        onSelectTexture={(sourceId, textureUrl) => {
+                            const characterId = sourceId.startsWith("characters:") ? sourceId.slice("characters:".length) : undefined;
+                            setPreviewTexture({ url: textureUrl, sourceId, characterId });
                         }}
                     />
                 </div>
@@ -223,20 +280,15 @@ export function GalleryPage() {
                             className="w-auto max-h-[75vh] object-contain rounded-lg shadow-black/50 shadow-2xl"
                         />
                         <div className="mt-6 flex gap-4">
-                            <a
-                                href={previewTexture.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white rounded font-bold tracking-wider text-sm transition-colors border border-white/20"
-                            >
-                                Open Original
-                            </a>
-                            <button
-                                onClick={() => setPreviewTexture(null)}
-                                className="px-6 py-2 bg-black hover:bg-white/5 border border-white/20 text-gray-300 rounded font-bold tracking-wider text-sm transition-colors"
-                            >
-                                Close
-                            </button>
+                            {previewTexture.characterId && (
+                                <button
+                                    onClick={handleDeleteCharacterPortrait}
+                                    disabled={isDeletingPortrait}
+                                    className="px-6 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-200 rounded font-bold tracking-wider text-sm transition-colors border border-red-500/30 disabled:opacity-50"
+                                >
+                                    {isDeletingPortrait ? "Deleting..." : "Delete Portrait"}
+                                </button>
+                            )}
                         </div>
                     </div>
                 )}

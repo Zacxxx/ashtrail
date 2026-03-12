@@ -9,6 +9,7 @@ interface HistoryGalleryProps {
     onSelectTexture: (planetId: string, textureUrl: string) => void;
     showExtendedTabs?: boolean;
     initialTab?: TabType;
+    extendedRefreshKey?: number;
     onRenameWorld?: (id: string, newName: string) => void;
 }
 
@@ -66,6 +67,7 @@ export function HistoryGallery({
     onSelectTexture,
     showExtendedTabs = false,
     initialTab = "planets",
+    extendedRefreshKey = 0,
     onRenameWorld,
 }: HistoryGalleryProps) {
     const ISOLATED_PAGE_SIZE = 24;
@@ -266,7 +268,7 @@ export function HistoryGallery({
         return () => {
             isCancelled = true;
         };
-    }, [showExtendedTabs]);
+    }, [showExtendedTabs, extendedRefreshKey]);
 
     return (
         <div className="flex flex-col h-full bg-black/50 overflow-hidden">
@@ -465,7 +467,7 @@ export function HistoryGallery({
                     <div
                         key={character.id}
                         className="relative flex flex-col justify-end aspect-[3/4] group border border-white/10 bg-black/40 rounded-xl overflow-hidden cursor-pointer hover:border-emerald-400/40 transition-all"
-                        onClick={() => onSelectTexture("characters", character.portraitUrl)}
+                        onClick={() => onSelectTexture(`characters:${character.id}`, character.portraitUrl)}
                     >
                         <img src={character.portraitUrl} alt={character.name} className="absolute top-0 left-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-300" />
                         <div className="relative p-3 bg-black/70 backdrop-blur-sm mt-auto">
