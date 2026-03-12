@@ -14,5 +14,13 @@ pub mod raster;
 pub mod sampling;
 pub mod suitability;
 
-pub use biome_archetype::{BiomeArchetype, BiomeRegistry, ColorProfile, EnvironmentalEnvelope};
+pub use biome::{
+    BiomeAnalysisResult, BiomeCoverageSummary, BiomeMixEntry, BiomeModelSettings, BiomePaletteEntry,
+    BiomeProvinceSummary, BiomeReport, BiomeVisionAnalysis, BiomeVisionCandidate,
+    BiomeVisionCellPrior, BiomeVisionTilePrior,
+};
+pub use biome_archetype::{
+    BiomeArchetype, BiomeArchetypeCalibration, BiomeRegistry, ColorProfile,
+    EnvironmentalEnvelope,
+};
 pub use config::WorldgenConfig;

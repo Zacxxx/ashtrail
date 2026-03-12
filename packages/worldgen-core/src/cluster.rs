@@ -12,6 +12,12 @@ pub struct ProvinceRecord {
     pub duchy_id: u32,
     pub kingdom_id: u32,
     pub biome_primary: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub biome_primary_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub biome_confidence: Option<f32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub biome_candidate_ids: Vec<String>,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wealth: Option<i32>,
@@ -273,6 +279,9 @@ pub fn cluster_hierarchy(
                 duchy_id: duchy,
                 kingdom_id: kingdom,
                 biome_primary: biome_p,
+                biome_primary_id: None,
+                biome_confidence: None,
+                biome_candidate_ids: Vec::new(),
                 name: format!("Province {}", pid + 1),
                 wealth: None,
                 development: None,

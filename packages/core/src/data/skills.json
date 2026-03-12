@@ -103,30 +103,30 @@
     "targetType": "self"
   },
   {
-    "id": "sprint",
-    "name": "Sprint",
-    "description": "A quick burst of speed. +3 Movement Points for the current turn.",
-    "category": "base",
-    "icon": "👟",
     "apCost": 2,
-    "minRange": 0,
-    "maxRange": 0,
-    "targetType": "self",
-    "areaType": "single",
     "areaSize": 0,
+    "areaType": "single",
+    "category": "base",
     "cooldown": 2,
+    "description": "A quick burst of speed. +3 Movement Points for the current turn.",
     "effects": [
       {
+        "description": "Increases Movement Points.",
+        "duration": 1,
         "id": "effect-sprint-mp",
         "name": "Sprint Bonus",
-        "description": "Increases Movement Points.",
-        "type": "STAT_MODIFIER",
         "target": "maxMp",
-        "value": 3,
-        "duration": 1,
-        "trigger": "passive"
+        "trigger": "passive",
+        "type": "STAT_MODIFIER",
+        "value": 3
       }
-    ]
+    ],
+    "icon": "👟",
+    "id": "sprint",
+    "maxRange": 0,
+    "minRange": 0,
+    "name": "Sprint",
+    "targetType": "self"
   },
   {
     "apCost": 3,
@@ -228,5 +228,311 @@
     "minRange": 0,
     "name": "Sprint",
     "targetType": "self"
+  },
+  {
+    "apCost": 3,
+    "areaSize": 0,
+    "areaType": "line",
+    "category": "unique",
+    "cooldown": 1,
+    "description": "Convertis l'orientation sexuelle et divertis l'adversaire.",
+    "effectType": "physical",
+    "effects": [
+      {
+        "description": "",
+        "duration": 3,
+        "id": "effect-1773336095126",
+        "name": "New Effect",
+        "scope": "combat",
+        "target": "charisma",
+        "trigger": "on_hit",
+        "type": "STAT_MODIFIER",
+        "value": -30
+      },
+      {
+        "description": "",
+        "duration": 2,
+        "id": "effect-1773336147188",
+        "name": "New Effect",
+        "scope": "combat",
+        "target": "mp",
+        "trigger": "on_hit",
+        "type": "STAT_MODIFIER",
+        "value": -4
+      }
+    ],
+    "icon": "bite",
+    "id": "skill-1773335988807",
+    "maxRange": 1,
+    "minRange": 6,
+    "name": "Sexual Conversation ",
+    "targetType": "cell"
+  },
+  {
+    "id": "animal-bite",
+    "name": "Animal Bite",
+    "description": "A snapping bite aimed at exposed flesh.",
+    "category": "unique",
+    "apCost": 3,
+    "minRange": 1,
+    "maxRange": 1,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 12,
+    "cooldown": 0,
+    "effectType": "physical"
+  },
+  {
+    "id": "animal-claw-rake",
+    "name": "Claw Rake",
+    "description": "A fast rake of claws across a nearby target.",
+    "category": "unique",
+    "apCost": 3,
+    "minRange": 1,
+    "maxRange": 1,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 13,
+    "cooldown": 1,
+    "effectType": "physical"
+  },
+  {
+    "id": "animal-gore",
+    "name": "Gore",
+    "description": "A horn or tusk driven through the target with brute force.",
+    "category": "unique",
+    "apCost": 4,
+    "minRange": 1,
+    "maxRange": 1,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 16,
+    "cooldown": 2,
+    "effectType": "physical",
+    "pushDistance": 1
+  },
+  {
+    "id": "animal-trample",
+    "name": "Trample",
+    "description": "Stampede through a target's position.",
+    "category": "unique",
+    "apCost": 4,
+    "minRange": 1,
+    "maxRange": 1,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 14,
+    "cooldown": 2,
+    "effectType": "physical",
+    "pushDistance": 1
+  },
+  {
+    "id": "animal-pounce",
+    "name": "Pounce",
+    "description": "Leap onto prey and strike with momentum.",
+    "category": "unique",
+    "apCost": 4,
+    "minRange": 1,
+    "maxRange": 2,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 15,
+    "cooldown": 2,
+    "effectType": "physical"
+  },
+  {
+    "id": "animal-peck",
+    "name": "Peck",
+    "description": "A precise beak strike delivered at speed.",
+    "category": "unique",
+    "apCost": 2,
+    "minRange": 1,
+    "maxRange": 1,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 10,
+    "cooldown": 0,
+    "effectType": "physical"
+  },
+  {
+    "id": "animal-tail-slam",
+    "name": "Tail Slam",
+    "description": "Sweep the tail into an adjacent foe.",
+    "category": "unique",
+    "apCost": 3,
+    "minRange": 1,
+    "maxRange": 1,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 12,
+    "cooldown": 1,
+    "effectType": "physical",
+    "pushDistance": 1
+  },
+  {
+    "id": "animal-venom-strike",
+    "name": "Venom Strike",
+    "description": "Inject venom and leave the target weakened.",
+    "category": "unique",
+    "apCost": 4,
+    "minRange": 1,
+    "maxRange": 1,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 11,
+    "cooldown": 2,
+    "effectType": "physical",
+    "effects": [
+      {
+        "type": "DAMAGE_OVER_TIME",
+        "value": 4,
+        "duration": 2,
+        "trigger": "on_hit",
+        "scope": "combat",
+        "name": "Venom",
+        "description": "Ongoing venom damage."
+      }
+    ]
+  },
+  {
+    "id": "animal-constrict",
+    "name": "Constrict",
+    "description": "Coil around the target and squeeze relentlessly.",
+    "category": "unique",
+    "apCost": 4,
+    "minRange": 1,
+    "maxRange": 1,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 13,
+    "cooldown": 2,
+    "effectType": "physical"
+  },
+  {
+    "id": "animal-screech",
+    "name": "Screech",
+    "description": "A piercing cry that disrupts nearby enemies.",
+    "category": "unique",
+    "apCost": 3,
+    "minRange": 1,
+    "maxRange": 3,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "cooldown": 2,
+    "effectType": "support",
+    "effects": [
+      {
+        "type": "STAT_MODIFIER",
+        "target": "mp",
+        "value": -2,
+        "duration": 1,
+        "trigger": "on_hit",
+        "scope": "combat",
+        "name": "Disoriented",
+        "description": "Reduced movement from the shock of the screech."
+      }
+    ]
+  },
+  {
+    "id": "animal-pack-howl",
+    "name": "Pack Howl",
+    "description": "Signal the pack and sharpen allied aggression.",
+    "category": "unique",
+    "apCost": 3,
+    "minRange": 0,
+    "maxRange": 0,
+    "areaType": "circle",
+    "areaSize": 2,
+    "targetType": "self",
+    "cooldown": 3,
+    "effectType": "support",
+    "effects": [
+      {
+        "type": "COMBAT_BONUS",
+        "target": "critChance",
+        "value": 0.08,
+        "duration": 2,
+        "trigger": "passive",
+        "scope": "combat",
+        "name": "Pack Coordination",
+        "description": "Nearby allies gain improved finishing pressure."
+      }
+    ]
+  },
+  {
+    "id": "animal-burrow-dash",
+    "name": "Burrow Dash",
+    "description": "Dive through soil and reposition explosively.",
+    "category": "unique",
+    "apCost": 2,
+    "minRange": 0,
+    "maxRange": 0,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "self",
+    "cooldown": 2,
+    "effectType": "support",
+    "effects": [
+      {
+        "type": "STAT_MODIFIER",
+        "target": "mp",
+        "value": 2,
+        "duration": 1,
+        "trigger": "passive",
+        "scope": "combat",
+        "name": "Burrow Speed",
+        "description": "Extra movement from tunneling momentum."
+      }
+    ]
+  },
+  {
+    "id": "animal-camouflage",
+    "name": "Camouflage",
+    "description": "Blend into the surroundings and disappear from sight.",
+    "category": "unique",
+    "apCost": 3,
+    "minRange": 0,
+    "maxRange": 0,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "self",
+    "cooldown": 3,
+    "effectType": "support",
+    "effects": [
+      {
+        "type": "STEALTH",
+        "value": 0,
+        "duration": 1,
+        "trigger": "passive",
+        "scope": "combat",
+        "name": "Camouflaged",
+        "description": "Hidden until revealed by direct interaction."
+      }
+    ]
+  },
+  {
+    "id": "animal-water-lunge",
+    "name": "Water Lunge",
+    "description": "Launch from water or marsh in a sudden strike.",
+    "category": "unique",
+    "apCost": 4,
+    "minRange": 1,
+    "maxRange": 2,
+    "areaType": "single",
+    "areaSize": 0,
+    "targetType": "enemy",
+    "damage": 14,
+    "cooldown": 2,
+    "effectType": "physical"
   }
 ]

@@ -159,6 +159,8 @@ interface AssetPackManifest {
     sprites: PackSpritePointer[];
 }
 
+type AssetGeneratorTab = "icons" | "battlemaps" | "world-assets" | "game-assets" | "ecology-illustrations" | "sprites" | "packs";
+
 const IconCard = React.memo(function IconCard({
     icon,
     lastRefreshedAt,
@@ -471,11 +473,11 @@ const SpriteCard = React.memo(function SpriteCard({
 export function AssetGeneratorPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const requestedTab = searchParams.get("tab");
-    const initialTab: "icons" | "battlemaps" | "world-assets" | "game-assets" | "sprites" | "packs" =
-        requestedTab === "battlemaps" || requestedTab === "world-assets" || requestedTab === "game-assets" || requestedTab === "sprites" || requestedTab === "packs"
+    const initialTab: AssetGeneratorTab =
+        requestedTab === "battlemaps" || requestedTab === "world-assets" || requestedTab === "game-assets" || requestedTab === "ecology-illustrations" || requestedTab === "sprites" || requestedTab === "packs"
             ? requestedTab
             : "icons";
-    const [activeTab, setActiveTab] = useState<"icons" | "battlemaps" | "world-assets" | "game-assets" | "sprites" | "packs">(initialTab);
+    const [activeTab, setActiveTab] = useState<AssetGeneratorTab>(initialTab);
 
     // ── Prompt State (Shared or separate depending on tab) ──
     const [stylePrompt, setStylePrompt] = useState("");
@@ -520,8 +522,11 @@ export function AssetGeneratorPage() {
     const [assigningSprite, setAssigningSprite] = useState<GeneratedSpriteSet | null>(null);
     const [isAssigningSprite, setIsAssigningSprite] = useState(false);
 
-    const handleTabChange = (tab: "icons" | "battlemaps" | "world-assets" | "game-assets" | "sprites" | "packs") => {
+    const handleTabChange = (tab: AssetGeneratorTab) => {
         setActiveTab(tab);
+        if (tab === "ecology-illustrations") {
+            setTextureSubCategory(assetTargetKind === "flora" || assetTargetKind === "fauna" ? assetTargetKind : "");
+        }
         setActiveBatch(null);
         setActiveTextureBatch(null);
         setActiveSpriteBatch(null);
@@ -565,6 +570,9 @@ export function AssetGeneratorPage() {
             }
             if (activeTab === "game-assets") {
                 return batch.category === "game_assets";
+            }
+            if (activeTab === "ecology-illustrations") {
+                return batch.category === "ecology_illustrations";
             }
             if (activeTab === "sprites") {
                 return false;
@@ -744,6 +752,7 @@ export function AssetGeneratorPage() {
         if (nextTab === "sprites") setActiveTab("sprites");
         if (nextTab === "game-assets") setActiveTab("game-assets");
         if (nextTab === "world-assets") setActiveTab("world-assets");
+        if (nextTab === "ecology-illustrations") setActiveTab("ecology-illustrations");
         if (nextTab === "battlemaps") setActiveTab("battlemaps");
         if (nextTab === "icons") setActiveTab("icons");
 
@@ -768,6 +777,12 @@ export function AssetGeneratorPage() {
         const assetKind = searchParams.get("targetKind");
         if (assetKind === "flora" || assetKind === "fauna" || assetKind === "biome" || assetKind === "character") {
             setAssetTargetKind(assetKind);
+        }
+        const requestedSubCategory = searchParams.get("subCategory");
+        if (requestedSubCategory) {
+            setTextureSubCategory(requestedSubCategory);
+        } else if (nextTab === "ecology-illustrations") {
+            setTextureSubCategory(assetKind === "flora" || assetKind === "fauna" ? assetKind : "");
         }
         const biomeId = searchParams.get("biomeId");
         if (biomeId) setSelectedBiomeId(biomeId);
@@ -794,23 +809,38 @@ export function AssetGeneratorPage() {
         setLastRefreshedAt(Date.now());
     }, []);
 
-    const updateFloraAssetLinks = useCallback(async (batchId: string, field: "vegetationAssetBatchIds" | "illustrationAssetBatchIds") => {
+    const updateFloraAssetLinks = useCallback(async (batchId: string, field: "vegetationAssetBatchIds" | "illustrationAssetBatchIds", filename?: string) => {
         if (!ecology.bundle || assetTargetKind !== "flora" || !assetTargetId) return;
         const next = structuredClone(ecology.bundle);
         const target = next.flora.find((entry) => entry.id === assetTargetId);
         if (!target) return;
         target[field] = Array.from(new Set([...(target[field] ?? []), batchId]));
+        if (field === "illustrationAssetBatchIds" && filename) {
+            target.illustrationAssets = Array.from(
+                new Map(
+                    [...(target.illustrationAssets ?? []), { batchId, filename }].map((asset) => [`${asset.batchId}:${asset.filename}`, asset]),
+                ).values(),
+            );
+        }
         await ecology.saveBundle(next);
     }, [assetTargetId, assetTargetKind, ecology]);
 
-    const updateFaunaIllustrationLinks = useCallback(async (batchId: string) => {
-        if (!ecology.bundle || !spriteTargetId) return;
+    const updateFaunaIllustrationLinks = useCallback(async (batchId: string, filename?: string) => {
+        const targetId = assetTargetId || spriteTargetId;
+        if (!ecology.bundle || !targetId) return;
         const next = structuredClone(ecology.bundle);
-        const target = next.fauna.find((entry) => entry.id === spriteTargetId);
+        const target = next.fauna.find((entry) => entry.id === targetId);
         if (!target) return;
         target.illustrationAssetBatchIds = Array.from(new Set([...(target.illustrationAssetBatchIds ?? []), batchId]));
+        if (filename) {
+            target.illustrationAssets = Array.from(
+                new Map(
+                    [...(target.illustrationAssets ?? []), { batchId, filename }].map((asset) => [`${asset.batchId}:${asset.filename}`, asset]),
+                ).values(),
+            );
+        }
         await ecology.saveBundle(next);
-    }, [ecology, spriteTargetId]);
+    }, [assetTargetId, ecology, spriteTargetId]);
 
     const bindSpriteToTarget = useCallback(async (
         sprite: GeneratedSpriteSet,
@@ -972,7 +1002,9 @@ export function AssetGeneratorPage() {
                     ? textureCategory
                     : activeTab === "world-assets"
                         ? "world_assets"
-                        : "game_assets";
+                        : activeTab === "ecology-illustrations"
+                            ? "ecology_illustrations"
+                            : "game_assets";
                 if (activeTab === "game-assets") {
                     payload.gameAsset = {
                         type: gameAssetType,
@@ -1020,8 +1052,11 @@ export function AssetGeneratorPage() {
                 if (activeTab === "game-assets" && gameAssetType === "vegetation") {
                     await updateFloraAssetLinks(manifest.batchId, "vegetationAssetBatchIds");
                 }
-                if (activeTab === "world-assets" && assetTargetKind === "flora") {
-                    await updateFloraAssetLinks(manifest.batchId, "illustrationAssetBatchIds");
+                if (activeTab === "ecology-illustrations" && assetTargetKind === "fauna") {
+                    await updateFaunaIllustrationLinks(manifest.batchId, manifest.textures[0]?.filename);
+                }
+                if ((activeTab === "world-assets" || activeTab === "ecology-illustrations") && assetTargetKind === "flora") {
+                    await updateFloraAssetLinks(manifest.batchId, "illustrationAssetBatchIds", manifest.textures[0]?.filename);
                 }
             }
         } catch (e: any) {
@@ -1262,7 +1297,7 @@ export function AssetGeneratorPage() {
         if (activeTab === "icons" && activeBatch) {
             setRenameValue(activeBatch.batchName || "");
             setIsRenaming(true);
-        } else if ((activeTab === "battlemaps" || activeTab === "world-assets" || activeTab === "game-assets") && activeTextureBatch) {
+        } else if ((activeTab === "battlemaps" || activeTab === "world-assets" || activeTab === "game-assets" || activeTab === "ecology-illustrations") && activeTextureBatch) {
             setRenameValue(activeTextureBatch.batchName || "");
             setIsRenaming(true);
         } else if (activeTab === "sprites" && activeSpriteBatch) {
@@ -1565,6 +1600,15 @@ export function AssetGeneratorPage() {
                             GAME ASSETS
                         </button>
                         <button
+                            onClick={() => handleTabChange("ecology-illustrations")}
+                            className={`px-4 py-1.5 rounded-md text-[10px] font-bold tracking-widest transition-all ${activeTab === "ecology-illustrations"
+                                ? "bg-[#E6E6FA]/20 text-[#E6E6FA] shadow-lg shadow-black/20"
+                                : "text-gray-500 hover:text-gray-300"
+                                }`}
+                        >
+                            ECOLOGY ILLUSTRATIONS
+                        </button>
+                        <button
                             onClick={() => handleTabChange("sprites")}
                             className={`px-4 py-1.5 rounded-md text-[10px] font-bold tracking-widest transition-all ${activeTab === "sprites"
                                 ? "bg-[#E6E6FA]/20 text-[#E6E6FA] shadow-lg shadow-black/20"
@@ -1612,7 +1656,7 @@ export function AssetGeneratorPage() {
                             <Card className="!bg-[#0f1520] !border-white/5 shrink-0">
                                 <CardHeader className="!bg-transparent !border-white/5 !py-2.5">
                                     <h3 className="text-[9px] font-bold tracking-[0.15em] text-[#E6E6FA]">
-                                        {activeTab === "icons" ? "PROMPTING" : "TEXTURE CONFIG"}
+                                        {activeTab === "icons" ? "PROMPTING" : activeTab === "ecology-illustrations" ? "ILLUSTRATION CONFIG" : "TEXTURE CONFIG"}
                                     </h3>
                                 </CardHeader>
                                 <CardContent className="space-y-3 max-h-[800px] overflow-y-auto">
@@ -1660,6 +1704,32 @@ export function AssetGeneratorPage() {
                                                 </div>
                                             )}
                                         </>
+                                    )}
+
+                                    {activeTab === "ecology-illustrations" && (
+                                        <div>
+                                            <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">
+                                                Illustration Focus
+                                            </label>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {[
+                                                    { id: "flora", label: "FLORA" },
+                                                    { id: "fauna", label: "FAUNA" },
+                                                    { id: "", label: "GENERAL" },
+                                                ].map((option) => (
+                                                    <button
+                                                        key={option.label}
+                                                        onClick={() => setTextureSubCategory(option.id)}
+                                                        className={`px-2 py-1.5 rounded-lg text-[9px] font-bold tracking-wider border transition-all ${textureSubCategory === option.id
+                                                            ? "bg-[#E6E6FA]/10 border-[#E6E6FA]/40 text-[#E6E6FA]"
+                                                            : "bg-white/[0.02] border-white/5 text-gray-500 hover:border-white/20 hover:text-gray-300"
+                                                            }`}
+                                                    >
+                                                        {option.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
                                     )}
 
                                     {activeTab === "sprites" && (
@@ -1748,7 +1818,7 @@ export function AssetGeneratorPage() {
                                     <div>
                                         <div className="flex items-center justify-between mb-1.5">
                                             <label className="block text-[8px] text-gray-500 tracking-wider uppercase">
-                                                {activeTab === "icons" ? "Icon List" : activeTab === "battlemaps" ? "Battlemap List" : activeTab === "sprites" ? "Sprite Subject List" : "Asset List"}
+                                                {activeTab === "icons" ? "Icon List" : activeTab === "battlemaps" ? "Battlemap List" : activeTab === "sprites" ? "Sprite Subject List" : activeTab === "ecology-illustrations" ? "Illustration Subject List" : "Asset List"}
                                             </label>
                                             <span className="text-[8px] text-[#E6E6FA] font-mono bg-[#E6E6FA]/10 px-1.5 py-0.5 rounded">
                                                 {rawLineCount} ITEMS
@@ -1757,7 +1827,7 @@ export function AssetGeneratorPage() {
                                         <textarea
                                             value={iconListText}
                                             onChange={(e) => setIconListText(e.target.value)}
-                                            placeholder={activeTab === "icons" ? "potion bottle\niron sword" : activeTab === "battlemaps" ? "cobblestone path\ndirt field" : activeTab === "sprites" ? "forest wolf\nash crawler" : "e.g. descriptive asset prompt"}
+                                            placeholder={activeTab === "icons" ? "potion bottle\niron sword" : activeTab === "battlemaps" ? "cobblestone path\ndirt field" : activeTab === "sprites" ? "forest wolf\nash crawler" : activeTab === "ecology-illustrations" ? "emberhoof grazer natural-history plate\nash strider field-guide illustration" : "e.g. descriptive asset prompt"}
                                             rows={4}
                                             className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#E6E6FA]/30 resize-none transition-colors font-mono leading-relaxed"
                                         />
@@ -1880,7 +1950,7 @@ export function AssetGeneratorPage() {
                                         GENERATING {genProgress.total} {activeTab.toUpperCase()}...
                                     </span>
                                 ) : (
-                                    `⚡ BAKE ${rawLineCount > 0 ? rawLineCount : ""} ${activeTab === "icons" ? "ICON" : activeTab === "battlemaps" ? "BATTLEMAP" : activeTab === "sprites" ? "SPRITE" : "ASSET"}${rawLineCount !== 1 ? "S" : ""}`
+                                    `⚡ BAKE ${rawLineCount > 0 ? rawLineCount : ""} ${activeTab === "icons" ? "ICON" : activeTab === "battlemaps" ? "BATTLEMAP" : activeTab === "sprites" ? "SPRITE" : activeTab === "ecology-illustrations" ? "ILLUSTRATION" : "ASSET"}${rawLineCount !== 1 ? "S" : ""}`
                                 )}
                             </Button>
 
@@ -1897,7 +1967,7 @@ export function AssetGeneratorPage() {
                 <div className="w-[200px] shrink-0 border-r border-white/5 bg-[#080d14] overflow-y-auto">
                     <div className="p-3 border-b border-white/5">
                         <h3 className="text-[10px] font-bold tracking-[0.15em] text-gray-500 uppercase">
-                            {activeTab === "icons" ? "Icon Batches" : activeTab === "battlemaps" ? "Battlemap Batches" : activeTab === "sprites" ? "Sprite Batches" : "Asset Batches"}
+                            {activeTab === "icons" ? "Icon Batches" : activeTab === "battlemaps" ? "Battlemap Batches" : activeTab === "sprites" ? "Sprite Batches" : activeTab === "ecology-illustrations" ? "Illustration Batches" : "Asset Batches"}
                         </h3>
                     </div>
                     {activeTab === "icons" ? (
@@ -2163,7 +2233,7 @@ export function AssetGeneratorPage() {
                                 </div>
                             </div>
                         )
-                    ) : ((activeTab === "icons" && !activeBatch) || (activeTab === "sprites" && !activeSpriteBatch) || ((activeTab === "battlemaps" || activeTab === "world-assets" || activeTab === "game-assets") && !activeTextureBatch)) && !isGenerating ? (
+                    ) : ((activeTab === "icons" && !activeBatch) || (activeTab === "sprites" && !activeSpriteBatch) || ((activeTab === "battlemaps" || activeTab === "world-assets" || activeTab === "game-assets" || activeTab === "ecology-illustrations") && !activeTextureBatch)) && !isGenerating ? (
                         <div className="flex flex-col items-center justify-center h-full text-center">
                             <div className="text-6xl mb-6 opacity-30">{activeTab === "icons" ? "🎨" : activeTab === "sprites" ? "🧬" : "🖼️"}</div>
                             <h2 className="text-lg font-bold text-gray-500 tracking-wider mb-2">NO BATCH SELECTED</h2>
@@ -2172,6 +2242,8 @@ export function AssetGeneratorPage() {
                                     ? "Enter an icon list (one item per line), add an optional style modifier or reference image, and click Generate."
                                     : activeTab === "sprites"
                                         ? "Enter one subject per line, choose a sprite type and mode, and generate a sprite batch."
+                                    : activeTab === "ecology-illustrations"
+                                        ? "Enter one ecology subject per line, add a guiding art direction if needed, and generate an illustration batch."
                                         : `Select a category, enter a texture list, and click Generate.`}
                             </p>
                         </div>
@@ -2386,7 +2458,8 @@ export function AssetGeneratorPage() {
                     ) : (activeTab !== "icons" && activeTextureBatch && (
                         (activeTab === "battlemaps" && ["battle_assets", "character", "item"].includes(activeTextureBatch.category)) ||
                         (activeTab === "world-assets" && activeTextureBatch.category === "world_assets") ||
-                        (activeTab === "game-assets" && activeTextureBatch.category === "game_assets")
+                        (activeTab === "game-assets" && activeTextureBatch.category === "game_assets") ||
+                        (activeTab === "ecology-illustrations" && activeTextureBatch.category === "ecology_illustrations")
                     )) ? (
                         <div className="space-y-6">
                             {/* Texture Batch Header */}

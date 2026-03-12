@@ -1,0 +1,33 @@
+{
+  "age": 30,
+  "appearancePrompt": "Heavy Enforcer, Combatant forged by the quest.",
+  "backstory": "A formidable individual, known for their brute strength and ruthlessness. They care little for the archives' contents, only for the bounty offered for their retrieval.",
+  "faction": null,
+  "gender": "Unknown",
+  "history": "A formidable individual, known for their brute strength and ruthlessness. They care little for the archives' contents, only for the bounty offered for their retrieval.",
+  "hp": 35,
+  "id": "char-214d1676-e22b-4fba-bf0d-32e46de924f7",
+  "inventory": [],
+  "isNPC": true,
+  "level": 2,
+  "maxHp": 35,
+  "name": "Cinder Bruiser",
+  "origin": {
+    "sourceId": "quest-699a78c6-b5bc-419b-955c-e02d9c06f23c",
+    "system": "quest",
+    "worldId": "665774da-472d-4570-adfb-1242ceefdfd9"
+  },
+  "skills": [],
+  "stats": {
+    "agility": 4,
+    "charisma": 4,
+    "endurance": 5,
+    "intelligence": 4,
+    "strength": 4,
+    "wisdom": 4
+  },
+  "traits": [],
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
+  "xp": 0
+}

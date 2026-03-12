@@ -190,13 +190,26 @@ function buildEcologyOptions(bundle: EcologyBundle | null): EcologyOption[] {
             id: `fauna:${entry.id}`,
             kind: "fauna" as const,
             label: entry.name,
-            summary: entry.description,
+            summary: [
+                entry.description,
+                `${entry.bodyProfile.sizeClass} ${entry.bodyProfile.locomotion}`,
+                `${entry.behaviorProfile.temperament} threat ${entry.dangerLevel}/100`,
+                `skills: ${(entry.skillIds || []).slice(0, 3).join(", ") || "none"}`,
+                `trainability ${entry.behaviorProfile.trainability}/100`,
+            ].filter(Boolean).join(" • "),
         })),
         ...(bundle.flora || []).slice(0, 12).map((entry) => ({
             id: `flora:${entry.id}`,
             kind: "flora" as const,
             label: entry.name,
-            summary: entry.description,
+            summary: [
+                entry.description,
+                `${entry.bodyProfile.sizeClass} growth ${entry.bodyProfile.growthRate}/100`,
+                `toxicity ${entry.hazardProfile.toxicity}/100`,
+                `yield ${entry.resourceProfile.yieldPerHarvest}/100`,
+                `medicinal ${entry.resourceProfile.medicinalValue}/100`,
+                `rarity ${entry.resourceProfile.rarity}/100`,
+            ].filter(Boolean).join(" • "),
         })),
     ];
 }

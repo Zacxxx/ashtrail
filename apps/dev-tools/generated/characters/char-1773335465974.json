@@ -1,0 +1,764 @@
+{
+  "age": 26,
+  "alignment": "Neutral Good",
+  "appearancePrompt": "A young man that was bisexual and loved working in insurance, expert in busisseness intellgeicne and smoking weed.",
+  "backstory": "A young man that was bisexual and loved working in insurance, expert in busisseness intellgeicne and smoking weed.",
+  "badge": "🧬",
+  "credits": {
+    "copper": 0,
+    "gold": 2,
+    "silver": 24
+  },
+  "currentStory": "",
+  "equipped": {
+    "boots": null,
+    "chest": null,
+    "gloves": null,
+    "head": null,
+    "legs": null,
+    "mainHand": null,
+    "offHand": null,
+    "waist": null
+  },
+  "faction": "",
+  "gender": "Male",
+  "history": "Before the Great Fog choked the heavens, Brice Alfano found his strange comfort in the intricate, predictable chaos of Romoan’s corporate world. A sharp young analyst, he navigated the actuarial tables and risk assessments of a major insurance conglomerate with a predatory grace, his mind a finely tuned instrument for extracting profit from probability. His days were a precise dance of data and high-stakes negotiation, punctuated by the quiet ritual of inhaling the pungent smoke that helped him focus, or unwind. Evenings were a fluid tapestry of connections, male and female, each liaison a fleeting distraction from the deeper game of leverage and control he played. He understood information was power, his intellect charting the precise cost of every terrestrial calamity, never once contemplating the ultimate, uninsurable ruin of a planet’s sky.\n\nThe day the sky died was not a slow twilight, but a sudden, violent tear. Brice was deep in a complex reinsurance policy, the glow of holographic projections illuminating his face, when the tremors began, not from the earth, but from above. Communication networks fractured, then screamed into static. The Great Fog descended with an unnatural, hungry speed, devouring the city in an acrid, choking shroud that stole the light and reason alike. His meticulously constructed world of calculated risks imploded. There was no actuarial table for a planet consumed by ash, no premium to cover the loss of the sun. Panic, raw and unquantifiable, replaced the orderly hum of servers. It was then, amidst the screaming and the frantic scramble, that he first found himself fighting not for profit, but for breath, a primal terror eclipsing all his learned intelligence.\n\nThe collapse that followed was swift and brutal. Brice, a man accustomed to manipulating numbers, found himself manipulating scraps of food and whispers of safe passage, his intellect now a desperate weapon for survival. Business intelligence, he quickly learned, now meant understanding who held the water, who controlled the shelters, and who could be exploited for a momentary advantage. It was during these desperate early weeks, navigating the shattered city-states, that he found himself inextricably linked to AF. Then merely a ‘servant’ in a world where titles meant little, AF proved to be an unexpected, steadfast anchor, a physical bulwark against the raw chaos while Brice assessed the shifting human landscape, their combined efforts a grim equation of immediate survival.\n\nThe years that followed were a grinding crucible. Brice shed the vestiges of corporate polish, replacing tailored suits with scavenged gear, but his mind remained sharp, honed by a relentless need to predict and exploit. He became a master of the whisper network, a conduit of information in the Ash-Trail, trading rumors for resources, forgotten intel for new world survival. His cannabis habit, once a luxury, became a grim ritual, a way to blunt the edges of a world perpetually in monochrome. He learned to leverage every advantage, be it a forgotten data chip or a fleeting alliance, his bisexuality a tool for connection or manipulation when needed, never an impediment. AF, by his side through countless dangers, had transitioned from a mere 'servant' to a constant, if sometimes exasperating, partner, a loyal shadow in the grim calculus of their shared existence, their destinies irrevocably tangled.\n\nNow, at twenty-six, Brice Alfano is a ghost in the Ash-Trail, his reputation as a \"fixer of facts\" preceding him through the City-States and the forgotten ruins. His mind constantly sifts through the dross of rumor for nuggets of truth. The recent discovery of pre-war archive fragments, hinting at functioning satellites and forgotten knowledge, has ignited a dangerous spark within him. Such information, if real, could rewrite the balance of power on Romoan, or expose secrets about the Ashfall itself – a risk he is willing to take. Others fear disturbing the sky again, but Brice sees only opportunity, a grand, unprecedented data-mining operation. It is a journey he cannot undertake alone. AF, whether they like it or not, is the key, the unwavering presence and critical partner required to navigate the perilous path towards the sky, their combined quest a defiant gamble against a world that has long forgotten its own history.",
+  "hp": 25,
+  "id": "char-1773335465974",
+  "inventory": [
+    {
+      "bagIndex": 4,
+      "category": "weapon",
+      "cost": 471,
+      "description": "Freshly issued weapon.",
+      "id": "item-reset-weapon-0-1773335465974",
+      "name": "Stun Baton",
+      "rarity": "reinforced"
+    },
+    {
+      "bagIndex": 2,
+      "category": "weapon",
+      "cost": 387,
+      "description": "Freshly issued weapon.",
+      "id": "item-reset-weapon-1-1773335465974",
+      "name": "Vibration Blade",
+      "rarity": "reinforced"
+    },
+    {
+      "bagIndex": 0,
+      "category": "weapon",
+      "cost": 106,
+      "description": "Freshly issued weapon.",
+      "id": "item-reset-weapon-2-1773335465974",
+      "name": "Pulse Rifle",
+      "rarity": "specialized"
+    },
+    {
+      "bagIndex": 1,
+      "category": "weapon",
+      "cost": 174,
+      "description": "Freshly issued weapon.",
+      "id": "item-reset-weapon-3-1773335465974",
+      "name": "Rusty Pipe",
+      "rarity": "relic"
+    },
+    {
+      "bagIndex": 1,
+      "category": "weapon",
+      "cost": 403,
+      "description": "Freshly issued weapon.",
+      "id": "item-reset-weapon-4-1773335465974",
+      "name": "Spiked Bat",
+      "rarity": "specialized"
+    },
+    {
+      "bagIndex": 2,
+      "category": "weapon",
+      "cost": 111,
+      "description": "Freshly issued weapon.",
+      "id": "item-reset-weapon-5-1773335465974",
+      "name": "Serrated Knife",
+      "rarity": "pre-ash"
+    },
+    {
+      "bagIndex": 0,
+      "category": "consumable",
+      "cost": 490,
+      "description": "Freshly issued consumable.",
+      "id": "item-reset-consumable-0-1773335465974",
+      "name": "Med Kit",
+      "rarity": "pre-ash"
+    },
+    {
+      "bagIndex": 5,
+      "category": "consumable",
+      "cost": 463,
+      "description": "Freshly issued consumable.",
+      "id": "item-reset-consumable-1-1773335465974",
+      "name": "Bandage",
+      "rarity": "relic"
+    },
+    {
+      "bagIndex": 5,
+      "category": "consumable",
+      "cost": 354,
+      "description": "Freshly issued consumable.",
+      "id": "item-reset-consumable-2-1773335465974",
+      "name": "Stimulant",
+      "rarity": "specialized"
+    },
+    {
+      "bagIndex": 1,
+      "category": "consumable",
+      "cost": 188,
+      "description": "Freshly issued consumable.",
+      "id": "item-reset-consumable-3-1773335465974",
+      "name": "Filtered Water",
+      "rarity": "ashmarked"
+    },
+    {
+      "bagIndex": 2,
+      "category": "consumable",
+      "cost": 125,
+      "description": "Freshly issued consumable.",
+      "id": "item-reset-consumable-4-1773335465974",
+      "name": "Nutrient Bar",
+      "rarity": "salvaged"
+    },
+    {
+      "bagIndex": 1,
+      "category": "consumable",
+      "cost": 192,
+      "description": "Freshly issued consumable.",
+      "id": "item-reset-consumable-5-1773335465974",
+      "name": "Antigen",
+      "rarity": "relic"
+    },
+    {
+      "bagIndex": 1,
+      "category": "resource",
+      "cost": 310,
+      "description": "Freshly issued resource.",
+      "id": "item-reset-resource-0-1773335465974",
+      "name": "Scrap Metal",
+      "rarity": "reinforced"
+    },
+    {
+      "bagIndex": 0,
+      "category": "resource",
+      "cost": 270,
+      "description": "Freshly issued resource.",
+      "id": "item-reset-resource-1-1773335465974",
+      "name": "Electronics",
+      "rarity": "pre-ash"
+    },
+    {
+      "bagIndex": 1,
+      "category": "resource",
+      "cost": 292,
+      "description": "Freshly issued resource.",
+      "id": "item-reset-resource-2-1773335465974",
+      "name": "Chemicals",
+      "rarity": "ashmarked"
+    },
+    {
+      "bagIndex": 4,
+      "category": "resource",
+      "cost": 314,
+      "description": "Freshly issued resource.",
+      "id": "item-reset-resource-3-1773335465974",
+      "name": "Fiberglass",
+      "rarity": "specialized"
+    },
+    {
+      "bagIndex": 0,
+      "category": "junk",
+      "cost": 186,
+      "description": "Freshly issued junk.",
+      "id": "item-reset-junk-0-1773335465974",
+      "name": "Broken Bottle",
+      "rarity": "relic"
+    },
+    {
+      "bagIndex": 4,
+      "category": "junk",
+      "cost": 324,
+      "description": "Freshly issued junk.",
+      "id": "item-reset-junk-1-1773335465974",
+      "name": "Rusted Nut",
+      "rarity": "specialized"
+    },
+    {
+      "bagIndex": 3,
+      "category": "junk",
+      "cost": 252,
+      "description": "Freshly issued junk.",
+      "id": "item-reset-junk-2-1773335465974",
+      "name": "Plastic Waste",
+      "rarity": "ashmarked"
+    },
+    {
+      "bagIndex": 3,
+      "category": "junk",
+      "cost": 288,
+      "description": "Freshly issued junk.",
+      "id": "item-reset-junk-3-1773335465974",
+      "name": "Old Tape",
+      "rarity": "salvaged"
+    },
+    {
+      "bagIndex": 0,
+      "category": "armor",
+      "cost": 421,
+      "description": "Freshly issued armor.",
+      "id": "item-reset-armor-0-1773335465974",
+      "name": "Tactical Vest",
+      "rarity": "specialized"
+    },
+    {
+      "bagIndex": 0,
+      "category": "armor",
+      "cost": 64,
+      "description": "Freshly issued armor.",
+      "id": "item-reset-armor-1-1773335465974",
+      "name": "Reinforced Helmet",
+      "rarity": "relic"
+    },
+    {
+      "bagIndex": 0,
+      "category": "armor",
+      "cost": 543,
+      "description": "Freshly issued armor.",
+      "id": "item-reset-armor-2-1773335465974",
+      "name": "Scrap Plating",
+      "rarity": "ashmarked"
+    },
+    {
+      "bagIndex": 5,
+      "category": "armor",
+      "cost": 311,
+      "description": "Freshly issued armor.",
+      "id": "item-reset-armor-3-1773335465974",
+      "name": "Leather Guards",
+      "rarity": "pre-ash"
+    },
+    {
+      "bagIndex": 4,
+      "category": "armor",
+      "cost": 222,
+      "description": "Freshly issued armor.",
+      "id": "item-reset-armor-4-1773335465974",
+      "name": "Combat Boots",
+      "rarity": "relic"
+    }
+  ],
+  "isFamily": false,
+  "isNPC": false,
+  "level": 6,
+  "maxHp": 25,
+  "name": "Brice Alfano",
+  "occupation": {
+    "category": "ADMIN",
+    "description": "Oversaw multi-team operations: construction projects, defense coordination, and resource extraction. Sees the big picture and keeps everyone aligned.",
+    "effects": [
+      {
+        "id": "occ-operations-manager-effect-1",
+        "isPercentage": true,
+        "name": "Administrative Leverage",
+        "scope": "economy",
+        "stacking": "multiplicative",
+        "target": "traderPriceMultiplier",
+        "trigger": "passive",
+        "type": "ACTION_MODIFIER",
+        "value": -8
+      },
+      {
+        "id": "occ-operations-manager-effect-2",
+        "isPercentage": true,
+        "name": "Operational Trust",
+        "scope": "camp",
+        "stacking": "multiplicative",
+        "target": "trustGain",
+        "trigger": "passive",
+        "type": "ACTION_MODIFIER",
+        "value": 10
+      },
+      {
+        "id": "occ-operations-manager-effect-3",
+        "isPercentage": true,
+        "name": "Conflict Mediation",
+        "scope": "social",
+        "stacking": "multiplicative",
+        "target": "conflictChance",
+        "trigger": "passive",
+        "type": "ACTION_MODIFIER",
+        "value": -10
+      }
+    ],
+    "id": "occ-operations-manager",
+    "name": "Operations Manager",
+    "perks": [
+      "Crew efficiency bonus on group tasks",
+      "Project completion times reduced",
+      "Better coordination during emergencies"
+    ],
+    "shortDescription": "Coordinates teams and complex projects."
+  },
+  "parents": {
+    "father": null,
+    "mother": null
+  },
+  "progression": {
+    "availableTalentPoints": 4,
+    "spentTalentPoints": 0,
+    "treeOccupationId": "occ-operations-manager",
+    "unlockedTalentNodeIds": []
+  },
+  "relationships": [
+    {
+      "targetId": "char-1772210022882",
+      "type": "servant"
+    }
+  ],
+  "skills": [
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 0,
+      "damage": 5,
+      "description": "Strike with your equipped weapon. Replaces base damage with weapon's flat damage modifier. Melee: scales with Strength. Ranged: fixed damage only.",
+      "effectType": "physical",
+      "effects": [
+        {
+          "description": "Replaces skill base damage with the equipped weapon's flat damage value.",
+          "id": "effect-1773078073638",
+          "name": "Weapon Damage Replacement",
+          "target": "mainHand",
+          "trigger": "passive",
+          "type": "WEAPON_DAMAGE_REPLACEMENT",
+          "value": 0
+        }
+      ],
+      "icon": "⚔️",
+      "id": "use-weapon",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Use Weapon",
+      "targetType": "cell"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Basic medical patch-up.",
+      "effectType": "support",
+      "healing": 15,
+      "icon": "🩹",
+      "id": "first-aid",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "First Aid",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Push an enemy back and potentially cause shock damage.",
+      "effectType": "physical",
+      "icon": "✋",
+      "id": "shove",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Shove",
+      "pushDistance": 2,
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Protect an ally for 1 turn. You tank damage redirected to them with reductions based on your Endurance vs Incoming Damage.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "PROTECTION_STANCE",
+          "value": 0
+        }
+      ],
+      "icon": "🛡️",
+      "id": "defend",
+      "maxRange": 2,
+      "minRange": 1,
+      "name": "Defend",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Become invisible to enemies. Any damage taken will reveal you. Duration increases with Wisdom.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "STEALTH",
+          "value": 0
+        }
+      ],
+      "icon": "👤",
+      "id": "hide",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Hide",
+      "targetType": "self"
+    },
+    {
+      "apCost": 2,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 2,
+      "description": "A quick burst of speed. +3 Movement Points for the current turn.",
+      "effects": [
+        {
+          "description": "Increases Movement Points.",
+          "duration": 1,
+          "id": "effect-sprint-mp",
+          "name": "Sprint Bonus",
+          "target": "mp",
+          "trigger": "passive",
+          "type": "STAT_MODIFIER",
+          "value": 3
+        }
+      ],
+      "icon": "👟",
+      "id": "sprint",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Sprint",
+      "targetType": "self"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Bother the enemy with your charisma, reducing their MP based on your Charisma vs target Wisdom.",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 1,
+          "target": "mp",
+          "type": "STAT_MODIFIER",
+          "value": 0
+        }
+      ],
+      "icon": "🎭",
+      "id": "distract",
+      "maxRange": 4,
+      "minRange": 1,
+      "name": "Distract",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Find weaknesses in the target, increasing critical chance for all attackers based on your Intelligence. (Max difference: 5 levels)",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 2,
+          "type": "ANALYZED",
+          "value": 0
+        }
+      ],
+      "icon": "🔍",
+      "id": "analyze",
+      "maxRange": 5,
+      "minRange": 1,
+      "name": "Analyze",
+      "targetType": "enemy"
+    }
+  ],
+  "stats": {
+    "agility": 3,
+    "charisma": 3,
+    "endurance": 3,
+    "intelligence": 14,
+    "strength": 3,
+    "wisdom": 10
+  },
+  "title": "Steelheart",
+  "traits": [
+    {
+      "cost": 7,
+      "description": "Quick reflexes honed by dodging falling debris. +10% Evasion in combat.",
+      "effects": [
+        {
+          "id": "t-nimble-effect-1",
+          "scope": "combat",
+          "stacking": "additive",
+          "target": "evasion",
+          "trigger": "passive",
+          "type": "COMBAT_BONUS",
+          "value": 10
+        }
+      ],
+      "id": "t-nimble",
+      "name": "Nimble",
+      "type": "positive"
+    },
+    {
+      "cost": -8,
+      "description": "Wounds take a long time to clot. Bleeding effects last twice as long.",
+      "effects": [
+        {
+          "id": "t-anemic-effect-1",
+          "isPercentage": true,
+          "name": "Hazard Mitigation",
+          "scope": "combat",
+          "stacking": "multiplicative",
+          "target": "hazardDamage",
+          "trigger": "passive",
+          "type": "COMBAT_BONUS",
+          "value": -15
+        }
+      ],
+      "id": "t-anemic",
+      "name": "Anemic",
+      "type": "negative"
+    },
+    {
+      "cost": -7,
+      "description": "Trusts no one. Crew Trust decays slowly over time.",
+      "effects": [
+        {
+          "id": "t-paranoid-effect-1",
+          "isPercentage": true,
+          "name": "Trust Decay",
+          "scope": "camp",
+          "stacking": "multiplicative",
+          "target": "trustDecay",
+          "trigger": "passive",
+          "type": "ACTION_MODIFIER",
+          "value": -25
+        }
+      ],
+      "id": "t-paranoid",
+      "name": "Paranoid",
+      "type": "negative"
+    },
+    {
+      "cost": 10,
+      "description": "Remains calm under pressure. Party morale drops 30% slower during emergencies.",
+      "effects": [
+        {
+          "id": "t-crisis-manager-effect-1",
+          "isPercentage": true,
+          "name": "Emergency Poise",
+          "scope": "camp",
+          "stacking": "multiplicative",
+          "target": "moraleLoss",
+          "trigger": "passive",
+          "type": "ACTION_MODIFIER",
+          "value": -30
+        }
+      ],
+      "id": "t-crisis-manager",
+      "name": "Crisis Manager",
+      "type": "positive"
+    },
+    {
+      "cost": 8,
+      "description": "Small chance for critical failures to be ignored or loot to be doubled.",
+      "effects": [
+        {
+          "id": "t15-effect-1",
+          "name": "Failure Insurance",
+          "scope": "global",
+          "stacking": "additive",
+          "target": "criticalFailureIgnoreChance",
+          "trigger": "passive",
+          "type": "ACTION_MODIFIER",
+          "value": 10
+        },
+        {
+          "id": "t15-effect-2",
+          "name": "Double Loot Chance",
+          "scope": "exploration",
+          "stacking": "additive",
+          "target": "doubleLootChance",
+          "trigger": "passive",
+          "type": "EXPLORATION_BONUS",
+          "value": 5
+        }
+      ],
+      "id": "t15",
+      "name": "Lucky",
+      "type": "positive"
+    },
+    {
+      "cost": -7,
+      "description": "A permanent leg injury. 20% slower travel speed on foot.",
+      "effects": [
+        {
+          "id": "t52-effect-1",
+          "isPercentage": true,
+          "name": "Travel Tempo",
+          "scope": "travel",
+          "stacking": "multiplicative",
+          "target": "travelTime",
+          "trigger": "passive",
+          "type": "ACTION_MODIFIER",
+          "value": 20
+        }
+      ],
+      "id": "t52",
+      "name": "Limper",
+      "type": "negative"
+    },
+    {
+      "cost": 7,
+      "description": "Charisma that works even in the Ash. Better rates with all traders.",
+      "effects": [
+        {
+          "id": "t21-effect-1",
+          "isPercentage": true,
+          "name": "Trade Pressure",
+          "scope": "economy",
+          "stacking": "multiplicative",
+          "target": "traderPriceMultiplier",
+          "trigger": "passive",
+          "type": "ACTION_MODIFIER",
+          "value": -10
+        }
+      ],
+      "id": "t21",
+      "name": "Silver Tongue",
+      "type": "positive"
+    },
+    {
+      "cost": 0,
+      "description": "Diligent and precise. Better crafting quality, but tasks take 25% longer.",
+      "effects": [
+        {
+          "id": "t90-effect-1",
+          "isPercentage": true,
+          "name": "Perfectionist Bond",
+          "scope": "camp",
+          "stacking": "multiplicative",
+          "target": "trustGain",
+          "trigger": "passive",
+          "type": "ACTION_MODIFIER",
+          "value": 5
+        },
+        {
+          "id": "t90-effect-2",
+          "isPercentage": true,
+          "name": "Perfectionist Exposure",
+          "scope": "travel",
+          "stacking": "multiplicative",
+          "target": "heatGenerated",
+          "trigger": "passive",
+          "type": "ACTION_MODIFIER",
+          "value": 5
+        }
+      ],
+      "id": "t90",
+      "name": "Perfectionist",
+      "type": "neutral"
+    },
+    {
+      "cost": 0,
+      "description": "Enjoys socializing with crew. Boosts others morale slightly, but uses 10% more water.",
+      "effects": [
+        {
+          "id": "t82-effect-1",
+          "isPercentage": true,
+          "name": "Supply Consumption",
+          "scope": "camp",
+          "stacking": "multiplicative",
+          "target": "resourceConsumption",
+          "trigger": "passive",
+          "type": "RESOURCE_MODIFIER",
+          "value": 10
+        }
+      ],
+      "id": "t82",
+      "name": "Talkative",
+      "type": "neutral"
+    },
+    {
+      "cost": 0,
+      "description": "Driven to investigate. Reveals POIs easier, but generates more Heat.",
+      "effects": [
+        {
+          "id": "t94-effect-1",
+          "isPercentage": true,
+          "name": "Exploration Clarity",
+          "scope": "exploration",
+          "stacking": "multiplicative",
+          "target": "poiRevealChance",
+          "trigger": "passive",
+          "type": "EXPLORATION_BONUS",
+          "value": 25
+        },
+        {
+          "id": "t94-effect-2",
+          "isPercentage": true,
+          "name": "Trade Pressure",
+          "scope": "economy",
+          "stacking": "multiplicative",
+          "target": "traderPriceMultiplier",
+          "trigger": "passive",
+          "type": "ACTION_MODIFIER",
+          "value": -10
+        },
+        {
+          "id": "t94-effect-3",
+          "isPercentage": true,
+          "name": "Curiosity",
+          "scope": "exploration",
+          "stacking": "multiplicative",
+          "target": "poiRevealChance",
+          "trigger": "passive",
+          "type": "EXPLORATION_BONUS",
+          "value": 25
+        },
+        {
+          "id": "t94-effect-4",
+          "isPercentage": true,
+          "name": "Heat Signature",
+          "scope": "travel",
+          "stacking": "multiplicative",
+          "target": "heatGenerated",
+          "trigger": "passive",
+          "type": "ACTION_MODIFIER",
+          "value": 15
+        }
+      ],
+      "id": "t94",
+      "name": "Curious",
+      "type": "neutral"
+    }
+  ],
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
+  "xp": 0
+}

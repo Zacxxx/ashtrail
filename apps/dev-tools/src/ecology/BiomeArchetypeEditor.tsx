@@ -3,11 +3,16 @@ import { TextInput } from "./EcologyPage";
 
 interface BiomeArchetypeEditorProps {
     archetype: BiomeArchetype;
+    usage?: {
+        pixelShare: number;
+        provinceCount: number;
+        avgConfidence: number;
+    } | null;
     onSave: (archetype: BiomeArchetype) => void;
     onDelete: (id: string) => void;
 }
 
-export function BiomeArchetypeEditor({ archetype, onSave, onDelete }: BiomeArchetypeEditorProps) {
+export function BiomeArchetypeEditor({ archetype, usage, onSave, onDelete }: BiomeArchetypeEditorProps) {
     const handleEnvChange = (key: keyof BiomeArchetype["envConditions"], value: string) => {
         const numValue = parseFloat(value);
         if (isNaN(numValue)) return;
@@ -28,6 +33,16 @@ export function BiomeArchetypeEditor({ archetype, onSave, onDelete }: BiomeArche
             colorProfile: {
                 ...archetype.colorProfile,
                 [key]: numValue,
+            },
+        });
+    };
+
+    const handleCalibrationChange = (key: keyof BiomeArchetype["calibration"], value: string | boolean) => {
+        onSave({
+            ...archetype,
+            calibration: {
+                ...archetype.calibration,
+                [key]: typeof value === "boolean" ? value : (parseFloat(value) || 0),
             },
         });
     };
@@ -72,6 +87,13 @@ export function BiomeArchetypeEditor({ archetype, onSave, onDelete }: BiomeArche
                         value={String(archetype.suitabilityWeight)}
                         onChange={(v) => onSave({ ...archetype, suitabilityWeight: parseFloat(v) || 0 })}
                     />
+                    {usage && (
+                        <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                            <UsageStat label="Pixel Share" value={`${(usage.pixelShare * 100).toFixed(1)}%`} />
+                            <UsageStat label="Provinces" value={String(usage.provinceCount)} />
+                            <UsageStat label="Confidence" value={`${(usage.avgConfidence * 100).toFixed(0)}%`} />
+                        </div>
+                    )}
                 </div>
 
                 <div className="space-y-4">
@@ -130,6 +152,40 @@ export function BiomeArchetypeEditor({ archetype, onSave, onDelete }: BiomeArche
                     />
                 </div>
             </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold tracking-widest text-emerald-300 uppercase">Calibration Controls</h3>
+                    <label className="flex items-center gap-2 text-[10px] tracking-widest text-gray-400 uppercase">
+                        <input
+                            type="checkbox"
+                            checked={archetype.calibration.enabled}
+                            onChange={(e) => handleCalibrationChange("enabled", e.target.checked)}
+                            className="h-4 w-4 rounded border-white/20 bg-black/40"
+                        />
+                        Enable
+                    </label>
+                </div>
+                <div className="grid grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <TextInput label="Temp Offset" value={String(archetype.calibration.temperatureOffset)} onChange={(v) => handleCalibrationChange("temperatureOffset", v)} />
+                    <TextInput label="Precip Offset" value={String(archetype.calibration.precipitationOffset)} onChange={(v) => handleCalibrationChange("precipitationOffset", v)} />
+                    <TextInput label="Elev Offset" value={String(archetype.calibration.elevationOffset)} onChange={(v) => handleCalibrationChange("elevationOffset", v)} />
+                    <TextInput label="Slope Offset" value={String(archetype.calibration.slopeOffset)} onChange={(v) => handleCalibrationChange("slopeOffset", v)} />
+                    <TextInput label="Hue Tol" value={String(archetype.calibration.hueTolerance)} onChange={(v) => handleCalibrationChange("hueTolerance", v)} />
+                    <TextInput label="Sat Tol" value={String(archetype.calibration.satTolerance)} onChange={(v) => handleCalibrationChange("satTolerance", v)} />
+                    <TextInput label="Val Tol" value={String(archetype.calibration.valTolerance)} onChange={(v) => handleCalibrationChange("valTolerance", v)} />
+                    <TextInput label="Score Bias" value={String(archetype.calibration.scoreBias)} onChange={(v) => handleCalibrationChange("scoreBias", v)} />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function UsageStat({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-lg border border-white/10 bg-[#0a0f14] p-2">
+            <p className="text-[9px] font-bold tracking-widest text-gray-500 uppercase">{label}</p>
+            <p className="mt-1 text-xs font-bold text-gray-100">{value}</p>
         </div>
     );
 }

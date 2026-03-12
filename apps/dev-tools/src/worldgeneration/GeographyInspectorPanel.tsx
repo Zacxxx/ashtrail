@@ -25,6 +25,9 @@ interface RegionRecord {
     seedX?: number;
     seedY?: number;
     biomePrimary?: number;
+    biomePrimaryId?: string | null;
+    biomeConfidence?: number | null;
+    biomeCandidateIds?: string[];
     duchyId?: number;
     kingdomId?: number;
     provinceIds?: number[];
@@ -669,7 +672,15 @@ export function GeographyInspectorPanel({
                         {activeData.biomePrimary !== undefined && (
                             <div className="flex justify-between text-[11px] font-mono">
                                 <span className="text-gray-500">PRIMARY BIOME</span>
-                                <span className="text-green-400 text-right">#{activeData.biomePrimary}</span>
+                                <span className="text-green-400 text-right">
+                                    {activeData.biomePrimaryId || `#${activeData.biomePrimary}`}
+                                </span>
+                            </div>
+                        )}
+                        {activeData.biomeConfidence !== undefined && activeData.biomeConfidence !== null && (
+                            <div className="flex justify-between text-[11px] font-mono">
+                                <span className="text-gray-500">BIOME CONFIDENCE</span>
+                                <span className="text-cyan-300 text-right">{(activeData.biomeConfidence * 100).toFixed(0)}%</span>
                             </div>
                         )}
                         {activeData.duchyId !== undefined && duchies[activeData.duchyId] && activeLayer === "provinces" && (

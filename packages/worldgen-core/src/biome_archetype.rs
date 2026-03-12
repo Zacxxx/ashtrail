@@ -23,6 +23,36 @@ pub struct ColorProfile {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct BiomeArchetypeCalibration {
+    pub enabled: bool,
+    pub temperature_offset: f32,
+    pub precipitation_offset: f32,
+    pub elevation_offset: f32,
+    pub slope_offset: f32,
+    pub hue_tolerance: f32,
+    pub sat_tolerance: f32,
+    pub val_tolerance: f32,
+    pub score_bias: f32,
+}
+
+impl Default for BiomeArchetypeCalibration {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            temperature_offset: 0.0,
+            precipitation_offset: 0.0,
+            elevation_offset: 0.0,
+            slope_offset: 0.0,
+            hue_tolerance: 1.0,
+            sat_tolerance: 1.0,
+            val_tolerance: 1.0,
+            score_bias: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct BiomeArchetype {
     pub id: String,
     pub name: String,
@@ -30,6 +60,8 @@ pub struct BiomeArchetype {
     pub env_conditions: EnvironmentalEnvelope,
     pub color_profile: ColorProfile,
     pub suitability_weight: f32,
+    #[serde(default)]
+    pub calibration: BiomeArchetypeCalibration,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -62,31 +94,9 @@ impl BiomeRegistry {
         let mut min_score = f32::MAX;
 
         for archetype in &self.archetypes {
-            // Environmental Score (check if within envelope)
-            let env = &archetype.env_conditions;
-
-            // We use a "distance" from the envelope if outside, or 0 if in-range
-            // This allows for fuzzy matching if no perfect match exists
-            let mut env_score = 0.0;
-
-            env_score += score_range(temp, env.temperature_min, env.temperature_max);
-            env_score += score_range(rain, env.precipitation_min, env.precipitation_max);
-            env_score += score_range(elev, env.elevation_min, env.elevation_max);
-            env_score += score_range(slope, env.slope_min, env.slope_max);
-
+            let env_score = archetype.environmental_score(temp, rain, elev, slope);
             let color_score = if use_color {
-                let cp = &archetype.color_profile;
-                let mut dh = (h - cp.h).abs();
-                if dh > 180.0 {
-                    dh = 360.0 - dh;
-                }
-                dh /= 180.0;
-                let ds = s - cp.s;
-                let dv = v - cp.v;
-
-                // Weight hue more heavily if saturation is high
-                let hue_weight = s.max(cp.s);
-                dh * dh * hue_weight + ds * ds + dv * dv
+                archetype.color_score(h, s, v)
             } else {
                 0.0
             };
@@ -109,6 +119,10 @@ impl BiomeRegistry {
 
     pub fn get_by_id(&self, id: &str) -> Option<&BiomeArchetype> {
         self.archetypes.iter().find(|a| a.id == id)
+    }
+
+    pub fn index_of_id(&self, id: &str) -> Option<usize> {
+        self.archetypes.iter().position(|a| a.id == id)
     }
 
     pub fn default_registry() -> Self {
@@ -135,6 +149,7 @@ impl BiomeRegistry {
                 v: 0.15,
             },
             suitability_weight: 0.0,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -157,6 +172,7 @@ impl BiomeRegistry {
                 v: 0.25,
             },
             suitability_weight: 0.0,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -179,6 +195,7 @@ impl BiomeRegistry {
                 v: 0.4,
             },
             suitability_weight: 0.0,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         // --- COASTAL & WETLANDS ---
@@ -202,6 +219,7 @@ impl BiomeRegistry {
                 v: 0.7,
             },
             suitability_weight: 0.2,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -224,6 +242,7 @@ impl BiomeRegistry {
                 v: 0.4,
             },
             suitability_weight: 0.3,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -246,6 +265,7 @@ impl BiomeRegistry {
                 v: 0.72,
             },
             suitability_weight: 0.4,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         // --- TROPICAL ---
@@ -269,6 +289,7 @@ impl BiomeRegistry {
                 v: 0.3,
             },
             suitability_weight: 0.5,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -291,6 +312,7 @@ impl BiomeRegistry {
                 v: 0.57,
             },
             suitability_weight: 0.6,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -313,6 +335,7 @@ impl BiomeRegistry {
                 v: 0.6,
             },
             suitability_weight: 0.6,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         // --- ARID ---
@@ -336,6 +359,7 @@ impl BiomeRegistry {
                 v: 0.75,
             },
             suitability_weight: 0.1,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -358,6 +382,7 @@ impl BiomeRegistry {
                 v: 0.6,
             },
             suitability_weight: 0.3,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -380,6 +405,7 @@ impl BiomeRegistry {
                 v: 0.82,
             },
             suitability_weight: 0.2,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         // --- SUBTROPICAL & MEDITERRANEAN ---
@@ -403,6 +429,7 @@ impl BiomeRegistry {
                 v: 0.54,
             },
             suitability_weight: 0.85,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         // --- TEMPERATE ---
@@ -426,6 +453,7 @@ impl BiomeRegistry {
                 v: 0.4,
             },
             suitability_weight: 0.8,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -448,6 +476,7 @@ impl BiomeRegistry {
                 v: 0.6,
             },
             suitability_weight: 0.9,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -470,6 +499,7 @@ impl BiomeRegistry {
                 v: 0.25,
             },
             suitability_weight: 0.7,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         // --- COLD ---
@@ -493,6 +523,7 @@ impl BiomeRegistry {
                 v: 0.19,
             },
             suitability_weight: 0.3,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -515,6 +546,7 @@ impl BiomeRegistry {
                 v: 0.62,
             },
             suitability_weight: 0.1,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -537,6 +569,7 @@ impl BiomeRegistry {
                 v: 1.0,
             },
             suitability_weight: 0.0,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         // --- MOUNTAIN & HIGHLAND ---
@@ -560,6 +593,7 @@ impl BiomeRegistry {
                 v: 0.67,
             },
             suitability_weight: 0.4,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -582,6 +616,7 @@ impl BiomeRegistry {
                 v: 0.48,
             },
             suitability_weight: 0.0,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         // --- SPECIAL ---
@@ -605,6 +640,7 @@ impl BiomeRegistry {
                 v: 0.24,
             },
             suitability_weight: 0.1,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         archetypes.push(BiomeArchetype {
@@ -627,9 +663,73 @@ impl BiomeRegistry {
                 v: 0.18,
             },
             suitability_weight: 0.1,
+            calibration: BiomeArchetypeCalibration::default(),
         });
 
         Self { archetypes }
+    }
+}
+
+impl BiomeArchetype {
+    pub fn environmental_score(&self, temp: f32, rain: f32, elev: f32, slope: f32) -> f32 {
+        let env = &self.env_conditions;
+        let calibration = &self.calibration;
+        let temp = if calibration.enabled {
+            temp + calibration.temperature_offset
+        } else {
+            temp
+        };
+        let rain = if calibration.enabled {
+            rain + calibration.precipitation_offset
+        } else {
+            rain
+        };
+        let elev = if calibration.enabled {
+            elev + calibration.elevation_offset
+        } else {
+            elev
+        };
+        let slope = if calibration.enabled {
+            slope + calibration.slope_offset
+        } else {
+            slope
+        };
+
+        score_range(temp, env.temperature_min, env.temperature_max)
+            + score_range(rain, env.precipitation_min, env.precipitation_max)
+            + score_range(elev, env.elevation_min, env.elevation_max)
+            + score_range(slope, env.slope_min, env.slope_max)
+    }
+
+    pub fn color_score(&self, h: f32, s: f32, v: f32) -> f32 {
+        let cp = &self.color_profile;
+        let calibration = &self.calibration;
+        let mut dh = (h - cp.h).abs();
+        if dh > 180.0 {
+            dh = 360.0 - dh;
+        }
+        dh /= 180.0;
+
+        let ds = s - cp.s;
+        let dv = v - cp.v;
+        let hue_weight = s.max(cp.s);
+        let hue_tolerance = if calibration.enabled {
+            calibration.hue_tolerance.max(0.01)
+        } else {
+            1.0
+        };
+        let sat_tolerance = if calibration.enabled {
+            calibration.sat_tolerance.max(0.01)
+        } else {
+            1.0
+        };
+        let val_tolerance = if calibration.enabled {
+            calibration.val_tolerance.max(0.01)
+        } else {
+            1.0
+        };
+
+        dh * dh * hue_weight / hue_tolerance + ds * ds / sat_tolerance + dv * dv / val_tolerance
     }
 }
 

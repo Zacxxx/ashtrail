@@ -5,8 +5,10 @@ use axum::{
     Json,
 };
 use base64::{engine::general_purpose, Engine as _};
+use chrono::Utc;
 use image::io::Reader as ImageReader;
-use image::GenericImageView;
+use image::{DynamicImage, GenericImageView, ImageFormat};
+use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -412,6 +414,40 @@ pub async fn get_pipeline_status(
         .collect();
 
     Ok(Json(PipelineStatusResponse { stages }))
+}
+
+pub async fn get_biome_report(
+    State(state): State<AppState>,
+    Path(planet_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let report_path = worldgen_dir(&state.planets_dir, &planet_id).join("biome_report.json");
+    let report = load_json_file::<BiomeReport>(&report_path, "biome_report.json")
+        .map_err(|err| (StatusCode::NOT_FOUND, err))?;
+    Ok(Json(report))
+}
+
+pub async fn analyze_biome_vision(
+    State(state): State<AppState>,
+    Path(planet_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let bundle = crate::ecology::load_ecology_bundle(&state.planets_dir, &planet_id)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
+    let base_path = base_image_path(&state.planets_dir, &planet_id);
+    let out_dir = worldgen_dir(&state.planets_dir, &planet_id);
+    fs::create_dir_all(&out_dir)
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    let analysis = build_or_refresh_biome_vision_priors(
+        &base_path,
+        &bundle.archetypes,
+        &bundle.biome_model_settings,
+        &out_dir,
+        true,
+    )
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
+
+    Ok(Json(analysis))
 }
 
 // ── DELETE /api/worldgen/{planet_id}/clear ──
@@ -2122,14 +2158,40 @@ fn run_single_stage(
             let mask = load_landmask(&out_dir.join("landmask.png"), w, h)?;
             let hf = load_height16(&out_dir.join("height16.png"), w, h)?;
             let base_img = load_rgb_png(&base_path, "Failed to load base image")?;
-            
-            // Load registry from ecology
+            let river = load_optional_mask_u8(&out_dir.join("river_mask.png"), w, h)?;
+
             let bundle = crate::ecology::load_ecology_bundle(&planets_dir, planet_id)
                 .unwrap_or_else(|_| crate::ecology::empty_bundle(planet_id));
-            let registry = bundle.archetypes;
+            let registry = bundle.archetypes.clone();
+            let vision_analysis = load_or_initialize_biome_vision_priors(
+                &base_path,
+                &bundle.biome_model_settings,
+                &out_dir,
+            )?;
+            let analysis = biome::classify_biomes(
+                &hf,
+                &mask,
+                river.as_deref(),
+                &base_img,
+                config,
+                &registry,
+                &bundle.biome_model_settings,
+                Some(&vision_analysis),
+                w,
+                h,
+                progress,
+            );
 
-            let biomes = biome::classify_biomes(&hf, &mask, &base_img, config, &registry, w, h, progress);
-            export::write_mask_texture(&biomes, w, h, &out_dir.join("biome.png"))
+            export::write_mask_texture(&analysis.biome_indices, w, h, &out_dir.join("biome.png"))?;
+            export::write_mask_texture(
+                &analysis.confidence_map,
+                w,
+                h,
+                &out_dir.join("biome_confidence.png"),
+            )?;
+            write_json_pretty(&out_dir.join("biome_report.json"), &analysis.report)?;
+            write_json_pretty(&out_dir.join("biome_palette.json"), &biome::biome_palette(&registry))?;
+            write_json_pretty(&out_dir.join("biome_vision_priors.json"), &vision_analysis)
         }
 
         "suitability" => {
@@ -2217,15 +2279,20 @@ fn run_single_stage(
             let (w, h) = get_dimensions(&out_dir.join("landmask.png"))?;
             let labels = load_id_texture(&out_dir.join("province_id.png"), w, h)?;
             let biomes = load_mask_u8(&out_dir.join("biome.png"), w, h)?;
+            let biome_confidence = load_optional_mask_u8(&out_dir.join("biome_confidence.png"), w, h)?
+                .unwrap_or_else(|| vec![255; (w * h) as usize]);
             let seeds = load_seeds_json(&out_dir.join("seeds.json"))?;
             let adj_json = std::fs::read_to_string(out_dir.join("adjacency.json"))
                 .map_err(|e| format!("Failed to read adjacency.json: {}", e))?;
             let adj: Vec<graph::ProvinceAdjacency> = serde_json::from_str(&adj_json)
                 .map_err(|e| format!("Failed to parse adjacency.json: {}", e))?;
+            let bundle = crate::ecology::load_ecology_bundle(&planets_dir, planet_id)
+                .unwrap_or_else(|_| crate::ecology::empty_bundle(planet_id));
+            let registry = bundle.archetypes.clone();
 
             let seed_tuples: Vec<(u32, u32, u32)> =
                 seeds.iter().map(|s| (s.id, s.x, s.y)).collect();
-            let (provinces, duchies, kingdoms, duchy_labels, kingdom_labels) =
+            let (mut provinces, duchies, kingdoms, duchy_labels, kingdom_labels) =
                 cluster::cluster_hierarchy(
                     &labels,
                     &biomes,
@@ -2239,6 +2306,13 @@ fn run_single_stage(
                     config.kingdom_size_max,
                     progress,
                 );
+            let province_summaries = enrich_province_biome_records(
+                &mut provinces,
+                &labels,
+                &biomes,
+                &biome_confidence,
+                &registry,
+            );
 
             export::write_id_texture(&duchy_labels, w, h, &out_dir.join("duchy_id.png"))?;
             export::write_id_texture(&kingdom_labels, w, h, &out_dir.join("kingdom_id.png"))?;
@@ -2256,6 +2330,7 @@ fn run_single_stage(
                 .map_err(|e| format!("Failed to serialize continents.json: {e}"))?;
             std::fs::write(out_dir.join("continents.json"), continents_json)
                 .map_err(|e| format!("Failed to write continents.json: {e}"))?;
+            enrich_biome_report_with_provinces(&out_dir.join("biome_report.json"), &province_summaries)?;
             export::write_provinces_json(&provinces, &out_dir.join("provinces.json"))?;
             export::write_duchies_json(&duchies, &out_dir.join("duchies.json"))?;
             export::write_kingdoms_json(&kingdoms, &out_dir.join("kingdoms.json"))
@@ -2395,6 +2470,391 @@ fn load_hierarchy_records(out_dir: &std::path::Path) -> Result<HierarchyRecords,
         kingdoms,
         continents,
     })
+}
+
+fn write_json_pretty<T: Serialize>(path: &std::path::Path, value: &T) -> Result<(), String> {
+    let payload = serde_json::to_string_pretty(value)
+        .map_err(|err| format!("Failed to serialize {}: {}", path.display(), err))?;
+    fs::write(path, payload).map_err(|err| format!("Failed to write {}: {}", path.display(), err))
+}
+
+fn load_optional_mask_u8(
+    path: &std::path::Path,
+    w: u32,
+    h: u32,
+) -> Result<Option<Vec<u8>>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    load_mask_u8(path, w, h).map(Some)
+}
+
+fn image_hash(path: &std::path::Path) -> Result<String, String> {
+    let bytes = fs::read(path).map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn load_or_initialize_biome_vision_priors(
+    base_path: &std::path::Path,
+    settings: &BiomeModelSettings,
+    out_dir: &std::path::Path,
+) -> Result<BiomeVisionAnalysis, String> {
+    let hash = image_hash(base_path)?;
+    let priors_path = out_dir.join("biome_vision_priors.json");
+    if priors_path.exists() {
+        let mut analysis = load_json_file::<BiomeVisionAnalysis>(&priors_path, "biome_vision_priors.json")?;
+        if analysis.source_image_hash == hash
+            && analysis.analysis_version == settings.analysis_version
+            && analysis.model_id == settings.vision_model_id
+        {
+            return Ok(analysis);
+        }
+        analysis.source_image_hash = hash.clone();
+        analysis.analysis_version = settings.analysis_version.clone();
+        analysis.model_id = settings.vision_model_id.clone();
+        analysis.cells.clear();
+        analysis.tiles.clear();
+        write_json_pretty(&priors_path, &analysis)?;
+        return Ok(analysis);
+    }
+
+    let analysis = BiomeVisionAnalysis {
+        source_image_hash: hash,
+        analysis_version: settings.analysis_version.clone(),
+        model_id: settings.vision_model_id.clone(),
+        tile_size: settings.vision_tile_size,
+        cell_size: (settings.vision_tile_size / 4).max(128),
+        grid_width: 0,
+        grid_height: 0,
+        generated_at: None,
+        tiles: Vec::new(),
+        cells: Vec::new(),
+    };
+    write_json_pretty(&priors_path, &analysis)?;
+    Ok(analysis)
+}
+
+fn enrich_province_biome_records(
+    provinces: &mut [ProvinceRecord],
+    labels: &[u32],
+    biome_indices: &[u8],
+    biome_confidence: &[u8],
+    registry: &BiomeRegistry,
+) -> Vec<BiomeProvinceSummary> {
+    let mut biome_counts: HashMap<u32, HashMap<u8, u32>> = HashMap::new();
+    let mut confidence_sums: HashMap<u32, u64> = HashMap::new();
+    let mut pixel_counts: HashMap<u32, u32> = HashMap::new();
+    let no_label = u32::MAX;
+
+    for (index, &province_id) in labels.iter().enumerate() {
+        if province_id == no_label {
+            continue;
+        }
+        *biome_counts
+            .entry(province_id)
+            .or_default()
+            .entry(biome_indices[index])
+            .or_insert(0) += 1;
+        *confidence_sums.entry(province_id).or_insert(0) += biome_confidence[index] as u64;
+        *pixel_counts.entry(province_id).or_insert(0) += 1;
+    }
+
+    let mut summaries = Vec::new();
+    for province in provinces.iter_mut() {
+        let Some(counts) = biome_counts.get(&province.id) else {
+            continue;
+        };
+
+        let mut sorted = counts.iter().map(|(idx, count)| (*idx, *count)).collect::<Vec<_>>();
+        sorted.sort_by(|left, right| right.1.cmp(&left.1));
+        let (primary_idx, _) = sorted[0];
+        let total_pixels = pixel_counts.get(&province.id).copied().unwrap_or(0).max(1);
+        let confidence = confidence_sums.get(&province.id).copied().unwrap_or(0) as f32
+            / total_pixels as f32
+            / 255.0;
+
+        province.biome_primary = primary_idx;
+        province.biome_primary_id = registry
+            .archetypes
+            .get(primary_idx as usize)
+            .map(|entry| entry.id.clone());
+        province.biome_confidence = Some(confidence);
+        province.biome_candidate_ids = sorted
+            .iter()
+            .take(3)
+            .filter_map(|(idx, _)| registry.archetypes.get(*idx as usize))
+            .map(|entry| entry.id.clone())
+            .collect();
+
+        summaries.push(BiomeProvinceSummary {
+            province_id: province.id,
+            biome_primary_id: province.biome_primary_id.clone().unwrap_or_default(),
+            biome_confidence: confidence,
+            biome_candidate_ids: province.biome_candidate_ids.clone(),
+            biome_mix: sorted
+                .iter()
+                .take(5)
+                .filter_map(|(idx, count)| {
+                    registry
+                        .archetypes
+                        .get(*idx as usize)
+                        .map(|entry| BiomeMixEntry {
+                            biome_id: entry.id.clone(),
+                            pixel_count: *count,
+                            pixel_share: *count as f32 / total_pixels as f32,
+                        })
+                })
+                .collect(),
+        });
+    }
+
+    summaries.sort_by(|left, right| left.province_id.cmp(&right.province_id));
+    summaries
+}
+
+fn enrich_biome_report_with_provinces(
+    report_path: &std::path::Path,
+    province_summaries: &[BiomeProvinceSummary],
+) -> Result<(), String> {
+    if !report_path.exists() {
+        return Ok(());
+    }
+
+    let mut report = load_json_file::<BiomeReport>(report_path, "biome_report.json")?;
+    report.province_summaries = province_summaries.to_vec();
+
+    let mut province_counts: HashMap<String, u32> = HashMap::new();
+    for summary in province_summaries {
+        *province_counts
+            .entry(summary.biome_primary_id.clone())
+            .or_insert(0) += 1;
+    }
+    for entry in &mut report.active_biomes {
+        entry.province_count = province_counts.get(&entry.biome_id).copied().unwrap_or(0);
+    }
+
+    write_json_pretty(report_path, &report)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VisionTileResponse {
+    #[serde(default)]
+    candidates: Vec<BiomeVisionCandidate>,
+    #[serde(default)]
+    notable_cues: Vec<String>,
+}
+
+async fn build_or_refresh_biome_vision_priors(
+    base_path: &std::path::Path,
+    registry: &BiomeRegistry,
+    settings: &BiomeModelSettings,
+    out_dir: &std::path::Path,
+    force_refresh: bool,
+) -> Result<BiomeVisionAnalysis, String> {
+    let hash = image_hash(base_path)?;
+    let priors_path = out_dir.join("biome_vision_priors.json");
+    if !force_refresh && priors_path.exists() {
+        let analysis = load_json_file::<BiomeVisionAnalysis>(&priors_path, "biome_vision_priors.json")?;
+        if analysis.source_image_hash == hash
+            && analysis.analysis_version == settings.analysis_version
+            && analysis.model_id == settings.vision_model_id
+            && !analysis.cells.is_empty()
+        {
+            return Ok(analysis);
+        }
+    }
+
+    let image = image::open(base_path)
+        .map_err(|err| format!("Failed to open {}: {}", base_path.display(), err))?;
+    let (width, height) = image.dimensions();
+    let tile_size = settings.vision_tile_size.max(512);
+    let overlap = (tile_size / 4).max(128);
+    let step = tile_size.saturating_sub(overlap).max(1);
+    let mut tiles = Vec::new();
+
+    let mut y = 0;
+    while y < height {
+        let mut x = 0;
+        while x < width {
+            let tile_width = tile_size.min(width - x);
+            let tile_height = tile_size.min(height - y);
+            let tile = image.crop_imm(x, y, tile_width, tile_height).to_rgb8();
+            let png_bytes = encode_png_bytes(&tile)?;
+            let image_base64 = general_purpose::STANDARD.encode(png_bytes);
+            let response = analyze_biome_tile_with_gemini(
+                &image_base64,
+                registry,
+                settings,
+                x,
+                y,
+                tile_width,
+                tile_height,
+            )
+            .await?;
+
+            tiles.push(BiomeVisionTilePrior {
+                x,
+                y,
+                width: tile_width,
+                height: tile_height,
+                notable_cues: response.notable_cues,
+                candidates: response
+                    .candidates
+                    .into_iter()
+                    .filter(|candidate| registry.get_by_id(&candidate.biome_id).is_some())
+                    .take(3)
+                    .collect(),
+            });
+
+            if x + tile_width >= width {
+                break;
+            }
+            x += step;
+        }
+        if y + tile_size >= height {
+            break;
+        }
+        y += step;
+    }
+
+    let cell_size = (tile_size / 4).max(128);
+    let cells = rasterize_vision_cells(width, height, cell_size, &tiles);
+    let analysis = BiomeVisionAnalysis {
+        source_image_hash: hash,
+        analysis_version: settings.analysis_version.clone(),
+        model_id: settings.vision_model_id.clone(),
+        tile_size,
+        cell_size,
+        grid_width: width.div_ceil(cell_size),
+        grid_height: height.div_ceil(cell_size),
+        generated_at: Some(Utc::now().to_rfc3339()),
+        tiles,
+        cells,
+    };
+    write_json_pretty(&priors_path, &analysis)?;
+    Ok(analysis)
+}
+
+fn encode_png_bytes(image: &image::RgbImage) -> Result<Vec<u8>, String> {
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(image.clone())
+        .write_to(&mut cursor, ImageFormat::Png)
+        .map_err(|err| format!("Failed to encode PNG tile: {}", err))?;
+    Ok(cursor.into_inner())
+}
+
+async fn analyze_biome_tile_with_gemini(
+    image_base64: &str,
+    registry: &BiomeRegistry,
+    settings: &BiomeModelSettings,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> Result<VisionTileResponse, String> {
+    let archetypes = registry
+        .archetypes
+        .iter()
+        .map(|entry| format!("- {}: {}", entry.id, entry.name))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let prompt = format!(
+        "You are analyzing a planetary biome tile for a deterministic worldgen pipeline.\n\
+Return ONLY strict JSON with this shape:\n\
+{{\"candidates\":[{{\"biomeId\":\"...\",\"coverage\":0.0,\"confidence\":0.0}}],\"notableCues\":[\"...\"]}}\n\
+Rules:\n\
+- Use only biome IDs from the allowed list.\n\
+- Return 1 to 3 candidates.\n\
+- coverage and confidence must be between 0 and 1.\n\
+- Consider coastlines, aridity, vegetation tint, mountain exposure, and water depth cues.\n\
+Tile metadata: x={}, y={}, width={}, height={}.\n\
+Preferred model id: {}.\n\
+Allowed biomes:\n{}",
+        x, y, width, height, settings.vision_model_id, archetypes
+    );
+
+    let raw = gemini::generate_text_with_inline_image(&prompt, image_base64, "image/png")
+        .await
+        .map_err(|(_, err)| err)?;
+    parse_json_payload::<VisionTileResponse>(&raw)
+}
+
+fn rasterize_vision_cells(
+    width: u32,
+    height: u32,
+    cell_size: u32,
+    tiles: &[BiomeVisionTilePrior],
+) -> Vec<BiomeVisionCellPrior> {
+    let grid_width = width.div_ceil(cell_size);
+    let grid_height = height.div_ceil(cell_size);
+    let mut accumulators = vec![HashMap::<String, (f32, f32, u32)>::new(); (grid_width * grid_height) as usize];
+
+    for tile in tiles {
+        let start_x = tile.x / cell_size;
+        let end_x = (tile.x + tile.width - 1) / cell_size;
+        let start_y = tile.y / cell_size;
+        let end_y = (tile.y + tile.height - 1) / cell_size;
+        for cell_y in start_y..=end_y {
+            for cell_x in start_x..=end_x {
+                let index = (cell_y * grid_width + cell_x) as usize;
+                for candidate in &tile.candidates {
+                    let entry = accumulators[index]
+                        .entry(candidate.biome_id.clone())
+                        .or_insert((0.0, 0.0, 0));
+                    entry.0 += candidate.coverage;
+                    entry.1 += candidate.confidence;
+                    entry.2 += 1;
+                }
+            }
+        }
+    }
+
+    let mut cells = Vec::with_capacity((grid_width * grid_height) as usize);
+    for cell_y in 0..grid_height {
+        for cell_x in 0..grid_width {
+            let index = (cell_y * grid_width + cell_x) as usize;
+            let mut candidates = accumulators[index]
+                .iter()
+                .map(|(biome_id, (coverage_sum, confidence_sum, count))| BiomeVisionCandidate {
+                    biome_id: biome_id.clone(),
+                    coverage: (coverage_sum / *count as f32).clamp(0.0, 1.0),
+                    confidence: (confidence_sum / *count as f32).clamp(0.0, 1.0),
+                })
+                .collect::<Vec<_>>();
+            candidates.sort_by(|left, right| {
+                let right_score = right.coverage * right.confidence;
+                let left_score = left.coverage * left.confidence;
+                right_score.total_cmp(&left_score)
+            });
+            candidates.truncate(3);
+            cells.push(BiomeVisionCellPrior {
+                x: cell_x,
+                y: cell_y,
+                candidates,
+            });
+        }
+    }
+
+    cells
+}
+
+fn parse_json_payload<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T, String> {
+    let trimmed = raw.trim().trim_matches('`').trim();
+    if let Ok(parsed) = serde_json::from_str::<T>(trimmed) {
+        return Ok(parsed);
+    }
+
+    let start = trimmed
+        .find(['{', '['])
+        .ok_or_else(|| "No JSON object found in model response".to_string())?;
+    let end = trimmed
+        .rfind(['}', ']'])
+        .ok_or_else(|| "No JSON terminator found in model response".to_string())?;
+    serde_json::from_str(&trimmed[start..=end])
+        .map_err(|err| format!("Failed to parse model JSON payload: {}", err))
 }
 
 fn resolve_province_ids_for_entity(

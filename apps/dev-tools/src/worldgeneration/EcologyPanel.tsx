@@ -110,6 +110,30 @@ export function EcologyPanel({ planetId }: EcologyPanelProps) {
                         : "No active ecology job."}
                 </div>
 
+                {ecology.biomeReport && (
+                    <div className="mb-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-[10px] font-bold tracking-widest text-cyan-300 uppercase">Biome Summary</p>
+                                <p className="mt-1 text-[10px] text-gray-500">
+                                    {ecology.biomeReport.activeBiomes.length} active archetypes • avg confidence {(ecology.biomeReport.averageConfidence * 100).toFixed(0)}%
+                                </p>
+                            </div>
+                            <Link
+                                to="/ecology?tab=biomes"
+                                className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300"
+                            >
+                                TUNE BIOMES
+                            </Link>
+                        </div>
+                        <div className="mt-3 grid grid-cols-3 gap-2">
+                            <StatusCard label="LOW CONF" status={`${ecology.biomeReport.lowConfidencePixelCount}`} />
+                            <StatusCard label="VISION" status={ecology.bundle.biomeModelSettings.visionModelId} />
+                            <StatusCard label="VERSION" status={ecology.bundle.biomeModelSettings.analysisVersion} />
+                        </div>
+                    </div>
+                )}
+
                 <EcologyHierarchyList
                     regions={ecology.regions}
                     bundle={ecology.bundle!}
@@ -166,6 +190,16 @@ export function EcologyPanel({ planetId }: EcologyPanelProps) {
                                 <p className="text-lg font-bold text-amber-300">{selectedRecord?.agriculturePotential ?? 0}</p>
                             </div>
                         </div>
+
+                        {(selectedProvince.biomePrimaryId || selectedProvince.biomePrimary !== undefined) && (
+                            <div className="mb-3 rounded-lg border border-white/10 bg-[#0a0f14] p-3 text-[10px] text-gray-300">
+                                <p className="font-bold tracking-widest text-gray-500 uppercase">Biome Classification</p>
+                                <p className="mt-1">{selectedProvince.biomePrimaryId || `#${selectedProvince.biomePrimary}`}</p>
+                                {selectedProvince.biomeConfidence !== null && selectedProvince.biomeConfidence !== undefined && (
+                                    <p className="mt-1 text-gray-500">Confidence {(selectedProvince.biomeConfidence * 100).toFixed(0)}%</p>
+                                )}
+                            </div>
+                        )}
 
                         <p className="text-[11px] leading-relaxed text-gray-300 whitespace-pre-wrap">
                             {selectedRecord?.description || "No province ecology draft yet."}

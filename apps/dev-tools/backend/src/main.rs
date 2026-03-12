@@ -682,6 +682,18 @@ async fn main() {
             "/api/planet/ecology-data/{world_id}/generate/biome/{biome_id}",
             post(ecology::generate_biome_description),
         )
+        .route(
+            "/api/planet/ecology-data/{world_id}/generate/flora-batch",
+            post(ecology::generate_flora_batch),
+        )
+        .route(
+            "/api/planet/ecology-data/{world_id}/generate/fauna-batch",
+            post(ecology::generate_fauna_batch),
+        )
+        .route(
+            "/api/planet/ecology-data/{world_id}/refresh-derived-stats",
+            post(ecology::refresh_derived_stats),
+        )
         .route("/api/planet/ecology-jobs/{job_id}", get(get_job_status))
         .route("/api/planet/humanity", post(start_humanity_job))
         .route("/api/planet/humanity/{job_id}", get(get_job_status))
@@ -810,6 +822,14 @@ async fn main() {
         .route(
             "/api/worldgen/{planet_id}/status",
             get(worldgen_pipeline::get_pipeline_status),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/biome/report",
+            get(worldgen_pipeline::get_biome_report),
+        )
+        .route(
+            "/api/worldgen/{planet_id}/biome/analyze",
+            post(worldgen_pipeline::analyze_biome_vision),
         )
         .route(
             "/api/worldgen/{planet_id}/run/{stage_name}",
@@ -2005,6 +2025,9 @@ async fn get_worldgen_regions(
                     "kingdomId": p.get("kingdomId").cloned().unwrap_or(serde_json::json!(0)),
                     "area": p.get("area").cloned().unwrap_or(serde_json::json!(0)),
                     "biomePrimary": p.get("biomePrimary").cloned().unwrap_or(serde_json::json!(0)),
+                    "biomePrimaryId": p.get("biomePrimaryId").cloned().unwrap_or(serde_json::json!(null)),
+                    "biomeConfidence": p.get("biomeConfidence").cloned().unwrap_or(serde_json::json!(null)),
+                    "biomeCandidateIds": p.get("biomeCandidateIds").cloned().unwrap_or(serde_json::json!([])),
                     "population": p.get("population").cloned().unwrap_or(serde_json::json!(null)),
                     "wealth": p.get("wealth").cloned().unwrap_or(serde_json::json!(null)),
                     "development": p.get("development").cloned().unwrap_or(serde_json::json!(null)),
@@ -4746,6 +4769,27 @@ async fn generate_texture_batch(
                 Output ONLY the item image.",
                 full_prompt
             ),
+            ("ecology_illustrations", Some("flora")) => format!(
+                "Generate a polished natural-history flora illustration. \
+                Visual content: {}. \
+                Single subject or tightly grouped specimen, readable silhouette, rich material detail, painterly realism, no text, no frame, no UI, no sprite sheet. \
+                Output ONLY the illustration image.",
+                full_prompt
+            ),
+            ("ecology_illustrations", Some("fauna")) => format!(
+                "Generate a polished natural-history fauna illustration. \
+                Visual content: {}. \
+                Show the creature clearly in a field-guide or concept-art style, full body when possible, strong anatomy readability, painterly realism, no text, no frame, no UI, no sprite sheet. \
+                Output ONLY the illustration image.",
+                full_prompt
+            ),
+            ("ecology_illustrations", _) => format!(
+                "Generate a polished ecology illustration for a worldbuilding archive. \
+                Visual content: {}. \
+                Natural-history presentation, clean readable subject, painterly realism, no text, no frame, no UI, no sprite sheet. \
+                Output ONLY the illustration image.",
+                full_prompt
+            ),
             _ => format!(
                 "Generate a game texture. \
                 Visual content: {}. \
@@ -5928,6 +5972,27 @@ async fn regenerate_texture(
             Isolated object on a solid black or dark background. Centered composition. \
             Top-down or slight isometric angle to match the game's view. No borders, no text. \
             Output ONLY the asset image.",
+            full_prompt
+        ),
+        ("ecology_illustrations", Some("flora")) => format!(
+            "Generate a polished natural-history flora illustration. \
+            Visual content: {}. \
+            Single subject or tightly grouped specimen, readable silhouette, rich material detail, painterly realism, no text, no frame, no UI, no sprite sheet. \
+            Output ONLY the illustration image.",
+            full_prompt
+        ),
+        ("ecology_illustrations", Some("fauna")) => format!(
+            "Generate a polished natural-history fauna illustration. \
+            Visual content: {}. \
+            Show the creature clearly in a field-guide or concept-art style, full body when possible, strong anatomy readability, painterly realism, no text, no frame, no UI, no sprite sheet. \
+            Output ONLY the illustration image.",
+            full_prompt
+        ),
+        ("ecology_illustrations", _) => format!(
+            "Generate a polished ecology illustration for a worldbuilding archive. \
+            Visual content: {}. \
+            Natural-history presentation, clean readable subject, painterly realism, no text, no frame, no UI, no sprite sheet. \
+            Output ONLY the illustration image.",
             full_prompt
         ),
         _ => format!(
