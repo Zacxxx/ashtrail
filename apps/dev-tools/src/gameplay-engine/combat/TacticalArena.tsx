@@ -4,11 +4,9 @@
 
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Skill } from '@ashtrail/core';
-import type { TacticalEntity, CombatPhase, CombatLogMessage } from '@ashtrail/core';
-import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells, getReachableCells, getAttackableCells, findPath } from './tacticalGrid';
+import type { TacticalEntity, CombatPhase, CombatLogMessage, CombatPreviewState, DamagePreview } from '@ashtrail/core';
+import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, findPath } from './tacticalGrid';
 import type { PlayerAction } from './useCombatWebSocket';
-import type { DamagePreview } from '@ashtrail/core';
-import { GameRulesManager } from '../rules/useGameRules';
 
 interface TacticalArenaProps {
     grid: Grid;
@@ -27,7 +25,10 @@ interface TacticalArenaProps {
     meleeAttackCost: number;
     selectedSkill: Skill | null;
     battlemapUrl?: string | null;
-    getDamagePreview: (attacker: TacticalEntity, target: TacticalEntity, skill: Skill) => DamagePreview | null;
+    previewState: CombatPreviewState;
+    onPreviewMove: (entityId: string, hoverRow?: number, hoverCol?: number) => void;
+    onPreviewBasicAttack: (attackerId: string, hoverRow?: number, hoverCol?: number) => void;
+    onPreviewSkill: (casterId: string, skillId: string, hoverRow?: number, hoverCol?: number) => void;
 }
 
 export function TacticalArena({
@@ -36,7 +37,10 @@ export function TacticalArena({
     onCellClick, onEndTurn, onSelectSkill, activeEntity, meleeAttackCost,
     selectedSkill,
     battlemapUrl,
-    getDamagePreview
+    previewState,
+    onPreviewMove,
+    onPreviewBasicAttack,
+    onPreviewSkill
 }: TacticalArenaProps) {
     const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -110,59 +114,36 @@ export function TacticalArena({
     };
 
     const aoeSet = useMemo(() => {
-        if (!selectedSkill || !hoveredCell || !activeEntity || phase !== 'combat' || playerAction !== 'targeting_skill') return new Set<string>();
-        if (selectedSkill.areaType === 'single') return new Set<string>();
-
-        const dr = hoveredCell.row - activeEntity.gridPos.row;
-        const dc = hoveredCell.col - activeEntity.gridPos.col;
-
-        let dirR = 0; let dirC = 0;
-        if (Math.abs(dr) > Math.abs(dc)) dirR = dr > 0 ? 1 : -1;
-        else if (Math.abs(dc) > Math.abs(dr)) dirC = dc > 0 ? 1 : -1;
-        else { dirR = dr > 0 ? 1 : -1; dirC = 0; }
-
-        const aoe = getAoECells(grid, hoveredCell.row, hoveredCell.col, selectedSkill.areaType, selectedSkill.areaSize || 0, dirR, dirC);
         const set = new Set<string>();
-        aoe.forEach(c => set.add(`${c.row},${c.col}`));
+        previewState.aoeCells.forEach((cell) => set.add(`${cell.row},${cell.col}`));
         return set;
-    }, [selectedSkill, hoveredCell, activeEntity, grid, phase, playerAction]);
+    }, [previewState.aoeCells]);
+
+    const targetPreviewMap = useMemo(() => {
+        const map = new Map<string, CombatPreviewState['targetPreviews'][number]['preview']>();
+        previewState.targetPreviews.forEach((target) => {
+            map.set(target.entityId, target.preview);
+        });
+        return map;
+    }, [previewState.targetPreviews]);
 
     const displayGrid = useMemo(() => {
-        // Create a shallow copy of the grid rows/cells to inject highlights
         const newGrid = grid.map(row => row.map(cell => ({ ...cell, highlight: null as 'move' | 'attack' | 'attack-blocked' | 'path' | null })));
-
-        if (!activeEntity || phase !== 'combat' || !isPlayerTurn) return newGrid;
-
-        if (playerAction === 'idle') {
-            const reachable = getReachableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, activeEntity.mp);
-            reachable.forEach(c => {
-                newGrid[c.row][c.col].highlight = 'move';
-            });
-
-            // Add path highlighting on hover
-            if (hoveredCell) {
-                const isReachable = reachable.some(c => c.row === hoveredCell.row && c.col === hoveredCell.col);
-                if (isReachable) {
-                    const path = findPath(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, hoveredCell.row, hoveredCell.col);
-                    if (path) {
-                        path.forEach(c => {
-                            newGrid[c.row][c.col].highlight = 'path';
-                        });
-                    }
-                }
-            }
-        } else if (playerAction === 'targeting_skill' && selectedSkill) {
-            const attackable = getAttackableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, selectedSkill.minRange, selectedSkill.maxRange);
-            attackable.valid.forEach(c => {
-                newGrid[c.row][c.col].highlight = 'attack';
-            });
-            attackable.blocked.forEach(c => {
-                newGrid[c.row][c.col].highlight = 'attack-blocked';
-            });
-        }
+        previewState.reachableCells.forEach((cell) => {
+            newGrid[cell.row][cell.col].highlight = 'move';
+        });
+        previewState.attackableCells.forEach((cell) => {
+            newGrid[cell.row][cell.col].highlight = 'attack';
+        });
+        previewState.blockedCells.forEach((cell) => {
+            newGrid[cell.row][cell.col].highlight = 'attack-blocked';
+        });
+        previewState.pathCells.forEach((cell) => {
+            newGrid[cell.row][cell.col].highlight = 'path';
+        });
 
         return newGrid;
-    }, [grid, activeEntity, phase, isPlayerTurn, playerAction, selectedSkill, hoveredCell]);
+    }, [grid, previewState]);
 
     return (
         <div className="w-full h-full flex flex-col gap-0 overflow-hidden">
@@ -227,16 +208,9 @@ export function TacticalArena({
                             row.map((cell, c) => {
                                 const { x, y } = gridToScreen(r, c);
                                 const occupant = cell.occupantId ? entities.get(cell.occupantId) : undefined;
-                                let error = "";
-                                if (selectedSkill?.id === 'analyze' && occupant) {
-                                    if (occupant.level > (activeEntity?.level || 10) + 5) {
-                                        error = "Target too powerful to analyze";
-                                    }
-                                }
-
-                                const damagePreview = (occupant && activeEntity && selectedSkill)
-                                    ? getDamagePreview(activeEntity, occupant, selectedSkill)
-                                    : null;
+                                const isHoveredTile = hoveredCell?.row === r && hoveredCell?.col === c;
+                                const error = isHoveredTile ? previewState.hoveredError || "" : "";
+                                const damagePreview = occupant ? targetPreviewMap.get(occupant.id) || null : null;
 
                                 return (
                                     <IsometricTile
@@ -252,8 +226,32 @@ export function TacticalArena({
                                             if (error) return; // Block clicking
                                             onCellClick(r, c);
                                         }}
-                                        onHover={() => setHoveredCell({ row: r, col: c })}
-                                        onLeave={() => setHoveredCell(null)}
+                                        onHover={() => {
+                                            setHoveredCell({ row: r, col: c });
+                                            if (!activeEntity || !isPlayerTurn || phase !== 'combat') return;
+                                            if (selectedSkill) {
+                                                onPreviewSkill(activeEntity.id, selectedSkill.id, r, c);
+                                                return;
+                                            }
+                                            if (occupant && occupant.id !== activeEntity.id && occupant.isPlayer !== activeEntity.isPlayer) {
+                                                onPreviewBasicAttack(activeEntity.id, r, c);
+                                                return;
+                                            }
+                                            if (occupant) {
+                                                onPreviewMove(activeEntity.id);
+                                                return;
+                                            }
+                                            onPreviewMove(activeEntity.id, r, c);
+                                        }}
+                                        onLeave={() => {
+                                            setHoveredCell(null);
+                                            if (!activeEntity || !isPlayerTurn || phase !== 'combat') return;
+                                            if (selectedSkill) {
+                                                onPreviewSkill(activeEntity.id, selectedSkill.id);
+                                            } else {
+                                                onPreviewMove(activeEntity.id);
+                                            }
+                                        }}
                                         errorMessage={error}
                                         damagePreview={damagePreview}
                                     />

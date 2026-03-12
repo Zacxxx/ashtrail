@@ -1121,18 +1121,25 @@ export function CharacterBuilderPage() {
     };
 
     const loadCharacter = (char: Character) => {
+        const loadedBackstory = char.backstory || "";
+        const loadedAppearancePrompt = (() => {
+            const prompt = (char.appearancePrompt || "").trim();
+            if (!prompt) return "";
+            if (prompt === loadedBackstory.trim()) return "";
+            return prompt;
+        })();
+
         setEditingId(char.id);
         setCharId(char.id);
         setName(char.name);
         setAge(char.age);
         setGender(char.gender);
         setAppearanceSelectors({ ...DEFAULT_APPEARANCE_SELECTORS });
-        setAppearancePrompt(char.appearancePrompt || "");
+        setAppearancePrompt(loadedAppearancePrompt);
         setPortraitUrl(char.portraitUrl || null);
         setIsGeneratingPortrait(false);
         setIsSyncingAppearance(false);
         setIsProfileModified(false);
-        const loadedBackstory = char.backstory || "";
         setBackstory(loadedBackstory);
         // If history is identical to backstory, it shows it wasn't a real generated story
         const loadedHistory = (char.history && char.history !== loadedBackstory && char.history.length > loadedBackstory.length + 50) ? char.history : "";
@@ -2000,7 +2007,7 @@ export function CharacterBuilderPage() {
                                                         <div className="flex-1 p-8 bg-orange-500/[0.03] border border-orange-500/10 rounded-3xl flex flex-col group/world max-h-[420px]">
                                                             <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
                                                                 <p className="text-base text-gray-400 leading-relaxed italic font-medium">
-                                                                    {worldSnippets.length > 0
+                                                                    {worldSnippets.length > 0 && worldSnippets[worldSnippets.length - 1].content.trim()
                                                                         ? worldSnippets[worldSnippets.length - 1].content
                                                                         : ASH_TRAIL_CHRONICLES.find(c => c.id === "ASH-4")?.event || "No records found for this coordinate."}
                                                                 </p>

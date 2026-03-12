@@ -155,6 +155,55 @@ pub fn find_path(
     None
 }
 
+// ── Line of Sight (Bresenham) ───────────────────────────────
+
+pub fn check_los(grid: &Grid, r0: usize, c0: usize, r1: usize, c1: usize) -> bool {
+    if r0 == r1 && c0 == c1 {
+        return true;
+    }
+
+    let mut r = r0 as i32;
+    let mut c = c0 as i32;
+    let target_r = r1 as i32;
+    let target_c = c1 as i32;
+
+    let dr = (target_r - r).abs();
+    let dc = (target_c - c).abs();
+    let sr = if r < target_r { 1 } else { -1 };
+    let sc = if c < target_c { 1 } else { -1 };
+    let mut err = dr - dc;
+
+    loop {
+        if r == target_r && c == target_c {
+            break;
+        }
+
+        if r != r0 as i32 || c != c0 as i32 {
+            let Some(row) = grid.get(r as usize) else {
+                return false;
+            };
+            let Some(cell) = row.get(c as usize) else {
+                return false;
+            };
+            if !cell.walkable || cell.occupant_id.is_some() {
+                return false;
+            }
+        }
+
+        let e2 = 2 * err;
+        if e2 > -dc {
+            err -= dc;
+            r += sr;
+        }
+        if e2 < dr {
+            err += dr;
+            c += sc;
+        }
+    }
+
+    true
+}
+
 // ── Attack range: cells within manhattan distance ───────────
 
 pub fn get_attackable_cells(
@@ -164,9 +213,21 @@ pub fn get_attackable_cells(
     min_range: i32,
     max_range: i32,
 ) -> Vec<GridPos> {
+    get_attackable_cells_split(grid, row, col, min_range, max_range, false).0
+}
+
+pub fn get_attackable_cells_split(
+    grid: &Grid,
+    row: usize,
+    col: usize,
+    min_range: i32,
+    max_range: i32,
+    ignore_los: bool,
+) -> (Vec<GridPos>, Vec<GridPos>) {
     let rows = grid.len();
     let cols = if rows > 0 { grid[0].len() } else { 0 };
-    let mut results = Vec::new();
+    let mut valid = Vec::new();
+    let mut blocked = Vec::new();
 
     for r in 0..rows {
         for c in 0..cols {
@@ -177,12 +238,17 @@ pub fn get_attackable_cells(
             }
             let dist = (r as i32 - row as i32).abs() + (c as i32 - col as i32).abs();
             if dist >= min_range && dist <= max_range {
-                results.push(GridPos { row: r, col: c });
+                let pos = GridPos { row: r, col: c };
+                if ignore_los || check_los(grid, row, col, r, c) {
+                    valid.push(pos);
+                } else {
+                    blocked.push(pos);
+                }
             }
         }
     }
 
-    results
+    (valid, blocked)
 }
 
 // ── AoE Calculation ─────────────────────────────────────────
@@ -220,6 +286,7 @@ pub fn get_aoe_cells(
             let dist = (ri - cr).abs() + (ci - cc).abs();
             let in_area = match area_type {
                 SkillAreaType::Circle => dist <= size,
+                SkillAreaType::Splash => (ri - cr).abs().max((ci - cc).abs()) <= size,
                 SkillAreaType::Cross => (ri == cr || ci == cc) && dist <= size,
                 SkillAreaType::Line => {
                     if dir_r != 0 && dir_c == 0 {
@@ -231,11 +298,33 @@ pub fn get_aoe_cells(
                         (ri == cr || ci == cc) && dist <= size
                     }
                 }
+                SkillAreaType::Cone => {
+                    if dir_r != 0 && dir_c == 0 {
+                        let depth = (ri - cr) * dir_r;
+                        depth >= 0 && depth <= size && (ci - cc).abs() <= depth
+                    } else if dir_c != 0 && dir_r == 0 {
+                        let depth = (ci - cc) * dir_c;
+                        depth >= 0 && depth <= size && (ri - cr).abs() <= depth
+                    } else {
+                        dist <= size
+                    }
+                }
+                SkillAreaType::Perpendicular => {
+                    if dir_r != 0 && dir_c == 0 {
+                        ri == cr && (ci - cc).abs() <= size
+                    } else if dir_c != 0 && dir_r == 0 {
+                        ci == cc && (ri - cr).abs() <= size
+                    } else {
+                        dist <= size
+                    }
+                }
                 SkillAreaType::Single => false, // Already handled above
             };
 
             if in_area {
-                results.push(GridPos { row: r, col: c });
+                if check_los(grid, center_row, center_col, r, c) {
+                    results.push(GridPos { row: r, col: c });
+                }
             }
         }
     }
@@ -399,6 +488,62 @@ mod tests {
         let cells = get_aoe_cells(&grid, 3, 3, &SkillAreaType::Circle, 1, 0, 0);
         // Circle radius 1 (manhattan): center + 4 adjacent = 5
         assert_eq!(cells.len(), 5);
+    }
+
+    #[test]
+    fn test_get_aoe_cells_splash() {
+        let grid = make_open_grid(7, 7);
+        let cells = get_aoe_cells(&grid, 3, 3, &SkillAreaType::Splash, 1, 0, 0);
+        // Splash size 1: 3x3 square centered on target
+        assert_eq!(cells.len(), 9);
+    }
+
+    #[test]
+    fn test_get_aoe_cells_cone() {
+        let grid = make_open_grid(7, 7);
+        let cells = get_aoe_cells(&grid, 3, 3, &SkillAreaType::Cone, 2, 1, 0);
+        let expected = vec![
+            GridPos { row: 3, col: 3 },
+            GridPos { row: 4, col: 2 },
+            GridPos { row: 4, col: 3 },
+            GridPos { row: 4, col: 4 },
+            GridPos { row: 5, col: 1 },
+            GridPos { row: 5, col: 2 },
+            GridPos { row: 5, col: 3 },
+            GridPos { row: 5, col: 4 },
+            GridPos { row: 5, col: 5 },
+        ];
+        assert_eq!(cells, expected);
+    }
+
+    #[test]
+    fn test_get_aoe_cells_perpendicular() {
+        let grid = make_open_grid(7, 7);
+        let cells = get_aoe_cells(&grid, 3, 3, &SkillAreaType::Perpendicular, 2, 1, 0);
+        let expected = vec![
+            GridPos { row: 3, col: 1 },
+            GridPos { row: 3, col: 2 },
+            GridPos { row: 3, col: 3 },
+            GridPos { row: 3, col: 4 },
+            GridPos { row: 3, col: 5 },
+        ];
+        assert_eq!(cells, expected);
+    }
+
+    #[test]
+    fn test_check_los_blocked_by_obstacle() {
+        let mut grid = make_open_grid(5, 5);
+        grid[2][2].walkable = false;
+        assert!(!check_los(&grid, 0, 0, 4, 4));
+    }
+
+    #[test]
+    fn test_get_attackable_cells_split_tracks_blocked_cells() {
+        let mut grid = make_open_grid(5, 5);
+        grid[2][2].walkable = false;
+        let (valid, blocked) = get_attackable_cells_split(&grid, 4, 0, 1, 8, false);
+        assert!(valid.iter().any(|cell| cell.row == 4 && cell.col == 4));
+        assert!(blocked.iter().any(|cell| cell.row == 0 && cell.col == 4));
     }
 
     #[test]

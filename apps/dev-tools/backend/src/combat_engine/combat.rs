@@ -7,8 +7,9 @@ use rand::Rng;
 use std::collections::HashMap;
 
 use super::grid::{
-    clear_highlights, find_path, get_aoe_cells, get_attackable_cells, get_neighbors,
-    get_reachable_cells, highlight_cells, move_entity_on_grid, place_entity, remove_entity,
+    clear_highlights, find_path, get_aoe_cells, get_attackable_cells,
+    get_attackable_cells_split, get_neighbors, get_reachable_cells, highlight_cells,
+    move_entity_on_grid, place_entity, remove_entity,
 };
 use super::rules::GameRulesConfig;
 use super::types::*;
@@ -206,6 +207,487 @@ impl CombatState {
         } else {
             vec![]
         }
+    }
+
+    fn basic_attack_range(entity: &TacticalEntity) -> i32 {
+        entity
+            .equipped
+            .as_ref()
+            .and_then(|equipped| equipped.get("mainHand"))
+            .and_then(|weapon| weapon.get("weaponRange"))
+            .and_then(|value| value.as_i64())
+            .map(|value| value as i32)
+            .unwrap_or(MELEE_RANGE)
+            .max(1)
+    }
+
+    fn directional_area_vector(from: &GridPos, target_row: usize, target_col: usize) -> (i32, i32) {
+        let dr = target_row as i32 - from.row as i32;
+        let dc = target_col as i32 - from.col as i32;
+        if dr.abs() > dc.abs() {
+            (if dr > 0 { 1 } else { -1 }, 0)
+        } else if dc.abs() > dr.abs() {
+            (0, if dc > 0 { 1 } else { -1 })
+        } else if dr != 0 {
+            (if dr > 0 { 1 } else { -1 }, 0)
+        } else if dc != 0 {
+            (0, if dc > 0 { 1 } else { -1 })
+        } else {
+            (0, 0)
+        }
+    }
+
+    fn validate_basic_attack(&self, attacker_id: &str, defender_id: &str) -> Result<(), String> {
+        let Some(attacker) = self.entities.get(attacker_id) else {
+            return Err("Attacker not found".to_string());
+        };
+        let Some(defender) = self.entities.get(defender_id) else {
+            return Err("Target not found".to_string());
+        };
+        if attacker.hp <= 0 {
+            return Err("Attacker is defeated".to_string());
+        }
+        if defender.hp <= 0 {
+            return Err("Target is already defeated".to_string());
+        }
+        if attacker.is_player == defender.is_player {
+            return Err("Basic attacks can only target enemies".to_string());
+        }
+        if attacker.ap < MELEE_ATTACK_COST {
+            return Err(format!(
+                "Not enough AP to attack (need {MELEE_ATTACK_COST}, have {})",
+                attacker.ap
+            ));
+        }
+
+        let attack_range = Self::basic_attack_range(attacker);
+        let (valid, blocked) = get_attackable_cells_split(
+            &self.grid,
+            attacker.grid_pos.row,
+            attacker.grid_pos.col,
+            1,
+            attack_range,
+            false,
+        );
+        let defender_pos = &defender.grid_pos;
+        if valid
+            .iter()
+            .any(|cell| cell.row == defender_pos.row && cell.col == defender_pos.col)
+        {
+            return Ok(());
+        }
+        if blocked
+            .iter()
+            .any(|cell| cell.row == defender_pos.row && cell.col == defender_pos.col)
+        {
+            return Err("Line of sight blocked".to_string());
+        }
+
+        Err("Target out of range".to_string())
+    }
+
+    fn validate_skill_cast(
+        &self,
+        caster_id: &str,
+        target_row: usize,
+        target_col: usize,
+        skill_id: &str,
+    ) -> Result<Skill, String> {
+        let Some(caster) = self.entities.get(caster_id) else {
+            return Err("Caster not found".to_string());
+        };
+        let Some(row) = self.grid.get(target_row) else {
+            return Err("Target out of bounds".to_string());
+        };
+        let Some(cell) = row.get(target_col) else {
+            return Err("Target out of bounds".to_string());
+        };
+        let Some(skill) = caster.skills.iter().find(|skill| skill.id == skill_id) else {
+            return Err(format!("Skill {skill_id} not found"));
+        };
+
+        if caster.ap < skill.ap_cost {
+            return Err(format!(
+                "Not enough AP for {} (need {}, have {})",
+                skill.name, skill.ap_cost, caster.ap
+            ));
+        }
+        if let Some(cooldown) = caster.skill_cooldowns.get(skill_id) {
+            if *cooldown > 1 {
+                return Err(format!("{} is on cooldown", skill.name));
+            }
+        }
+        if !cell.walkable {
+            return Err("Cannot target obstacles.".to_string());
+        }
+
+        match skill.target_type {
+            SkillTargetType::SelfTarget => {
+                if caster.grid_pos.row != target_row || caster.grid_pos.col != target_col {
+                    return Err("Self-target skills must target the caster".to_string());
+                }
+            }
+            _ => {
+                let (valid, blocked) = get_attackable_cells_split(
+                    &self.grid,
+                    caster.grid_pos.row,
+                    caster.grid_pos.col,
+                    skill.min_range,
+                    skill.max_range,
+                    false,
+                );
+                let is_valid = valid
+                    .iter()
+                    .any(|cell| cell.row == target_row && cell.col == target_col);
+                if !is_valid {
+                    let is_blocked = blocked
+                        .iter()
+                        .any(|cell| cell.row == target_row && cell.col == target_col);
+                    return Err(if is_blocked {
+                        "Line of sight blocked".to_string()
+                    } else {
+                        "Target out of range".to_string()
+                    });
+                }
+            }
+        }
+
+        let has_valid_target = match skill.target_type {
+            SkillTargetType::Cell => true,
+            SkillTargetType::Enemy => cell
+                .occupant_id
+                .as_ref()
+                .and_then(|occ_id| self.entities.get(occ_id))
+                .map(|target| target.is_player != caster.is_player && target.hp > 0)
+                .unwrap_or(false),
+            SkillTargetType::Ally => cell
+                .occupant_id
+                .as_ref()
+                .and_then(|occ_id| self.entities.get(occ_id))
+                .map(|target| target.is_player == caster.is_player && target.hp > 0)
+                .unwrap_or(false),
+            SkillTargetType::SelfTarget => true,
+        };
+
+        if !has_valid_target {
+            return Err(format!("Invalid target for {}", skill.name));
+        }
+
+        if skill.id == "analyze" {
+            if let Some(target) = cell
+                .occupant_id
+                .as_ref()
+                .and_then(|occ_id| self.entities.get(occ_id))
+            {
+                if target.level > caster.level + 5 {
+                    return Err("Target too powerful to analyze".to_string());
+                }
+            }
+        }
+
+        Ok(skill.clone())
+    }
+
+    fn skill_affected_cells(
+        &self,
+        caster_pos: &GridPos,
+        target_row: usize,
+        target_col: usize,
+        skill: &Skill,
+    ) -> Vec<GridPos> {
+        let (dir_r, dir_c) = if matches!(
+            skill.area_type,
+            SkillAreaType::Line | SkillAreaType::Cone | SkillAreaType::Perpendicular
+        ) {
+            Self::directional_area_vector(caster_pos, target_row, target_col)
+        } else {
+            (0, 0)
+        };
+
+        get_aoe_cells(
+            &self.grid,
+            target_row,
+            target_col,
+            &skill.area_type,
+            skill.area_size,
+            dir_r,
+            dir_c,
+        )
+    }
+
+    fn target_armor_bonus(&self, target: &TacticalEntity) -> i32 {
+        let armor_endu_scale = 0.4;
+        let armor_agi_scale = 0.2;
+        let endu_bonus = (target.endurance as f64 * armor_endu_scale) as i32;
+        let agi_bonus = (target.agility as f64 * armor_agi_scale) as i32;
+        let mut base_armor = 0;
+        if let Some(eq) = target.equipped.as_ref() {
+            if let Some(chest) = eq.get("chest") {
+                if let Some(effs) = chest.get("effects").and_then(|effects| effects.as_array()) {
+                    for effect in effs {
+                        if effect.get("target").and_then(|value| value.as_str()) == Some("armor") {
+                            base_armor += effect
+                                .get("value")
+                                .and_then(|value| value.as_i64())
+                                .unwrap_or(0) as i32;
+                        }
+                    }
+                }
+            }
+        }
+        base_armor + endu_bonus + agi_bonus
+    }
+
+    fn basic_attack_preview(&self, attacker: &TacticalEntity, defender: &TacticalEntity) -> DamagePreview {
+        let crit_chance = attacker.crit_chance;
+        let armor = self.target_armor_bonus(defender);
+        let min_base = (attacker.strength as f64 * self.rules.combat.damage_variance_min) as i32;
+        let max_base = (attacker.strength as f64 * self.rules.combat.damage_variance_max) as i32;
+        let min = (min_base - (defender.defense + armor)).max(1);
+        let max = (max_base - (defender.defense + armor)).max(1);
+        let crit_min = ((min_base as f64 * 1.5) as i32 - (defender.defense + armor)).max(1);
+        let crit_max = ((max_base as f64 * 1.5) as i32 - (defender.defense + armor)).max(1);
+
+        DamagePreview {
+            min,
+            max,
+            crit_min,
+            crit_max,
+            is_magical: false,
+            crit_chance,
+        }
+    }
+
+    fn skill_damage_preview(
+        &self,
+        caster: &TacticalEntity,
+        target: &TacticalEntity,
+        skill: &Skill,
+    ) -> Option<DamagePreview> {
+        let mut base_damage = skill.damage?;
+
+        if skill
+            .effects
+            .as_ref()
+            .is_some_and(|effects| effects.iter().any(|effect| effect.effect_type == EffectType::WeaponDamageReplacement))
+        {
+            if let Some(weapon) = caster
+                .equipped
+                .as_ref()
+                .and_then(|equipped| equipped.get("mainHand"))
+            {
+                if let Some(effects) = weapon.get("effects").and_then(|value| value.as_array()) {
+                    for effect in effects {
+                        let effect_type = effect.get("type").and_then(|value| value.as_str());
+                        let target_key = effect.get("target").and_then(|value| value.as_str());
+                        if target_key == Some("damage")
+                            || target_key == Some("physical_damage")
+                            || effect_type == Some("COMBAT_BONUS")
+                        {
+                            base_damage = effect
+                                .get("value")
+                                .and_then(|value| value.as_i64())
+                                .unwrap_or(base_damage as i64) as i32;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let is_magical = skill.effect_type == Some(SkillEffectType::Magical);
+        let min_scaled = ((base_damage as f64
+            + caster.strength as f64 * self.rules.combat.strength_to_power_ratio)
+            * self.rules.combat.damage_variance_min) as i32;
+        let max_scaled = ((base_damage as f64
+            + caster.strength as f64 * self.rules.combat.strength_to_power_ratio)
+            * self.rules.combat.damage_variance_max) as i32;
+
+        let apply_mitigation = |damage: i32| {
+            if is_magical {
+                let resist_amount = (damage as f64 * target.resistance) as i32;
+                (damage - resist_amount).max(1)
+            } else {
+                (damage - (target.defense + self.target_armor_bonus(target))).max(1)
+            }
+        };
+
+        let analyzed_bonus = target
+            .active_effects
+            .as_ref()
+            .map(|effects| {
+                effects
+                    .iter()
+                    .filter(|effect| effect.effect_type == EffectType::Analyzed)
+                    .map(|effect| effect.value)
+                    .sum::<f64>()
+                    / 100.0
+            })
+            .unwrap_or(0.0);
+
+        Some(DamagePreview {
+            min: apply_mitigation(min_scaled),
+            max: apply_mitigation(max_scaled),
+            crit_min: apply_mitigation((min_scaled as f64 * 1.5) as i32),
+            crit_max: apply_mitigation((max_scaled as f64 * 1.5) as i32),
+            is_magical,
+            crit_chance: caster.crit_chance + analyzed_bonus,
+        })
+    }
+
+    pub fn preview_move(
+        &self,
+        entity_id: &str,
+        hover_row: Option<usize>,
+        hover_col: Option<usize>,
+    ) -> CombatPreviewState {
+        let Some(entity) = self.entities.get(entity_id) else {
+            return CombatPreviewState::default();
+        };
+        let reachable_cells = get_reachable_cells(
+            &self.grid,
+            entity.grid_pos.row,
+            entity.grid_pos.col,
+            entity.mp,
+        );
+
+        let mut preview = CombatPreviewState {
+            mode: PreviewMode::Move,
+            reachable_cells,
+            ..CombatPreviewState::default()
+        };
+
+        if let (Some(row), Some(col)) = (hover_row, hover_col) {
+            preview.hovered_cell = Some(GridPos { row, col });
+            if let Some(path) = find_path(&self.grid, entity.grid_pos.row, entity.grid_pos.col, row, col) {
+                if (path.len() as i32) <= entity.mp {
+                    preview.path_cells = path;
+                }
+            }
+        }
+
+        preview
+    }
+
+    pub fn preview_basic_attack(
+        &self,
+        attacker_id: &str,
+        hover_row: Option<usize>,
+        hover_col: Option<usize>,
+    ) -> CombatPreviewState {
+        let Some(attacker) = self.entities.get(attacker_id) else {
+            return CombatPreviewState::default();
+        };
+        let attack_range = Self::basic_attack_range(attacker);
+        let (attackable_cells, blocked_cells) = get_attackable_cells_split(
+            &self.grid,
+            attacker.grid_pos.row,
+            attacker.grid_pos.col,
+            1,
+            attack_range,
+            false,
+        );
+
+        let mut preview = CombatPreviewState {
+            mode: PreviewMode::Attack,
+            attackable_cells,
+            blocked_cells,
+            ..CombatPreviewState::default()
+        };
+
+        if let (Some(row), Some(col)) = (hover_row, hover_col) {
+            preview.hovered_cell = Some(GridPos { row, col });
+            if let Some(cell) = self.grid.get(row).and_then(|grid_row| grid_row.get(col)) {
+                if let Some(defender_id) = &cell.occupant_id {
+                    match self.validate_basic_attack(attacker_id, defender_id) {
+                        Ok(()) => {
+                            if let Some(defender) = self.entities.get(defender_id) {
+                                preview.target_previews.push(CombatTargetPreview {
+                                    entity_id: defender_id.clone(),
+                                    preview: self.basic_attack_preview(attacker, defender),
+                                });
+                            }
+                        }
+                        Err(message) => preview.hovered_error = Some(message),
+                    }
+                }
+            }
+        }
+
+        preview
+    }
+
+    pub fn preview_skill(
+        &self,
+        caster_id: &str,
+        skill_id: &str,
+        hover_row: Option<usize>,
+        hover_col: Option<usize>,
+    ) -> CombatPreviewState {
+        let Some(caster) = self.entities.get(caster_id) else {
+            return CombatPreviewState::default();
+        };
+        let Some(skill) = caster.skills.iter().find(|skill| skill.id == skill_id) else {
+            return CombatPreviewState::default();
+        };
+
+        let (attackable_cells, blocked_cells) = match skill.target_type {
+            SkillTargetType::SelfTarget => (
+                vec![caster.grid_pos.clone()],
+                Vec::new(),
+            ),
+            _ => get_attackable_cells_split(
+                &self.grid,
+                caster.grid_pos.row,
+                caster.grid_pos.col,
+                skill.min_range,
+                skill.max_range,
+                false,
+            ),
+        };
+
+        let mut preview = CombatPreviewState {
+            mode: PreviewMode::Skill,
+            attackable_cells,
+            blocked_cells,
+            ..CombatPreviewState::default()
+        };
+
+        if let (Some(row), Some(col)) = (hover_row, hover_col) {
+            preview.hovered_cell = Some(GridPos { row, col });
+            if let Some(cell) = self.grid.get(row).and_then(|grid_row| grid_row.get(col)) {
+                if !cell.walkable {
+                    preview.hovered_error = Some("Cannot target obstacles.".to_string());
+                    return preview;
+                }
+            }
+
+            match self.validate_skill_cast(caster_id, row, col, skill_id) {
+                Ok(valid_skill) => {
+                    preview.aoe_cells =
+                        self.skill_affected_cells(&caster.grid_pos, row, col, &valid_skill);
+                    for pos in &preview.aoe_cells {
+                        if let Some(occupant_id) = self.grid[pos.row][pos.col].occupant_id.as_ref() {
+                            if let Some(target) = self.entities.get(occupant_id) {
+                                if let Some(damage_preview) =
+                                    self.skill_damage_preview(caster, target, &valid_skill)
+                                {
+                                    preview.target_previews.push(CombatTargetPreview {
+                                        entity_id: occupant_id.clone(),
+                                        preview: damage_preview,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(message) => {
+                    preview.hovered_error = Some(message);
+                }
+            }
+        }
+
+        preview
     }
 
     // ── Calculate Effective Stats ───────────────────────────
@@ -492,13 +974,18 @@ impl CombatState {
         let mut events = Vec::new();
         let mut rng = rand::rng();
 
-        let (atk_name, atk_strength, atk_crit_chance, atk_ap) = match self.entities.get(attacker_id)
+        if let Err(message) = self.validate_basic_attack(attacker_id, defender_id) {
+            events.push(CombatEvent::Error { message });
+            return events;
+        }
+
+        let (atk_name, atk_strength, atk_crit_chance) = match self.entities.get(attacker_id)
         {
-            Some(a) => (a.name.clone(), a.strength, a.crit_chance, a.ap),
+            Some(a) => (a.name.clone(), a.strength, a.crit_chance),
             None => return events,
         };
 
-        let (def_name, def_evasion, def_defense, def_endurance, def_agility, def_hp) =
+        let (def_name, def_evasion, def_defense, def_endurance, def_agility) =
             match self.entities.get(defender_id) {
                 Some(d) => (
                     d.name.clone(),
@@ -506,18 +993,9 @@ impl CombatState {
                     d.defense,
                     d.endurance,
                     d.agility,
-                    d.hp,
                 ),
                 None => return events,
             };
-
-        if atk_ap < MELEE_ATTACK_COST {
-            self.add_log(
-                &format!("{atk_name} doesn't have enough AP to attack!"),
-                LogType::Info,
-            );
-            return events;
-        }
 
         // Deduct AP
         if let Some(attacker) = self.entities.get_mut(attacker_id) {
@@ -677,25 +1155,16 @@ impl CombatState {
         let mut events = Vec::new();
         let mut rng = rand::rng();
 
-        let skill = {
-            let caster = match self.entities.get(caster_id) {
-                Some(c) => c,
-                None => return events,
-            };
-            match caster.skills.iter().find(|s| s.id == skill_id) {
-                Some(s) => s.clone(),
-                None => {
-                    events.push(CombatEvent::Error {
-                        message: format!("Skill {skill_id} not found"),
-                    });
-                    return events;
-                }
+        let skill = match self.validate_skill_cast(caster_id, target_row, target_col, skill_id) {
+            Ok(skill) => skill,
+            Err(message) => {
+                events.push(CombatEvent::Error { message });
+                return events;
             }
         };
 
         let (
             caster_name,
-            caster_ap,
             caster_pos,
             caster_strength,
             caster_wisdom,
@@ -707,7 +1176,6 @@ impl CombatState {
             let c = self.entities.get(caster_id).unwrap();
             (
                 c.name.clone(),
-                c.ap,
                 c.grid_pos.clone(),
                 c.strength,
                 c.wisdom,
@@ -718,40 +1186,7 @@ impl CombatState {
             )
         };
 
-        if caster_ap < skill.ap_cost {
-            events.push(CombatEvent::Error {
-                message: format!(
-                    "Not enough AP for {} (need {}, have {caster_ap})",
-                    skill.name, skill.ap_cost
-                ),
-            });
-            return events;
-        }
-
-        // Calculate direction for line AoE
-        let dr = target_row as i32 - caster_pos.row as i32;
-        let dc = target_col as i32 - caster_pos.col as i32;
-        let (dir_r, dir_c) = if skill.area_type == SkillAreaType::Line {
-            if dr.abs() > dc.abs() {
-                (if dr > 0 { 1 } else { -1 }, 0)
-            } else if dc.abs() > dr.abs() {
-                (0, if dc > 0 { 1 } else { -1 })
-            } else {
-                (if dr > 0 { 1 } else { -1 }, 0)
-            }
-        } else {
-            (0, 0)
-        };
-
-        let affected_cells = get_aoe_cells(
-            &self.grid,
-            target_row,
-            target_col,
-            &skill.area_type,
-            skill.area_size,
-            dir_r,
-            dir_c,
-        );
+        let affected_cells = self.skill_affected_cells(&caster_pos, target_row, target_col, &skill);
 
         // Deduct AP and set cooldown on caster
         if let Some(caster) = self.entities.get_mut(caster_id) {
