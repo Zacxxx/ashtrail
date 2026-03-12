@@ -649,6 +649,10 @@ async fn main() {
             post(ai_quests::advance_quest_handler),
         )
         .route(
+            "/api/gm/enhance-appearance-prompt",
+            post(ai_quests::enhance_appearance_prompt_handler),
+        )
+        .route(
             "/api/gm/generate-character-portrait",
             post(ai_quests::generate_character_portrait_handler),
         )

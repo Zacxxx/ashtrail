@@ -8,6 +8,7 @@ interface HistoryGalleryProps {
     onSelectPlanet: (item: GenerationHistoryItem) => void;
     onSelectTexture: (planetId: string, textureUrl: string) => void;
     showExtendedTabs?: boolean;
+    initialTab?: TabType;
     onRenameWorld?: (id: string, newName: string) => void;
 }
 
@@ -64,10 +65,11 @@ export function HistoryGallery({
     onSelectPlanet,
     onSelectTexture,
     showExtendedTabs = false,
+    initialTab = "planets",
     onRenameWorld,
 }: HistoryGalleryProps) {
     const ISOLATED_PAGE_SIZE = 24;
-    const [activeTab, setActiveTab] = useState<TabType>("planets");
+    const [activeTab, setActiveTab] = useState<TabType>(initialTab);
     const [iconImages, setIconImages] = useState<IconImageItem[]>([]);
     const [textureImages, setTextureImages] = useState<TextureImageItem[]>([]);
     const [characterPortraits, setCharacterPortraits] = useState<CharacterPortraitItem[]>([]);
@@ -150,6 +152,10 @@ export function HistoryGallery({
             setIsolatedPage(isolatedPageCount);
         }
     }, [isolatedPage, isolatedPageCount]);
+
+    useEffect(() => {
+        setActiveTab(initialTab);
+    }, [initialTab]);
 
     useEffect(() => {
         if (!showExtendedTabs) return;
