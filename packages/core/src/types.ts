@@ -141,6 +141,8 @@ export type ItemRarity = "salvaged" | "reinforced" | "pre-ash" | "specialized" |
 
 export type EquipSlot = "head" | "chest" | "gloves" | "waist" | "legs" | "boots" | "mainHand" | "offHand";
 
+export type WeaponType = 'melee' | 'ranged';
+
 export interface Item {
   id: string;
   name: string;
@@ -151,12 +153,16 @@ export interface Item {
   bagIndex?: number;
   slotIndex?: number;
   equipSlot?: EquipSlot;   // Which equipment slot this item belongs to
+  weaponType?: 'melee' | 'ranged';
+  weaponRange?: number;
+  weaponAreaType?: 'single' | 'cross' | 'circle' | 'splash' | 'line' | 'cone' | 'perpendicular'; // AOE pattern
+  weaponAreaSize?: number;  // radius/arm-length/line-length (0 = single target)
   effects?: GameplayEffect[];
   icon?: string;           // Emoji or gallery path
 }
 
 export type SkillTargetType = 'enemy' | 'ally' | 'self' | 'cell';
-export type SkillAreaType = 'single' | 'cross' | 'circle' | 'line';
+export type SkillAreaType = 'single' | 'cross' | 'circle' | 'splash' | 'line' | 'cone' | 'perpendicular';
 
 export type SkillCategory = 'occupation' | 'base' | 'unique' | 'equipment';
 

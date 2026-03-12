@@ -62,7 +62,9 @@
     "icon": "📦",
     "id": "item-1772210100258",
     "name": "Le gourdin d'AF",
-    "rarity": "ashmarked"
+    "rarity": "ashmarked",
+    "weaponRange": 1,
+    "weaponType": "melee"
   },
   {
     "category": "armor",
@@ -106,7 +108,9 @@
     "icon": "📦",
     "id": "item-1772541756003",
     "name": "griffe de sterling",
-    "rarity": "relic"
+    "rarity": "relic",
+    "weaponRange": 1,
+    "weaponType": "melee"
   },
   {
     "category": "weapon",
@@ -114,9 +118,9 @@
     "description": "A gun made for the C-Suite of Moebius",
     "effects": [
       {
-        "target": "charisma",
-        "type": "STAT_MODIFIER",
-        "value": 5
+        "target": "damage",
+        "type": "COMBAT_BONUS",
+        "value": 50
       },
       {
         "target": "crit_rate",
@@ -138,7 +142,9 @@
     "icon": "📦",
     "id": "item-1772901369456",
     "name": "Moebius' Blaster",
-    "rarity": "specialized"
+    "rarity": "specialized",
+    "weaponRange": 5,
+    "weaponType": "ranged"
   },
   {
     "category": "armor",
@@ -178,5 +184,26 @@
     "id": "item-1772901624775",
     "name": "Moebius' Tuxedo",
     "rarity": "specialized"
+  },
+  {
+    "category": "weapon",
+    "cost": 0,
+    "description": "old but efficient as fuck",
+    "effects": [
+      {
+        "target": "damage",
+        "type": "COMBAT_BONUS",
+        "value": 50
+      }
+    ],
+    "equipSlot": "mainHand",
+    "icon": "📦",
+    "id": "item-1773235390183",
+    "name": "Old fkcin bazooka",
+    "rarity": "relic",
+    "weaponAreaSize": 2,
+    "weaponAreaType": "splash",
+    "weaponRange": 5,
+    "weaponType": "ranged"
   }
 ]

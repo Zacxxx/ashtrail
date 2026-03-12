@@ -148,9 +148,71 @@ export function CharacterBuilderPage() {
     const [alignment, setAlignment] = useState("");
     const [showSelectionModal, setShowSelectionModal] = useState<"title" | "badge" | null>(null);
     const [isGeneratingStory, setIsGeneratingStory] = useState(false);
+    const [hasStartedGeneration, setHasStartedGeneration] = useState(false);
 
     // Relationships
     const [relationships, setRelationships] = useState<CharacterRelationship[]>([]);
+    const [isAlignmentOpen, setIsAlignmentOpen] = useState(false);
+    const [worldSnippets, setWorldSnippets] = useState<{ id: string; content: string; date: any }[]>([]);
+    const [targetHistory, setTargetHistory] = useState("");
+    const [isTyping, setIsTyping] = useState(false);
+    const [genProgress, setGenProgress] = useState(0);
+
+    // Typing effect for lore
+    useEffect(() => {
+        if (!targetHistory) return;
+        setIsTyping(true);
+        setHistory("");
+        let i = 0;
+        const speed = 12; // adjustment for speed
+        const charsPerTick = 12;
+
+        const timer = setInterval(() => {
+            i += charsPerTick;
+            const nextText = targetHistory.slice(0, i);
+            setHistory(nextText);
+
+            if (i >= targetHistory.length) {
+                clearInterval(timer);
+                setIsTyping(false);
+                setTargetHistory(""); // reset
+            }
+        }, 20);
+
+        return () => clearInterval(timer);
+    }, [targetHistory]);
+
+    // Simulated progress for AI generation
+    useEffect(() => {
+        if (!isGeneratingStory) {
+            setGenProgress(0);
+            return;
+        }
+
+        const interval = setInterval(() => {
+            setGenProgress(prev => {
+                if (prev >= 98) return 98;
+                // Slower, more realistic pacing for AI generation
+                const inc = prev < 30 ? 3 : prev < 60 ? 2 : 1;
+                return prev + inc;
+            });
+        }, 350);
+
+        return () => clearInterval(interval);
+    }, [isGeneratingStory]);
+
+    // Fetch world's lore snippets
+    useEffect(() => {
+        if (!worldId) return;
+        fetch(`http://localhost:8787/api/planet/lore-snippets/${worldId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setWorldSnippets(data);
+                }
+            })
+            .catch(err => console.error("Failed to load world snippets", err));
+    }, [worldId]);
 
     // World Picker
     const { history: generationHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
@@ -159,7 +221,21 @@ export function CharacterBuilderPage() {
 
     const handleGenerateConfirm = async (characters: Character[]) => {
         try {
-            for (const char of characters) {
+            const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
+
+            for (let char of characters) {
+                // Automatically equip base skills for players
+                if (!char.isNPC) {
+                    const existingSkills = char.skills || [];
+                    const merged = [...existingSkills];
+                    baseSkills.forEach(bs => {
+                        if (!merged.some(ms => ms.id === bs.id)) {
+                            merged.push(bs);
+                        }
+                    });
+                    char.skills = merged;
+                }
+
                 await fetch("http://127.0.0.1:8787/api/data/characters", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -349,6 +425,45 @@ export function CharacterBuilderPage() {
         return result;
     }, [activeStats, activeAttributeUpgrades, equipmentStatModifiers]);
 
+    // Dynamize specific skills (like Use Weapon) based on current equipment
+    const dynamicSkills = useMemo(() => {
+        const weapon = equippedItems.mainHand;
+        return selectedSkills.map(skill => {
+            // 'use-weapon' is the canonical id for the weapon attack skill
+            if (skill.id === 'use-weapon') {
+                const dynamicSkill = { ...skill };
+                const freshWeapon = weapon && weapon.id ? (GameRegistry.getItem(weapon.id) || weapon) : weapon;
+                if (freshWeapon) {
+                    dynamicSkill.maxRange = freshWeapon.weaponRange || 1;
+                    dynamicSkill.minRange = 1;
+
+                    const weapAreaType = (freshWeapon as any).weaponAreaType || 'single';
+                    const weapAreaSize = (freshWeapon as any).weaponAreaSize || 0;
+                    dynamicSkill.areaType = weapAreaType;
+                    dynamicSkill.areaSize = weapAreaSize;
+
+                    const typeLabel = (freshWeapon.weaponType || 'melee').toUpperCase();
+                    const dmgMod = freshWeapon.effects?.find((e: any) => e.target === 'damage');
+                    const dmgStr = dmgMod ? ` | Base DMG: ${dmgMod.value}` : '';
+                    const scalingStr = weapon.weaponType === 'ranged' ? ' [FIXED]' : ' + STR scaling';
+                    const aoeStr = weapAreaType !== 'single' ? ` | AOE: ${weapAreaType}(${weapAreaSize})` : '';
+                    dynamicSkill.description = `Attack with your ${weapon.name} [${typeLabel}${dmgStr}${scalingStr}${aoeStr}].`;
+                } else {
+                    dynamicSkill.maxRange = 1;
+                    dynamicSkill.minRange = 1;
+                    dynamicSkill.areaType = 'single';
+                    dynamicSkill.areaSize = 0;
+                    dynamicSkill.description = 'Attack with your bare hands [MELEE + STR scaling].';
+                }
+                return dynamicSkill;
+            }
+            return skill;
+        });
+    }, [selectedSkills, equippedItems.mainHand]);
+
+    const activeWeapon = equippedItems.mainHand;
+    const isRangedWeapon = activeWeapon?.weaponType === 'ranged';
+
     // Derived values from effective stats
     const derivedStats = useMemo(() => {
         const s = effectiveStats;
@@ -378,6 +493,11 @@ export function CharacterBuilderPage() {
             }
         });
 
+        const weapon = equippedItems.mainHand;
+        const isRanged = weapon?.weaponType === 'ranged';
+        const scalingStat = isRanged ? (rules.combat?.rangedScalingStat || 'agility') : (rules.combat?.meleeScalingStat || 'strength');
+        const scalingVal = s[scalingStat as keyof Stats] || 0;
+
         return {
             hp: hp + directHp,
             ap: ap,
@@ -385,24 +505,24 @@ export function CharacterBuilderPage() {
             crit: `${(s.intelligence * (rules.core.critPerIntelligence || 0.02) * 100).toFixed(1)}%`,
             resist: `${(s.wisdom * (rules.core.resistPerWisdom || 0.05) * 100).toFixed(0)}%`,
             social: `${(s.charisma * (rules.core.charismaBonusPerCharisma || 0.03) * 100).toFixed(1)}%`,
-            minDmg: (() => {
-                const weapon = equippedItems.mainHand;
-                let base = 4;
-                if (weapon) {
-                    const dmgEff = weapon.effects?.find(e => e.target === 'damage' || e.type === 'COMBAT_BONUS');
-                    if (dmgEff) base = dmgEff.value;
-                }
-                return (base + s.strength * 0.2).toFixed(1);
-            })(),
-            maxDmg: (() => {
-                const weapon = equippedItems.mainHand;
+            ...(() => {
+                // Resolve base damage: prefer explicit `damage` target, then COMBAT_BONUS fallback, else default 5
                 let base = 5;
+                let hasExplicitDmgModifier = false;
                 if (weapon) {
-                    const dmgEff = weapon.effects?.find(e => e.target === 'damage' || e.type === 'COMBAT_BONUS');
-                    if (dmgEff) base = dmgEff.value;
+                    const dmgEff = weapon.effects?.find(e => e.target === 'damage');
+                    const combatBonusEff = !dmgEff ? weapon.effects?.find(e => e.type === 'COMBAT_BONUS') : null;
+                    const effective = dmgEff || combatBonusEff;
+                    if (effective) { base = effective.value; hasExplicitDmgModifier = !!dmgEff; }
                 }
-                return (base + s.strength * 0.4).toFixed(1);
-            })()
+                const minScale = rules.combat?.strengthScalingMin || 0.2;
+                const maxScale = rules.combat?.strengthScalingMax || 0.4;
+                return {
+                    weaponBaseDmg: hasExplicitDmgModifier ? base : null,
+                    minDmg: isRanged ? base.toFixed(1) : (base * (1 + (scalingVal * minScale / 10))).toFixed(1),
+                    maxDmg: isRanged ? base.toFixed(1) : (base * (1 + (scalingVal * maxScale / 10))).toFixed(1),
+                };
+            })(),
         };
     }, [effectiveStats, equippedItems]);
 
@@ -488,9 +608,22 @@ export function CharacterBuilderPage() {
     useEffect(() => {
         async function load() {
             await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
-            setSavedCharacters(GameRegistry.getAllCharacters());
+            const rawCharacters = GameRegistry.getAllCharacters();
+            const skills = GameRegistry.getAllSkills();
+            const baseSkills = skills.filter(s => s.category === "base");
+
+            // Enrich all characters with base skills immediately and filter out legacy slash
+            const enriched = rawCharacters.map(c => ({
+                ...c,
+                skills: [
+                    ...(c.skills || []).filter(s => s.id !== 'slash'),
+                    ...baseSkills.filter(bs => !(c.skills || []).some(ms => ms.id === bs.id && ms.id !== 'slash'))
+                ]
+            }));
+
+            setSavedCharacters(enriched);
             setLibraryItems(GameRegistry.getAllItems());
-            setLibrarySkills(GameRegistry.getAllSkills());
+            setLibrarySkills(skills);
             setIsLoading(false);
         }
         load();
@@ -681,11 +814,37 @@ export function CharacterBuilderPage() {
         setRedispatchPoints(null);
         setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
-        setInventory(char.inventory || []);
+        setInventory((char.inventory || []).map(invItem => {
+            if (invItem && invItem.id) {
+                const fresh = GameRegistry.getItem(invItem.id);
+                if (fresh) return { ...fresh, bagIndex: invItem.bagIndex, slotIndex: invItem.slotIndex };
+            }
+            return invItem;
+        }));
+        setSelectedSkills(prev => {
+            const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
+            const loadedSkills = (char.skills || []).filter(s => s.id !== 'slash');
+            // Merge char skills with base skills, avoiding duplicates
+            const merged = [...loadedSkills];
+            baseSkills.forEach(bs => {
+                if (!merged.some(ms => ms.id === bs.id)) {
+                    merged.push(bs);
+                }
+            });
+            return merged;
+        });
         setCredits(normalizeCharacterCredits(char.credits));
-        setSelectedSkills(char.skills || []);
         if (char.equipped) {
-            setEquippedItems(char.equipped);
+            const freshEquipped: Record<string, Item | null> = { ...char.equipped };
+            // Hydrate with latest version from registry to avoid stale snapshots
+            Object.keys(freshEquipped).forEach(slot => {
+                const eqItem = freshEquipped[slot] as any;
+                if (eqItem && eqItem.id) {
+                    const fresh = GameRegistry.getItem(eqItem.id);
+                    if (fresh) freshEquipped[slot] = fresh;
+                }
+            });
+            setEquippedItems(freshEquipped);
         } else {
             setEquippedItems({
                 head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
@@ -739,7 +898,7 @@ export function CharacterBuilderPage() {
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
         });
-        setSelectedSkills([]);
+        setSelectedSkills(GameRegistry.getAllSkills().filter(s => s.category === "base"));
         setActiveTab("IDENTITY");
         // Also reset inventory to fresh mock data
         const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
@@ -785,7 +944,18 @@ export function CharacterBuilderPage() {
             level: level,
             credits: normalizeCharacterCredits(credits),
             inventory: inventory,
-            skills: selectedSkills,
+            skills: (() => {
+                if (isNPC) return selectedSkills;
+                // Enforce base skills for players
+                const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
+                const merged = [...selectedSkills];
+                baseSkills.forEach(bs => {
+                    if (!merged.some(ms => ms.id === bs.id)) {
+                        merged.push(bs);
+                    }
+                });
+                return merged;
+            })(),
             equipped: equippedItems,
             title: characterTitle,
             badge: characterBadge,
@@ -952,7 +1122,7 @@ export function CharacterBuilderPage() {
                             <aside className="w-[260px] flex flex-col gap-4 shrink-0">
                                 <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
                                     <div className="flex flex-col gap-2 border-b border-indigo-900/30 pb-2">
-                                        <h3 className="text-[10px] font-black text-indigo-500/70 uppercase tracking-widest">
+                                        <h3 className="text-xs font-black text-indigo-500/70 uppercase tracking-widest">
                                             Saved Entities ({savedCharacters.length})
                                         </h3>
                                         <div className="flex gap-2">
@@ -1026,7 +1196,7 @@ export function CharacterBuilderPage() {
                                     {/* Base Type Select */}
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Base Type</label>
+                                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Base Type</label>
                                             <select
                                                 value={characterType}
                                                 onChange={e => {
@@ -1071,11 +1241,27 @@ export function CharacterBuilderPage() {
                                     {/* NPC Toggle */}
                                     <div className="flex items-center justify-between bg-black/40 p-4 rounded-xl border border-white/5">
                                         <div>
-                                            <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Character Type</span>
-                                            <p className="text-[10px] text-gray-500 mt-0.5">NPCs/Archetypes are templates used by the game engine, not playable characters.</p>
+                                            <span className="text-sm font-bold text-gray-300 uppercase tracking-wider">Character Type</span>
+                                            <p className="text-xs text-gray-500 mt-1">NPCs/Archetypes are templates used by the game engine, not playable characters.</p>
                                         </div>
                                         <button
-                                            onClick={() => setIsNPC(!isNPC)}
+                                            onClick={() => {
+                                                const nextIsNPC = !isNPC;
+                                                setIsNPC(nextIsNPC);
+                                                // If switching to Player, auto-equip base skills
+                                                if (!nextIsNPC) {
+                                                    const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
+                                                    setSelectedSkills(prev => {
+                                                        const merged = [...prev];
+                                                        baseSkills.forEach(bs => {
+                                                            if (!merged.some(ms => ms.id === bs.id)) {
+                                                                merged.push(bs);
+                                                            }
+                                                        });
+                                                        return merged;
+                                                    });
+                                                }
+                                            }}
                                             className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg border transition-all ${isNPC
                                                 ? "bg-red-500/20 border-red-500/50 text-red-400"
                                                 : "bg-indigo-500/20 border-indigo-500/50 text-indigo-400"
@@ -1119,21 +1305,21 @@ export function CharacterBuilderPage() {
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Name</label>
+                                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Name</label>
                                             <input value={name} onChange={e => setName(e.target.value)} placeholder="Enter name..." className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                         </div>
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Age</label>
+                                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Age</label>
                                                 <input type="number" value={age} onChange={e => setAge(Math.max(18, parseInt(e.target.value) || 18))} min={18} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="space-y-1">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Level</label>
+                                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Level</label>
                                                     <input type="number" value={level} onChange={e => updateLevel(Math.max(1, parseInt(e.target.value) || 1), true)} min={1} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                                 </div>
                                                 <div className="space-y-1">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Gender</label>
+                                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Gender</label>
                                                     <select value={gender} onChange={e => setGender(e.target.value)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all">
                                                         <option>Male</option>
                                                         <option>Female</option>
@@ -1202,9 +1388,100 @@ export function CharacterBuilderPage() {
                                             grouped[cat].push(r);
                                         });
 
+                                        const RELATIONSHIP_MIRRORS: Record<RelationshipType, (gender: string) => RelationshipType> = {
+                                            father: (g) => g === "Male" ? "son" : "daughter",
+                                            mother: (g) => g === "Male" ? "son" : "daughter",
+                                            son: (g) => g === "Male" ? "father" : "mother",
+                                            daughter: (g) => g === "Male" ? "father" : "mother",
+                                            brother: (g) => g === "Male" ? "brother" : "sister",
+                                            sister: (g) => g === "Male" ? "brother" : "sister",
+                                            grandfather: (g) => g === "Male" ? "grandson" : "granddaughter",
+                                            grandmother: (g) => g === "Male" ? "grandson" : "granddaughter",
+                                            grandson: (g) => g === "Male" ? "grandfather" : "grandmother",
+                                            granddaughter: (g) => g === "Male" ? "grandfather" : "grandmother",
+                                            uncle: (g) => g === "Male" ? "nephew" : "niece",
+                                            aunt: (g) => g === "Male" ? "nephew" : "niece",
+                                            nephew: (g) => g === "Male" ? "uncle" : "aunt",
+                                            niece: (g) => g === "Male" ? "uncle" : "aunt",
+                                            cousin: () => "cousin",
+                                            spouse: () => "spouse",
+                                            partner: () => "partner",
+                                            fiancé: () => "fiancé",
+                                            adoptive_parent: () => "adoptive_child",
+                                            adoptive_child: () => "adoptive_parent",
+                                            step_parent: () => "step_child",
+                                            step_child: () => "step_parent",
+                                            step_sibling: () => "step_sibling",
+                                            friend: () => "friend",
+                                            best_friend: () => "best_friend",
+                                            ally: () => "ally",
+                                            mentor: () => "protégé",
+                                            protégé: () => "mentor",
+                                            companion: () => "companion",
+                                            enemy: () => "enemy",
+                                            rival: () => "rival",
+                                            nemesis: () => "nemesis",
+                                            lover: () => "lover",
+                                            ex: () => "ex",
+                                            ward: () => "guardian",
+                                            guardian: () => "ward",
+                                            servant: () => "master",
+                                            master: () => "servant",
+                                            liege: () => "vassal",
+                                            vassal: () => "liege",
+                                        };
+
                                         const addRelationship = (type: RelationshipType, targetId: string) => {
                                             if (!targetId || relationships.some(r => r.targetId === targetId && r.type === type)) return;
+
+                                            const targetCharacter = savedCharacters.find(c => c.id === targetId);
+                                            if (targetCharacter) {
+                                                const myAge = age;
+                                                const theirAge = targetCharacter.age;
+
+                                                // 0. Age Coherence Validation
+                                                const PARENT_TYPES: RelationshipType[] = ['father', 'mother', 'adoptive_parent', 'step_parent'];
+                                                const CHILD_TYPES: RelationshipType[] = ['son', 'daughter', 'adoptive_child', 'step_child'];
+                                                const GRANDPARENT_TYPES: RelationshipType[] = ['grandfather', 'grandmother'];
+                                                const GRANDCHILD_TYPES: RelationshipType[] = ['grandson', 'granddaughter'];
+
+                                                if (PARENT_TYPES.includes(type) && myAge < theirAge + 15) {
+                                                    alert(`Incoherent Age: You (${myAge}y) are too young to be ${targetCharacter.name}'s (${theirAge}y) parent. A minimum gap of 15 years is required.`);
+                                                    return;
+                                                }
+                                                if (CHILD_TYPES.includes(type) && theirAge < myAge + 15) {
+                                                    alert(`Incoherent Age: ${targetCharacter.name} (${theirAge}y) is too young to be your (${myAge}y) parent.`);
+                                                    return;
+                                                }
+                                                if (GRANDPARENT_TYPES.includes(type) && myAge < theirAge + 30) {
+                                                    alert(`Incoherent Age: You (${myAge}y) are too young to be ${targetCharacter.name}'s (${theirAge}y) grandparent. A minimum gap of 30 years is required.`);
+                                                    return;
+                                                }
+                                                if (GRANDCHILD_TYPES.includes(type) && theirAge < myAge + 30) {
+                                                    alert(`Incoherent Age: ${targetCharacter.name} (${theirAge}y) is too young to be your (${myAge}y) grandparent.`);
+                                                    return;
+                                                }
+                                            }
+
+                                            // 1. Add locally to current character
                                             setRelationships(prev => [...prev, { targetId, type }]);
+
+                                            // 2. Mirroring logic for the target character
+                                            const mirrorType = RELATIONSHIP_MIRRORS[type]?.(gender) || type;
+
+                                            setSavedCharacters(prev => prev.map(c => {
+                                                if (c.id === targetId) {
+                                                    const existingRels = c.relationships || [];
+                                                    // Only add if doesn't exist
+                                                    if (!existingRels.some(r => r.targetId === charId && r.type === mirrorType)) {
+                                                        return {
+                                                            ...c,
+                                                            relationships: [...existingRels, { targetId: charId, type: mirrorType, note: `Mirrored from ${name || 'Unknown'}` }]
+                                                        };
+                                                    }
+                                                }
+                                                return c;
+                                            }));
                                         };
                                         const removeRelationship = (index: number) => {
                                             setRelationships(prev => prev.filter((_, i) => i !== index));
@@ -1350,7 +1627,7 @@ export function CharacterBuilderPage() {
                                     })()}
 
                                     <div className="space-y-1">
-                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Brief Backstory</label>
+                                        <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Brief Backstory</label>
                                         <textarea value={backstory} onChange={e => setBackstory(e.target.value)} placeholder="Ex: 'I was a neurosurgeon in 20th century London'..." rows={2} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all resize-none" />
                                     </div>
                                 </div>
@@ -1361,133 +1638,100 @@ export function CharacterBuilderPage() {
                                 <div className="flex flex-col h-full relative font-mono overflow-hidden py-2 px-2 gap-4 animate-ash-settling">
                                     <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pt-2 pb-6 max-w-6xl mx-auto w-full">
 
-                                        {!history ? (
+                                        {!history && !hasStartedGeneration ? (
                                             /* PHASE 1: DRAFTING & ERA SELECTION */
                                             <div className="bg-[#1a1a1a]/80 border border-orange-950/30 p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] backdrop-blur-xl relative overflow-hidden">
                                                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-orange-500/40 to-transparent" />
 
-                                                <div className="flex items-center justify-between mb-8">
-                                                    <div className="space-y-1">
-                                                        <h3 className="text-[12px] font-black text-white uppercase tracking-[0.4em] flex items-center gap-3">
-                                                            <div className="w-2 h-2 bg-orange-500 shadow-[0_0_10px_#f97316]" />
-                                                            LORE
-                                                        </h3>
-                                                        <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest italic">ASH-4: PRESENT DAY</p>
-                                                    </div>
+                                                <div className="flex items-center justify-between mb-10">
+                                                    <h3 className="text-lg font-black text-white uppercase tracking-[0.5em] flex items-center gap-4">
+                                                        <div className="w-2.5 h-2.5 bg-orange-500 shadow-[0_0_15px_#f97316]" />
+                                                        CHARACTER LORE
+                                                    </h3>
                                                 </div>
 
-                                                <div className="grid grid-cols-[300px_1fr] gap-8">
-                                                    <div className="space-y-4">
-                                                        <div className="p-5 bg-orange-500/[0.03] border border-orange-500/10 rounded-xl">
-                                                            <div className="text-[8px] text-orange-500/70 font-black uppercase tracking-[0.2em] mb-3">DEBRIEFING</div>
-                                                            <p className="text-[10px] text-gray-400 leading-relaxed italic font-medium">
-                                                                {ASH_TRAIL_CHRONICLES.find(c => c.id === "ASH-4")?.event}
-                                                            </p>
-                                                        </div>
-                                                        <div className="p-4 bg-black/40 border border-white/5 rounded-xl">
-                                                            <div className="text-[8px] text-gray-500 font-black uppercase tracking-widest mb-2">Lore Chronology</div>
-                                                            <div className="space-y-2 opacity-50">
-                                                                {ASH_TRAIL_CHRONICLES.slice(0, 4).map(era => (
-                                                                    <div key={era.id} className="text-[8px] hover:opacity-100 transition-opacity flex gap-1.5 items-baseline">
-                                                                        <span className="text-orange-500/60 font-black shrink-0">{era.id}:</span>
-                                                                        <span className="text-gray-500">{era.label.split(': ')[1]}</span>
-                                                                    </div>
-                                                                ))}
+                                                <div className="grid grid-cols-[380px_1fr] grid-rows-[auto_1fr_auto] gap-x-12">
+                                                    {/* ROW 1: LABELS */}
+                                                    <div className="text-xs font-black text-orange-500/50 uppercase tracking-[0.3em] px-2 mb-4">WORLD STATE</div>
+                                                    <div className="text-xs font-black text-orange-500/50 uppercase tracking-[0.3em] px-2 mb-4">WRITE YOUR BACKSTORY</div>
+
+                                                    {/* ROW 2: CONTENT */}
+                                                    <div className="flex flex-col h-full">
+                                                        <div className="flex-1 p-8 bg-orange-500/[0.03] border border-orange-500/10 rounded-3xl flex flex-col group/world max-h-[420px]">
+                                                            <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
+                                                                <p className="text-base text-gray-400 leading-relaxed italic font-medium">
+                                                                    {worldSnippets.length > 0
+                                                                        ? worldSnippets[worldSnippets.length - 1].content
+                                                                        : ASH_TRAIL_CHRONICLES.find(c => c.id === "ASH-4")?.event || "No records found for this coordinate."}
+                                                                </p>
                                                             </div>
                                                         </div>
                                                     </div>
 
-                                                    <div className="space-y-6">
-                                                        <div className="space-y-2">
-                                                            <div className="text-[9px] font-black text-orange-500/50 uppercase tracking-[0.2em] px-2">Draft Input</div>
-                                                            <textarea
-                                                                value={backstory}
-                                                                onChange={e => setBackstory(e.target.value)}
-                                                                placeholder="Ex: 'I was a neurosurgeon in 20th century London' or 'I was a simple farmer in the Midwest'..."
-                                                                className="w-full h-[240px] bg-black/60 border border-white/10 text-[12px] text-gray-200 px-6 py-5 rounded-2xl outline-none focus:border-orange-500/40 transition-all font-mono leading-loose shadow-inner placeholder:text-gray-800"
-                                                            />
-                                                        </div>
+                                                    <textarea
+                                                        value={backstory}
+                                                        onChange={e => setBackstory(e.target.value)}
+                                                        placeholder="Ex: 'I was a neurosurgeon in 20th century London' or 'I was a simple farmer in the Midwest'..."
+                                                        className="w-full h-full min-h-[420px] bg-black/60 border border-white/10 text-base text-gray-200 px-8 py-7 rounded-3xl outline-none focus:border-orange-500/40 transition-all font-mono leading-loose shadow-inner placeholder:text-gray-800"
+                                                    />
 
-                                                        <div className="flex justify-end pt-2">
-                                                            <button
-                                                                onClick={() => {
-                                                                    setIsGeneratingStory(true);
-                                                                    setTimeout(() => {
-                                                                        const currentName = name || "This unit";
-                                                                        const soulContext = (backstory || "").toLowerCase();
-                                                                        const occupation = selectedOccupation?.name || 'Wanderer';
+                                                    {/* ROW 3: ACTIONS */}
+                                                    <div></div>
+                                                    <div className="flex justify-end pt-8">
+                                                        <button
+                                                            onClick={async () => {
+                                                                setIsGeneratingStory(true);
+                                                                setHasStartedGeneration(true);
+                                                                try {
+                                                                    const resp = await fetch("http://localhost:8787/api/ai/character-story", {
+                                                                        method: "POST",
+                                                                        headers: { "Content-Type": "application/json" },
+                                                                        body: JSON.stringify({
+                                                                            name: name || "This unit",
+                                                                            age: age,
+                                                                            gender: gender,
+                                                                            occupation: selectedOccupation?.name || "Wanderer",
+                                                                            draft: backstory || "",
+                                                                            relationships: relationships.map(r => {
+                                                                                const target = savedCharacters.find(c => c.id === r.targetId);
+                                                                                return {
+                                                                                    targetName: target?.name || r.targetId,
+                                                                                    relType: r.type,
+                                                                                    isPlayer: target ? !target.isNPC : false
+                                                                                };
+                                                                            }),
+                                                                            worldLore: worldSnippets.length > 0 ? worldSnippets[worldSnippets.length - 1].content : ""
+                                                                        })
+                                                                    });
 
-                                                                        // Dynamic Story Component Pools
-                                                                        const isScience = soulContext.includes("doctor") || soulContext.includes("surgeon") || soulContext.includes("hospital") || soulContext.includes("lab") || soulContext.includes("medical");
-                                                                        const isRural = soulContext.includes("farmer") || soulContext.includes("farm") || soulContext.includes("nature") || soulContext.includes("midwest");
-                                                                        const isUrban = soulContext.includes("london") || soulContext.includes("paris") || soulContext.includes("city") || soulContext.includes("street");
+                                                                    if (resp.ok) {
+                                                                        const data = await resp.json();
+                                                                        const fullHistory = data.story;
 
-                                                                        const isHeroic = soulContext.includes("save") || soulContext.includes("help") || soulContext.includes("protect") || soulContext.includes("hero") || soulContext.includes("loyalty");
-                                                                        const isVillainous = soulContext.includes("kill") || soulContext.includes("bastard") || soulContext.includes("ruthless") || soulContext.includes("experiment") || soulContext.includes("betray");
+                                                                        // Force 100% progress before completing
+                                                                        setGenProgress(100);
 
-                                                                        // Segment 1: The Old World Origin
-                                                                        let p1 = `Before the heavens suffocated under a permanent blanket of soot, ${currentName} was defined by a different life. `;
-                                                                        if (isScience) p1 += `In the sanitized, ultra-sterile halls of the world's leading medical facilities, they navigated complex biological architectures, dedicating their days to the precision of the scalpel and the hope of recovery.`;
-                                                                        else if (isRural) p1 += `Existing in the quiet rhythms of the countryside, they lived through the last golden harvests, watching the horizons for seasons that would eventually cease to arrive.`;
-                                                                        else if (isUrban) p1 += `They were a permanent fixture of a bustling metropolis, navigating streets of glass and steel during the final, shimmering years of a civilization that believed its progress was infinite.`;
-                                                                        else p1 += `Built on the legacy of ${backstory || "a simple, long-forgotten life"}, they participated in the shimmering final years of the 20th century, before the sky darkened and the world dissolved.`;
+                                                                        // Small delay to let the user see the 100%
+                                                                        setTimeout(() => {
+                                                                            setTargetHistory(fullHistory);
+                                                                            setIsGeneratingStory(false);
+                                                                        }, 500);
 
-                                                                        // Segment 2: The Fall
-                                                                        let p2 = `The end did not arrive with a scream, but with the silent, creeping advance of the Great Fog. `;
-                                                                        if (isVillainous) p2 += `While others succumbed to panic, ${currentName} recognized the coming chaos as a laboratory for their own ambitions. They survived the Resource Wars by discarding the moral weights that held others back, learning the cold math of survival where the life of another was merely a variable to be managed.`;
-                                                                        else if (isHeroic) p2 += `As the Atmosphere turned toxic and the world ignited in the Resource Wars, ${currentName} stood as a flicker of light in the growing dark, exhaustion their only constant companion as they fought to save those who could not save themselves.`;
-                                                                        else p2 += `${currentName} witnessed the terrifying transition as the horizon vanished and the sun became a pale, dying ember. They navigated the frantic desperation of the era, where the last vestiges of sovereignty were traded for drops of fuel.`;
-
-                                                                        // Segment 3: The Vault Years
-                                                                        let p3 = `When the surface finally became uninhabitable, the migration into the deep began. `;
-                                                                        if (isVillainous) p3 += `${currentName} spent the long years of the Great Dark in the shadows of the lead-lined vaults, conducting clandestine operations and consolidating power while the rest of humanity shivered in fear.`;
-                                                                        else if (isHeroic) p3 += `Within the claustrophobic silence of the underground vaults, ${currentName} became a cornerstone of their community, maintaining the fragile threads of order and hope while the Ash-storms reshaped the continents above.`;
-                                                                        else p3 += `${currentName} lived through the agonizing silence of the underground vaults, surviving for years behind reinforced structural shells as the world they remembered slowly turned to dust.`;
-
-                                                                        // Segment 4: The Re-Emergence
-                                                                        let p4 = `Emerging from the vaults, ${currentName} found a planet that no longer recognized its masters. `;
-                                                                        p4 += `They became a scavenger of the wastes, reclaiming artifacts of the past to build the foundations of a new, fractured society, proving to be a vital component in the machinery of reclamation.`;
-
-                                                                        // Segment 5: The Present Day
-                                                                        const p5 = `Today, as a specialized ${occupation}, ${currentName} has finally stabilized their position within the rising City-States. Their life is no longer about remembering the blue skies of the Old World, but about mastering the gray horizons of the Ash-Trail. Each step is a testament to a spirit for whom the Ash has finally become home.`;
-
-                                                                        const fullHistory = `${p1}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5}`;
-                                                                        setHistory(fullHistory);
-
-                                                                        // Refined Moral Sentiment Analysis
+                                                                        // Refined Moral Sentiment Analysis based on AI output
                                                                         const h = fullHistory.toLowerCase();
-                                                                        const s = soulContext;
+                                                                        const soulContext = (backstory || "").toLowerCase();
 
                                                                         // 1. Scoring System
-                                                                        let moralScore = 0; // Negative = Evil, Positive = Good
-                                                                        let orderScore = 0; // Negative = Chaotic, Positive = Lawful
+                                                                        let moralScore = 0;
+                                                                        let orderScore = 0;
 
-                                                                        // GOOD signals (+pts)
-                                                                        if (isHeroic) moralScore += 3;
-                                                                        if (h.includes("flicker of light") || h.includes("cornerstone")) moralScore += 2;
-                                                                        if (s.includes("doctor") || s.includes("help") || s.includes("save") || s.includes("protect") || s.includes("hero")) moralScore += 1;
+                                                                        // Analysis logic (Detecting markers in the AI's complex prose)
+                                                                        if (h.includes("save") || h.includes("protect") || h.includes("help") || h.includes("sacrifice")) moralScore += 3;
+                                                                        if (h.includes("kill") || h.includes("murder") || h.includes("ruthless") || h.includes("discard")) moralScore -= 3;
+                                                                        if (h.includes("order") || h.includes("law") || h.includes("duty") || h.includes("structure")) orderScore += 3;
+                                                                        if (h.includes("chaos") || h.includes("anarchy") || h.includes("theft") || h.includes("rogue")) orderScore -= 3;
 
-                                                                        // EVIL signals (-pts)
-                                                                        if (isVillainous) moralScore -= 3;
-                                                                        if (h.includes("discarding the moral weights") || h.includes("clandestine")) moralScore -= 2;
-                                                                        if (s.includes("kill") || s.includes("bastard") || s.includes("murder") || s.includes("betray") || s.includes("ruthless")) moralScore -= 1;
-
-                                                                        // LAWFUL signals (+pts)
-                                                                        if (s.includes("law") || s.includes("order") || s.includes("officer") || s.includes("solid") || s.includes("regiment") || s.includes("security")) orderScore += 3;
-                                                                        if (h.includes("maintaining the fragile threads of order")) orderScore += 2;
-
-                                                                        // CHAOTIC signals (-pts)
-                                                                        if (s.includes("chaos") || s.includes("thief") || s.includes("rogue") || s.includes("freedom") || s.includes("anarchy") || s.includes("radical")) orderScore -= 3;
-                                                                        if (h.includes("recognized the coming chaos as an opportunity")) orderScore -= 2;
-
-                                                                        // MUNDANE/NEUTRAL signals (Resets scores toward 0)
-                                                                        const isMundane = s.includes("student") || s.includes("average") || s.includes("normal") || s.includes("nothing special") || s.includes("random") || s.includes("simple") || s.includes("worker") || s.includes("faculty") || s.includes("faculty member");
-                                                                        if (isMundane) {
-                                                                            moralScore = moralScore > 0 ? Math.max(0, moralScore - 2) : Math.min(0, moralScore + 2);
-                                                                            orderScore = orderScore > 0 ? Math.max(0, orderScore - 2) : Math.min(0, orderScore + 2);
-                                                                        }
-
-                                                                        // 2. Alignment Logic based on scores
+                                                                        // 2. Alignment Logic
                                                                         let finalAlign = "True Neutral";
                                                                         if (moralScore >= 3 && orderScore >= 3) finalAlign = "Lawful Good";
                                                                         else if (moralScore >= 3 && orderScore <= -3) finalAlign = "Chaotic Good";
@@ -1500,84 +1744,164 @@ export function CharacterBuilderPage() {
                                                                         else finalAlign = "True Neutral";
 
                                                                         setAlignment(finalAlign);
-
-                                                                        setIsGeneratingStory(false);
-                                                                    }, 1200);
-                                                                }}
-                                                                disabled={!backstory || isGeneratingStory}
-                                                                className={`group relative px-12 py-4 ${isGeneratingStory ? 'bg-orange-950/40' : 'bg-orange-600 hover:bg-orange-500'} text-white text-[11px] font-black uppercase tracking-[0.3em] rounded-xl transition-all shadow-[0_10px_30px_rgba(234,88,12,0.3)] disabled:opacity-50 flex items-center gap-3 overflow-hidden`}
-                                                            >
-                                                                {isGeneratingStory ? (
-                                                                    <>
-                                                                        <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                                                                        SYNCHRONIZING NEURAL LOG...
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
-                                                                        GENERATE YOUR LORE
-                                                                    </>
-                                                                )}
-                                                            </button>
-                                                        </div>
+                                                                    }
+                                                                } catch (e) {
+                                                                    console.error("AI Lore Generation Failed:", e);
+                                                                    setIsGeneratingStory(false);
+                                                                }
+                                                            }}
+                                                            disabled={!backstory || isGeneratingStory}
+                                                            className={`px-10 py-3.5 w-fit ${isGeneratingStory ? 'bg-orange-950/40' : 'bg-orange-600 hover:bg-orange-500'} text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all shadow-[0_10px_30px_rgba(234,88,12,0.2)] disabled:opacity-50 flex items-center gap-3 group relative overflow-hidden`}
+                                                        >
+                                                            {isGeneratingStory ? (
+                                                                <>
+                                                                    <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                                                    SYNCHRONIZING...
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+                                                                    GENERATE YOUR LORE
+                                                                </>
+                                                            )}
+                                                        </button>
                                                     </div>
                                                 </div>
                                             </div>
                                         ) : (
                                             /* PHASE 2: FINALIZED VIEW */
-                                            <div className="grid grid-cols-[1fr_320px] gap-6 items-start">
+                                            <div className="grid grid-cols-[1fr_380px] gap-8 items-start">
                                                 {/* Integrated History (Large Container) */}
-                                                <div className="bg-black/40 border border-white/5 p-8 rounded-2xl shadow-2xl relative group min-h-[600px] flex flex-col">
-                                                    <div className="flex items-center justify-between mb-6">
-                                                        <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em] flex items-center gap-3">
-                                                            <div className="w-1.5 h-1.5 bg-indigo-500 shadow-[0_0_10px_#6366f1]" />
-                                                            SYNCHRONIZED HISTORY
+                                                <div className="bg-black/40 border border-white/5 p-10 rounded-3xl shadow-2xl relative group min-h-[700px] flex flex-col">
+                                                    <div className="flex items-center justify-between mb-8">
+                                                        <h3 className="text-xs font-black text-orange-500 uppercase tracking-[0.4em] flex items-center gap-3">
+                                                            <div className="w-2 h-2 bg-orange-500 shadow-[0_0_10px_#f97316]" />
+                                                            STORY
                                                         </h3>
-                                                        <button onClick={() => setHistory("")} className="text-[8px] text-orange-500 hover:text-red-500 font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 opacity-0 group-hover:opacity-100 italic">
-                                                            <div className="w-1 h-1 bg-current rounded-full" />
+                                                        <button
+                                                            onClick={() => {
+                                                                setHistory("");
+                                                                setHasStartedGeneration(false);
+                                                            }}
+                                                            disabled={isTyping}
+                                                            className={`text-[10px] text-orange-500 hover:text-red-500 font-black uppercase tracking-widest transition-colors flex items-center gap-2 ${isTyping ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'} italic disabled:cursor-not-allowed`}
+                                                        >
+                                                            <div className="w-1.5 h-1.5 bg-current rounded-full" />
                                                             RE-GENERATE FROM DRAFT ✕
                                                         </button>
                                                     </div>
-                                                    <textarea
-                                                        value={history}
-                                                        onChange={e => setHistory(e.target.value)}
-                                                        className="flex-1 bg-transparent border-none text-[13px] text-gray-300 font-mono leading-relaxed outline-none resize-none custom-scrollbar p-0"
-                                                    />
+                                                    {isGeneratingStory ? (
+                                                        <div className="flex-1 flex flex-col items-center justify-center space-y-8 animate-pulse">
+                                                            <div className="relative w-48 h-48">
+                                                                {/* Circular Progress SVG */}
+                                                                <svg className="w-full h-full -rotate-90">
+                                                                    <circle
+                                                                        cx="96" cy="96" r="80"
+                                                                        fill="transparent"
+                                                                        stroke="rgba(249, 115, 22, 0.1)"
+                                                                        strokeWidth="4"
+                                                                    />
+                                                                    <circle
+                                                                        cx="96" cy="96" r="80"
+                                                                        fill="transparent"
+                                                                        stroke="#f97316"
+                                                                        strokeWidth="4"
+                                                                        strokeDasharray={2 * Math.PI * 80}
+                                                                        strokeDashoffset={2 * Math.PI * 80 * (1 - genProgress / 100)}
+                                                                        strokeLinecap="round"
+                                                                        className="transition-all duration-300 ease-out shadow-[0_0_20px_#f97316]"
+                                                                    />
+                                                                </svg>
+                                                                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                                                    <span className="text-4xl font-black text-white font-mono tracking-tighter">
+                                                                        {genProgress}%
+                                                                    </span>
+                                                                    <span className="text-[10px] font-black text-orange-500 uppercase tracking-[0.4em] mt-2">
+                                                                        LOADING
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex flex-col items-center gap-2">
+                                                                <p className="text-xs font-black text-orange-100/40 uppercase tracking-[0.6em]">WRITING {name || "Character"}'S STORY</p>
+                                                                <div className="flex gap-1">
+                                                                    {[0, 1, 2].map(i => (
+                                                                        <div key={i} className="w-1 h-3 bg-orange-500/40 animate-bounce" style={{ animationDelay: `${i * 0.1}s` }} />
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <textarea
+                                                            value={history}
+                                                            onChange={e => setHistory(e.target.value)}
+                                                            readOnly={isTyping}
+                                                            className="flex-1 bg-transparent border-none text-base text-gray-300 font-mono leading-relaxed outline-none resize-none custom-scrollbar p-0"
+                                                        />
+                                                    )}
                                                 </div>
 
                                                 {/* Sidebar: Current & Alignment */}
-                                                <div className="space-y-6">
+                                                <div className="space-y-8">
                                                     {/* Alignment - Dedicated Interactable Box */}
-                                                    <div className="bg-[#111] border border-orange-500/20 p-6 rounded-2xl shadow-xl group">
-                                                        <div className="text-[8px] text-orange-500/60 font-black uppercase tracking-[0.3em] mb-4 text-center">ALIGNMENT</div>
+                                                    <div className="bg-[#111] border border-orange-500/20 p-8 rounded-3xl shadow-xl">
+                                                        <div className="text-[10px] text-orange-500 font-black uppercase tracking-[0.3em] mb-5 text-center">ALIGNMENT</div>
                                                         <div className="relative">
-                                                            <select
-                                                                value={alignment}
-                                                                onChange={e => setAlignment(e.target.value)}
-                                                                className="w-full bg-black/60 border border-white/5 text-[12px] text-white font-black p-4 rounded-xl outline-none cursor-pointer hover:border-orange-500/40 transition-all text-center appearance-none shadow-inner"
+                                                            <button
+                                                                onClick={() => setIsAlignmentOpen(!isAlignmentOpen)}
+                                                                className="w-full bg-black/60 border border-white/5 text-sm text-white font-black p-5 rounded-2xl outline-none cursor-pointer hover:border-orange-500/40 transition-all text-center shadow-inner flex items-center justify-center gap-3"
                                                             >
-                                                                {["Lawful Good", "Neutral Good", "Chaotic Good", "Lawful Neutral", "True Neutral", "Chaotic Neutral", "Lawful Evil", "Neutral Evil", "Chaotic Evil"].map(a => (
-                                                                    <option key={a} value={a} className="bg-[#111]">{a}</option>
-                                                                ))}
-                                                            </select>
-                                                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-20">▼</div>
+                                                                <span>{alignment || "True Neutral"}</span>
+                                                                <span className={`text-[10px] transition-transform duration-300 ${isAlignmentOpen ? 'rotate-180' : ''}`}>▼</span>
+                                                            </button>
+
+                                                            {isAlignmentOpen && (
+                                                                <div className="absolute top-full left-0 right-0 mt-2 bg-[#111] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl max-h-[300px] overflow-y-auto custom-scrollbar animate-ash-settling">
+                                                                    {["Lawful Good", "Neutral Good", "Chaotic Good", "Lawful Neutral", "True Neutral", "Chaotic Neutral", "Lawful Evil", "Neutral Evil", "Chaotic Evil"].map(a => (
+                                                                        <button
+                                                                            key={a}
+                                                                            onClick={() => {
+                                                                                setAlignment(a);
+                                                                                setIsAlignmentOpen(false);
+                                                                            }}
+                                                                            className={`w-full p-4 text-xs font-bold uppercase tracking-widest text-left transition-all hover:bg-orange-500/20 ${alignment === a ? 'bg-orange-500/10 text-orange-400' : 'text-gray-400 hover:text-white'}`}
+                                                                        >
+                                                                            {a}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
 
-                                                    {/* Current Activities - Compact Box */}
-                                                    <div className="bg-[#111] border border-teal-500/10 p-6 rounded-2xl flex flex-col gap-4">
+                                                    {/* Live Journal - Non-editable chronicle */}
+                                                    <div className="bg-[#111] border border-orange-500/10 p-8 rounded-3xl flex flex-col gap-6 h-[400px]">
                                                         <div className="flex items-center justify-between">
-                                                            <h3 className="text-[9px] font-black text-teal-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                                                                <div className="w-1 h-1 bg-teal-500 rounded-full animate-pulse" />
-                                                                ACTIVITIES
+                                                            <h3 className="text-[11px] font-black text-orange-500 uppercase tracking-[0.2em] flex items-center gap-3">
+                                                                <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
+                                                                LIVE JOURNAL
                                                             </h3>
                                                         </div>
-                                                        <textarea
-                                                            value={currentStory}
-                                                            onChange={e => setCurrentStory(e.target.value)}
-                                                            placeholder="What is happening now..."
-                                                            className="w-full h-[120px] bg-transparent border-none text-[10px] text-teal-100/40 font-mono leading-relaxed outline-none resize-none custom-scrollbar p-0 italic"
-                                                        />
+                                                        <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2">
+                                                            {currentStory ? (
+                                                                currentStory.split('\n').filter(line => line.trim()).map((line, idx) => (
+                                                                    <div key={idx} className="flex gap-3 group/entry">
+                                                                        <div className="w-1 h-1 rounded-full bg-orange-500/40 mt-2 shrink-0 group-hover/entry:bg-orange-500 transition-colors" />
+                                                                        <p className="text-sm text-orange-100/60 font-mono leading-relaxed italic group-hover/entry:text-orange-100/90 transition-colors">
+                                                                            {line}
+                                                                        </p>
+                                                                    </div>
+                                                                ))
+                                                            ) : (
+                                                                <div className="h-full flex flex-col items-center justify-center opacity-20 text-center space-y-3">
+                                                                    <div className="w-8 h-[1px] bg-orange-500" />
+                                                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-500">
+                                                                        The story is waiting...<br />
+                                                                        <span className="text-[8px] opacity-60">Chronicles begin upon departure</span>
+                                                                    </p>
+                                                                    <div className="w-8 h-[1px] bg-orange-500" />
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1786,13 +2110,13 @@ export function CharacterBuilderPage() {
                                                     <div className="flex items-center gap-4">
                                                         <div className="flex flex-col items-end">
                                                             <span className="text-[7px] text-gray-600 font-black uppercase">Buffer Page</span>
-                                                            <span className="text-[10px] text-white font-mono">{selectedSkills.filter(s => s.category === bookCategory).length > 0 ? "01" : "00"}</span>
+                                                            <span className="text-[10px] text-white font-mono">{dynamicSkills.filter(s => s.category === bookCategory).length > 0 ? "01" : "00"}</span>
                                                         </div>
                                                     </div>
                                                 </div>
 
                                                 <div className="flex-1 overflow-y-auto pr-2 pb-8 game-scrollbar">
-                                                    {selectedSkills.filter(s => s.category === bookCategory).length === 0 ? (
+                                                    {dynamicSkills.filter(s => s.category === bookCategory).length === 0 ? (
                                                         <div className="flex-1 flex flex-col items-center justify-center py-20 opacity-20 group-hover:opacity-30 transition-opacity">
                                                             <div className="text-4xl mb-6 grayscale brightness-50">📂</div>
                                                             <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.34em] italic text-center">no active skill</p>
@@ -1800,7 +2124,7 @@ export function CharacterBuilderPage() {
                                                         </div>
                                                     ) : (
                                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-4 gap-y-3">
-                                                            {selectedSkills.filter(s => s.category === bookCategory).map(skill => (
+                                                            {dynamicSkills.filter(s => s.category === bookCategory).map(skill => (
                                                                 <div key={skill.id} className="relative group/skill bg-black/20 hover:bg-white/[0.03] border border-white/5 rounded-lg p-2 transition-all hover:border-[#c2410c]/30">
                                                                     <div className="flex gap-2">
                                                                         <div className="relative shrink-0">
@@ -2125,20 +2449,41 @@ export function CharacterBuilderPage() {
 
                                                         {/* COMBAT SECTION */}
                                                         <div className="space-y-1 pt-0.5">
-                                                            <div className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em] mb-1 opacity-80 flex items-center gap-1.5">
-                                                                <div className="w-0.5 h-0.5 bg-[#c2410c]/40" />
-                                                                COMBAT
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <div className="text-[7px] font-black text-[#c2410c] uppercase tracking-[0.2em] opacity-80 flex items-center gap-1.5">
+                                                                    <div className="w-0.5 h-0.5 bg-[#c2410c]/40" />
+                                                                    COMBAT
+                                                                </div>
+                                                                {activeWeapon && (
+                                                                    <span className={`text-[6px] px-1 py-0.5 rounded font-black uppercase tracking-widest border ${isRangedWeapon ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
+                                                                        {isRangedWeapon ? 'Ranged' : 'Melee'}
+                                                                    </span>
+                                                                )}
                                                             </div>
+                                                            {/* Base weapon damage badge when a modifier sets it */}
+                                                            {derivedStats.weaponBaseDmg !== null && (
+                                                                <div className="mb-1.5 flex items-center justify-between bg-orange-500/5 border border-orange-500/20 px-1.5 py-1 rounded">
+                                                                    <span className="text-[7px] text-orange-400/70 font-black uppercase tracking-widest">⚔ Base DMG</span>
+                                                                    <span className="text-[9px] font-black font-mono text-orange-400">{derivedStats.weaponBaseDmg}</span>
+                                                                </div>
+                                                            )}
                                                             {[
-                                                                { label: "Strength", value: effectiveStats.strength },
+                                                                {
+                                                                    label: isRangedWeapon ? "Scaling" : "Strength",
+                                                                    value: isRangedWeapon ? "FIXED" : effectiveStats.strength,
+                                                                    highlight: isRangedWeapon ? "text-blue-400" : "text-white"
+                                                                },
                                                                 { label: "Min dmg", value: derivedStats.minDmg },
                                                                 { label: "Max dmg", value: derivedStats.maxDmg },
                                                             ].map(item => (
                                                                 <div key={item.label} className="flex justify-between items-center group/row border-b border-white/[0.02] pb-0.5">
                                                                     <span className="text-[8px] text-gray-500 font-black uppercase tracking-wider group-hover/row:text-orange-400 transition-colors">{item.label}</span>
-                                                                    <span className="text-[9px] text-white font-black font-mono tracking-widest">{item.value}</span>
+                                                                    <span className={`text-[9px] font-black font-mono tracking-widest ${item.highlight || 'text-white'}`}>{item.value}</span>
                                                                 </div>
                                                             ))}
+                                                            {isRangedWeapon && (
+                                                                <p className="text-[6px] text-gray-700 italic mt-1 leading-tight">Ranged damage ignores character stats and relies solely on weapon quality.</p>
+                                                            )}
                                                         </div>
 
                                                         {/* EQUIPMENT EFFECTS SECTION */}
@@ -2960,6 +3305,39 @@ export function CharacterBuilderPage() {
                                                             </>
                                                         )}
 
+                                                        {hoverInfo.item.category === 'weapon' && (
+                                                            <>
+                                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Combat:</div>
+                                                                <div className="text-[7px] text-red-500 font-bold uppercase tracking-widest text-right">
+                                                                    {hoverInfo.item.weaponType || 'melee'}
+                                                                </div>
+                                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Range:</div>
+                                                                <div className="text-[7px] text-white font-bold uppercase tracking-widest text-right">
+                                                                    {hoverInfo.item.weaponRange || 1} CELLS
+                                                                </div>
+                                                                {(() => {
+                                                                    const dmgMod = hoverInfo.item.effects?.find((e: any) => e.target === 'damage');
+                                                                    return dmgMod ? (
+                                                                        <>
+                                                                            <div className="text-[7px] text-orange-500/70 font-black uppercase tracking-widest">Base DMG:</div>
+                                                                            <div className="text-[7px] text-orange-400 font-black uppercase tracking-widest text-right">{dmgMod.value}</div>
+                                                                        </>
+                                                                    ) : null;
+                                                                })()}
+                                                                <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Pattern:</div>
+                                                                <div className="text-[7px] font-black uppercase tracking-widest text-right">
+                                                                    {(() => {
+                                                                        const freshItem = GameRegistry.getItem(hoverInfo.item.id) || hoverInfo.item;
+                                                                        const at = (freshItem as any).weaponAreaType || 'single';
+                                                                        if (at === 'single') return <span className="text-gray-400">◉ MONO</span>;
+                                                                        const as_ = (freshItem as any).weaponAreaSize || 1;
+                                                                        const icon = at === 'cross' ? '✚' : at === 'circle' ? '◎' : at === 'splash' ? '💥' : at === 'line' ? '╌' : at === 'cone' ? '▽' : '┴';
+                                                                        return <span className="text-orange-400">{icon} {at.toUpperCase()} ({as_})</span>;
+                                                                    })()}
+                                                                </div>
+                                                            </>
+                                                        )}
+
                                                         <div className="text-[7px] text-gray-600 font-black uppercase tracking-widest">Value:</div>
                                                         <div className="text-[7px] text-[#c2410c] font-black uppercase tracking-widest text-right">
                                                             {hoverInfo.item.cost}C
@@ -2978,8 +3356,14 @@ export function CharacterBuilderPage() {
                                                         <div className="mt-2 pt-2 border-t border-white/5 space-y-1">
                                                             <div className="text-[6px] font-black text-orange-500/70 uppercase tracking-widest mb-1">Effects:</div>
                                                             {hoverInfo.item.effects.map((eff: any, idx: number) => {
-                                                                let label = eff.target === 'damage' ? 'Weapon Damage' : eff.target;
-                                                                if (eff.target === 'armor' || eff.target === 'defense') label = 'Armor';
+                                                                const isDmgMod = eff.target === 'damage';
+                                                                let label = isDmgMod ? '⚔ Weapon DMG' : eff.target;
+                                                                if (eff.target === 'armor' || eff.target === 'defense') label = '🛡 Armor';
+                                                                if (eff.target === 'hp' || eff.target === 'maxHp') label = '❤ Health';
+                                                                if (eff.target === 'ap') label = '⚡ Action Pts';
+
+                                                                // Skip damage modifier in the effects list — it's shown in Combat row above
+                                                                if (isDmgMod && hoverInfo.item.category === 'weapon') return null;
 
                                                                 return (
                                                                     <div key={idx} className="flex justify-between items-center bg-white/[0.02] px-1.5 py-1 rounded border border-white/5">

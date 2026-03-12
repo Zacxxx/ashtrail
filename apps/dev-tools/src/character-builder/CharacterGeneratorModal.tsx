@@ -152,7 +152,7 @@ export function CharacterGeneratorModal({
                 level: s.level || minLevel,
                 credits: { ...DEFAULT_CHARACTER_CREDITS },
                 inventory: [],
-                skills: [],
+                skills: GameRegistry.getAllSkills().filter(s => s.category === "base"),
                 faction: faction || undefined,
                 backstory: s.backstory || "",
             };

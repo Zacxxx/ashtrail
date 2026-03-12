@@ -8,10 +8,10 @@ import { GameRulesManager } from '../rules/useGameRules';
 
 // ── Default skills given to characters without their own ──
 function getDefaultPlayerSkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['slash', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id));
+    return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id));
 }
 function getDefaultEnemySkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['slash', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+    return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
 }
 
 function buildCombatTraits(char: Character): Trait[] {
@@ -49,16 +49,76 @@ function buildCombatTraits(char: Character): Trait[] {
 }
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number, defaultPlayerSkills: Skill[], defaultEnemySkills: Skill[]): TacticalEntity {
-    const resolvedSkills = resolveCharacterSkills(char);
-    const skills = resolvedSkills.length > 0
-        ? resolvedSkills
-        : isPlayer ? defaultPlayerSkills : defaultEnemySkills;
     const traits = buildCombatTraits(char);
-
     const rules = GameRulesManager.get();
     const maxHp = rules.core.hpBase + char.stats.endurance * rules.core.hpPerEndurance;
     const maxAp = rules.core.apBase + Math.floor(char.stats.agility / rules.core.apAgilityDivisor);
     const maxMp = rules.core.mpBase;
+
+    // ── 1. Resolve equipped items from registry (fresh data with effects) ──
+    const resolvedEquipped: Record<string, any> = {};
+    if (char.equipped) {
+        for (const [slot, item] of Object.entries(char.equipped)) {
+            if (!item) { resolvedEquipped[slot] = null; continue; }
+            // Always prefer fresh registry data (has effects, weaponType, etc.)
+            const fresh = GameRegistry.getItem((item as any).id);
+            resolvedEquipped[slot] = fresh || item;
+        }
+    }
+
+    const mainHandWeapon = resolvedEquipped.mainHand || null;
+
+    // ── 2. Resolve skills (prefer effect-aware resolution, then hydrate from registry) ──
+    const refreshSkill = (skill: Skill) => GameRegistry.getSkill(skill.id) || skill;
+    const resolvedSkills = resolveCharacterSkills(char)
+        .filter((skill) => skill.id !== 'slash')
+        .map(refreshSkill);
+
+    let skills: Skill[] = resolvedSkills.length > 0
+        ? resolvedSkills
+        : (char.skills || [])
+            .filter((skill) => skill.id !== 'slash')
+            .map(refreshSkill);
+
+    if (skills.length === 0) {
+        skills = (isPlayer ? defaultPlayerSkills : defaultEnemySkills).map(refreshSkill);
+    }
+
+    if (isPlayer) {
+        const baseSkills = GameRegistry.getAllSkills().filter((skill) => skill.category === 'base');
+        baseSkills.forEach((baseSkill) => {
+            if (!skills.some((skill) => skill.id === baseSkill.id)) {
+                skills.push(baseSkill);
+            }
+        });
+    }
+
+    // ── 3. Patch use-weapon skill with live weapon data (range + description + AOE) ──
+    skills = skills.map(skill => {
+        if (skill.id !== 'use-weapon') return skill;
+        const patched = { ...skill };
+        if (mainHandWeapon) {
+            patched.maxRange = mainHandWeapon.weaponRange || 1;
+            patched.minRange = 1;
+            // Propagate weapon AOE to the skill so executeSkill uses getAoECells correctly
+            const weapAreaType = (mainHandWeapon as any).weaponAreaType || 'single';
+            const weapAreaSize = (mainHandWeapon as any).weaponAreaSize || 0;
+            patched.areaType = weapAreaType;
+            patched.areaSize = weapAreaSize;
+            const typeLabel = (mainHandWeapon.weaponType || 'melee').toUpperCase();
+            const dmgMod = mainHandWeapon.effects?.find((e: any) => e.target === 'damage');
+            const dmgStr = dmgMod ? ` | Base DMG: ${dmgMod.value}` : '';
+            const scalingStr = mainHandWeapon.weaponType === 'ranged' ? ' [FIXED]' : ' + STR';
+            const aoeStr = weapAreaType !== 'single' ? ` | AOE: ${weapAreaType}(${weapAreaSize})` : '';
+            patched.description = `Attack with ${mainHandWeapon.name} [${typeLabel}${dmgStr}${scalingStr}${aoeStr}]`;
+        } else {
+            patched.maxRange = 1;
+            patched.areaType = 'single';
+            patched.areaSize = 0;
+            patched.description = 'Attack unarmed [MELEE + STR]';
+        }
+        return patched;
+    });
 
     return {
         id: `${char.id}_${isPlayer ? 'p' : 'e'}${index}`,
@@ -88,7 +148,7 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
         progression: char.progression,
         skillCooldowns: {},
         gridPos: { row: 0, col: 0 },
-        equipped: char.equipped,
+        equipped: resolvedEquipped,
         baseStats: {
             strength: char.stats.strength,
             agility: char.stats.agility,
@@ -620,10 +680,10 @@ function TacticalCombatArena({
     battlemapUrl: string | null;
     onCombatFinished?: (summary: CombatResolutionSummary) => void;
 }) {
-    // Dynamically grab default skills from the game registry
     const defaultPlayerSkills = getDefaultPlayerSkills();
     const defaultEnemySkills = getDefaultEnemySkills();
 
+    // Build TacticalEntity for each character using the resolved data from mapCharToTactical
     const playerEntities = playerIds
         .map(id => GameRegistry.getCharacter(id))
         .filter((char): char is Character => char !== undefined)
@@ -634,6 +694,7 @@ function TacticalCombatArena({
         .filter((char): char is Character => char !== undefined)
         .map((char, i) => mapCharToTactical(char, false, i, defaultPlayerSkills, defaultEnemySkills));
 
+    // ── Use LOCAL combat engine (correct weapon damage, game rules, modifiers) ──
     const {
         grid, entities, turnOrder, activeEntityId, activeEntity,
         isPlayerTurn, phase, playerAction, logs, turnNumber,

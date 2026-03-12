@@ -68,7 +68,7 @@
       },
     },
     "packages/geo-wasm/pkg": {
-      "name": "geo-wasm",
+      "name": "@ashtrail/geo-wasm",
       "version": "0.1.0",
     },
     "packages/ui": {
@@ -86,6 +86,8 @@
     "@ashtrail/core": ["@ashtrail/core@workspace:packages/core"],
 
     "@ashtrail/dev-tools": ["@ashtrail/dev-tools@workspace:apps/dev-tools"],
+
+    "@ashtrail/geo-wasm": ["@ashtrail/geo-wasm@workspace:packages/geo-wasm/pkg"],
 
     "@ashtrail/server": ["@ashtrail/server@workspace:apps/server"],
 
@@ -448,8 +450,6 @@
     "gcp-metadata": ["gcp-metadata@8.1.2", "", { "dependencies": { "gaxios": "^7.0.0", "google-logging-utils": "^1.0.0", "json-bigint": "^1.0.0" } }, "sha512-zV/5HKTfCeKWnxG0Dmrw51hEWFGfcF2xiXqcA3+J90WDuP0SvoiSO5ORvcBsifmx/FoIjgQN3oNOGaQ5PhLFkg=="],
 
     "gensync": ["gensync@1.0.0-beta.2", "", {}, "sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg=="],
-
-    "geo-wasm": ["geo-wasm@workspace:packages/geo-wasm/pkg"],
 
     "glob": ["glob@10.5.0", "", { "dependencies": { "foreground-child": "^3.1.0", "jackspeak": "^3.1.2", "minimatch": "^9.0.4", "minipass": "^7.1.2", "package-json-from-dist": "^1.0.0", "path-scurry": "^1.11.1" }, "bin": { "glob": "dist/esm/bin.mjs" } }, "sha512-DfXN8DfhJ7NH3Oe7cFmu3NCu1wKbkReJ8TorzSAFbSKrlNaQSKfIzqYqVY8zlbs2NLBbWpRiU52GX2PbaBVNkg=="],
 
