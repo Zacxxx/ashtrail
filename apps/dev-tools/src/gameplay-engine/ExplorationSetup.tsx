@@ -87,6 +87,8 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     const [savedManifestLocations, setSavedManifestLocations] = useState<ExplorationManifestListItem[]>([]);
     const [selectedLocationId, setSelectedLocationId] = useState<string>("");
     const [isLoadingLocations, setIsLoadingLocations] = useState(false);
+    const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+    const [librarySearch, setLibrarySearch] = useState("");
     const restoredJobIdRef = useRef<string | null>(null);
     const initializedPartyRef = useRef(false);
 
@@ -110,6 +112,23 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
         }),
         [availableLocations, savedManifestLocations],
     );
+
+    const filteredSavedLocations = useMemo(() => {
+        const search = librarySearch.trim().toLowerCase();
+        return savedLocations.filter((location) => {
+            if (!search) return true;
+            return [
+                location.name,
+                location.type,
+                location.lore,
+                location.id,
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase()
+                .includes(search);
+        });
+    }, [librarySearch, savedLocations]);
 
     const selectedCharacters = useMemo(
         () => selectedCharIds
@@ -484,6 +503,21 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
         onStart(map, selectedPawnId);
     };
 
+    const handleExploreLocation = async (locationId: string) => {
+        if (!activeWorldId) return;
+        try {
+            const manifest = await fetchExplorationManifest(activeWorldId, locationId);
+            if (!manifest) return;
+            const { map, selectedPawnId } = attachSelectedPawns(manifest, selectedCharIds);
+            if (!selectedPawnId) return;
+            setSelectedLocationId(locationId);
+            setIsLibraryOpen(false);
+            onStart(map, selectedPawnId);
+        } catch (error) {
+            console.error("Failed to open saved exploration manifest", error);
+        }
+    };
+
     const headerDetail = activeLocationJob
         ? `${activeLocationJob.currentStage} (${Math.round(activeLocationJob.progress)}%)`
         : manifestError
@@ -498,7 +532,7 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
 
     return (
         <div className="w-full h-full min-h-0 p-3 md:p-4">
-            <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[26px] border border-white/5 bg-[#111318] shadow-2xl">
+            <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[26px] border border-white/5 bg-[#111318] shadow-2xl">
                 <div className="border-b border-white/5 bg-black/25 px-4 py-4 md:px-5">
                     <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                         <div className="min-w-0">
@@ -526,6 +560,14 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                                 className="rounded-2xl border border-sky-500/30 bg-sky-500/10 px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.24em] text-sky-100 transition-colors hover:border-sky-400/40 hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-30"
                             >
                                 Launch
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsLibraryOpen(true)}
+                                disabled={!activeWorldId}
+                                className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.24em] text-gray-300 transition-colors hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                            >
+                                Library
                             </button>
                             <button
                                 type="button"
@@ -561,35 +603,6 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
 
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 md:px-5 md:py-5 custom-scrollbar">
                     <div className="space-y-4 pb-16">
-                        <section className="rounded-3xl border border-white/5 bg-black/20 p-4 md:p-5">
-                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                <div className="text-[10px] font-black uppercase tracking-[0.24em] text-gray-200">Saved Locations</div>
-                                <div className="text-[10px] text-gray-500">
-                                    Previously generated manifests and the built-in test sandbox.
-                                </div>
-                            </div>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                                {savedLocations.length > 0 ? savedLocations.map((location) => {
-                                    const isSelected = location.id === selectedLocationId;
-                                    return (
-                                        <button
-                                            key={location.id}
-                                            type="button"
-                                            onClick={() => setSelectedLocationId(location.id)}
-                                            className={`rounded-full border px-3 py-2 text-[9px] font-black uppercase tracking-[0.18em] transition-colors ${isSelected
-                                                ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-100"
-                                                : "border-white/10 bg-white/5 text-gray-400 hover:border-white/20 hover:text-white"}`}
-                                        >
-                                            {location.name}
-                                            {location.builtIn ? " • test" : ""}
-                                        </button>
-                                    );
-                                }) : (
-                                    <div className="text-[11px] text-gray-500">No saved manifests yet.</div>
-                                )}
-                            </div>
-                        </section>
-
                         <section className="rounded-3xl border border-white/5 bg-black/20 p-4 md:p-5">
                             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_112px_112px]">
                                 <div>
@@ -894,6 +907,115 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                         </section>
                     </div>
                 </div>
+
+                {isLibraryOpen && (
+                    <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-[#06080d]/92 backdrop-blur-md">
+                        <div className="flex items-center justify-between gap-4 border-b border-white/5 px-5 py-4">
+                            <div>
+                                <div className="text-[10px] font-black uppercase tracking-[0.24em] text-white">Saved Exploration Library</div>
+                                <div className="mt-1 text-[11px] text-gray-500">
+                                    Browse generated manifests and the built-in test exploration sandbox.
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsLibraryOpen(false)}
+                                className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-gray-300 transition-colors hover:border-white/20 hover:text-white"
+                            >
+                                Close
+                            </button>
+                        </div>
+
+                        <div className="border-b border-white/5 px-5 py-4">
+                            <input
+                                value={librarySearch}
+                                onChange={(event) => setLibrarySearch(event.target.value)}
+                                placeholder="Search saved locations..."
+                                className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-gray-700 focus:border-cyan-500/40"
+                            />
+                        </div>
+
+                        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 custom-scrollbar">
+                            {filteredSavedLocations.length > 0 ? (
+                                <div className="grid gap-3 xl:grid-cols-2">
+                                    {filteredSavedLocations.map((location) => {
+                                        const isSelected = location.id === selectedLocationId;
+                                        const hasManifest = savedLocationIds.has(location.id) || location.id === TEST_EXPLORATION_LOCATION_ID;
+                                        return (
+                                            <div
+                                                key={location.id}
+                                                className={`rounded-3xl border p-4 transition-colors ${isSelected
+                                                    ? "border-cyan-500/30 bg-cyan-500/10"
+                                                    : "border-white/5 bg-black/20"}`}
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="truncate text-[11px] font-black uppercase tracking-[0.18em] text-white">
+                                                            {location.name}
+                                                        </div>
+                                                        <div className="mt-2 flex flex-wrap gap-2">
+                                                            {location.builtIn && (
+                                                                <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1 text-[8px] font-black uppercase tracking-[0.16em] text-cyan-100">
+                                                                    Test Sandbox
+                                                                </span>
+                                                            )}
+                                                            {hasManifest && !location.builtIn && (
+                                                                <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[8px] font-black uppercase tracking-[0.16em] text-emerald-100">
+                                                                    Generated
+                                                                </span>
+                                                            )}
+                                                            {location.type && (
+                                                                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[8px] font-black uppercase tracking-[0.16em] text-gray-400">
+                                                                    {location.type}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    {isSelected && (
+                                                        <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1 text-[8px] font-black uppercase tracking-[0.16em] text-cyan-100">
+                                                            Selected
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {location.lore && (
+                                                    <div className="mt-3 text-[11px] leading-relaxed text-gray-500">
+                                                        {location.lore}
+                                                    </div>
+                                                )}
+
+                                                <div className="mt-4 flex flex-wrap gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSelectedLocationId(location.id);
+                                                            setIsLibraryOpen(false);
+                                                        }}
+                                                        className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-black uppercase tracking-[0.18em] text-gray-300 transition-colors hover:border-white/20 hover:text-white"
+                                                    >
+                                                        Select
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void handleExploreLocation(location.id)}
+                                                        disabled={!canLaunch || !hasManifest}
+                                                        className="rounded-2xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-[0.18em] text-sky-100 transition-colors hover:border-sky-400/40 hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-30"
+                                                    >
+                                                        Explore
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="rounded-3xl border border-white/5 bg-black/20 px-4 py-6 text-center text-[11px] text-gray-500">
+                                    No saved locations match the current search.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

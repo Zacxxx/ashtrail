@@ -14,7 +14,7 @@ export interface GridCell {
     walkable: boolean;
     occupantId: string | null;
     isSpawnZone?: 'player' | 'enemy';
-    highlight?: 'move' | 'attack' | 'path' | null;
+    highlight?: 'move' | 'attack' | 'attack-blocked' | 'path' | null;
     textureUrl?: string;
 }
 

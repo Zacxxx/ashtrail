@@ -59,11 +59,10 @@ export function JobsProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const getJobDetail = useCallback(async (jobId: string) => {
-        if (details[jobId]) return details[jobId];
         const detail = await fetchJson<JobDetail>(`/api/jobs/${jobId}`);
         setDetails((previous) => ({ ...previous, [jobId]: detail }));
         return detail;
-    }, [details]);
+    }, []);
 
     const cancelJob = useCallback(async (jobId: string) => {
         const response = await fetch(`/api/jobs/${jobId}`, { method: "DELETE" });

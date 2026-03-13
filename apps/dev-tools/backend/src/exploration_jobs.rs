@@ -18,6 +18,7 @@ use std::{
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
+    exploration_engine::manifest::{load_and_upgrade_manifest, migrate_manifest_value},
     gemini,
     jobs::{now_ms, JobOutputRef, JobRecord, JobRouteRef, JobStatus},
     locations::{self, LocationCategory, LocationHistoryHooks, LocationRecord, LocationScale, LocationStatus, RecordSource},
@@ -148,6 +149,14 @@ struct ExplorationTile {
     texture_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     is_spawn_zone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interior_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    light_level: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocks_light: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    door_id: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -170,6 +179,16 @@ struct ExplorationObject {
     move_cost: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fertility: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    door_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interior_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    roof_group_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    height_tiles: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocks_light: Option<bool>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -185,6 +204,15 @@ struct ExplorationMapManifest {
     name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fog_of_war: Option<Vec<bool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ambient_light: Option<f32>,
+}
+
+struct RoomCarveResult {
+    door_x: u32,
+    door_y: u32,
+    interior_id: String,
+    roof_group_id: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -422,24 +450,17 @@ pub async fn get_exploration_manifest(
     let path = manifest_path(&state.planets_dir, &world_id, &location_id);
     if !path.exists() {
         if is_test_exploration_location(&location_id) {
-            let manifest = build_test_manifest_value(&world_id);
+            let manifest = migrate_manifest_value(build_test_manifest_value(&world_id)).0;
             return (StatusCode::OK, Json(manifest)).into_response();
         }
         return (StatusCode::NOT_FOUND, "Exploration manifest not found".to_string()).into_response();
     }
 
-    match fs::read_to_string(&path) {
-        Ok(content) => match serde_json::from_str::<Value>(&content) {
-            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-            Err(error) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to parse exploration manifest: {error}"),
-            )
-                .into_response(),
-        },
+    match load_and_upgrade_manifest(&path) {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to read exploration manifest: {error}"),
+            error,
         )
             .into_response(),
     }
@@ -1085,10 +1106,15 @@ fn build_manifest(
             move_cost: 1.0,
             texture_url: None,
             is_spawn_zone: None,
+            interior_id: None,
+            light_level: Some(0.82),
+            blocks_light: None,
+            door_id: None,
         };
         (width * height) as usize
     ];
     let mut objects = Vec::new();
+    let mut pawns = Vec::new();
     let mut rng = StdRng::seed_from_u64(context.seed);
 
     for x in 0..width {
@@ -1134,21 +1160,88 @@ fn build_manifest(
                 continue;
             }
             placed.push((x, y, room_w, room_h));
-            carve_room(&mut tiles, width, x, y, room_w, room_h, &mut rng);
+            let room = carve_room(&mut tiles, width, x, y, room_w, room_h, &mut rng, index);
             objects.push(ExplorationObject {
-                id: format!("obj-structure-{index}"),
-                r#type: label.to_lowercase().replace(' ', "-"),
+                id: format!("obj-roof-{index}"),
+                r#type: format!("{}-roof", label.to_lowercase().replace(' ', "-")),
                 x,
                 y,
                 width: room_w,
                 height: room_h,
-                passable: false,
+                passable: true,
                 texture_url: None,
                 is_natural: Some(false),
                 is_hidden: Some(false),
                 move_cost: None,
                 fertility: None,
+                door_id: None,
+                interior_id: Some(room.interior_id.clone()),
+                roof_group_id: Some(room.roof_group_id.clone()),
+                height_tiles: Some(2),
+                blocks_light: Some(true),
             });
+            objects.push(ExplorationObject {
+                id: format!("obj-door-{index}"),
+                r#type: "door".to_string(),
+                x: room.door_x,
+                y: room.door_y,
+                width: 1,
+                height: 1,
+                passable: true,
+                texture_url: None,
+                is_natural: Some(false),
+                is_hidden: Some(false),
+                move_cost: None,
+                fertility: None,
+                door_id: Some(format!("door-{index}")),
+                interior_id: Some(room.interior_id.clone()),
+                roof_group_id: Some(room.roof_group_id.clone()),
+                height_tiles: Some(2),
+                blocks_light: Some(false),
+            });
+            if room_w > 4 && room_h > 4 {
+                objects.push(ExplorationObject {
+                    id: format!("obj-furniture-{index}"),
+                    r#type: if matches!(location.category, locations::LocationCategory::Settlement) {
+                        "crate".to_string()
+                    } else {
+                        "rubble".to_string()
+                    },
+                    x: x + room_w / 2,
+                    y: y + room_h / 2,
+                    width: 1,
+                    height: 1,
+                    passable: false,
+                    texture_url: None,
+                    is_natural: Some(false),
+                    is_hidden: Some(false),
+                    move_cost: Some(1.2),
+                    fertility: None,
+                    door_id: None,
+                    interior_id: Some(room.interior_id.clone()),
+                    roof_group_id: None,
+                    height_tiles: Some(1),
+                    blocks_light: Some(false),
+                });
+            }
+            let npc_name = match location.category {
+                locations::LocationCategory::Settlement => format!("Resident {}", index + 1),
+                locations::LocationCategory::Ruin => format!("Scavenger {}", index + 1),
+                _ => format!("Wanderer {}", index + 1),
+            };
+            pawns.push(json!({
+                "id": format!("npc-{index}"),
+                "name": npc_name,
+                "x": ((x + room.door_x).div_ceil(2)),
+                "y": ((y + room.door_y).div_ceil(2)),
+                "speed": 2.25,
+                "factionId": "ambient",
+                "type": "human",
+                "facing": "south",
+                "isNpc": true,
+                "interactionLabel": "Talk",
+                "homeInteriorId": room.interior_id.clone(),
+            }));
             break;
         }
     }
@@ -1174,6 +1267,11 @@ fn build_manifest(
             is_hidden: Some(false),
             move_cost: Some(1.4),
             fertility: Some(1.0),
+            door_id: None,
+            interior_id: None,
+            roof_group_id: None,
+            height_tiles: Some(1),
+            blocks_light: Some(false),
         });
     }
 
@@ -1184,10 +1282,11 @@ fn build_manifest(
         width,
         height,
         tiles,
-        pawns: Vec::new(),
+        pawns,
         objects,
         name: Some(context.location_name.clone()),
         fog_of_war: None,
+        ambient_light: Some(0.76),
     }
 }
 
@@ -1198,6 +1297,18 @@ fn build_manifest_value(
 ) -> Value {
     let mut value = serde_json::to_value(manifest).unwrap_or_else(|_| json!({}));
     if let Some(obj) = value.as_object_mut() {
+        obj.insert("version".to_string(), Value::from(2_u64));
+        obj.insert("renderMode".to_string(), Value::String("isometric".to_string()));
+        obj.insert(
+            "metadata".to_string(),
+            json!({
+                "generationMode": context.generation_mode,
+                "assetMode": context.asset_mode,
+                "seed": context.seed,
+                "worldId": payload.world_id,
+                "locationId": payload.location_id,
+            }),
+        );
         if let Some(biome_pack_id) = &payload.biome_pack_id {
             obj.insert("biomePackId".to_string(), Value::String(biome_pack_id.clone()));
         }
@@ -1580,6 +1691,8 @@ fn set_wall(tiles: &mut [ExplorationTile], width: u32, x: u32, y: u32) {
     tiles[idx].r#type = "wall".to_string();
     tiles[idx].walkable = false;
     tiles[idx].move_cost = 0.0;
+    tiles[idx].blocks_light = Some(true);
+    tiles[idx].light_level = Some(0.3);
 }
 
 fn clear_spawn_zone(
@@ -1601,6 +1714,7 @@ fn clear_spawn_zone(
             tiles[idx].walkable = true;
             tiles[idx].move_cost = 1.0;
             tiles[idx].is_spawn_zone = Some("player".to_string());
+            tiles[idx].light_level = Some(0.82);
         }
     }
 }
@@ -1613,7 +1727,10 @@ fn carve_room(
     room_w: u32,
     room_h: u32,
     rng: &mut StdRng,
-) {
+    room_index: usize,
+) -> RoomCarveResult {
+    let interior_id = format!("interior-{room_index}");
+    let roof_group_id = format!("roof-{room_index}");
     for ty in y..(y + room_h) {
         for tx in x..(x + room_w) {
             let idx = tile_index(width, tx, ty);
@@ -1622,10 +1739,15 @@ fn carve_room(
                 tiles[idx].r#type = "wall".to_string();
                 tiles[idx].walkable = false;
                 tiles[idx].move_cost = 0.0;
+                tiles[idx].blocks_light = Some(true);
+                tiles[idx].light_level = Some(0.24);
+                tiles[idx].interior_id = Some(interior_id.clone());
             } else {
-                tiles[idx].r#type = "floor".to_string();
+                tiles[idx].r#type = "interior-floor".to_string();
                 tiles[idx].walkable = true;
                 tiles[idx].move_cost = 1.0;
+                tiles[idx].interior_id = Some(interior_id.clone());
+                tiles[idx].light_level = Some(0.56);
             }
         }
     }
@@ -1638,9 +1760,19 @@ fn carve_room(
         _ => (x + room_w - 1, y + room_h / 2),
     };
     let idx = tile_index(width, door_x, door_y);
-    tiles[idx].r#type = "floor".to_string();
+    tiles[idx].r#type = "door".to_string();
     tiles[idx].walkable = true;
     tiles[idx].move_cost = 1.0;
+    tiles[idx].door_id = Some(format!("door-{room_index}"));
+    tiles[idx].interior_id = Some(interior_id.clone());
+    tiles[idx].light_level = Some(0.62);
+
+    RoomCarveResult {
+        door_x,
+        door_y,
+        interior_id,
+        roof_group_id,
+    }
 }
 
 fn tile_index(width: u32, x: u32, y: u32) -> usize {

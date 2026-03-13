@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { LocationExploration } from "./LocationExploration";
 import { ExplorationSetup } from "./ExplorationSetup";
+import { IsometricLocationExploration } from "./IsometricLocationExploration";
 import { ExplorationMap } from "@ashtrail/core";
 import { useJobs } from "../jobs/useJobs";
 import { attachSelectedPawns, fetchExplorationManifest } from "./explorationSupport";
@@ -87,7 +87,7 @@ export function ExplorationView() {
                         <ExplorationSetup onStart={handleStartExploration} />
                     ) : (
                         activeMap && (
-                            <LocationExploration
+                            <IsometricLocationExploration
                                 initialMap={activeMap}
                                 initialSelectedPawnId={selectedPawnId}
                                 onExit={handleExit}

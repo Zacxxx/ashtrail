@@ -15,6 +15,8 @@ export interface GridCell {
 
 export type Grid = GridCell[][];
 
+export { TILE_HEIGHT, TILE_WIDTH, gridToScreen, screenToGrid } from "../iso/shared";
+
 // ── Grid Generation ──
 
 export function generateGrid(rows: number, cols: number, obstacleRatio: number = 0.15): Grid {
@@ -304,25 +306,6 @@ export function highlightCells(grid: Grid, cells: GridCell[], type: 'move' | 'at
     return newGrid;
 }
 
-// ── Isometric coordinate conversion ──
-
-export const TILE_WIDTH = 64;
-export const TILE_HEIGHT = 32;
-
-export function gridToScreen(row: number, col: number): { x: number; y: number } {
-    return {
-        x: (col - row) * (TILE_WIDTH / 2),
-        y: (col + row) * (TILE_HEIGHT / 2),
-    };
-}
-
-export function screenToGrid(screenX: number, screenY: number): { row: number; col: number } {
-    // Reverse the isometric transform
-    const col = (screenX / (TILE_WIDTH / 2) + screenY / (TILE_HEIGHT / 2)) / 2;
-    const row = (screenY / (TILE_HEIGHT / 2) - screenX / (TILE_WIDTH / 2)) / 2;
-    return { row: Math.round(row), col: Math.round(col) };
-}
-
 // ── Helpers ──
 
 function cloneGrid(grid: Grid): Grid {
@@ -430,4 +413,3 @@ export function parseAIGridResponse(raw: string, rows: number = 12, cols: number
         return null;
     }
 }
-

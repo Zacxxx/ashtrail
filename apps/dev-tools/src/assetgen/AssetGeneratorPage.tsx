@@ -54,7 +54,7 @@ interface TextureBatchManifest {
             id: string;
         };
         grouping?: {
-            type: "biome" | "structure";
+            type: "biome" | "structure" | "exploration-kit" | "block-palette";
             name: string;
             description?: string;
         };
@@ -131,7 +131,7 @@ interface BatchSummary {
 }
 
 interface AssetPackGrouping {
-    type: "biome" | "structure";
+    type: "biome" | "structure" | "exploration-kit" | "block-palette";
     name: string;
     description?: string;
 }
@@ -610,7 +610,7 @@ export function AssetGeneratorPage() {
     const [isAssigningPack, setIsAssigningPack] = useState(false);
     const [assigningPackId, setAssigningPackId] = useState<string | null>(null);
     const [tempPackGroupingName, setTempPackGroupingName] = useState("");
-    const [tempPackGroupingType, setTempPackGroupingType] = useState<"biome" | "structure">("biome");
+    const [tempPackGroupingType, setTempPackGroupingType] = useState<AssetPackGrouping["type"]>("biome");
     const [tempPackGroupingDescription, setTempPackGroupingDescription] = useState("");
 
     // ── Game Assets Specific State ──
@@ -629,7 +629,7 @@ export function AssetGeneratorPage() {
     const [terrainMoveEfficiency, setTerrainMoveEfficiency] = useState(1.0);
     const [terrainFertility, setTerrainFertility] = useState(1.0);
     // Grouping
-    const [gameAssetGroupType, setGameAssetGroupType] = useState<"biome" | "structure">("biome");
+    const [gameAssetGroupType, setGameAssetGroupType] = useState<NonNullable<NonNullable<TextureBatchManifest["gameAsset"]>["grouping"]>["type"]>("biome");
     const [gameAssetGroupName, setGameAssetGroupName] = useState("");
     const [selectedBiomeId, setSelectedBiomeId] = useState<string | null>(null);
     const [structureDescription, setStructureDescription] = useState("");

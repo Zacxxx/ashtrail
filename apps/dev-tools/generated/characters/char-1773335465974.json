@@ -1,7 +1,7 @@
 {
   "age": 26,
   "alignment": "Neutral Good",
-  "appearancePrompt": "A young man that was bisexual and loved working in insurance, expert in busisseness intellgeicne and smoking weed.",
+  "appearancePrompt": "Tall and skeletal, his posture remained alert, a stark contrast to the hollowed-out look of his pale, round face, which was oddly clean-shaven despite the ash-filled air. Bloodshot eyes, perpetually scanning, peered out from beneath a greasy, charcoal mullet that hung above the grimy fabric of his worn gear, mirroring the world's neglect.",
   "backstory": "A young man that was bisexual and loved working in insurance, expert in busisseness intellgeicne and smoking weed.",
   "badge": "🧬",
   "credits": {
@@ -16,7 +16,33 @@
     "gloves": null,
     "head": null,
     "legs": null,
-    "mainHand": null,
+    "mainHand": {
+      "bagIndex": 0,
+      "category": "weapon",
+      "cost": 51,
+      "description": "",
+      "effects": [
+        {
+          "target": "crit_rate",
+          "type": "COMBAT_BONUS",
+          "value": 12
+        },
+        {
+          "target": "damage",
+          "type": "COMBAT_BONUS",
+          "value": 22
+        }
+      ],
+      "equipSlot": "mainHand",
+      "icon": "📦",
+      "id": "item-1773434072316-1773434217381",
+      "name": "Good Old Georgia",
+      "rarity": "specialized",
+      "weaponAreaSize": 1,
+      "weaponAreaType": "cross",
+      "weaponRange": 7,
+      "weaponType": "ranged"
+    },
     "offHand": null,
     "waist": null
   },
@@ -45,15 +71,6 @@
       "rarity": "reinforced"
     },
     {
-      "bagIndex": 0,
-      "category": "weapon",
-      "cost": 106,
-      "description": "Freshly issued weapon.",
-      "id": "item-reset-weapon-2-1773335465974",
-      "name": "Pulse Rifle",
-      "rarity": "specialized"
-    },
-    {
       "bagIndex": 1,
       "category": "weapon",
       "cost": 174,
@@ -78,15 +95,6 @@
       "description": "Freshly issued weapon.",
       "id": "item-reset-weapon-5-1773335465974",
       "name": "Serrated Knife",
-      "rarity": "pre-ash"
-    },
-    {
-      "bagIndex": 0,
-      "category": "consumable",
-      "cost": 490,
-      "description": "Freshly issued consumable.",
-      "id": "item-reset-consumable-0-1773335465974",
-      "name": "Med Kit",
       "rarity": "pre-ash"
     },
     {
@@ -144,15 +152,6 @@
       "rarity": "reinforced"
     },
     {
-      "bagIndex": 0,
-      "category": "resource",
-      "cost": 270,
-      "description": "Freshly issued resource.",
-      "id": "item-reset-resource-1-1773335465974",
-      "name": "Electronics",
-      "rarity": "pre-ash"
-    },
-    {
       "bagIndex": 1,
       "category": "resource",
       "cost": 292,
@@ -169,15 +168,6 @@
       "id": "item-reset-resource-3-1773335465974",
       "name": "Fiberglass",
       "rarity": "specialized"
-    },
-    {
-      "bagIndex": 0,
-      "category": "junk",
-      "cost": 186,
-      "description": "Freshly issued junk.",
-      "id": "item-reset-junk-0-1773335465974",
-      "name": "Broken Bottle",
-      "rarity": "relic"
     },
     {
       "bagIndex": 4,
@@ -205,33 +195,6 @@
       "id": "item-reset-junk-3-1773335465974",
       "name": "Old Tape",
       "rarity": "salvaged"
-    },
-    {
-      "bagIndex": 0,
-      "category": "armor",
-      "cost": 421,
-      "description": "Freshly issued armor.",
-      "id": "item-reset-armor-0-1773335465974",
-      "name": "Tactical Vest",
-      "rarity": "specialized"
-    },
-    {
-      "bagIndex": 0,
-      "category": "armor",
-      "cost": 64,
-      "description": "Freshly issued armor.",
-      "id": "item-reset-armor-1-1773335465974",
-      "name": "Reinforced Helmet",
-      "rarity": "relic"
-    },
-    {
-      "bagIndex": 0,
-      "category": "armor",
-      "cost": 543,
-      "description": "Freshly issued armor.",
-      "id": "item-reset-armor-2-1773335465974",
-      "name": "Scrap Plating",
-      "rarity": "ashmarked"
     },
     {
       "bagIndex": 5,
@@ -308,8 +271,9 @@
     "father": null,
     "mother": null
   },
+  "portraitName": "Brice Alfano",
   "progression": {
-    "availableTalentPoints": 4,
+    "availableTalentPoints": 12,
     "spentTalentPoints": 0,
     "treeOccupationId": "occ-operations-manager",
     "unlockedTalentNodeIds": []

@@ -20,6 +20,7 @@ import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import type { Faction } from "../history/FactionsTab";
 import type { Area } from "../history/locationTypes";
 import type { EcologyBundle } from "../ecology/types";
+import { CharacterSheetPanel } from "../components/CharacterSheetPanel";
 import { CombatEncounterView } from "../gameplay-engine/combat/CombatSimulator";
 import { useJobs } from "../jobs/useJobs";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
@@ -114,10 +115,6 @@ function buildEcologyOptions(bundle: EcologyBundle | null): EcologyOption[] {
     ];
 }
 
-function isDiscussionKind(kind?: string | null): boolean {
-    return kind === "discussion" || kind === "dialogue";
-}
-
 function buildMaterializationNotice(characters?: Character[]): string | null {
     if (!characters?.length) return null;
     const names = characters.map((character) => character.name).filter(Boolean).slice(0, 3);
@@ -147,6 +144,15 @@ function toLegacyQuestKind(job?: Pick<JobListItem, "kind"> | null): "generate-ru
     if (job?.kind === "quests.generate-run.v2") return "generate-run";
     if (job?.kind === "quests.advance-run.v2") return "advance-run";
     return null;
+}
+
+function extractJobMetadata(job?: Pick<JobListItem, "metadata"> | null): Record<string, unknown> | null {
+    if (!job?.metadata || typeof job.metadata !== "object") return null;
+    const direct = job.metadata as Record<string, unknown>;
+    if (direct.metadata && typeof direct.metadata === "object") {
+        return direct.metadata as Record<string, unknown>;
+    }
+    return direct;
 }
 
 function escapeRegex(input: string): string {
@@ -243,11 +249,12 @@ export function QuestPage() {
 
     const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
-    const { jobs, getJobDetail } = useJobs();
+    const { jobs, getJobDetail, refreshJobs, waitForJob } = useJobs();
     const launchTrackedJob = useTrackedJobLauncher();
     const processedQuestJobIdRef = useRef<string | null>(null);
     const processedBriefJobIdRef = useRef<string | null>(null);
     const restoredJobIdRef = useRef<string | null>(null);
+    const illustrationNoticeRef = useRef<string | null>(null);
     const selectedWorld = history.find((item) => item.id === activeWorldId) ?? null;
     const questJob = useMemo(
         () => (activeQuestJobId ? jobs.find((job) => job.jobId === activeQuestJobId) ?? null : null),
@@ -262,11 +269,19 @@ export function QuestPage() {
         if (!illustrationId) return null;
         return jobs.find((job) => (
             job.kind === "quests.generate-illustration"
-            && job.metadata
-            && typeof job.metadata.illustrationId === "string"
-            && job.metadata.illustrationId === illustrationId
+            && typeof extractJobMetadata(job)?.illustrationId === "string"
+            && extractJobMetadata(job)?.illustrationId === illustrationId
         )) ?? null;
     }, [activeRun?.currentNode?.illustrationId, jobs]);
+    const currentIllustrationAssetPath = currentIllustration?.assetPath
+        || currentIllustrationJob?.outputRefs.find((output) => output.id === "illustration-image")?.href
+        || null;
+    const currentIllustrationStatus = currentIllustrationJob?.status === "completed"
+        ? "ready"
+        : currentIllustrationJob?.status === "failed"
+            ? "failed"
+            : currentIllustration?.status
+                || (currentIllustrationJob ? "generating" : null);
 
     const partyCharacters = useMemo(
         () => builderCharacters.filter((character) => selectedPartyIds.includes(character.id)),
@@ -444,6 +459,20 @@ export function QuestPage() {
     ]);
 
     useEffect(() => {
+        if (!currentIllustrationJob || currentIllustrationJob.status !== "failed") {
+            illustrationNoticeRef.current = null;
+            return;
+        }
+        const nextError = currentIllustrationJob.error || "Quest illustration generation failed.";
+        const noticeKey = `${currentIllustrationJob.jobId}:${nextError}`;
+        if (illustrationNoticeRef.current === noticeKey) {
+            return;
+        }
+        illustrationNoticeRef.current = noticeKey;
+        setNotices((previous) => [nextError, ...previous.filter((entry) => entry !== nextError)]);
+    }, [currentIllustrationJob?.error, currentIllustrationJob?.jobId, currentIllustrationJob?.status]);
+
+    useEffect(() => {
         if (!questJob || !isQuestRunJob(questJob) || !pendingQuestAction) {
             return;
         }
@@ -493,6 +522,10 @@ export function QuestPage() {
                 setNotices(buildQuestNotices(response));
                 setIsAdvancing(false);
             }
+            await refreshJobs();
+            window.setTimeout(() => {
+                void refreshJobs();
+            }, 400);
             setPendingQuestAction(null);
         };
 
@@ -505,6 +538,7 @@ export function QuestPage() {
         refreshArchive,
         refreshBuilderCharacters,
         refreshChains,
+        refreshJobs,
         setSearchParams,
     ]);
 
@@ -628,15 +662,45 @@ export function QuestPage() {
 
         setGeneratingPortraitIds((previous) => [...previous, npcId]);
         try {
-            const response = await fetchJson<{ dataUrl?: string | null }>(`${API_BASE}/gm/generate-character-portrait`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt }),
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: `${API_BASE}/gm/generate-character-portrait`,
+                request: { prompt },
+                optimisticJob: {
+                    kind: "gm.generate-character-portrait",
+                    title: "Generate Character Portrait",
+                    tool: "game-master",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId: activeWorldId,
+                    metadata: {
+                        worldId: activeWorldId,
+                        characterId: character.id,
+                        characterName: character.name,
+                    },
+                },
+                metadata: {
+                    worldId: activeWorldId,
+                    characterId: character.id,
+                    characterName: character.name,
+                },
+                restore: {
+                    route: "/quests",
+                    search: { tab: "run" },
+                    payload: {
+                        worldId: activeWorldId,
+                        runId: activeRun?.id || null,
+                    },
+                },
             });
-            if (response.dataUrl) {
+            const detail = await waitForJob(accepted.jobId);
+            const dataUrl = String((detail.result as { dataUrl?: string } | undefined)?.dataUrl || "");
+            if (detail.status !== "completed" || !dataUrl) {
+                throw new Error(detail.error || "Failed to generate NPC portrait.");
+            }
+            if (dataUrl) {
                 await persistCharacters([{
                     ...character,
-                    portraitUrl: response.dataUrl,
+                    portraitUrl: dataUrl,
                     portraitName: character.name || character.id,
                 }]);
                 setNotices((previous) => [`Generated portrait for ${character.name}.`, ...previous]);
@@ -647,7 +711,7 @@ export function QuestPage() {
         } finally {
             setGeneratingPortraitIds((previous) => previous.filter((id) => id !== npcId));
         }
-    }, [builderCharacters, generatingPortraitIds, persistCharacters]);
+    }, [activeRun?.id, activeWorldId, builderCharacters, generatingPortraitIds, launchTrackedJob, persistCharacters, waitForJob]);
 
     const selectedFactionAnchors = factions.filter((faction) => questSeed.factionAnchorIds.includes(faction.id));
     const selectedLocationAnchors = locations.filter((location) => questSeed.locationAnchorIds.includes(location.id));
@@ -860,7 +924,6 @@ export function QuestPage() {
 
     const currentNode = activeRun?.currentNode;
     const hasPendingCombat = currentNode?.kind === "combat" && !!currentNode.pendingCombat?.enemyIds?.length;
-    const isDiscussionNode = isDiscussionKind(currentNode?.kind);
     const currentTermRefs = useMemo(
         () => [...(currentNode?.termRefs || [])].sort((a, b) => b.term.length - a.term.length),
         [currentNode?.termRefs],
@@ -893,7 +956,6 @@ export function QuestPage() {
 
     const activePartyCharacters = activeRun ? activeRunParty : partyCharacters;
     const selectedPartyCharacter = activePartyCharacters.find((character) => character.id === selectedPartyCharacterId) || activePartyCharacters[0] || null;
-    const currentEffects = activeRun?.currentEffects || [];
     const seedStepIndex = QUEST_SEED_STEPS.indexOf(seedStep);
     const canGenerateQuest = !isGenerating
         && !!gmContext
@@ -916,14 +978,16 @@ export function QuestPage() {
 
     const renderIllustration = (title: string, borderClass: string) => (
         <div className={`min-h-[260px] overflow-hidden rounded-3xl border ${borderClass} bg-black/20`}>
-            {currentIllustration?.assetPath && currentIllustration.status === "ready" ? (
-                <img src={currentIllustration.assetPath} alt={title} className="h-full w-full object-cover" />
+            {currentIllustrationAssetPath && currentIllustrationStatus === "ready" ? (
+                <img src={currentIllustrationAssetPath} alt={title} className="h-full w-full object-cover" />
             ) : (
                 <div className="flex h-full items-center justify-center px-6 text-center">
                     <div>
                         <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-gray-400">Quest Scene</div>
                         <div className="mt-3 text-sm text-gray-500">
-                            {currentIllustration?.status === "failed" ? "Illustration generation failed." : "Generating a key-beat illustration..."}
+                            {currentIllustrationStatus === "failed"
+                                ? (currentIllustrationJob?.error || "Illustration generation failed.")
+                                : "Generating a key-beat illustration..."}
                         </div>
                     </div>
                 </div>
@@ -1199,51 +1263,130 @@ export function QuestPage() {
         const borderClass = currentNode.kind === "discussion" ? "border-cyan-500/15" : currentNode.kind === "ending" ? "border-emerald-500/20" : "border-amber-500/15";
         const badgeClass = currentNode.kind === "discussion" ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-200" : currentNode.kind === "ending" ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" : "border-amber-500/20 bg-amber-500/10 text-amber-200";
         return (
-            <Card className={`flex h-full min-h-0 flex-col rounded-[30px] ${borderClass} bg-[#101720]`}>
-                <div className="border-b border-white/5 px-6 py-5"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="text-[10px] font-bold uppercase tracking-[0.3em] text-gray-400">Act {currentNode.act} • Node {activeRun.nodeCount}/{activeRun.maxNodeCount}</div><div className="mt-2 truncate text-2xl font-black text-white">{currentNode.title}</div></div><div className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${badgeClass}`}>{currentNode.kind}</div></div></div>
-                <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar px-6 py-5">
-                    <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-                        <div className="flex flex-col gap-5">
-                            <div className="rounded-3xl border border-white/5 bg-[#05080c] p-5 text-sm leading-relaxed text-gray-200">{renderGlossaryText(currentNode.text)}</div>
-                            {(currentNode.contextRefs || []).length > 0 && <div className="flex flex-wrap gap-2">{currentNode.contextRefs.map((reference) => <span key={`${reference.kind}-${reference.id}`} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-widest text-gray-300">{reference.kind}: {reference.label}</span>)}</div>}
-                            {(currentNode.npcs || []).length > 0 && <div className="grid gap-3 md:grid-cols-2">{currentNode.npcs.map((npc) => <div key={npc.id} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-bold text-white">{npc.name}</div><div className="mt-1 text-[10px] uppercase tracking-widest text-gray-500">{npc.role || "speaker"} {npc.isHostile ? "• tense" : ""}</div></div><button type="button" onClick={() => void handleGenerateNpcPortrait(npc.id)} disabled={generatingPortraitIds.includes(npc.id)} className="text-[9px] uppercase tracking-widest text-cyan-200 hover:text-white disabled:opacity-40">{generatingPortraitIds.includes(npc.id) ? "..." : "portrait"}</button></div></div>)}</div>}
-                            {currentNode.kind === "ending" && <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-5"><div className="text-[10px] font-bold uppercase tracking-[0.3em] text-emerald-300">Ending Reached</div><div className="mt-3 text-sm text-emerald-100">{activeRun.status === "failed" ? "The run has failed." : "The run has concluded."}</div><div className="mt-4 text-sm text-gray-300">{activeRun.summary}</div></div>}
+            <Card className={`flex h-full min-h-0 flex-col rounded-[30px] ${borderClass} bg-[#101720] shadow-2xl`}>
+                <div className="border-b border-white/5 px-6 py-5">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.3em] text-gray-300">
+                                    Act {currentNode.act}
+                                </span>
+                                <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.3em] text-gray-400">
+                                    Node {activeRun.nodeCount}/{activeRun.maxNodeCount}
+                                </span>
+                                <span className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${badgeClass}`}>
+                                    {currentNode.kind}
+                                </span>
+                            </div>
+                            <div className="mt-4 text-3xl font-black leading-tight text-white">{currentNode.title}</div>
                         </div>
-                        <div className="grid gap-5">
+                    </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-hidden px-6 pb-5 pt-7">
+                    <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+                        <div className="grid min-h-0 gap-4 xl:grid-rows-[minmax(0,1fr)_auto]">
+                            <div className="flex min-h-0 flex-col rounded-[28px] border border-white/5 bg-[linear-gradient(145deg,rgba(10,14,20,0.98),rgba(5,8,12,0.9))] p-5">
+                                <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar pr-2 text-[15px] leading-7 text-gray-100">
+                                    {renderGlossaryText(currentNode.text)}
+                                </div>
+                                {currentNode.kind === "ending" && (
+                                    <div className="mt-4 rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                                        <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-emerald-300">Ending Reached</div>
+                                        <div className="mt-2 text-sm text-emerald-100">
+                                            {activeRun.status === "failed" ? "The run has failed." : "The run has concluded."}
+                                        </div>
+                                        <div className="mt-3 text-sm text-gray-300">{activeRun.summary}</div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="rounded-[26px] border border-white/5 bg-black/25 p-4">
+                                {currentNode.kind === "ending" ? (
+                                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-4 text-sm text-emerald-100">
+                                        {activeRun.summary}
+                                    </div>
+                                ) : (
+                                    <div className="grid gap-3">
+                                        <div className="flex flex-wrap gap-2">
+                                            {(currentNode.choices || []).map((choice) => (
+                                                <button
+                                                    key={choice.id}
+                                                    type="button"
+                                                    onClick={() => void handleAdvanceQuest(choice.label)}
+                                                    disabled={isAdvancing}
+                                                    className="rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-2 text-xs font-bold tracking-wide text-orange-100 transition-colors hover:bg-orange-500/20 disabled:opacity-50"
+                                                >
+                                                    {choice.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_160px]">
+                                            <textarea
+                                                value={freeformAction}
+                                                onChange={(event) => setFreeformAction(event.target.value)}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === "Enter" && !event.shiftKey && freeformAction.trim() && !isAdvancing) {
+                                                        event.preventDefault();
+                                                        void handleAdvanceQuest(undefined, undefined, freeformAction);
+                                                    }
+                                                }}
+                                                rows={2}
+                                                className="min-h-[68px] resize-none rounded-2xl border border-white/10 bg-black/50 p-3 text-sm text-gray-100 focus:border-orange-500/40 focus:outline-none"
+                                                placeholder={currentNode.kind === "discussion" ? "Type what your party says or asks." : "Describe a custom action beyond the offered choices."}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => void handleAdvanceQuest(undefined, undefined, freeformAction)}
+                                                disabled={isAdvancing || !freeformAction.trim()}
+                                                className="rounded-2xl border border-orange-400 bg-gradient-to-b from-orange-400 to-orange-600 px-4 py-3 text-sm font-black uppercase tracking-widest text-black transition-all hover:from-orange-300 hover:to-orange-500 disabled:cursor-not-allowed disabled:opacity-30"
+                                            >
+                                                {isAdvancing ? "Resolving" : currentNode.kind === "discussion" ? "Send" : "Resolve"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="grid min-h-0 gap-4 xl:grid-rows-[minmax(240px,1fr)_auto]">
                             {renderIllustration(currentNode.title, borderClass)}
-                            <div className="rounded-3xl border border-white/5 bg-black/20 p-4"><div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Arc Pressure</div><div className="mt-4 space-y-2 text-sm text-gray-300">{(activeRun.arc.recurringTensions || []).length > 0 ? activeRun.arc.recurringTensions.map((tension) => <div key={tension}>{tension}</div>) : <div className="text-gray-500">No active recurring tensions.</div>}</div></div>
+                            <div className="rounded-[26px] border border-white/5 bg-black/20 p-4">
+                                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                                    <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-gray-500">Party</div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button type="button" onClick={() => openPartyModal()} className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-cyan-200 transition-colors hover:bg-cyan-500/20">Party</button>
+                                        <button type="button" onClick={() => openRunLog("HISTORY")} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-200 transition-colors hover:bg-white/10">Run Log</button>
+                                        <button type="button" onClick={() => void handleAbandonRun()} className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-red-200 transition-colors hover:bg-red-500/20">Abandon</button>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 overflow-x-auto pb-1 custom-scrollbar">
+                                    {activeRunParty.map((character) => (
+                                        <button key={character.id} type="button" onClick={() => openPartyModal(character.id)} className="min-w-[220px] rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-left transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/10">
+                                            <div className="flex items-center gap-3">
+                                                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-[#05080c]">
+                                                    {character.portraitUrl ? (
+                                                        <img src={character.portraitUrl} alt={character.name} className="h-full w-full object-cover" />
+                                                    ) : (
+                                                        <div className="flex h-full w-full items-center justify-center text-sm font-black uppercase text-gray-500">
+                                                            {(character.name || "?").slice(0, 2)}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="truncate text-sm font-bold text-white">{character.name}</div>
+                                                    <div className="mt-1 text-[10px] uppercase tracking-widest text-gray-500">{character.occupation?.name || character.type || "Wanderer"}</div>
+                                                </div>
+                                                <div className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-cyan-200">
+                                                    HP {character.hp}/{character.maxHp}
+                                                </div>
+                                            </div>
+                                        </button>
+                                    ))}
+                                    {activeRunParty.length === 0 && <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-3 text-sm text-gray-500">No resolved party members are available.</div>}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </Card>
-        );
-    };
-
-    const renderQuestDock = () => {
-        if (!activeRun || hasPendingCombat) return null;
-        return (
-            <div className="grid shrink-0 grid-cols-1 gap-4 rounded-[28px] border border-white/5 bg-[radial-gradient(ellipse_at_bottom,rgba(15,23,42,0.96),rgba(0,0,0,0.94))] p-4 shadow-2xl xl:grid-cols-[0.95fr_1.45fr_0.6fr]">
-                <div className="min-w-0"><div className="mb-3 text-[10px] font-bold uppercase tracking-[0.3em] text-gray-500">Party</div><div className="flex gap-3 overflow-x-auto pb-1 custom-scrollbar">{activeRunParty.map((character) => <button key={character.id} type="button" onClick={() => openPartyModal(character.id)} className="min-w-[150px] rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-left transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/10"><div className="truncate text-sm font-bold text-white">{character.name}</div><div className="mt-1 text-[10px] uppercase tracking-widest text-gray-500">{character.occupation?.name || character.type || "Wanderer"}</div><div className="mt-3 text-xs font-mono text-cyan-200">HP {character.hp}/{character.maxHp}</div></button>)}{activeRunParty.length === 0 && <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-3 text-sm text-gray-500">No resolved party members are available.</div>}</div></div>
-                <div className="min-w-0">
-                    <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.3em] text-orange-300">{currentNode?.kind === "discussion" ? "Reply HUD" : currentNode?.kind === "ending" ? "Run Status" : "Command HUD"}</div>
-                    {currentNode?.kind === "ending" ? (
-                        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-4 text-sm text-emerald-100">{activeRun.summary}</div>
-                    ) : (
-                        <>
-                            <div className="mb-3 flex flex-wrap gap-2">{(currentNode?.choices || []).map((choice) => <button key={choice.id} type="button" onClick={() => void handleAdvanceQuest(choice.label)} disabled={isAdvancing} className="rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-2 text-xs font-bold tracking-wide text-orange-100 transition-colors hover:bg-orange-500/20 disabled:opacity-50">{choice.label}</button>)}</div>
-                            <div className="flex gap-3">
-                                <textarea value={freeformAction} onChange={(event) => setFreeformAction(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && freeformAction.trim() && !isAdvancing) { event.preventDefault(); void handleAdvanceQuest(undefined, undefined, freeformAction); } }} rows={3} className="min-h-[96px] flex-1 resize-none rounded-2xl border border-white/10 bg-black/50 p-4 text-sm text-gray-100 focus:border-orange-500/40 focus:outline-none" placeholder={currentNode?.kind === "discussion" ? "Type what your party says or asks." : "Describe a custom action beyond the offered choices."} />
-                                <button type="button" onClick={() => void handleAdvanceQuest(undefined, undefined, freeformAction)} disabled={isAdvancing || !freeformAction.trim()} className="min-w-[132px] rounded-2xl border border-orange-400 bg-gradient-to-b from-orange-400 to-orange-600 px-4 py-4 text-sm font-black uppercase tracking-widest text-black transition-all hover:from-orange-300 hover:to-orange-500 disabled:cursor-not-allowed disabled:opacity-30">{isAdvancing ? "Resolving" : currentNode?.kind === "discussion" ? "Send" : "Resolve"}</button>
-                            </div>
-                        </>
-                    )}
-                </div>
-                <div className="flex flex-col gap-3">
-                    <button type="button" onClick={() => openPartyModal()} className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-left text-sm font-bold uppercase tracking-widest text-cyan-200 transition-colors hover:bg-cyan-500/20">Party</button>
-                    <button type="button" onClick={() => openRunLog("HISTORY")} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-bold uppercase tracking-widest text-gray-200 transition-colors hover:bg-white/10">Run Log</button>
-                    <button type="button" onClick={() => void handleAbandonRun()} className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-left text-sm font-bold uppercase tracking-widest text-red-200 transition-colors hover:bg-red-500/20">Abandon</button>
-                </div>
-            </div>
         );
     };
 
@@ -1279,7 +1422,6 @@ export function QuestPage() {
     if (!activeWorldId || !selectedWorld) {
         return (
             <div className="h-screen overflow-hidden bg-[#070b12] p-8 text-gray-300 font-sans flex flex-col">
-                <header className="mb-6 flex items-center gap-6 border-b border-white/5 pb-6"><Link to="/" className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-gray-300 transition-all hover:bg-white/10 hover:text-white"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg></Link><div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/20 text-amber-300 font-bold text-sm">🧭</div><h1 className="text-xl font-bold uppercase tracking-[0.2em] text-gray-100">QUESTS</h1></header>
                 <div className="flex-1 flex items-center justify-center rounded-2xl border border-white/10 bg-[#121820]"><div className="max-w-md text-center"><h2 className="mb-3 text-lg font-bold uppercase tracking-widest text-gray-100">No World Selected</h2><p className="mb-5 text-sm text-gray-500">Pick a world to generate and play persisted quest runs.</p><button type="button" onClick={() => setShowGalleryModal(true)} className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-5 py-3 text-xs font-bold tracking-[0.2em] text-amber-300 transition-all hover:bg-amber-500/20">PICK WORLD</button></div></div>
                 <Modal open={showGalleryModal} onClose={() => setShowGalleryModal(false)} title="QUESTS - PICK A WORLD">
                     <div className="relative flex h-[75vh] w-[80vw] max-w-[1200px] flex-col overflow-hidden rounded-b-xl bg-black ring-1 ring-white/10 shadow-2xl">
@@ -1292,14 +1434,8 @@ export function QuestPage() {
 
     return (
         <div className="h-screen overflow-hidden bg-[#070b12] text-gray-300 font-sans flex flex-col">
-            <div className="fixed top-16 left-0 right-0 z-30 flex h-12 items-center justify-between gap-4 border-b border-white/5 bg-[#030508]/60 px-6 shadow-2xl backdrop-blur-md">
-                <div className="flex min-w-0 items-center gap-4"><div className="flex h-6 w-6 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/20 text-[10px] font-bold text-amber-300">🧭</div><h1 className="text-[10px] font-black uppercase tracking-[0.3em] text-white">QUESTS</h1><div className="w-[280px] scale-90"><TabBar tabs={["seed", "run", "archive"]} activeTab={activeTab} onTabChange={(tab) => { const nextTab = tab as QuestTab; setActiveTab(nextTab); setSearchParams({ tab: nextTab }); }} /></div></div>
-                <div className="flex flex-1 items-center justify-center">{activeTab === "seed" ? <QuestWorkflowBar steps={QUEST_SEED_STEPS} activeStep={seedStep} onStepChange={(step) => setSeedStep(step as QuestSeedStep)} /> : activeTab === "run" ? <div className="rounded-full border border-white/5 bg-[#1e1e1e]/40 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-gray-300">{activeRun?.title || "No Active Run"}{activeRun && <span className="ml-3 text-orange-300">Node {activeRun.nodeCount}/{activeRun.maxNodeCount}</span>}{questJob && (questJob.status === "queued" || questJob.status === "running") && <span className="ml-3 text-cyan-300">{questJob.currentStage} • {Math.round(questJob.progress)}%</span>}</div> : <div className="rounded-full border border-white/5 bg-[#1e1e1e]/40 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-gray-300">Archive • {questArchive.length} runs</div>}</div>
-                <div className="flex w-[320px] items-center justify-end gap-3"><span className="truncate text-[10px] font-bold uppercase tracking-widest text-gray-500">{selectedWorld.name || selectedWorld.prompt || "Unknown World"}</span><button onClick={() => setShowGalleryModal(true)} className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-300 transition-colors hover:bg-amber-500/20">Pick World</button></div>
-            </div>
-
-            <div className="flex-1 overflow-hidden px-6 pb-6 pt-28">
-                <div className="mx-auto flex h-full max-w-7xl flex-col gap-4 overflow-hidden">
+            <div className="flex-1 overflow-hidden px-6 pb-6 pt-20">
+                <div className={`mx-auto flex h-full w-full flex-col gap-4 overflow-hidden ${activeTab === "run" ? "max-w-[1600px]" : "max-w-7xl"}`}>
                     {questJob && (questJob.status === "queued" || questJob.status === "running") && <div className="shrink-0 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-xs text-cyan-100">{toLegacyQuestKind(questJob) === "generate-run" ? "Quest generation" : "Quest advance"} • {questJob.currentStage} • {Math.round(questJob.progress)}%</div>}
                     {notices.length > 0 && <div className="shrink-0 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">{notices.map((notice) => <div key={notice}>{notice}</div>)}</div>}
                     {!hasCanonicalWorldPrompt && <div className="shrink-0 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4"><div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-red-300">Canonical World Prompt Required</div><div className="text-sm text-red-100">Quests use the Game Master narrative world prompt, not the graphical world-generation seed prompt. Write it manually or generate it from canon on the Game Master page before generating quests.</div><div className="mt-3"><Link to="/game-master?tab=directives" className="text-[10px] font-bold uppercase tracking-widest text-red-200 hover:text-white">Open Game Master Directives</Link></div></div>}
@@ -1314,9 +1450,7 @@ export function QuestPage() {
 
                     {activeTab === "run" && (
                         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-                            {activeRun && !(hasPendingCombat && isCombatEncounterActive) && <div className="grid shrink-0 gap-3 rounded-3xl border border-white/5 bg-[linear-gradient(135deg,rgba(18,24,32,0.94),rgba(6,9,14,0.94))] px-5 py-4 xl:grid-cols-[1.2fr_0.8fr]"><div><div className="text-[10px] font-bold uppercase tracking-[0.3em] text-gray-500">{isDiscussionNode ? "Discussion" : hasPendingCombat ? "Encounter Ready" : currentNode?.kind || "Run"}</div><div className="mt-2 text-xl font-black text-white">{activeRun.title}</div><div className="mt-2 text-sm text-gray-400">{activeRun.summary}</div></div><div className="grid grid-cols-3 gap-3"><div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3"><div className="text-[10px] uppercase tracking-widest text-gray-500">Node</div><div className="mt-1 text-xl font-black text-white">{activeRun.nodeCount}/{activeRun.maxNodeCount}</div></div><div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3"><div className="text-[10px] uppercase tracking-widest text-gray-500">Party</div><div className="mt-1 text-xl font-black text-white">{activeRun.partyCharacterIds.length}</div></div><div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3"><div className="text-[10px] uppercase tracking-widest text-gray-500">Effects</div><div className="mt-1 text-xl font-black text-white">{currentEffects.length}</div></div></div></div>}
                             <div className="min-h-0 flex-1 overflow-hidden">{renderRunStage()}</div>
-                            {renderQuestDock()}
                         </div>
                     )}
 
@@ -1329,97 +1463,37 @@ export function QuestPage() {
                 </div>
             </div>
 
-            <Modal open={isPartyModalOpen} onClose={() => setIsPartyModalOpen(false)} title="QUESTS - PARTY" maxWidth="max-w-5xl">
+            <Modal
+                open={isPartyModalOpen}
+                onClose={() => setIsPartyModalOpen(false)}
+                title="QUESTS - PARTY"
+                maxWidth="max-w-[1180px]"
+                headerContent={selectedPartyCharacter ? (
+                    <div className="flex items-center justify-end">
+                        <select
+                            value={selectedPartyCharacter.id}
+                            onChange={(event) => setSelectedPartyCharacterId(event.target.value)}
+                            className="min-w-[320px] rounded-2xl border border-white/10 bg-[#05080c] px-4 py-2 text-sm font-bold text-white outline-none transition-colors focus:border-cyan-500/40"
+                        >
+                            {activePartyCharacters.map((character) => (
+                                <option key={character.id} value={character.id}>
+                                    {character.name} • {character.occupation?.name || character.type || "Wanderer"}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                ) : null}
+            >
                 <div className="h-full bg-[#05080c] p-5">
                     {!selectedPartyCharacter ? (
                         <div className="text-sm text-gray-500">No party member selected.</div>
                     ) : (
-                        <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[0.7fr_1.3fr]">
-                            <div className="flex min-h-0 flex-col rounded-3xl border border-white/10 bg-black/20 p-4">
-                                <div className="text-[10px] font-bold uppercase tracking-widest text-cyan-300">Party Roster</div>
-                                <div className="mt-4 min-h-0 flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
-                                    {activePartyCharacters.map((character) => (
-                                        <button
-                                            key={character.id}
-                                            type="button"
-                                            onClick={() => setSelectedPartyCharacterId(character.id)}
-                                            className={`block w-full rounded-2xl border px-4 py-3 text-left ${selectedPartyCharacter.id === character.id ? "border-cyan-500/30 bg-cyan-500/10" : "border-white/10 bg-[#05080c]"}`}
-                                        >
-                                            <div className="text-sm font-bold text-white">{character.name}</div>
-                                            <div className="mt-1 text-[10px] uppercase tracking-widest text-gray-500">
-                                                {character.occupation?.name || character.type || "Wanderer"}
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="grid gap-4">
-                                <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-                                    <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Operator</div>
-                                    <div className="mt-2 text-2xl font-black text-white">{selectedPartyCharacter.name}</div>
-                                    <div className="mt-1 text-[10px] uppercase tracking-widest text-gray-500">
-                                        Lvl {selectedPartyCharacter.level} • {selectedPartyCharacter.occupation?.name || selectedPartyCharacter.type || "Wanderer"}
-                                    </div>
-                                    <div className="mt-5 grid grid-cols-3 gap-3">
-                                        <div className="rounded-2xl border border-white/10 bg-[#05080c] p-3">
-                                            <div className="text-[10px] uppercase tracking-widest text-gray-500">HP</div>
-                                            <div className="mt-1 text-lg font-black text-white">{selectedPartyCharacter.hp}/{selectedPartyCharacter.maxHp}</div>
-                                        </div>
-                                        <div className="rounded-2xl border border-white/10 bg-[#05080c] p-3">
-                                            <div className="text-[10px] uppercase tracking-widest text-gray-500">Traits</div>
-                                            <div className="mt-1 text-lg font-black text-white">{selectedPartyCharacter.traits.length}</div>
-                                        </div>
-                                        <div className="rounded-2xl border border-white/10 bg-[#05080c] p-3">
-                                            <div className="text-[10px] uppercase tracking-widest text-gray-500">Skills</div>
-                                            <div className="mt-1 text-lg font-black text-white">{(selectedPartyCharacter.skills || []).length}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="grid gap-4 xl:grid-cols-3">
-                                    <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-                                        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Stats</div>
-                                        <div className="mt-4 grid grid-cols-2 gap-2 text-xs uppercase tracking-widest text-gray-300">
-                                            <span>STR {selectedPartyCharacter.stats.strength}</span>
-                                            <span>AGI {selectedPartyCharacter.stats.agility}</span>
-                                            <span>INT {selectedPartyCharacter.stats.intelligence}</span>
-                                            <span>WIS {selectedPartyCharacter.stats.wisdom}</span>
-                                            <span>END {selectedPartyCharacter.stats.endurance}</span>
-                                            <span>CHA {selectedPartyCharacter.stats.charisma}</span>
-                                        </div>
-                                    </div>
-                                    <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-                                        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Traits</div>
-                                        <div className="mt-4 space-y-2 text-sm text-gray-300">
-                                            {(selectedPartyCharacter.traits || []).length > 0 ? (
-                                                selectedPartyCharacter.traits.map((trait) => (
-                                                    <div key={trait.id} className="rounded-xl border border-white/10 bg-[#05080c] px-3 py-2">
-                                                        {trait.name}
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <div className="text-gray-500">No traits.</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-                                        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Skills / Inventory</div>
-                                        <div className="mt-4 space-y-2 text-sm text-gray-300">
-                                            {(selectedPartyCharacter.skills || []).slice(0, 6).map((skill) => (
-                                                <div key={skill.id} className="rounded-xl border border-white/10 bg-[#05080c] px-3 py-2">
-                                                    {skill.name}
-                                                </div>
-                                            ))}
-                                            {(selectedPartyCharacter.inventory || []).slice(0, 4).map((item) => (
-                                                <div key={item.id} className="rounded-xl border border-white/10 bg-[#05080c] px-3 py-2 text-gray-400">
-                                                    {item.name}
-                                                </div>
-                                            ))}
-                                            {(selectedPartyCharacter.skills || []).length === 0 && (selectedPartyCharacter.inventory || []).length === 0 && (
-                                                <div className="text-gray-500">No active skills or inventory items.</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
+                        <div className="flex h-full min-h-0 flex-col">
+                            <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar pr-1">
+                                <CharacterSheetPanel
+                                    character={selectedPartyCharacter}
+                                    currentLocationLabel={currentNode?.title || activeRun?.title || "No Current Location"}
+                                />
                             </div>
                         </div>
                     )}

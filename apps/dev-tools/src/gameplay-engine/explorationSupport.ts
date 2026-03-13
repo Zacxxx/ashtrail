@@ -47,6 +47,11 @@ function findSpawnPositions(map: ExplorationMap, count: number): Array<{ x: numb
     const centerX = Math.floor(map.width / 2);
     const centerY = Math.floor(map.height / 2);
     const candidates: Array<{ x: number; y: number }> = [];
+    const occupied = new Set<string>();
+
+    map.pawns.forEach((pawn) => {
+        occupied.add(`${Math.round(pawn.x)}:${Math.round(pawn.y)}`);
+    });
 
     for (let radius = 0; radius < Math.max(map.width, map.height) && candidates.length < count; radius += 1) {
         for (let dy = -radius; dy <= radius && candidates.length < count; dy += 1) {
@@ -56,6 +61,7 @@ function findSpawnPositions(map: ExplorationMap, count: number): Array<{ x: numb
                 if (x < 0 || y < 0 || x >= map.width || y >= map.height) continue;
                 const tile = map.tiles[y * map.width + x];
                 if (!tile?.walkable) continue;
+                if (occupied.has(`${x}:${y}`)) continue;
                 if (candidates.some((candidate) => candidate.x === x && candidate.y === y)) continue;
                 candidates.push({ x, y });
             }
@@ -77,9 +83,10 @@ export function attachSelectedPawns(
     sourceMap: ExplorationMap,
     selectedCharIds: string[],
 ): { map: ExplorationMap; selectedPawnId: string | null } {
+    const npcPawns = sourceMap.pawns.map((pawn) => ({ ...pawn }));
     const map: ExplorationMap = {
         ...sourceMap,
-        pawns: [],
+        pawns: npcPawns,
         objects: [...sourceMap.objects],
         tiles: [...sourceMap.tiles],
     };
@@ -101,7 +108,7 @@ export function attachSelectedPawns(
         };
     });
 
-    map.pawns = pawns;
+    map.pawns = [...pawns, ...npcPawns];
     return {
         map,
         selectedPawnId: pawns[0]?.id || null,

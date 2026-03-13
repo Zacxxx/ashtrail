@@ -250,7 +250,7 @@ const CHARACTER_SPRITE_TYPE_MAP: Record<string, "human" | "monster" | "mutant" |
 
 export function CharacterBuilderPage() {
     const [searchParams] = useSearchParams();
-    const { waitForJob } = useJobs();
+    const { jobs, waitForJob } = useJobs();
     const launchTrackedJob = useTrackedJobLauncher();
     const [isLoading, setIsLoading] = useState(true);
     const [savedCharacters, setSavedCharacters] = useState<Character[]>([]);
@@ -609,6 +609,12 @@ export function CharacterBuilderPage() {
     const [showGalleryModal, setShowGalleryModal] = useState(false);
     const [galleryMode, setGalleryMode] = useState<"worlds" | "characters">("worlds");
     const [showGeneratorModal, setShowGeneratorModal] = useState(false);
+    const galleryRefreshKey = useMemo(
+        () => jobs
+            .filter((job) => job.kind === "gm.generate-character-portrait" && job.status === "completed")
+            .reduce((sum, job) => sum + job.updatedAt, 0),
+        [jobs],
+    );
 
     const handleGenerateConfirm = async (characters: Character[]) => {
         try {
@@ -4076,6 +4082,7 @@ export function CharacterBuilderPage() {
                                     setShowGalleryModal(false);
                                 }}
                                 showExtendedTabs={galleryMode === "characters"}
+                                extendedRefreshKey={galleryRefreshKey}
                             />
                         </div>
                     </div>

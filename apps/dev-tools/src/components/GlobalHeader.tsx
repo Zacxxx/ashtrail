@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { TabBar } from "@ashtrail/ui";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import { JobsDropdown } from "../jobs/JobsDropdown";
@@ -11,11 +12,32 @@ export function GlobalHeader() {
     const { history } = useGenerationHistory();
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     const location = useLocation();
+    const navigate = useNavigate();
     const jobsRef = useRef<HTMLDivElement | null>(null);
     const { activeCount, isPanelOpen, setPanelOpen } = useJobs();
 
     const selectedWorld = history.find(h => h.id === activeWorldId);
     const isHub = location.pathname === "/";
+    const isQuests = location.pathname === "/quests";
+    const questTab = (() => {
+        const tab = new URLSearchParams(location.search).get("tab");
+        return tab === "run" || tab === "archive" ? tab : "seed";
+    })();
+
+    const questHeader = (
+        <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/20 text-sm font-bold text-amber-300">
+                🧭
+            </div>
+            <h1 className="text-[11px] font-black uppercase tracking-[0.3em] text-white">QUESTS</h1>
+            <TabBar
+                tabs={["seed", "run", "archive"]}
+                activeTab={questTab}
+                onTabChange={(tab) => navigate(`/quests?tab=${tab}`)}
+                className="min-w-[290px]"
+            />
+        </div>
+    );
 
     useEffect(() => {
         function handlePointerDown(event: MouseEvent) {
@@ -38,14 +60,18 @@ export function GlobalHeader() {
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                         </Link>
                     )}
-                    <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-teal-500" />
-                            <h1 className="text-xs font-black tracking-[0.3em] text-white uppercase">
-                                ASHTRAIL <span className="text-gray-500 font-normal">| DEV TOOLS</span>
-                            </h1>
+                    {isQuests ? (
+                        questHeader
+                    ) : (
+                        <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-teal-500" />
+                                <h1 className="text-xs font-black tracking-[0.3em] text-white uppercase">
+                                    ASHTRAIL <span className="text-gray-500 font-normal">| DEV TOOLS</span>
+                                </h1>
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 {/* Right: World Selection */}
@@ -54,7 +80,10 @@ export function GlobalHeader() {
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-full shrink-0">
                             <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                             <span className="text-[10px] font-bold text-cyan-300 tracking-widest uppercase truncate max-w-[200px]">
-                                {(selectedWorld.name || selectedWorld.prompt || 'Unknown World').substring(0, 40)}...
+                                {(() => {
+                                    const label = selectedWorld.name || selectedWorld.prompt || "Unknown World";
+                                    return label.length > 40 ? `${label.substring(0, 40)}...` : label;
+                                })()}
                             </span>
                         </div>
                     )}

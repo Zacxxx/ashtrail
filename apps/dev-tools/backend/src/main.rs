@@ -6,6 +6,7 @@ mod cell_analyzer;
 mod cms;
 mod combat_engine;
 mod ecology;
+mod exploration_engine;
 mod exploration_jobs;
 mod gemini;
 mod generator;
@@ -297,7 +298,7 @@ struct EcologyLink {
 #[serde(rename_all = "camelCase")]
 struct GameAssetGrouping {
     #[serde(rename = "type")]
-    group_type: String, // "biome" or "structure"
+    group_type: String, // "biome" | "structure" | "exploration-kit" | "block-palette"
     name: String,
     description: Option<String>,
 }
@@ -723,6 +724,7 @@ async fn main() {
             "/api/exploration/generate-asset-kit",
             post(exploration_jobs::start_generate_asset_kit_job),
         )
+        .route("/api/exploration/ws", get(exploration_engine::session::ws_handler))
         .route("/api/planet/preview", post(start_preview_job))
         .route("/api/planet/preview/{job_id}", get(get_job_status))
         .route("/api/planet/hybrid", post(start_hybrid_job))
