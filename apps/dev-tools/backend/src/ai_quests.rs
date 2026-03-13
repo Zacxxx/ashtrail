@@ -3439,9 +3439,10 @@ pub async fn generate_character_portrait_handler(
             jobs.insert(job_id.clone(), job);
         }
         let jobs = state.jobs.clone();
+        let spawned_job_id = job_id.clone();
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
-                if let Some(job) = map.get_mut(&job_id) {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
                     job.status = JobStatus::Running;
                     job.progress = 25.0;
                     job.current_stage = "Generating portrait".to_string();
@@ -3456,7 +3457,7 @@ pub async fn generate_character_portrait_handler(
                     };
                     let data_url = format!("data:image/png;base64,{encoded}");
                     if let Ok(mut map) = jobs.lock() {
-                        if let Some(job) = map.get_mut(&job_id) {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
                             job.status = JobStatus::Completed;
                             job.progress = 100.0;
                             job.current_stage = "Completed".to_string();
@@ -3475,7 +3476,7 @@ pub async fn generate_character_portrait_handler(
                 }
                 Err((_code, message)) => {
                     if let Ok(mut map) = jobs.lock() {
-                        if let Some(job) = map.get_mut(&job_id) {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
                             job.status = JobStatus::Failed;
                             job.progress = 100.0;
                             job.current_stage = "Failed".to_string();
@@ -3564,9 +3565,10 @@ Return ONLY the description text. Focus on how the ash-filled world has weathere
             jobs.insert(job_id.clone(), job);
         }
         let jobs = state.jobs.clone();
+        let spawned_job_id = job_id.clone();
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
-                if let Some(job) = map.get_mut(&job_id) {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
                     job.status = JobStatus::Running;
                     job.progress = 25.0;
                     job.current_stage = "Enhancing appearance prompt".to_string();
@@ -3576,7 +3578,7 @@ Return ONLY the description text. Focus on how the ash-filled world has weathere
             match generate_text(&prompt).await {
                 Ok(text) => {
                     if let Ok(mut map) = jobs.lock() {
-                        if let Some(job) = map.get_mut(&job_id) {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
                             job.status = JobStatus::Completed;
                             job.progress = 100.0;
                             job.current_stage = "Completed".to_string();
@@ -3588,7 +3590,7 @@ Return ONLY the description text. Focus on how the ash-filled world has weathere
                 }
                 Err((_code, message)) => {
                     if let Ok(mut map) = jobs.lock() {
-                        if let Some(job) = map.get_mut(&job_id) {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
                             job.status = JobStatus::Failed;
                             job.progress = 100.0;
                             job.current_stage = "Failed".to_string();

@@ -41,6 +41,7 @@ export function JobsDropdown() {
     const [inspectedJobId, setInspectedJobId] = useState<string | null>(null);
     const [inspectedLabel, setInspectedLabel] = useState<string | null>(null);
     const [inspectedContent, setInspectedContent] = useState<string | null>(null);
+    const [inspectedImageUrl, setInspectedImageUrl] = useState<string | null>(null);
 
     const worldNames = useMemo(() => Object.fromEntries(
         history.map((entry) => [entry.id, entry.name || entry.prompt || entry.id]),
@@ -69,6 +70,9 @@ export function JobsDropdown() {
             return;
         }
         const detail = await getJobDetail(job.jobId);
+        const dataUrl = typeof detail?.result === "object" && detail?.result && "dataUrl" in detail.result
+            ? String((detail.result as { dataUrl?: string }).dataUrl || "")
+            : null;
         const resultText = target.previewText
             || (typeof detail?.result === "string"
                 ? detail.result
@@ -78,6 +82,7 @@ export function JobsDropdown() {
         setInspectedJobId(job.jobId);
         setInspectedLabel(target.label);
         setInspectedContent(resultText);
+        setInspectedImageUrl(dataUrl || null);
     };
 
     return (
@@ -90,15 +95,20 @@ export function JobsDropdown() {
                 </div>
             </div>
             <div className="max-h-[70vh] overflow-y-auto p-3">
-                {inspectedJobId && inspectedContent && (
+                {inspectedJobId && (inspectedContent || inspectedImageUrl) && (
                     <div className="mb-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
                         <div className="flex items-center justify-between gap-3">
                             <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-200">{inspectedLabel || "Output"}</div>
-                            <button type="button" onClick={() => { setInspectedJobId(null); setInspectedLabel(null); setInspectedContent(null); }} className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400 hover:text-white">
+                            <button type="button" onClick={() => { setInspectedJobId(null); setInspectedLabel(null); setInspectedContent(null); setInspectedImageUrl(null); }} className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400 hover:text-white">
                                 Close
                             </button>
                         </div>
-                        <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-[#051018] p-3 text-xs leading-relaxed text-gray-100">{inspectedContent}</pre>
+                        {inspectedImageUrl && (
+                            <img src={inspectedImageUrl} alt={inspectedLabel || "Job output"} className="mt-3 max-h-64 w-full rounded-xl border border-white/10 bg-[#051018] object-contain" />
+                        )}
+                        {inspectedContent && (
+                            <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-[#051018] p-3 text-xs leading-relaxed text-gray-100">{inspectedContent}</pre>
+                        )}
                     </div>
                 )}
                 {displayedJobs.length === 0 && (

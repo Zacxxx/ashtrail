@@ -48,6 +48,14 @@ pub struct ExplorationQueueReservation {
     outstanding: Arc<AtomicUsize>,
 }
 
+#[derive(Clone, Copy)]
+enum ExplorationChildJobKind {
+    Semantics,
+    BlockPack,
+    AssetKit,
+    Preview,
+}
+
 impl Drop for ExplorationQueueReservation {
     fn drop(&mut self) {
         self.outstanding.fetch_sub(1, Ordering::SeqCst);
@@ -547,6 +555,16 @@ async fn run_generate_location_job(
             Some(job_id.clone()),
         )
         .ok();
+    if let Some(child_job_id) = semantics_job.as_deref() {
+        runtime.set_job_metadata(
+            child_job_id,
+            Value::Object(build_child_job_metadata(
+                &payload,
+                &context.location_name,
+                ExplorationChildJobKind::Semantics,
+            )),
+        );
+    }
 
     let semantics_summary = run_semantics_child_job(
         &state,
@@ -581,6 +599,18 @@ async fn run_generate_location_job(
     let manifest = build_manifest(&payload, &location_record, &context, semantics_summary.as_deref());
     let manifest_value = build_manifest_value(&manifest, &payload, &context);
 
+    if runtime.is_cancel_requested(&job_id) {
+        runtime.update_job(
+            &job_id,
+            JobStatus::Cancelled,
+            100.0,
+            "Cancelled",
+            None,
+            Some("cancelled".to_string()),
+        );
+        return;
+    }
+
     if let Err(error) = write_manifest(
         &state.planets_dir,
         &payload.world_id,
@@ -598,6 +628,19 @@ async fn run_generate_location_job(
         return;
     }
 
+    if runtime.is_cancel_requested(&job_id) {
+        remove_manifest_if_exists(&state.planets_dir, &payload.world_id, &payload.location_id);
+        runtime.update_job(
+            &job_id,
+            JobStatus::Cancelled,
+            100.0,
+            "Cancelled",
+            None,
+            Some("cancelled".to_string()),
+        );
+        return;
+    }
+
     let block_pack_job = runtime
         .create_job(
             "exploration.generate-block-pack.v1",
@@ -606,6 +649,16 @@ async fn run_generate_location_job(
             Some(job_id.clone()),
         )
         .ok();
+    if let Some(child_job_id) = block_pack_job.as_deref() {
+        runtime.set_job_metadata(
+            child_job_id,
+            Value::Object(build_child_job_metadata(
+                &payload,
+                &context.location_name,
+                ExplorationChildJobKind::BlockPack,
+            )),
+        );
+    }
     complete_child_job(
         &runtime,
         block_pack_job.as_deref(),
@@ -626,6 +679,16 @@ async fn run_generate_location_job(
             Some(job_id.clone()),
         )
         .ok();
+    if let Some(child_job_id) = asset_kit_job.as_deref() {
+        runtime.set_job_metadata(
+            child_job_id,
+            Value::Object(build_child_job_metadata(
+                &payload,
+                &context.location_name,
+                ExplorationChildJobKind::AssetKit,
+            )),
+        );
+    }
     complete_child_job(
         &runtime,
         asset_kit_job.as_deref(),
@@ -647,6 +710,16 @@ async fn run_generate_location_job(
             Some(job_id.clone()),
         )
         .ok();
+    if let Some(child_job_id) = preview_job.as_deref() {
+        runtime.set_job_metadata(
+            child_job_id,
+            Value::Object(build_child_job_metadata(
+                &payload,
+                &context.location_name,
+                ExplorationChildJobKind::Preview,
+            )),
+        );
+    }
     complete_child_job(
         &runtime,
         preview_job.as_deref(),
@@ -1131,6 +1204,89 @@ fn build_asset_job_metadata(
     metadata
 }
 
+fn build_child_job_metadata(
+    payload: &GenerateExplorationLocationRequest,
+    location_name: &str,
+    kind: ExplorationChildJobKind,
+) -> Map<String, Value> {
+    let mut metadata = Map::new();
+    metadata.insert("worldId".to_string(), Value::String(payload.world_id.clone()));
+    metadata.insert("locationId".to_string(), Value::String(payload.location_id.clone()));
+    metadata.insert(
+        "locationName".to_string(),
+        Value::String(location_name.to_string()),
+    );
+    metadata.insert(
+        "assetMode".to_string(),
+        Value::String(
+            payload
+                .asset_mode
+                .clone()
+                .unwrap_or_else(|| "linked-packs".to_string()),
+        ),
+    );
+    metadata.insert(
+        "generationMode".to_string(),
+        Value::String(
+            payload
+                .generation_mode
+                .clone()
+                .unwrap_or_else(|| "procedural".to_string()),
+        ),
+    );
+    metadata.insert(
+        "mapSize".to_string(),
+        json!({
+            "rows": clamp_dimension(payload.rows, DEFAULT_ROWS),
+            "cols": clamp_dimension(payload.cols, DEFAULT_COLS),
+        }),
+    );
+    metadata.insert(
+        "selectedCharIds".to_string(),
+        Value::Array(
+            payload
+                .selected_char_ids
+                .iter()
+                .cloned()
+                .map(Value::String)
+                .collect(),
+        ),
+    );
+    if let Some(block_palette_id) = &payload.block_palette_id {
+        metadata.insert(
+            "blockPaletteId".to_string(),
+            Value::String(block_palette_id.clone()),
+        );
+    }
+    if let Some(biome_pack_id) = &payload.biome_pack_id {
+        metadata.insert(
+            "biomePackId".to_string(),
+            Value::String(biome_pack_id.clone()),
+        );
+    }
+    metadata.insert(
+        "structurePackIds".to_string(),
+        Value::Array(
+            payload
+                .structure_pack_ids
+                .iter()
+                .cloned()
+                .map(Value::String)
+                .collect(),
+        ),
+    );
+    metadata.insert(
+        "childKind".to_string(),
+        Value::String(match kind {
+            ExplorationChildJobKind::Semantics => "semantics",
+            ExplorationChildJobKind::BlockPack => "block-pack",
+            ExplorationChildJobKind::AssetKit => "asset-kit",
+            ExplorationChildJobKind::Preview => "preview",
+        }.to_string()),
+    );
+    metadata
+}
+
 fn build_location_output_refs(
     world_id: &str,
     location_id: &str,
@@ -1257,6 +1413,11 @@ fn write_manifest(
     let content = serde_json::to_string_pretty(value)
         .map_err(|error| format!("Failed to serialize exploration manifest: {error}"))?;
     fs::write(path, content).map_err(|error| format!("Failed to write exploration manifest: {error}"))
+}
+
+fn remove_manifest_if_exists(planets_dir: &FsPath, world_id: &str, location_id: &str) {
+    let path = manifest_path(planets_dir, world_id, location_id);
+    let _ = fs::remove_file(path);
 }
 
 fn set_wall(tiles: &mut [ExplorationTile], width: u32, x: u32, y: u32) {

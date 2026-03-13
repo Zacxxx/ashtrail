@@ -7,6 +7,8 @@ import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacti
 import { GameRulesManager } from '../rules/useGameRules';
 import { useActiveWorld } from '../../hooks/useActiveWorld';
 import { useEcologyData } from '../../ecology/useEcologyData';
+import { useJobs } from '../../jobs/useJobs';
+import { useTrackedJobLauncher } from '../../jobs/useTrackedJobLauncher';
 import type { EcologyBundle, FaunaEntry } from '../../ecology/types';
 
 // ── Default skills given to characters without their own ──
@@ -252,6 +254,8 @@ export function CombatSimulator({
     ecologyBundle?: EcologyBundle | null,
 } = {}) {
     const { activeWorldId } = useActiveWorld();
+    const { waitForJob } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
     const ecology = useEcologyData(activeWorldId);
     const [characters, setCharacters] = React.useState<Character[]>(() => GameRegistry.getAllCharacters());
     const [charactersLoaded, setCharactersLoaded] = React.useState(() => GameRegistry.getAllCharacters().length > 0);
@@ -386,14 +390,42 @@ export function CombatSimulator({
         setMapName(null);
         try {
             const prompt = buildMapPrompt(mapPrompt.trim(), gridRows, gridCols);
-            const res = await fetch('http://127.0.0.1:8787/api/text/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt }),
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: '/api/text/generate',
+                request: { prompt },
+                optimisticJob: {
+                    kind: 'combat.text-generate',
+                    title: 'Generate Combat Map',
+                    tool: 'gameplay-engine',
+                    status: 'queued',
+                    currentStage: 'Queued',
+                    worldId: activeWorldId,
+                    metadata: {
+                        worldId: activeWorldId,
+                        rows: gridRows,
+                        cols: gridCols,
+                    },
+                },
+                metadata: {
+                    worldId: activeWorldId,
+                    rows: gridRows,
+                    cols: gridCols,
+                },
+                restore: {
+                    route: '/gameplay-engine',
+                    payload: {
+                        tab: 'combat',
+                        mapPrompt,
+                        gridRows,
+                        gridCols,
+                    },
+                },
             });
-            if (!res.ok) throw new Error(`API error: ${res.status}`);
-            const data = await res.json();
-            const text = data.text || data.result || (typeof data === 'string' ? data : JSON.stringify(data));
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== 'completed') {
+                throw new Error(detail.error || 'Map generation failed');
+            }
+            const text = String((detail.result as { text?: string } | undefined)?.text || '');
             const grid = parseAIGridResponse(text, gridRows, gridCols);
             if (grid) {
                 setAiGrid(grid);

@@ -29,7 +29,7 @@ use generator::{
     GenerateTerrainResponse,
 };
 use hierarchy::{generate_full_planet_hierarchy, HierarchyGenerateRequest, PlanetManifest};
-use jobs::{now_ms, JobOutputRef, JobRecord, JobRouteRef, JobStatus};
+use jobs::{now_ms, JobOutputRef, JobRecord, JobStatus};
 use serde::Deserialize;
 use serde::Serialize;
 use std::{
@@ -2418,6 +2418,10 @@ fn default_main_lore_snippet() -> serde_json::Value {
         "date": serde_json::Value::Null,
         "location": "World",
         "content": "",
+        "locationId": serde_json::Value::Null,
+        "provinceRegionId": serde_json::Value::Null,
+        "source": "manual",
+        "isCustomized": true,
         "involvedFactions": [],
         "involvedCharacters": []
     })
@@ -2468,6 +2472,7 @@ fn normalize_lore_snippet_value(value: &serde_json::Value) -> Option<serde_json:
 
     let date = match obj.get("date") {
         Some(v) if v.is_object() => v.clone(),
+        Some(serde_json::Value::Null) => serde_json::Value::Null,
         _ => serde_json::Value::Null,
     };
     let location = obj
@@ -2486,6 +2491,26 @@ fn normalize_lore_snippet_value(value: &serde_json::Value) -> Option<serde_json:
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    let location_id = obj
+        .get("locationId")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
+    let province_region_id = obj
+        .get("provinceRegionId")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
+    let source = match obj.get("source").and_then(|v| v.as_str()).unwrap_or("manual") {
+        "humanity_generated" => "humanity_generated",
+        _ => "manual",
+    };
+    let is_customized = obj
+        .get("isCustomized")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(priority == "main");
 
     Some(serde_json::json!({
         "id": id,
@@ -2493,6 +2518,10 @@ fn normalize_lore_snippet_value(value: &serde_json::Value) -> Option<serde_json:
         "priority": priority,
         "date": if priority == "main" { serde_json::Value::Null } else { date },
         "location": if priority == "main" { serde_json::Value::String("World".to_string()) } else { serde_json::Value::String(location) },
+        "locationId": if priority == "main" { serde_json::Value::Null } else { location_id.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null) },
+        "provinceRegionId": if priority == "main" { serde_json::Value::Null } else { province_region_id.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null) },
+        "source": if priority == "main" { serde_json::Value::String("manual".to_string()) } else { serde_json::Value::String(source.to_string()) },
+        "isCustomized": serde_json::Value::Bool(if priority == "main" { true } else { is_customized }),
         "content": content,
         "involvedFactions": ensure_string_array(obj.get("involvedFactions")),
         "involvedCharacters": ensure_string_array(obj.get("involvedCharacters"))
@@ -2544,6 +2573,22 @@ fn normalize_lore_snippets_value(value: serde_json::Value) -> serde_json::Value 
                     obj.insert(
                         "location".to_string(),
                         serde_json::Value::String("World".to_string()),
+                    );
+                    obj.insert(
+                        "locationId".to_string(),
+                        serde_json::Value::Null,
+                    );
+                    obj.insert(
+                        "provinceRegionId".to_string(),
+                        serde_json::Value::Null,
+                    );
+                    obj.insert(
+                        "source".to_string(),
+                        serde_json::Value::String("manual".to_string()),
+                    );
+                    obj.insert(
+                        "isCustomized".to_string(),
+                        serde_json::Value::Bool(true),
                     );
                 }
                 canonical_main = Some(main);
@@ -2612,6 +2657,120 @@ fn read_lore_snippets(state: &AppState, world_id: &str) -> serde_json::Value {
         serde_json::to_string_pretty(&normalized).unwrap_or_default(),
     );
     normalized
+}
+
+fn lore_snippet_signature(snippet: &serde_json::Value) -> String {
+    serde_json::to_string(&serde_json::json!({
+        "title": snippet.get("title").cloned().unwrap_or(serde_json::Value::Null),
+        "priority": snippet.get("priority").cloned().unwrap_or(serde_json::Value::Null),
+        "date": snippet.get("date").cloned().unwrap_or(serde_json::Value::Null),
+        "location": snippet.get("location").cloned().unwrap_or(serde_json::Value::Null),
+        "locationId": snippet.get("locationId").cloned().unwrap_or(serde_json::Value::Null),
+        "provinceRegionId": snippet.get("provinceRegionId").cloned().unwrap_or(serde_json::Value::Null),
+        "content": snippet.get("content").cloned().unwrap_or(serde_json::Value::Null),
+        "involvedFactions": snippet.get("involvedFactions").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+        "involvedCharacters": snippet.get("involvedCharacters").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+    }))
+    .unwrap_or_default()
+}
+
+fn merge_saved_lore_snippets(existing: &serde_json::Value, incoming: serde_json::Value) -> serde_json::Value {
+    let normalized_existing = normalize_lore_snippets_value(existing.clone());
+    let normalized_incoming = normalize_lore_snippets_value(incoming);
+    let existing_by_id = normalized_existing
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|snippet| snippet.get("id").and_then(|value| value.as_str()).map(|id| (id.to_string(), snippet.clone())))
+        .collect::<HashMap<_, _>>();
+
+    let merged = normalized_incoming
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|snippet| {
+            let mut next = snippet.clone();
+            let id = snippet.get("id").and_then(|value| value.as_str()).unwrap_or_default();
+            let priority = snippet.get("priority").and_then(|value| value.as_str()).unwrap_or("minor");
+            if let Some(previous) = existing_by_id.get(id) {
+                let previous_source = previous.get("source").and_then(|value| value.as_str()).unwrap_or("manual");
+                let changed = lore_snippet_signature(previous) != lore_snippet_signature(snippet);
+                if let Some(obj) = next.as_object_mut() {
+                    obj.insert(
+                        "source".to_string(),
+                        serde_json::Value::String(previous_source.to_string()),
+                    );
+                    obj.insert(
+                        "isCustomized".to_string(),
+                        serde_json::Value::Bool(
+                            previous.get("isCustomized").and_then(|value| value.as_bool()).unwrap_or(priority == "main")
+                                || changed
+                        ),
+                    );
+                }
+            } else if let Some(obj) = next.as_object_mut() {
+                obj.insert(
+                    "source".to_string(),
+                    serde_json::Value::String("manual".to_string()),
+                );
+                obj.insert(
+                    "isCustomized".to_string(),
+                    serde_json::Value::Bool(true),
+                );
+            }
+            if priority == "main" {
+                if let Some(obj) = next.as_object_mut() {
+                    obj.insert(
+                        "source".to_string(),
+                        serde_json::Value::String("manual".to_string()),
+                    );
+                    obj.insert(
+                        "isCustomized".to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                }
+            }
+            next
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::Value::Array(merged)
+}
+
+fn evaluate_humanity_readiness_from_lore(lore: &serde_json::Value) -> HumanityReadinessResponse {
+    let min_main_lore_chars = 250usize;
+    let main_lore = lore
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|snippet| {
+            snippet.get("id").and_then(|value| value.as_str()) == Some("main-lore")
+                || snippet.get("priority").and_then(|value| value.as_str()) == Some("main")
+        });
+    let main_lore_text = main_lore
+        .and_then(|snippet| snippet.get("content").and_then(|value| value.as_str()))
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let main_lore_chars = main_lore_text.chars().count();
+    let has_main_lore = !main_lore_text.is_empty();
+    let mut blockers = Vec::new();
+    if !has_main_lore {
+        blockers.push("Main lore is empty. Write the foundational world canon in /history before running Humanity.".to_string());
+    } else if main_lore_chars < min_main_lore_chars {
+        blockers.push(format!(
+            "Main lore is too short for Humanity generation. Add at least {} more characters to the main lore entry.",
+            min_main_lore_chars.saturating_sub(main_lore_chars)
+        ));
+    }
+
+    HumanityReadinessResponse {
+        ready: blockers.is_empty(),
+        blockers,
+        main_lore_chars,
+        min_main_lore_chars,
+        has_main_lore,
+    }
 }
 
 fn default_gm_settings(world_id: &str) -> serde_json::Value {
@@ -3372,6 +3531,18 @@ async fn get_lore_snippets(
     (StatusCode::OK, Json(read_lore_snippets(&state, &id))).into_response()
 }
 
+async fn get_humanity_readiness(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let lore = read_lore_snippets(&state, &id);
+    (
+        StatusCode::OK,
+        Json(serde_json::json!(evaluate_humanity_readiness_from_lore(&lore))),
+    )
+        .into_response()
+}
+
 async fn save_lore_snippets(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -3387,7 +3558,8 @@ async fn save_lore_snippets(
     }
 
     let file_path = planet_dir.join("lore_snippets.json");
-    let normalized = normalize_lore_snippets_value(snippets);
+    let existing = read_lore_snippets(&state, &id);
+    let normalized = merge_saved_lore_snippets(&existing, snippets);
     match std::fs::write(
         &file_path,
         serde_json::to_string_pretty(&normalized).unwrap_or_default(),
@@ -3502,19 +3674,44 @@ async fn save_locations(
             .into_response();
     }
 
-    let normalized = locations::normalize_locations_value(locations);
+    let existing = locations::read_locations(&state.planets_dir, &id);
+    let normalized = locations::merge_saved_locations(&existing, locations::normalize_locations_value(locations));
     match locations::write_locations(&state.planets_dir, &id, &normalized) {
         Ok(saved) => (StatusCode::OK, Json(serde_json::json!(saved))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
     }
 }
 
+async fn adopt_humanity_managed_locations(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<HumanityAdoptionRequest>,
+) -> impl IntoResponse {
+    match locations::adopt_existing_humanity_output(
+        &state.planets_dir,
+        &id,
+        &request.scope_mode,
+        &request.scope_targets,
+    ) {
+        Ok(saved) => (StatusCode::OK, Json(serde_json::json!(saved))).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error).into_response(),
+    }
+}
+
 async fn generate_locations_job(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(world_id): Path<String>,
     Json(request): Json<locations::LocationGenerationRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let lore = read_lore_snippets(&state, &world_id);
+    let readiness = evaluate_humanity_readiness_from_lore(&lore);
+    if !readiness.ready {
+        return Err((StatusCode::BAD_REQUEST, readiness.blockers.join(" ")));
+    }
+
     let job_id = Uuid::new_v4().to_string();
+    let tracked_meta = parse_tracked_job_meta(&headers);
 
     {
         let mut jobs = state.jobs.lock().map_err(|_| {
@@ -3523,22 +3720,42 @@ async fn generate_locations_job(
                 "job store lock poisoned".to_string(),
             )
         })?;
-        jobs.insert(
-            job_id.clone(),
-            make_job_record(
-                "worldgen.locations.generate",
-                "Generate Locations",
-                "worldgen",
-                "Preparing location simulation...",
-                Some(world_id.clone()),
-                None,
-            ),
+        let mut job = make_job_record(
+            tracked_meta
+                .as_ref()
+                .and_then(|meta| meta.kind.as_deref())
+                .unwrap_or("worldgen.locations.generate"),
+            tracked_meta
+                .as_ref()
+                .and_then(|meta| meta.title.as_deref())
+                .unwrap_or("Generate Locations"),
+            tracked_meta
+                .as_ref()
+                .and_then(|meta| meta.tool.as_deref())
+                .unwrap_or("worldgen"),
+            "Preparing location simulation...",
+            Some(world_id.clone()),
+            None,
         );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert("scopeMode".to_string(), serde_json::json!(request.scope_mode));
+        metadata.insert("scopeTargets".to_string(), serde_json::json!(request.scope_targets));
+        if let Some(meta) = tracked_meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
     }
 
     let jobs = state.jobs.clone();
     let planets_dir = state.planets_dir.clone();
     let spawned_job_id = job_id.clone();
+    let request_for_job = request.clone();
     tokio::task::spawn(async move {
         set_location_job_state(
             &jobs,
@@ -3549,34 +3766,106 @@ async fn generate_locations_job(
             None,
         );
 
-        match locations::simulate_locations(&planets_dir, &world_id, &request).await {
+        match locations::simulate_locations(&planets_dir, &world_id, &request_for_job).await {
             Ok(output) => {
                 set_location_job_state(
                     &jobs,
                     &spawned_job_id,
                     JobStatus::Running,
                     92.0,
-                    "Persisting generated locations...",
+                    "Persisting scoped Humanity output...",
                     None,
                 );
                 let write_locations = locations::write_locations(&planets_dir, &world_id, &output.locations);
+                let lore_path = planets_dir.join(&world_id).join("lore_snippets.json");
+                let normalized_lore = normalize_lore_snippets_value(serde_json::json!(output.lore_snippets));
+                let write_lore = std::fs::write(
+                    &lore_path,
+                    serde_json::to_string_pretty(&normalized_lore).unwrap_or_default(),
+                )
+                .map_err(|error| format!("Failed to write {}: {}", lore_path.display(), error));
                 let write_metadata =
                     locations::write_generation_metadata(&planets_dir, &world_id, &output.metadata);
-                match (write_locations, write_metadata) {
-                    (Ok(_), Ok(_)) => set_location_job_state(
+                match (write_locations, write_lore, write_metadata) {
+                    (Ok(_), Ok(_), Ok(_)) => {
+                        if let Ok(mut map) = jobs.lock() {
+                            if let Some(job) = map.get_mut(&spawned_job_id) {
+                                let base_metadata = job
+                                    .metadata
+                                    .as_ref()
+                                    .and_then(|value| value.as_object())
+                                    .cloned()
+                                    .unwrap_or_default();
+                                let mut metadata = base_metadata;
+                                metadata.insert(
+                                    "resolvedProvinceIds".to_string(),
+                                    serde_json::json!(output.resolved_province_ids),
+                                );
+                                metadata.insert(
+                                    "generatedLocationCount".to_string(),
+                                    serde_json::json!(output.generated_location_count),
+                                );
+                                metadata.insert(
+                                    "generatedLoreCount".to_string(),
+                                    serde_json::json!(output.generated_lore_count),
+                                );
+                                job.metadata = Some(serde_json::Value::Object(metadata));
+                                job.output_refs = vec![
+                                    JobOutputRef {
+                                        id: "worldgen-route".to_string(),
+                                        label: "Open Worldgen".to_string(),
+                                        kind: "route".to_string(),
+                                        href: None,
+                                        route: Some(jobs::JobRouteRef {
+                                            path: "/worldgen".to_string(),
+                                            search: Some(serde_json::Map::from_iter([(
+                                                "step".to_string(),
+                                                serde_json::Value::String("HUMANITY".to_string()),
+                                            )])),
+                                        }),
+                                        preview_text: None,
+                                    },
+                                    JobOutputRef {
+                                        id: "history-locations-route".to_string(),
+                                        label: "Open History Locations".to_string(),
+                                        kind: "route".to_string(),
+                                        href: None,
+                                        route: Some(jobs::JobRouteRef {
+                                            path: "/history".to_string(),
+                                            search: Some(serde_json::Map::from_iter([(
+                                                "tab".to_string(),
+                                                serde_json::Value::String("locations".to_string()),
+                                            )])),
+                                        }),
+                                        preview_text: None,
+                                    },
+                                    build_text_output_ref(
+                                        "Humanity Summary",
+                                        &format!(
+                                            "{} locations • {} lore snippets • {} provinces",
+                                            output.generated_location_count,
+                                            output.generated_lore_count,
+                                            output.resolved_province_ids.len()
+                                        ),
+                                    ),
+                                ];
+                            }
+                        }
+                        set_location_job_state(
                         &jobs,
                         &spawned_job_id,
                         JobStatus::Completed,
                         100.0,
                         "Completed",
                         None,
-                    ),
-                    (Err(error), _) | (_, Err(error)) => set_location_job_state(
+                    )
+                    }
+                    (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => set_location_job_state(
                         &jobs,
                         &spawned_job_id,
                         JobStatus::Failed,
                         100.0,
-                        "Failed to persist generated locations",
+                        "Failed to persist Humanity output",
                         Some(error),
                     ),
                 }

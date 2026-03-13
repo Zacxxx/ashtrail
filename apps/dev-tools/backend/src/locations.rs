@@ -194,7 +194,7 @@ pub struct LocationGenerationMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LoreSnippetLite {
+pub struct LoreSnippetLite {
     pub id: String,
     #[serde(default)]
     pub title: Option<String>,
@@ -1560,6 +1560,9 @@ fn build_location_blueprint(
             placement_drivers,
             history_hooks,
             lore,
+            source: RecordSource::HumanityGenerated,
+            is_customized: false,
+            last_humanity_job_id: None,
             type_label,
         },
     }
@@ -2732,7 +2735,7 @@ fn default_tech_level() -> f32 {
     0.4
 }
 
-fn default_scope_mode() -> LocationGenerationScopeMode {
+pub fn default_scope_mode() -> LocationGenerationScopeMode {
     LocationGenerationScopeMode::World
 }
 

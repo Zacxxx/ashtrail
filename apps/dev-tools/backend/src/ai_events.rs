@@ -10,7 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
-use tracing::{error, info};
+use tracing::info;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]

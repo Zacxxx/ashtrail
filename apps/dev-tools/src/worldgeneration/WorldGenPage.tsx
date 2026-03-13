@@ -1,12 +1,23 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { TabBar, Modal } from "@ashtrail/ui";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type { SimulationConfig, TerrainCell } from "../modules/geo/types";
 import { DEFAULT_CONFIG } from "../modules/geo/engine";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import { useActiveWorld } from "../hooks/useActiveWorld";
+import { useJobs } from "../jobs/useJobs";
 
-import type { WorkflowStep, ViewMode, InspectorTab, ContinentConfig, PlanetWorld } from "./types";
+import type {
+    WorkflowStep,
+    ViewMode,
+    InspectorTab,
+    ContinentConfig,
+    PlanetWorld,
+    HumanityReadiness,
+    HumanityScopeKind,
+    HumanityScopeTarget,
+    WorldgenRegionRecord,
+} from "./types";
 import { useWorldGeneration } from "./useWorldGeneration";
 import { GeologyPanel } from "./GeologyPanel";
 import { GeographyPipelinePanel } from "./GeographyPipelinePanel";
@@ -22,7 +33,45 @@ import { ProgressOverlay } from "./ProgressOverlay";
 import { HistoryGallery } from "./HistoryGallery";
 import type { LocationGenerationMetadata, WorldLocation } from "../history/locationTypes";
 
+function inferHumanityScopeKind(targets: HumanityScopeTarget[]): HumanityScopeKind {
+    if (targets.length === 0) return "world";
+    const kinds = new Set(targets.map((target) => target.kind));
+    if (kinds.size > 1) return "mixed";
+    const [kind] = Array.from(kinds);
+    return kind;
+}
+
+function resolveProvinceCount(regions: WorldgenRegionRecord[], scopeKind: HumanityScopeKind, targets: HumanityScopeTarget[]) {
+    if (scopeKind === "world") {
+        return regions.filter((region) => region.type === "Province").length;
+    }
+    const duchyMap = new Map(
+        regions.filter((region) => region.type === "Duchy").map((region) => [region.rawId, region.provinceIds || []] as const),
+    );
+    const kingdomMap = new Map(
+        regions.filter((region) => region.type === "Kingdom").map((region) => [region.rawId, region.duchyIds || []] as const),
+    );
+    const resolved = new Set<number>();
+    targets.forEach((target) => {
+        if (target.kind === "province") {
+            resolved.add(target.id);
+            return;
+        }
+        if (target.kind === "duchy") {
+            (duchyMap.get(target.id) || []).forEach((provinceId) => resolved.add(provinceId));
+            return;
+        }
+        (kingdomMap.get(target.id) || []).forEach((duchyId) => {
+            (duchyMap.get(duchyId) || []).forEach((provinceId) => resolved.add(provinceId));
+        });
+    });
+    return resolved.size;
+}
+
 export function WorldGenPage() {
+    const [searchParams, setSearchParams] = useSearchParams();
+    const { getJobDetail } = useJobs();
+    const restoredJobIdRef = useRef<string | null>(null);
     // ── Core UI State ──
     const [viewMode, setViewMode] = useState<ViewMode>("3d");
     const [activeStep, setActiveStep] = useState<WorkflowStep>("GEO");
@@ -97,6 +146,12 @@ export function WorldGenPage() {
     const [humanityLocations, setHumanityLocations] = useState<WorldLocation[]>([]);
     const [locationGenerationMeta, setLocationGenerationMeta] = useState<LocationGenerationMetadata | null>(null);
     const [selectedHumanityLocationId, setSelectedHumanityLocationId] = useState<string | null>(null);
+    const [humanityReadiness, setHumanityReadiness] = useState<HumanityReadiness | null>(null);
+    const [humanityRegions, setHumanityRegions] = useState<WorldgenRegionRecord[]>([]);
+    const [humanityScopeKind, setHumanityScopeKind] = useState<HumanityScopeKind>("kingdom");
+    const [humanityScopeTargets, setHumanityScopeTargets] = useState<HumanityScopeTarget[]>([]);
+    const [humanityScopeQuery, setHumanityScopeQuery] = useState("");
+    const [isAdoptingHumanityOutput, setIsAdoptingHumanityOutput] = useState(false);
 
     // ── Interaction State ──
     const [hoveredCell, setHoveredCell] = useState<TerrainCell | null>(null);
@@ -113,6 +168,29 @@ export function WorldGenPage() {
         setConfig(prev => ({ ...prev, climate: { ...prev.climate, ...patch } }));
     }, []);
 
+    const refreshHumanityData = useCallback(async (worldId: string) => {
+        const [locationsRes, metaRes, readinessRes, regionsRes] = await Promise.all([
+            fetch(`http://127.0.0.1:8787/api/planet/locations/${worldId}`),
+            fetch(`http://127.0.0.1:8787/api/planet/location-generation/${worldId}`),
+            fetch(`http://127.0.0.1:8787/api/planet/humanity-readiness/${worldId}`),
+            fetch(`http://127.0.0.1:8787/api/planet/worldgen-regions/${worldId}`),
+        ]);
+        const [locationsData, metaData, readinessData, regionsData] = await Promise.all([
+            locationsRes.ok ? locationsRes.json() : [],
+            metaRes.ok ? metaRes.json() : null,
+            readinessRes.ok ? readinessRes.json() : null,
+            regionsRes.ok ? regionsRes.json() : [],
+        ]);
+        const nextLocations = Array.isArray(locationsData) ? locationsData : [];
+        setHumanityLocations(nextLocations);
+        setLocationGenerationMeta(metaData && typeof metaData === "object" ? metaData : null);
+        setHumanityReadiness(readinessData && typeof readinessData === "object" ? readinessData : null);
+        setHumanityRegions(Array.isArray(regionsData) ? regionsData : []);
+        setSelectedHumanityLocationId((prev) => prev && nextLocations.some((entry) => entry.id === prev) ? prev : nextLocations[0]?.id || null);
+    }, []);
+
+    const humanityScopeMode = humanityScopeKind === "world" ? "world" : "scoped";
+
     // ── Generation Hook ──
     // Note: saveCellSubTiles removed since old geography cells pipeline is deprecated
     const {
@@ -126,23 +204,14 @@ export function WorldGenPage() {
         prompt, config, aiResolution, aiTemperature, continents,
         ecoPrompt, ecoVegetation, ecoFauna,
         humPrompt, humSettlements, humTech,
+        humanityScopeMode,
+        humanityScopeTargets,
         activeWorldId,
         globeWorld, saveToHistory, setGlobeWorld, setContinents, setActiveWorldId,
         saveCellSubTiles: () => { }, // Stub — old cell pipeline deprecated
         onHumanityGenerated: async () => {
             if (!activeWorldId) return;
-            const [locationsRes, metaRes] = await Promise.all([
-                fetch(`http://127.0.0.1:8787/api/planet/locations/${activeWorldId}`),
-                fetch(`http://127.0.0.1:8787/api/planet/location-generation/${activeWorldId}`),
-            ]);
-            const [locationsData, metaData] = await Promise.all([
-                locationsRes.ok ? locationsRes.json() : [],
-                metaRes.ok ? metaRes.json() : null,
-            ]);
-            const nextLocations = Array.isArray(locationsData) ? locationsData : [];
-            setHumanityLocations(nextLocations);
-            setLocationGenerationMeta(metaData && typeof metaData === "object" ? metaData : null);
-            setSelectedHumanityLocationId((prev) => prev && nextLocations.some((entry) => entry.id === prev) ? prev : nextLocations[0]?.id || null);
+            await refreshHumanityData(activeWorldId);
         },
     });
 
@@ -151,30 +220,23 @@ export function WorldGenPage() {
             setHumanityLocations([]);
             setLocationGenerationMeta(null);
             setSelectedHumanityLocationId(null);
+            setHumanityReadiness(null);
+            setHumanityRegions([]);
             return;
         }
         let cancelled = false;
         async function loadHumanityData() {
             try {
-                const [locationsRes, metaRes] = await Promise.all([
-                    fetch(`http://127.0.0.1:8787/api/planet/locations/${activeWorldId}`),
-                    fetch(`http://127.0.0.1:8787/api/planet/location-generation/${activeWorldId}`),
-                ]);
-                const [locationsData, metaData] = await Promise.all([
-                    locationsRes.ok ? locationsRes.json() : [],
-                    metaRes.ok ? metaRes.json() : null,
-                ]);
+                await refreshHumanityData(activeWorldId);
                 if (cancelled) return;
-                const nextLocations = Array.isArray(locationsData) ? locationsData : [];
-                setHumanityLocations(nextLocations);
-                setLocationGenerationMeta(metaData && typeof metaData === "object" ? metaData : null);
-                setSelectedHumanityLocationId((prev) => prev && nextLocations.some((entry) => entry.id === prev) ? prev : nextLocations[0]?.id || null);
             } catch (error) {
                 console.error("Failed to load generated locations", error);
                 if (!cancelled) {
                     setHumanityLocations([]);
                     setLocationGenerationMeta(null);
                     setSelectedHumanityLocationId(null);
+                    setHumanityReadiness(null);
+                    setHumanityRegions([]);
                 }
             }
         }
@@ -182,7 +244,7 @@ export function WorldGenPage() {
         return () => {
             cancelled = true;
         };
-    }, [activeWorldId]);
+    }, [activeWorldId, refreshHumanityData]);
 
     // ── Cell Handlers ──
     const handleCellHover = useCallback((cell: TerrainCell | null) => setHoveredCell(cell), []);
@@ -212,6 +274,108 @@ export function WorldGenPage() {
     }, []);
 
     const selectedWorld = history.find(h => h.id === activeWorldId);
+    const humanityVisibleRegions = useMemo(() => {
+        const query = humanityScopeQuery.trim().toLowerCase();
+        const typeFilter = humanityScopeKind === "mixed"
+            ? new Set(["Kingdom", "Duchy", "Province"])
+            : humanityScopeKind === "kingdom"
+                ? new Set(["Kingdom"])
+                : humanityScopeKind === "duchy"
+                    ? new Set(["Duchy"])
+                    : humanityScopeKind === "province"
+                        ? new Set(["Province"])
+                        : new Set<string>();
+        return humanityRegions.filter((region) => {
+            if (humanityScopeKind === "world") return false;
+            if (!typeFilter.has(region.type)) return false;
+            if (!query) return true;
+            return `${region.name} ${region.type} ${region.rawId}`.toLowerCase().includes(query);
+        });
+    }, [humanityRegions, humanityScopeKind, humanityScopeQuery]);
+    const humanityResolvedProvinceCount = useMemo(
+        () => resolveProvinceCount(humanityRegions, humanityScopeKind, humanityScopeTargets),
+        [humanityRegions, humanityScopeKind, humanityScopeTargets],
+    );
+
+    useEffect(() => {
+        const restoreJobId = searchParams.get("restoreJob");
+        if (!restoreJobId || restoredJobIdRef.current === restoreJobId) {
+            return;
+        }
+        restoredJobIdRef.current = restoreJobId;
+        const redoScope = searchParams.get("redoScope");
+        const restore = async () => {
+            const detail = await getJobDetail(restoreJobId);
+            const restoreSpec = detail?.metadata && typeof detail.metadata.restore === "object"
+                ? (detail.metadata.restore as { payload?: Record<string, unknown> })
+                : null;
+            const payload = restoreSpec?.payload || {};
+            if (typeof payload.worldId === "string") {
+                setActiveWorldId(payload.worldId);
+            }
+            if (typeof payload.humPrompt === "string") setHumPrompt(payload.humPrompt);
+            if (typeof payload.humSettlements === "number") setHumSettlements(payload.humSettlements);
+            if (typeof payload.humTech === "number") setHumTech(payload.humTech);
+            const restoredTargets = Array.isArray(payload.humanityScopeTargets)
+                ? payload.humanityScopeTargets.filter((entry): entry is HumanityScopeTarget => {
+                    return !!entry && typeof entry === "object"
+                        && typeof (entry as HumanityScopeTarget).id === "number"
+                        && ["kingdom", "duchy", "province"].includes((entry as HumanityScopeTarget).kind);
+                })
+                : [];
+            if (redoScope === "world") {
+                setHumanityScopeKind("world");
+                setHumanityScopeTargets([]);
+            } else {
+                setHumanityScopeTargets(restoredTargets);
+                setHumanityScopeKind(inferHumanityScopeKind(restoredTargets));
+            }
+            setActiveStep("HUMANITY");
+        };
+        void restore();
+    }, [getJobDetail, searchParams, setActiveWorldId]);
+
+    useEffect(() => {
+        if (humanityScopeKind === "world") {
+            setHumanityScopeTargets([]);
+            return;
+        }
+        if (humanityScopeKind === "mixed") return;
+        setHumanityScopeTargets((previous) => previous.filter((entry) => entry.kind === humanityScopeKind));
+    }, [humanityScopeKind]);
+
+    const handleToggleHumanityScopeTarget = useCallback((target: HumanityScopeTarget) => {
+        setHumanityScopeTargets((previous) => {
+            const exists = previous.some((entry) => entry.kind === target.kind && entry.id === target.id);
+            return exists
+                ? previous.filter((entry) => !(entry.kind === target.kind && entry.id === target.id))
+                : [...previous, target];
+        });
+    }, []);
+
+    const handleAdoptHumanityOutput = useCallback(async () => {
+        if (!activeWorldId || isAdoptingHumanityOutput) return;
+        setIsAdoptingHumanityOutput(true);
+        try {
+            const response = await fetch(`http://127.0.0.1:8787/api/planet/locations/${activeWorldId}/adopt-humanity-managed`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    scopeMode: humanityScopeMode,
+                    scopeTargets: humanityScopeMode === "world" ? [] : humanityScopeTargets,
+                }),
+            });
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+            await refreshHumanityData(activeWorldId);
+        } catch (error) {
+            console.error("Failed to adopt humanity output", error);
+        } finally {
+            setIsAdoptingHumanityOutput(false);
+        }
+    }, [activeWorldId, humanityScopeMode, humanityScopeTargets, isAdoptingHumanityOutput, refreshHumanityData]);
+
     const sidebarWidth = 340;
     const sidebarOffset = 370;
     const sidebarHiddenOffset = 400;
@@ -371,7 +535,18 @@ export function WorldGenPage() {
                             humSettlements={humSettlements} setHumSettlements={setHumSettlements}
                             humTech={humTech} setHumTech={setHumTech}
                             generateHumanity={generateHumanity} genProgress={genProgress} globeWorld={globeWorld}
-                            regions={[]}
+                            readiness={humanityReadiness}
+                            scopeKind={humanityScopeKind}
+                            setScopeKind={setHumanityScopeKind}
+                            scopeTargets={humanityScopeTargets}
+                            visibleRegions={humanityVisibleRegions}
+                            scopeQuery={humanityScopeQuery}
+                            setScopeQuery={setHumanityScopeQuery}
+                            resolvedProvinceCount={humanityResolvedProvinceCount}
+                            onToggleScopeTarget={handleToggleHumanityScopeTarget}
+                            onAdoptExistingOutput={handleAdoptHumanityOutput}
+                            isAdoptingExistingOutput={isAdoptingHumanityOutput}
+                            regions={humanityRegions}
                             locations={humanityLocations}
                             metadata={locationGenerationMeta}
                             selectedLocationId={selectedHumanityLocationId}

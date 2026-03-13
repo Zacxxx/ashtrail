@@ -8,6 +8,10 @@ export interface LoreSnippet {
     priority: LorePriority;
     date: AshtrailDate | null;
     location: string;
+    locationId?: string | null;
+    provinceRegionId?: string | null;
+    source?: "manual" | "humanity_generated";
+    isCustomized?: boolean;
     content: string;
     involvedFactions?: string[];
     involvedCharacters?: string[];

@@ -8,6 +8,8 @@ import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import { useActiveWorld } from "../hooks/useActiveWorld";
+import { useJobs } from "../jobs/useJobs";
+import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import { CharacterGeneratorModal } from "./CharacterGeneratorModal";
 import {
     CharacterAppearanceSection,
@@ -15,10 +17,6 @@ import {
     type AppearanceSelectors,
     type AppearanceSelectorKey,
 } from "../../../website/Screens/IndividualScreens/CharacterAppearanceSection";
-import {
-    enhanceAppearancePromptViaApi,
-    generateCharacterPortraitViaApi,
-} from "../../../website/services/gmApi";
 
 // Map item category + name to an equipment slot
 const SLOT_MAP: Record<string, EquipSlot> = {
@@ -252,6 +250,8 @@ const CHARACTER_SPRITE_TYPE_MAP: Record<string, "human" | "monster" | "mutant" |
 
 export function CharacterBuilderPage() {
     const [searchParams] = useSearchParams();
+    const { waitForJob } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
     const [isLoading, setIsLoading] = useState(true);
     const [savedCharacters, setSavedCharacters] = useState<Character[]>([]);
     const [libraryItems, setLibraryItems] = useState<Item[]>([]);
@@ -369,7 +369,40 @@ export function CharacterBuilderPage() {
         const contextPrompt = `A ${gender} wasteland explorer, aged ${age}. Overall characteristics: ${selectorsSummary}. Detailed appearance: ${profileText}`;
 
         try {
-            const url = await generateCharacterPortraitViaApi(contextPrompt);
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: "/api/gm/generate-character-portrait",
+                request: { prompt: contextPrompt },
+                optimisticJob: {
+                    kind: "gm.generate-character-portrait",
+                    title: "Generate Character Portrait",
+                    tool: "game-master",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId,
+                    metadata: {
+                        worldId,
+                        characterName: name || "Unnamed Character",
+                    },
+                },
+                metadata: {
+                    worldId,
+                    characterName: name || "Unnamed Character",
+                },
+                restore: {
+                    route: "/character-builder",
+                    payload: {
+                        worldId,
+                        charId,
+                        appearancePrompt: profileText,
+                        appearanceSelectors,
+                    },
+                },
+            });
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") {
+                throw new Error(detail.error || "Portrait generation failed");
+            }
+            const url = String((detail.result as { dataUrl?: string } | undefined)?.dataUrl || "");
             if (url) {
                 setPortraitUrl(url);
                 setIsProfileModified(false);
@@ -395,11 +428,47 @@ export function CharacterBuilderPage() {
             .join(", ");
 
         try {
-            narrative = await enhanceAppearancePromptViaApi({
-                ...appearanceSelectors,
-                age: age.toString(),
-                gender,
+            const accepted = await launchTrackedJob<{ jobId: string }, { params: Record<string, string> }>({
+                url: "/api/gm/enhance-appearance-prompt",
+                request: {
+                    params: {
+                        ...Object.fromEntries(Object.entries(appearanceSelectors).map(([key, value]) => [key, String(value)])),
+                        age: age.toString(),
+                        gender,
+                    },
+                },
+                optimisticJob: {
+                    kind: "gm.enhance-appearance-prompt",
+                    title: "Enhance Appearance Prompt",
+                    tool: "game-master",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId,
+                    metadata: {
+                        worldId,
+                        characterName: name || "Unnamed Character",
+                    },
+                },
+                metadata: {
+                    worldId,
+                    characterName: name || "Unnamed Character",
+                },
+                restore: {
+                    route: "/character-builder",
+                    payload: {
+                        worldId,
+                        charId,
+                        age,
+                        gender,
+                        appearanceSelectors,
+                    },
+                },
             });
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") {
+                throw new Error(detail.error || "Appearance prompt generation failed");
+            }
+            narrative = String((detail.result as { text?: string } | undefined)?.text || "");
             setAppearancePrompt(narrative || "");
         } catch (error) {
             console.error("Appearance prompt API failed:", error);
@@ -423,6 +492,103 @@ export function CharacterBuilderPage() {
         }
 
         await handleRefreshPortrait(resolvedNarrative);
+    };
+
+    const handleGenerateStory = async () => {
+        setIsGeneratingStory(true);
+        setHasStartedGeneration(true);
+        try {
+            const request = {
+                name: name || "This unit",
+                age,
+                gender,
+                occupation: selectedOccupation?.name || "Wanderer",
+                draft: backstory || "",
+                relationships: relationships.map(r => {
+                    const target = savedCharacters.find(c => c.id === r.targetId);
+                    return {
+                        targetName: target?.name || r.targetId,
+                        relType: r.type,
+                        isPlayer: target ? !target.isNPC : false,
+                    };
+                }),
+                worldLore: worldSnippets.length > 0 ? worldSnippets[worldSnippets.length - 1].content : "",
+            };
+            const accepted = await launchTrackedJob<{ jobId: string }, typeof request>({
+                url: "/api/ai/character-story",
+                request,
+                optimisticJob: {
+                    kind: "characters.story",
+                    title: "Generate Character Story",
+                    tool: "character-builder",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId,
+                    metadata: {
+                        worldId,
+                        characterName: name || "Unnamed Character",
+                    },
+                },
+                metadata: {
+                    worldId,
+                    characterName: name || "Unnamed Character",
+                },
+                restore: {
+                    route: "/character-builder",
+                    payload: {
+                        worldId,
+                        charId,
+                        name,
+                        age,
+                        gender,
+                        backstory,
+                    },
+                },
+            });
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") {
+                throw new Error(detail.error || "Character story generation failed");
+            }
+            const fullHistory = String((detail.result as { story?: string } | undefined)?.story || "");
+
+            setGenProgress(100);
+            setTimeout(() => {
+                setTargetHistory(fullHistory);
+                setIsGeneratingStory(false);
+            }, 500);
+
+            const h = fullHistory.toLowerCase();
+            const soulContext = (backstory || "").toLowerCase();
+
+            let moralScore = 0;
+            let orderScore = 0;
+
+            if (h.includes("save") || h.includes("protect") || h.includes("help") || h.includes("sacrifice")) moralScore += 3;
+            if (h.includes("kill") || h.includes("murder") || h.includes("ruthless") || h.includes("discard")) moralScore -= 3;
+            if (h.includes("order") || h.includes("law") || h.includes("duty") || h.includes("structure")) orderScore += 3;
+            if (h.includes("chaos") || h.includes("anarchy") || h.includes("theft") || h.includes("rogue")) orderScore -= 3;
+
+            if (soulContext.includes("protect") || soulContext.includes("family") || soulContext.includes("heal")) moralScore += 1;
+            if (soulContext.includes("revenge") || soulContext.includes("power") || soulContext.includes("dominate")) moralScore -= 1;
+            if (soulContext.includes("law") || soulContext.includes("duty") || soulContext.includes("order")) orderScore += 1;
+            if (soulContext.includes("freedom") || soulContext.includes("chaos") || soulContext.includes("rebel")) orderScore -= 1;
+
+            let finalAlign = "True Neutral";
+            if (moralScore >= 3 && orderScore >= 3) finalAlign = "Lawful Good";
+            else if (moralScore >= 3 && orderScore <= -3) finalAlign = "Chaotic Good";
+            else if (moralScore >= 3) finalAlign = "Neutral Good";
+            else if (moralScore <= -3 && orderScore >= 3) finalAlign = "Lawful Evil";
+            else if (moralScore <= -3 && orderScore <= -3) finalAlign = "Chaotic Evil";
+            else if (moralScore <= -3) finalAlign = "Neutral Evil";
+            else if (orderScore >= 3) finalAlign = "Lawful Neutral";
+            else if (orderScore <= -3) finalAlign = "Chaotic Neutral";
+            else finalAlign = "True Neutral";
+
+            setAlignment(finalAlign);
+        } catch (error) {
+            console.error("Character story API failed:", error);
+            setIsGeneratingStory(false);
+        }
     };
 
     // Fetch world's lore snippets
@@ -2016,77 +2182,7 @@ export function CharacterBuilderPage() {
                                                     <div></div>
                                                     <div className="flex justify-end pt-8">
                                                         <button
-                                                            onClick={async () => {
-                                                                setIsGeneratingStory(true);
-                                                                setHasStartedGeneration(true);
-                                                                try {
-                                                                    const resp = await fetch("http://localhost:8787/api/ai/character-story", {
-                                                                        method: "POST",
-                                                                        headers: { "Content-Type": "application/json" },
-                                                                        body: JSON.stringify({
-                                                                            name: name || "This unit",
-                                                                            age: age,
-                                                                            gender: gender,
-                                                                            occupation: selectedOccupation?.name || "Wanderer",
-                                                                            draft: backstory || "",
-                                                                            relationships: relationships.map(r => {
-                                                                                const target = savedCharacters.find(c => c.id === r.targetId);
-                                                                                return {
-                                                                                    targetName: target?.name || r.targetId,
-                                                                                    relType: r.type,
-                                                                                    isPlayer: target ? !target.isNPC : false
-                                                                                };
-                                                                            }),
-                                                                            worldLore: worldSnippets.length > 0 ? worldSnippets[worldSnippets.length - 1].content : ""
-                                                                        })
-                                                                    });
-
-                                                                    if (resp.ok) {
-                                                                        const data = await resp.json();
-                                                                        const fullHistory = data.story;
-
-                                                                        // Force 100% progress before completing
-                                                                        setGenProgress(100);
-
-                                                                        // Small delay to let the user see the 100%
-                                                                        setTimeout(() => {
-                                                                            setTargetHistory(fullHistory);
-                                                                            setIsGeneratingStory(false);
-                                                                        }, 500);
-
-                                                                        // Refined Moral Sentiment Analysis based on AI output
-                                                                        const h = fullHistory.toLowerCase();
-                                                                        const soulContext = (backstory || "").toLowerCase();
-
-                                                                        // 1. Scoring System
-                                                                        let moralScore = 0;
-                                                                        let orderScore = 0;
-
-                                                                        // Analysis logic (Detecting markers in the AI's complex prose)
-                                                                        if (h.includes("save") || h.includes("protect") || h.includes("help") || h.includes("sacrifice")) moralScore += 3;
-                                                                        if (h.includes("kill") || h.includes("murder") || h.includes("ruthless") || h.includes("discard")) moralScore -= 3;
-                                                                        if (h.includes("order") || h.includes("law") || h.includes("duty") || h.includes("structure")) orderScore += 3;
-                                                                        if (h.includes("chaos") || h.includes("anarchy") || h.includes("theft") || h.includes("rogue")) orderScore -= 3;
-
-                                                                        // 2. Alignment Logic
-                                                                        let finalAlign = "True Neutral";
-                                                                        if (moralScore >= 3 && orderScore >= 3) finalAlign = "Lawful Good";
-                                                                        else if (moralScore >= 3 && orderScore <= -3) finalAlign = "Chaotic Good";
-                                                                        else if (moralScore >= 3) finalAlign = "Neutral Good";
-                                                                        else if (moralScore <= -3 && orderScore >= 3) finalAlign = "Lawful Evil";
-                                                                        else if (moralScore <= -3 && orderScore <= -3) finalAlign = "Chaotic Evil";
-                                                                        else if (moralScore <= -3) finalAlign = "Neutral Evil";
-                                                                        else if (orderScore >= 3) finalAlign = "Lawful Neutral";
-                                                                        else if (orderScore <= -3) finalAlign = "Chaotic Neutral";
-                                                                        else finalAlign = "True Neutral";
-
-                                                                        setAlignment(finalAlign);
-                                                                    }
-                                                                } catch (e) {
-                                                                    console.error("AI Lore Generation Failed:", e);
-                                                                    setIsGeneratingStory(false);
-                                                                }
-                                                            }}
+                                                            onClick={handleGenerateStory}
                                                             disabled={!backstory || isGeneratingStory}
                                                             className={`px-10 py-3.5 w-fit ${isGeneratingStory ? 'bg-orange-950/40' : 'bg-orange-600 hover:bg-orange-500'} text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all shadow-[0_10px_30px_rgba(234,88,12,0.2)] disabled:opacity-50 flex items-center gap-3 group relative overflow-hidden`}
                                                         >

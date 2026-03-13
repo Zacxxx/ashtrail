@@ -55,6 +55,9 @@ export interface WorldLocation {
     placementDrivers: string[];
     historyHooks: LocationHistoryHooks;
     lore: string;
+    source?: "manual" | "humanity_generated";
+    isCustomized?: boolean;
+    lastHumanityJobId?: string | null;
     type: string;
 }
 
@@ -64,6 +67,9 @@ export interface LocationGenerationConfig {
     prompt: string;
     settlementDensity: number;
     techLevel: number;
+    scopeMode?: "world" | "scoped";
+    scopeTargets?: Array<{ kind: "kingdom" | "duchy" | "province"; id: number }>;
+    resolvedProvinceIds?: number[];
     generatedAt: number;
 }
 
@@ -164,6 +170,9 @@ export function normalizeLocation(input: Partial<WorldLocation> & { id?: string;
         placementDrivers: Array.isArray(input.placementDrivers) ? input.placementDrivers : [],
         historyHooks: input.historyHooks || defaultLocationHistoryHooks(),
         lore: input.lore || "",
+        source: input.source || "manual",
+        isCustomized: input.isCustomized ?? false,
+        lastHumanityJobId: input.lastHumanityJobId ?? null,
         type: input.type || titleCaseLocation(input.subtype || "outpost"),
     };
 }
