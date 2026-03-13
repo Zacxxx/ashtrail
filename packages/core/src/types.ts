@@ -254,11 +254,100 @@ export interface CharacterOrigin {
   worldId?: string;
 }
 
+export interface CharacterOccupationProgress {
+  occupationId: string;
+  occupation?: Occupation;
+  unlockedTalentNodeIds: string[];
+  spentTalentPoints: number;
+  spentPioneerPoints?: number;
+  availableTalentPoints?: number;
+  level: number;
+  isPrimary?: boolean;
+}
+
 export interface CharacterProgression {
   treeOccupationId?: string;
   unlockedTalentNodeIds: string[];
   availableTalentPoints: number;
   spentTalentPoints: number;
+  spentStatPoints?: number;
+  spentPioneerOccupationPoints?: number;
+  spentPioneerStatPoints?: number;
+  occupationStates?: CharacterOccupationProgress[];
+}
+
+export interface LevelProgressSnapshot {
+  level: number;
+  maxLevel: number;
+  totalXp: number;
+  currentLevelCumulativeXp: number;
+  nextLevelCumulativeXp: number | null;
+  xpIntoLevel: number;
+  xpToNextLevel: number;
+  nextLevelXp: number | null;
+  progressPct: number;
+  isMaxLevel: boolean;
+}
+
+export interface ResolvedProgression extends LevelProgressSnapshot {
+  occupationPointsTotal: number;
+  statPointsTotal: number;
+  availableTalentPoints: number;
+  availableStatPoints: number;
+  availablePioneerPoints: number;
+  pioneerLevel: number;
+  pioneerPointsTotal: number;
+  occupations: CharacterOccupationProgress[];
+}
+
+export interface LevelTableEntry {
+  level: number;
+  cumulativeXp: number;
+  nextLevelXp: number | null;
+}
+
+export interface XpFormulaConfig {
+  base: number;
+  exponent: number;
+  levelOffset: number;
+}
+
+export interface LevelRewardRules {
+  occupationPointsPerLevel: number;
+  levelOneOccupationPoints: number;
+  statPointEveryLevels: number;
+  maxStatPointsAtMaxLevel: number;
+}
+
+export interface PioneerXpTier {
+  startLevel: number;
+  endLevel: number;
+  xpPerLevel: number;
+}
+
+export interface PioneerMilestone {
+  level: number;
+  cumulativeXp: number;
+}
+
+export interface PioneerRules {
+  startsAfterLevel: number;
+  maxLevel: number;
+  pointPerLevel: number;
+  tiers: PioneerXpTier[];
+  milestones: PioneerMilestone[];
+}
+
+export interface XpAndLevelingRules {
+  maxCharacterLevel: number;
+  maxCharacterCumulativeXp: number;
+  targetXpPerMinute: number;
+  targetXpPerHour: number;
+  targetHoursToMaxLevel: number;
+  referenceFormula: XpFormulaConfig;
+  generatedLevelTable: LevelTableEntry[];
+  rewards: LevelRewardRules;
+  pioneer: PioneerRules;
 }
 
 export interface CharacterCredits {
@@ -305,6 +394,7 @@ export interface Character {
   traits: Trait[];
   skills?: Skill[];
   occupation?: Occupation;
+  occupations?: CharacterOccupationProgress[];
   hp: number;
   maxHp: number;
   xp: number;
@@ -320,6 +410,7 @@ export interface Character {
   currentStory?: string;
   origin?: CharacterOrigin;
   progression?: CharacterProgression;
+  resolvedProgression?: ResolvedProgression;
   parents?: { father: string | null; mother: string | null }; // legacy
   relationships?: CharacterRelationship[];
 }

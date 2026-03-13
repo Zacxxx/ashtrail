@@ -129,11 +129,105 @@
     ],
     "shortDescription": "Civilian fighter defending the community."
   },
+  "occupations": [
+    {
+      "availableTalentPoints": 12,
+      "isPrimary": true,
+      "level": 1,
+      "occupation": {
+        "category": "SECURITY",
+        "description": "Not a professional soldier, but picked up a weapon when it mattered. Learned to fight from necessity, not training. Good instincts, rough technique.",
+        "id": "occ-militia",
+        "name": "Militia Member",
+        "perks": [
+          "Bonus morale when defending settlements",
+          "Slightly faster melee attacks",
+          "Crew rallies faster after losses"
+        ],
+        "shortDescription": "Civilian fighter defending the community."
+      },
+      "occupationId": "occ-militia",
+      "spentTalentPoints": 0,
+      "unlockedTalentNodeIds": []
+    }
+  ],
   "parents": {
     "father": null,
     "mother": null
   },
+  "progression": {
+    "availableTalentPoints": 12,
+    "occupationStates": [
+      {
+        "availableTalentPoints": 12,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "SECURITY",
+          "description": "Not a professional soldier, but picked up a weapon when it mattered. Learned to fight from necessity, not training. Good instincts, rough technique.",
+          "id": "occ-militia",
+          "name": "Militia Member",
+          "perks": [
+            "Bonus morale when defending settlements",
+            "Slightly faster melee attacks",
+            "Crew rallies faster after losses"
+          ],
+          "shortDescription": "Civilian fighter defending the community."
+        },
+        "occupationId": "occ-militia",
+        "spentTalentPoints": 0,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "spentPioneerOccupationPoints": 0,
+    "spentPioneerStatPoints": 0,
+    "spentStatPoints": 0,
+    "spentTalentPoints": 0,
+    "treeOccupationId": "occ-militia",
+    "unlockedTalentNodeIds": []
+  },
   "relationships": [],
+  "resolvedProgression": {
+    "availablePioneerPoints": 0,
+    "availableStatPoints": 4,
+    "availableTalentPoints": 12,
+    "currentLevelCumulativeXp": 39671,
+    "isMaxLevel": false,
+    "level": 12,
+    "maxLevel": 30,
+    "nextLevelCumulativeXp": 48959,
+    "nextLevelXp": 9288,
+    "occupationPointsTotal": 12,
+    "occupations": [
+      {
+        "availableTalentPoints": 12,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "SECURITY",
+          "description": "Not a professional soldier, but picked up a weapon when it mattered. Learned to fight from necessity, not training. Good instincts, rough technique.",
+          "id": "occ-militia",
+          "name": "Militia Member",
+          "perks": [
+            "Bonus morale when defending settlements",
+            "Slightly faster melee attacks",
+            "Crew rallies faster after losses"
+          ],
+          "shortDescription": "Civilian fighter defending the community."
+        },
+        "occupationId": "occ-militia",
+        "spentTalentPoints": 0,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "pioneerLevel": 0,
+    "pioneerPointsTotal": 0,
+    "progressPct": 0.0,
+    "statPointsTotal": 4,
+    "totalXp": 39671,
+    "xpIntoLevel": 0,
+    "xpToNextLevel": 9288
+  },
   "skills": [
     {
       "apCost": 3,
@@ -396,5 +490,5 @@
   ],
   "type": "Human",
   "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
-  "xp": 0
+  "xp": 39671
 }

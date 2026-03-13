@@ -42,6 +42,13 @@ export function CharactersView({ character }: CharactersViewProps) {
     }, [character]);
 
     const rules = GameRulesManager.get();
+    const occupationStates = character?.resolvedProgression?.occupations?.length
+        ? character.resolvedProgression.occupations
+        : (character?.occupations ?? []);
+    const primaryOccupation = occupationStates.find((entry) => entry.isPrimary) ?? occupationStates[0];
+    const occupationLabel = primaryOccupation?.occupation?.name
+        ? `${primaryOccupation.occupation.name} Lv. ${primaryOccupation.level}`
+        : (character?.occupation?.name ?? "Unemployed");
 
     if (!character || !effective) {
         return (
@@ -73,20 +80,25 @@ export function CharactersView({ character }: CharactersViewProps) {
                                 "👤"
                             )}
                         </div>
-                        <div className="flex flex-col">
-                            <h2 className="text-3xl font-black uppercase tracking-widest text-indigo-400">
-                                {character.name}
-                            </h2>
-                            <div className="flex items-center gap-3 text-xs font-mono text-gray-500 uppercase tracking-widest">
-                                <span>Level {character.level}</span>
-                                <span className="text-indigo-500/30">/</span>
-                                <span className="text-indigo-400/70">{character.occupation?.name || "Unemployed"}</span>
-                                <span className="text-indigo-500/30">/</span>
-                                <span>{character.age} Years</span>
+                            <div className="flex flex-col">
+                                <h2 className="text-3xl font-black uppercase tracking-widest text-indigo-400">
+                                    {character.name}
+                                </h2>
+                                <div className="flex items-center gap-3 text-xs font-mono text-gray-500 uppercase tracking-widest">
+                                    <span>Level {character.level}</span>
+                                    <span className="text-indigo-500/30">/</span>
+                                    <span className="text-indigo-400/70">{occupationLabel}</span>
+                                    <span className="text-indigo-500/30">/</span>
+                                    <span>{character.age} Years</span>
+                                </div>
+                                {character.resolvedProgression && (
+                                    <div className="mt-2 text-[10px] font-mono text-gray-500">
+                                        XP {character.resolvedProgression.totalXp.toLocaleString()} · Next {character.resolvedProgression.xpToNextLevel.toLocaleString()} · {character.resolvedProgression.progressPct.toFixed(1)}%
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
-                </div>
                 {character.isNPC && (
                     <span className="px-3 py-1 bg-red-500/10 text-red-500 text-[10px] font-black tracking-widest uppercase rounded-full border border-red-500/20">
                         NPC Archetype

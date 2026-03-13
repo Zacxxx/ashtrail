@@ -2,7 +2,9 @@ use rand::Rng;
 use serde_json::Value;
 
 use super::rules::GameRulesConfig;
-use super::types::{DamagePreview, EffectType, GameplayEffect, Skill, SkillEffectType, TacticalEntity};
+use super::types::{
+    DamagePreview, EffectType, GameplayEffect, Skill, SkillEffectType, TacticalEntity,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeaponProfile {
@@ -27,10 +29,11 @@ pub struct DefendResolution {
 }
 
 pub fn has_weapon_damage_replacement(skill: &Skill) -> bool {
-    skill
-        .effects
-        .as_ref()
-        .is_some_and(|effects| effects.iter().any(|effect| effect.effect_type == EffectType::WeaponDamageReplacement))
+    skill.effects.as_ref().is_some_and(|effects| {
+        effects
+            .iter()
+            .any(|effect| effect.effect_type == EffectType::WeaponDamageReplacement)
+    })
 }
 
 pub fn weapon_profile(entity: &TacticalEntity) -> WeaponProfile {
@@ -67,7 +70,9 @@ pub fn compute_skill_damage_preview(
     let base_damage = resolve_weapon_base_damage(caster, skill);
     let analyzed_bonus = analyzed_bonus(target);
 
-    let (min_damage, max_damage) = if uses_legacy_weapon_formula(skill) || skill.push_distance.is_some() {
+    let (min_damage, max_damage) = if uses_legacy_weapon_formula(skill)
+        || skill.push_distance.is_some()
+    {
         let (min_bonus, max_bonus) = legacy_stat_bonus_bounds(caster, skill, rules, base_damage);
         (
             ((base_damage as f64 + min_bonus) * rules.combat.damage_variance_min) as i32,
@@ -75,11 +80,9 @@ pub fn compute_skill_damage_preview(
         )
     } else {
         (
-            ((base_damage as f64
-                + caster.strength as f64 * rules.combat.strength_to_power_ratio)
+            ((base_damage as f64 + caster.strength as f64 * rules.combat.strength_to_power_ratio)
                 * rules.combat.damage_variance_min) as i32,
-            ((base_damage as f64
-                + caster.strength as f64 * rules.combat.strength_to_power_ratio)
+            ((base_damage as f64 + caster.strength as f64 * rules.combat.strength_to_power_ratio)
                 * rules.combat.damage_variance_max) as i32,
         )
     };
@@ -123,13 +126,15 @@ pub fn compute_skill_damage_roll(
     let crit_chance = caster.crit_chance + analyzed_bonus(target);
     let is_crit = rng.random::<f64>() < crit_chance;
     let variance = rules.combat.damage_variance_min
-        + rng.random::<f64>() * (rules.combat.damage_variance_max - rules.combat.damage_variance_min);
+        + rng.random::<f64>()
+            * (rules.combat.damage_variance_max - rules.combat.damage_variance_min);
 
     let mut rolled_damage = if uses_legacy_weapon_formula(skill) || skill.push_distance.is_some() {
         let stat_bonus = legacy_stat_bonus_roll(caster, skill, rules, base_damage, rng);
         ((base_damage as f64 + stat_bonus) * variance) as i32
     } else {
-        ((base_damage as f64 + caster.strength as f64 * rules.combat.strength_to_power_ratio) * variance) as i32
+        ((base_damage as f64 + caster.strength as f64 * rules.combat.strength_to_power_ratio)
+            * variance) as i32
     };
 
     if is_crit {
@@ -180,7 +185,8 @@ pub fn compute_basic_attack_roll(
 
     let weapon_base = weapon_damage_value(attacker).unwrap_or(5);
     let variance = rules.combat.damage_variance_min
-        + rng.random::<f64>() * (rules.combat.damage_variance_max - rules.combat.damage_variance_min);
+        + rng.random::<f64>()
+            * (rules.combat.damage_variance_max - rules.combat.damage_variance_min);
     let stat_bonus = legacy_basic_attack_bonus_roll(attacker, rules, weapon_base, rng);
     let is_crit = rng.random::<f64>() < attacker.crit_chance;
 
@@ -202,7 +208,8 @@ pub fn distract_mp_reduction(charisma: i32, rules: &GameRulesConfig) -> i32 {
 
 pub fn analyze_crit_bonus(intelligence: i32, rules: &GameRulesConfig) -> f64 {
     let int_value = intelligence.max(0) as f64;
-    (rules.combat.analyze_base_crit + (rules.combat.analyze_intel_scale * (int_value + 1.0).ln() * 10.0))
+    (rules.combat.analyze_base_crit
+        + (rules.combat.analyze_intel_scale * (int_value + 1.0).ln() * 10.0))
         .floor()
 }
 
@@ -222,18 +229,29 @@ pub fn resolve_defend(
     let roll_value = protector_endurance.max(0) * dice;
     let diff = roll_value - incoming_damage;
 
-    let (protector_damage, ally_damage, armor_ratio, outcome_label) = if diff >= rules.combat.defend_success_threshold {
-        (incoming_damage, 0, rules.combat.defend_success_reduction, "TOTAL SUCCESS")
-    } else if diff >= rules.combat.defend_partial_threshold {
-        (
-            incoming_damage / 2,
-            incoming_damage / 2,
-            rules.combat.defend_partial_reduction,
-            "PARTIAL SUCCESS",
-        )
-    } else {
-        (0, incoming_damage, rules.combat.defend_fail_reduction, "FAILED")
-    };
+    let (protector_damage, ally_damage, armor_ratio, outcome_label) =
+        if diff >= rules.combat.defend_success_threshold {
+            (
+                incoming_damage,
+                0,
+                rules.combat.defend_success_reduction,
+                "TOTAL SUCCESS",
+            )
+        } else if diff >= rules.combat.defend_partial_threshold {
+            (
+                incoming_damage / 2,
+                incoming_damage / 2,
+                rules.combat.defend_partial_reduction,
+                "PARTIAL SUCCESS",
+            )
+        } else {
+            (
+                0,
+                incoming_damage,
+                rules.combat.defend_fail_reduction,
+                "FAILED",
+            )
+        };
 
     let armor_block = ((protector_defense.max(0) as f64) * armor_ratio) as i32;
 
@@ -273,7 +291,10 @@ pub fn value_to_i32(value: &Value) -> i32 {
 }
 
 fn equipped_weapon(entity: &TacticalEntity) -> Option<&Value> {
-    entity.equipped.as_ref().and_then(|equipped| equipped.get("mainHand"))
+    entity
+        .equipped
+        .as_ref()
+        .and_then(|equipped| equipped.get("mainHand"))
 }
 
 fn weapon_damage_value(entity: &TacticalEntity) -> Option<i32> {
@@ -338,7 +359,8 @@ fn legacy_stat_bonus_roll(
         WeaponProfile::Ranged => 0.0,
         WeaponProfile::Melee => {
             let factor = rules.combat.strength_scaling_min
-                + rng.random::<f64>() * (rules.combat.strength_scaling_max - rules.combat.strength_scaling_min);
+                + rng.random::<f64>()
+                    * (rules.combat.strength_scaling_max - rules.combat.strength_scaling_min);
             (base_damage as f64 * factor * caster.strength as f64) / 10.0
         }
     }
@@ -371,7 +393,8 @@ fn legacy_basic_attack_bonus_roll(
         WeaponProfile::Ranged => 0.0,
         WeaponProfile::Melee => {
             let factor = rules.combat.strength_scaling_min
-                + rng.random::<f64>() * (rules.combat.strength_scaling_max - rules.combat.strength_scaling_min);
+                + rng.random::<f64>()
+                    * (rules.combat.strength_scaling_max - rules.combat.strength_scaling_min);
             (base_damage as f64 * factor * attacker.strength as f64) / 10.0
         }
     }

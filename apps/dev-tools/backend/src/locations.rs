@@ -679,7 +679,10 @@ pub async fn simulate_locations(
     let biome_report: Option<BiomeReportLite> =
         read_optional_json(worldgen_dir.join("biome_report.json"));
     let ecology_records: Vec<EcologyProvinceRecordLite> = read_optional_json(
-        planets_dir.join(world_id).join("ecology").join("provinces.json"),
+        planets_dir
+            .join(world_id)
+            .join("ecology")
+            .join("provinces.json"),
     )
     .unwrap_or_default();
     let cell_features: Option<CellFeaturesLite> =
@@ -708,11 +711,14 @@ pub async fn simulate_locations(
 
     let continent_by_province = build_continent_index(&continents);
     let duchy_map: HashMap<u32, DuchyRecord> = duchies.into_iter().map(|d| (d.id, d)).collect();
-    let kingdom_map: HashMap<u32, KingdomRecord> = kingdoms.into_iter().map(|k| (k.id, k)).collect();
+    let kingdom_map: HashMap<u32, KingdomRecord> =
+        kingdoms.into_iter().map(|k| (k.id, k)).collect();
     let adjacency_map: HashMap<u32, ProvinceAdjacency> =
         adjacency.into_iter().map(|a| (a.province_id, a)).collect();
-    let ecology_map: HashMap<u32, EcologyProvinceRecordLite> =
-        ecology_records.into_iter().map(|entry| (entry.province_id, entry)).collect();
+    let ecology_map: HashMap<u32, EcologyProvinceRecordLite> = ecology_records
+        .into_iter()
+        .map(|entry| (entry.province_id, entry))
+        .collect();
     let biome_map = biome_report
         .map(|report| {
             report
@@ -801,9 +807,9 @@ pub async fn simulate_locations(
             .sum::<f32>()
             / contexts.len() as f32
     };
-    let target_settlement_ratio = (
-        0.45 + 0.2 * (request.settlement_density - 0.5) + 0.1 * ((avg_habitability - 50.0) / 50.0)
-    )
+    let target_settlement_ratio = (0.45
+        + 0.2 * (request.settlement_density - 0.5)
+        + 0.1 * ((avg_habitability - 50.0) / 50.0))
         .clamp(0.35, 0.65);
 
     let mut generated_locations = Vec::new();
@@ -840,9 +846,9 @@ pub async fn simulate_locations(
                 .unwrap_or_else(|| fallback_anchor(context));
             let ensure_non_settlement = index == 1
                 && node_count >= 2
-                && province_blueprints
-                    .iter()
-                    .all(|bp: &LocationBlueprint| bp.location.category == LocationCategory::Settlement);
+                && province_blueprints.iter().all(|bp: &LocationBlueprint| {
+                    bp.location.category == LocationCategory::Settlement
+                });
             let blueprint = build_location_blueprint(
                 context,
                 &world_context,
@@ -938,7 +944,10 @@ pub fn write_locations(
     world_id: &str,
     records: &[LocationRecord],
 ) -> Result<Vec<LocationRecord>, String> {
-    let normalized = records.iter().map(normalize_location_record).collect::<Vec<_>>();
+    let normalized = records
+        .iter()
+        .map(normalize_location_record)
+        .collect::<Vec<_>>();
     let path = planets_dir.join(world_id).join("locations.json");
     write_json(path, &normalized)?;
     Ok(normalized)
@@ -998,7 +1007,8 @@ fn normalize_location_record(record: &LocationRecord) -> LocationRecord {
 fn normalize_location_value(value: serde_json::Value) -> Option<LocationRecord> {
     let object = value.as_object()?;
     let province_id = parse_province_id(object.get("provinceId"), object.get("provinceRegionId"))?;
-    let province_name = string_field(object, "provinceName").unwrap_or_else(|| format!("Province {}", province_id + 1));
+    let province_name = string_field(object, "provinceName")
+        .unwrap_or_else(|| format!("Province {}", province_id + 1));
     let subtype = string_field(object, "subtype")
         .or_else(|| string_field(object, "type"))
         .unwrap_or_else(|| "outpost".to_string());
@@ -1045,13 +1055,31 @@ fn normalize_location_value(value: serde_json::Value) -> Option<LocationRecord> 
         province_region_id: string_field(object, "provinceRegionId")
             .unwrap_or_else(|| province_region_id(province_id)),
         province_name,
-        duchy_id: object.get("duchyId").and_then(|value| value.as_u64()).map(|value| value as u32),
-        kingdom_id: object.get("kingdomId").and_then(|value| value.as_u64()).map(|value| value as u32),
-        continent_id: object.get("continentId").and_then(|value| value.as_u64()).map(|value| value as u32),
-        x: object.get("x").and_then(|value| value.as_f64()).unwrap_or(0.5) as f32,
-        y: object.get("y").and_then(|value| value.as_f64()).unwrap_or(0.5) as f32,
+        duchy_id: object
+            .get("duchyId")
+            .and_then(|value| value.as_u64())
+            .map(|value| value as u32),
+        kingdom_id: object
+            .get("kingdomId")
+            .and_then(|value| value.as_u64())
+            .map(|value| value as u32),
+        continent_id: object
+            .get("continentId")
+            .and_then(|value| value.as_u64())
+            .map(|value| value as u32),
+        x: object
+            .get("x")
+            .and_then(|value| value.as_f64())
+            .unwrap_or(0.5) as f32,
+        y: object
+            .get("y")
+            .and_then(|value| value.as_f64())
+            .unwrap_or(0.5) as f32,
         population_estimate,
-        importance: object.get("importance").and_then(|value| value.as_u64()).unwrap_or(40) as u32,
+        importance: object
+            .get("importance")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(40) as u32,
         habitability_score: object
             .get("habitabilityScore")
             .and_then(|value| value.as_u64())
@@ -1140,7 +1168,9 @@ fn analyze_rasters(
     for y in 0..raster_height {
         for x in 0..width {
             let province_id = decode_rgb_id(province_image.get_pixel(x, y).0);
-            let entry = stats.entry(province_id).or_insert_with(ProvinceRasterStats::new);
+            let entry = stats
+                .entry(province_id)
+                .or_insert_with(ProvinceRasterStats::new);
             entry.total_pixels += 1;
             let is_land = landmask.get_pixel(x, y).0[0] > 0;
             if is_land {
@@ -1164,39 +1194,46 @@ fn analyze_rasters(
                     entry.steep_pixels += 1;
                 }
                 if is_land && x % 8 == 0 && y % 8 == 0 {
-                    let (cell_vegetation, cell_aridity, terrain_bonus) = if let Some((cols, rows, features)) = &cell_grid {
-                        let cell_x = ((x as f32 / width as f32) * *cols as f32)
-                            .floor()
-                            .min((*cols - 1) as f32) as u32;
-                        let cell_y = ((y as f32 / raster_height as f32) * *rows as f32)
-                            .floor()
-                            .min((*rows - 1) as f32) as u32;
-                        if let Some(cell) = features.get(&(cell_x, cell_y)) {
-                            let terrain_bonus = match cell.terrain_class.as_str() {
-                                "plains" | "lowland" => 0.18,
-                                "plateau" => 0.1,
-                                "highland" => 0.04,
-                                _ => 0.0,
-                            };
-                            (
-                                cell.vegetation_index as f32,
-                                cell.aridity_index as f32,
-                                terrain_bonus,
-                            )
+                    let (cell_vegetation, cell_aridity, terrain_bonus) =
+                        if let Some((cols, rows, features)) = &cell_grid {
+                            let cell_x = ((x as f32 / width as f32) * *cols as f32)
+                                .floor()
+                                .min((*cols - 1) as f32)
+                                as u32;
+                            let cell_y = ((y as f32 / raster_height as f32) * *rows as f32)
+                                .floor()
+                                .min((*rows - 1) as f32)
+                                as u32;
+                            if let Some(cell) = features.get(&(cell_x, cell_y)) {
+                                let terrain_bonus = match cell.terrain_class.as_str() {
+                                    "plains" | "lowland" => 0.18,
+                                    "plateau" => 0.1,
+                                    "highland" => 0.04,
+                                    _ => 0.0,
+                                };
+                                (
+                                    cell.vegetation_index as f32,
+                                    cell.aridity_index as f32,
+                                    terrain_bonus,
+                                )
+                            } else {
+                                (0.4, 0.4, 0.0)
+                            }
                         } else {
                             (0.4, 0.4, 0.0)
-                        }
+                        };
+                    let candidate_score = ((if river_mask.get_pixel(x, y).0[0] > 0 {
+                        0.45
                     } else {
-                        (0.4, 0.4, 0.0)
-                    };
-                    let candidate_score = (
-                        (if river_mask.get_pixel(x, y).0[0] > 0 { 0.45 } else { 0.0 })
-                            + (if is_coastal_pixel(x, y, landmask) { 0.3 } else { 0.0 })
-                            + (1.0 - slope.clamp(0.0, 1.0)) * 0.2
-                            + terrain_bonus
-                            + cell_vegetation * 0.08
-                            + (1.0 - cell_aridity) * 0.06
-                    )
+                        0.0
+                    }) + (if is_coastal_pixel(x, y, landmask) {
+                        0.3
+                    } else {
+                        0.0
+                    }) + (1.0 - slope.clamp(0.0, 1.0)) * 0.2
+                        + terrain_bonus
+                        + cell_vegetation * 0.08
+                        + (1.0 - cell_aridity) * 0.06)
                         .clamp(0.0, 1.0);
                     entry.candidate_points.push(CandidatePoint {
                         x: x as f32 / width as f32,
@@ -1217,9 +1254,11 @@ fn analyze_rasters(
             entry.mean_elevation /= entry.sample_count as f32;
             entry.mean_slope /= entry.sample_count as f32;
         }
-        entry
-            .candidate_points
-            .sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        entry.candidate_points.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         entry.candidate_points.truncate(64);
     }
 
@@ -1246,11 +1285,10 @@ fn compute_viability(
     } else {
         raster.land_pixels as f32 / raster.total_pixels as f32
     };
-    let oceanic = matches!(
-        biome_id,
-        "ocean" | "deep_ocean" | "abyssal_ocean"
-    );
-    let extreme_hazard = biome_hazard_bias(biome_id) >= 0.85 && raster.river_pixels == 0 && adjacency.neighbors.is_empty();
+    let oceanic = matches!(biome_id, "ocean" | "deep_ocean" | "abyssal_ocean");
+    let extreme_hazard = biome_hazard_bias(biome_id) >= 0.85
+        && raster.river_pixels == 0
+        && adjacency.neighbors.is_empty();
     let candidate_anchorable = raster
         .candidate_points
         .iter()
@@ -1298,14 +1336,22 @@ fn compute_scores(
         + water_access * 0.25
         + (1.0 - raster.mean_slope.clamp(0.0, 1.0)) * 0.2)
         .clamp(0.0, 1.0);
-    let coastal_trade = (raster.coast_pixels as f32 / raster.land_pixels.max(1) as f32).clamp(0.0, 1.0);
+    let coastal_trade =
+        (raster.coast_pixels as f32 / raster.land_pixels.max(1) as f32).clamp(0.0, 1.0);
     let relief_bonus = (raster.max_slope * 2.2).clamp(0.0, 1.0);
     let resource_potential = ((relief_bonus * 0.4)
         + (biome_resource_bias(biome_id) * 0.35)
         + ((ecology_hazard + coastal_trade) * 0.25))
         .clamp(0.0, 1.0);
     let defensibility = ((relief_bonus * 0.45)
-        + ((adjacency.neighbors.iter().filter(|edge| edge.crosses_river).count() as f32 / 6.0).clamp(0.0, 1.0) * 0.2)
+        + ((adjacency
+            .neighbors
+            .iter()
+            .filter(|edge| edge.crosses_river)
+            .count() as f32
+            / 6.0)
+            .clamp(0.0, 1.0)
+            * 0.2)
         + ((raster.mean_elevation * 1.1).clamp(0.0, 1.0) * 0.35))
         .clamp(0.0, 1.0);
     let chokepoint = if adjacency.neighbors.is_empty() {
@@ -1327,40 +1373,32 @@ fn compute_scores(
     let border_control = ((adjacency.neighbors.len() as f32 / 6.0).clamp(0.0, 1.0) * 0.6
         + (defensibility * 0.4))
         .clamp(0.0, 1.0);
-    let aridity_instability = (1.0 - ecology_agriculture).clamp(0.0, 1.0) * 0.55
-        + biome_hazard_bias(biome_id) * 0.45;
+    let aridity_instability =
+        (1.0 - ecology_agriculture).clamp(0.0, 1.0) * 0.55 + biome_hazard_bias(biome_id) * 0.45;
     let elevation_volatility = ((raster.max_slope * 3.0).clamp(0.0, 1.0) * 0.7
         + (raster.mean_elevation * 0.3))
         .clamp(0.0, 1.0);
 
-    let habitability = (
-        0.30 * water_access
-            + 0.20 * terrain_ease
-            + 0.20 * biome_suitability
-            + 0.15 * ecology_agriculture
-            + 0.15 * climate_stability
-    )
+    let habitability = (0.30 * water_access
+        + 0.20 * terrain_ease
+        + 0.20 * biome_suitability
+        + 0.15 * ecology_agriculture
+        + 0.15 * climate_stability)
         .clamp(0.0, 1.0);
-    let economic = (
-        0.35 * route_access
-            + 0.25 * ecology_agriculture
-            + 0.25 * resource_potential
-            + 0.15 * coastal_trade
-    )
+    let economic = (0.35 * route_access
+        + 0.25 * ecology_agriculture
+        + 0.25 * resource_potential
+        + 0.15 * coastal_trade)
         .clamp(0.0, 1.0);
-    let strategic = (
-        0.35 * defensibility
-            + 0.25 * chokepoint
-            + 0.20 * hierarchy_centrality
-            + 0.20 * border_control
-    )
+    let strategic = (0.35 * defensibility
+        + 0.25 * chokepoint
+        + 0.20 * hierarchy_centrality
+        + 0.20 * border_control)
         .clamp(0.0, 1.0);
-    let hazard = (
-        0.40 * biome_hazard_bias(biome_id)
-            + 0.25 * aridity_instability
-            + 0.20 * ecology_hazard
-            + 0.15 * elevation_volatility
-    )
+    let hazard = (0.40 * biome_hazard_bias(biome_id)
+        + 0.25 * aridity_instability
+        + 0.20 * ecology_hazard
+        + 0.15 * elevation_volatility)
         .clamp(0.0, 1.0);
 
     // Technology nudges infrastructure/resource viability.
@@ -1417,7 +1455,10 @@ fn mark_seats(contexts: &mut [ProvinceContext]) {
 }
 
 fn upper_area_quartile(contexts: &[ProvinceContext]) -> u32 {
-    let mut areas = contexts.iter().map(|ctx| ctx.province.area).collect::<Vec<_>>();
+    let mut areas = contexts
+        .iter()
+        .map(|ctx| ctx.province.area)
+        .collect::<Vec<_>>();
     areas.sort_unstable();
     if areas.is_empty() {
         0
@@ -1426,7 +1467,11 @@ fn upper_area_quartile(contexts: &[ProvinceContext]) -> u32 {
     }
 }
 
-fn compute_node_count(context: &ProvinceContext, area_quartile: u32, settlement_density: f32) -> usize {
+fn compute_node_count(
+    context: &ProvinceContext,
+    area_quartile: u32,
+    settlement_density: f32,
+) -> usize {
     let density_bias = ((settlement_density - 0.5) * 10.0).round() as i32;
     let mut count = 1i32;
     if context.scores.habitability as i32 >= 55 - density_bias {
@@ -1454,10 +1499,9 @@ fn choose_anchors(context: &ProvinceContext, node_count: usize) -> Vec<Candidate
     let mut chosen = Vec::new();
     let min_distance = (0.01 + (context.province.area as f32 / 8_000_000.0)).clamp(0.01, 0.08);
     for candidate in &context.raster.candidate_points {
-        if chosen
-            .iter()
-            .all(|existing: &CandidatePoint| distance(existing.x, existing.y, candidate.x, candidate.y) >= min_distance)
-        {
+        if chosen.iter().all(|existing: &CandidatePoint| {
+            distance(existing.x, existing.y, candidate.x, candidate.y) >= min_distance
+        }) {
             chosen.push(candidate.clone());
         }
         if chosen.len() >= node_count {
@@ -1522,7 +1566,12 @@ fn build_location_blueprint(
     let status = classify_status(&classification.category, context, &classification.subtype);
     let placement_drivers = describe_placement_drivers(context, anchor, &classification.subtype);
     let lore_links = match_lore_snippets(world_context, &classification.subtype, &context.biome_id);
-    let history_hooks = build_history_hooks(context, &classification.subtype, &placement_drivers, &lore_links);
+    let history_hooks = build_history_hooks(
+        context,
+        &classification.subtype,
+        &placement_drivers,
+        &lore_links,
+    );
     let fallback_name = fallback_location_name(
         &world_context.seed_hash,
         context,
@@ -1657,7 +1706,8 @@ fn classify_location(
             category: LocationCategory::Resource,
             subtype: if tech_level >= 0.68 {
                 "salvage_field".to_string()
-            } else if context.biome_id.contains("forest") || context.biome_id.contains("rainforest") {
+            } else if context.biome_id.contains("forest") || context.biome_id.contains("rainforest")
+            {
                 "logging_hold".to_string()
             } else if anchor.elevation >= 0.58 {
                 "mine".to_string()
@@ -1707,7 +1757,9 @@ fn classify_location(
     if context.ecology.is_some() && z <= 60 && (index + 1 == node_count || ensure_non_settlement) {
         return LocationClassification {
             category: LocationCategory::Religious,
-            subtype: if context.biome_id.contains("forest") || context.biome_id.contains("rainforest") {
+            subtype: if context.biome_id.contains("forest")
+                || context.biome_id.contains("rainforest")
+            {
                 "sacred_grove".to_string()
             } else if context.biome_id.contains("coast") || anchor.coastal {
                 "shrine".to_string()
@@ -1862,7 +1914,10 @@ fn classify_status(
             }
         }
         LocationCategory::Settlement => {
-            if context.scores.habitability >= 74 && context.scores.economic >= 68 && context.scores.hazard <= 42 {
+            if context.scores.habitability >= 74
+                && context.scores.economic >= 68
+                && context.scores.hazard <= 42
+            {
                 LocationStatus::Thriving
             } else if context.scores.hazard >= 70 {
                 LocationStatus::Struggling
@@ -1919,17 +1974,21 @@ fn describe_placement_drivers(
     drivers
 }
 
-fn match_lore_snippets(
-    world_context: &WorldContext,
-    subtype: &str,
-    biome_id: &str,
-) -> Vec<String> {
+fn match_lore_snippets(world_context: &WorldContext, subtype: &str, biome_id: &str) -> Vec<String> {
     let search_terms = [
         subtype,
         biome_id,
-        if subtype.contains("crater") { "crater" } else { "" },
+        if subtype.contains("crater") {
+            "crater"
+        } else {
+            ""
+        },
         if subtype.contains("ash") { "ash" } else { "" },
-        if subtype.contains("wreck") { "orbit" } else { "" },
+        if subtype.contains("wreck") {
+            "orbit"
+        } else {
+            ""
+        },
     ];
     world_context
         .lore_snippets
@@ -1965,27 +2024,41 @@ fn build_history_hooks(
     } else if drivers.iter().any(|driver| driver == "river access") {
         "It formed where reliable freshwater and movement corridors converged.".to_string()
     } else if drivers.iter().any(|driver| driver == "coastal approach") {
-        "It grew at a shoreline approach that was easier to reach than the surrounding coast.".to_string()
+        "It grew at a shoreline approach that was easier to reach than the surrounding coast."
+            .to_string()
     } else if matches!(subtype, "mine" | "quarry" | "salvage_field") {
-        "It exists because the surrounding ground still yields something worth the risk of staying.".to_string()
+        "It exists because the surrounding ground still yields something worth the risk of staying."
+            .to_string()
     } else if matches!(subtype, "fort" | "border_keep" | "watchtower") {
         "It was established to hold terrain that mattered more than comfort.".to_string()
     } else {
-        "It persisted because this province offered one of the few workable anchors in the region.".to_string()
+        "It persisted because this province offered one of the few workable anchors in the region."
+            .to_string()
     };
     let current_tension = if context.scores.hazard >= 72 {
         "Environmental pressure keeps the site useful but perpetually unstable.".to_string()
     } else if context.scores.strategic >= 72 {
         "Control of the site shapes movement through the wider province.".to_string()
     } else if context.scores.economic >= 68 {
-        "Its value depends on keeping trade and extraction flowing despite local strain.".to_string()
+        "Its value depends on keeping trade and extraction flowing despite local strain."
+            .to_string()
     } else {
         "Its future depends on whether nearby powers can justify maintaining it.".to_string()
     };
     let story_seeds = vec![
-        format!("Determine who benefits most from {}", subtype_display_label(subtype)),
-        format!("Trace what nearby threat could sever {}", drivers.first().cloned().unwrap_or_else(|| "its local role".to_string())),
-        "Identify a buried or ignored detail that would change how outsiders value the site.".to_string(),
+        format!(
+            "Determine who benefits most from {}",
+            subtype_display_label(subtype)
+        ),
+        format!(
+            "Trace what nearby threat could sever {}",
+            drivers
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "its local role".to_string())
+        ),
+        "Identify a buried or ignored detail that would change how outsiders value the site."
+            .to_string(),
     ];
     LocationHistoryHooks {
         founding_reason,
@@ -2051,8 +2124,8 @@ fn fallback_location_name(
     category: &LocationCategory,
 ) -> String {
     let prefixes = [
-        "North", "South", "East", "West", "High", "Low", "New", "Old", "Grey", "Red",
-        "Stone", "Bright", "Deep", "Mist", "Iron", "Salt", "Green", "Black",
+        "North", "South", "East", "West", "High", "Low", "New", "Old", "Grey", "Red", "Stone",
+        "Bright", "Deep", "Mist", "Iron", "Salt", "Green", "Black",
     ];
     let province_token = context
         .province
@@ -2110,7 +2183,8 @@ async fn apply_ai_details(
                 if let Some(updates) = parse_ai_response(&raw) {
                     successful_batches += 1;
                     for update in updates {
-                        if let Some(location) = batch.iter_mut().find(|entry| entry.id == update.id) {
+                        if let Some(location) = batch.iter_mut().find(|entry| entry.id == update.id)
+                        {
                             if !update.name.trim().is_empty() {
                                 location.name = update.name.trim().to_string();
                             }
@@ -2164,7 +2238,10 @@ fn build_ai_prompt(
         .map(|snippet| {
             format!(
                 "- {} :: {}",
-                snippet.title.clone().unwrap_or_else(|| snippet.location.clone()),
+                snippet
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| snippet.location.clone()),
                 snippet.content.replace('\n', " ")
             )
         })
@@ -2296,7 +2373,9 @@ fn build_generation_metadata(
         *counts_by_category
             .entry(format!("{:?}", location.category).to_lowercase())
             .or_insert(0usize) += 1;
-        *counts_by_subtype.entry(location.subtype.clone()).or_insert(0usize) += 1;
+        *counts_by_subtype
+            .entry(location.subtype.clone())
+            .or_insert(0usize) += 1;
     }
 
     LocationGenerationMetadata {
@@ -2315,7 +2394,9 @@ fn build_generation_metadata(
             settlement_count,
             non_settlement_count: locations.len().saturating_sub(settlement_count),
             viable_province_count: viable_provinces.len(),
-            covered_viable_province_count: covered_provinces.intersection(&viable_provinces).count(),
+            covered_viable_province_count: covered_provinces
+                .intersection(&viable_provinces)
+                .count(),
         },
         counts_by_category,
         counts_by_subtype,
@@ -2330,14 +2411,20 @@ fn load_world_context(
     world_id: &str,
     request: &LocationGenerationRequest,
 ) -> Result<WorldContext, String> {
-    let metadata = read_optional_json::<serde_json::Value>(planets_dir.join(world_id).join("metadata.json"))
-        .unwrap_or_else(|| serde_json::json!({}));
-    let gm_settings = read_optional_json::<serde_json::Value>(planets_dir.join(world_id).join("gm_settings.json"))
-        .unwrap_or_else(|| serde_json::json!({}));
+    let metadata =
+        read_optional_json::<serde_json::Value>(planets_dir.join(world_id).join("metadata.json"))
+            .unwrap_or_else(|| serde_json::json!({}));
+    let gm_settings = read_optional_json::<serde_json::Value>(
+        planets_dir.join(world_id).join("gm_settings.json"),
+    )
+    .unwrap_or_else(|| serde_json::json!({}));
     let lore_snippets: Vec<LoreSnippetLite> =
-        read_optional_json(planets_dir.join(world_id).join("lore_snippets.json")).unwrap_or_default();
-    let temporality = read_optional_json::<serde_json::Value>(planets_dir.join(world_id).join("temporality.json"))
-        .unwrap_or(serde_json::Value::Null);
+        read_optional_json(planets_dir.join(world_id).join("lore_snippets.json"))
+            .unwrap_or_default();
+    let temporality = read_optional_json::<serde_json::Value>(
+        planets_dir.join(world_id).join("temporality.json"),
+    )
+    .unwrap_or(serde_json::Value::Null);
 
     let world_name = metadata
         .get("name")
@@ -2416,8 +2503,8 @@ where
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
     }
-    let content =
-        serde_json::to_string_pretty(value).map_err(|e| format!("Failed to serialize JSON: {e}"))?;
+    let content = serde_json::to_string_pretty(value)
+        .map_err(|e| format!("Failed to serialize JSON: {e}"))?;
     fs::write(&path, content).map_err(|e| format!("Failed to write {}: {}", path.display(), e))
 }
 
@@ -2562,11 +2649,7 @@ fn is_coastal_pixel(x: u32, y: u32, landmask: &image::GrayImage) -> bool {
     false
 }
 
-fn local_slope(
-    height: &image::ImageBuffer<image::Luma<u16>, Vec<u16>>,
-    x: u32,
-    y: u32,
-) -> f32 {
+fn local_slope(height: &image::ImageBuffer<image::Luma<u16>, Vec<u16>>, x: u32, y: u32) -> f32 {
     let width = height.width();
     let height_dim = height.height();
     let left_x = if x == 0 { width - 1 } else { x - 1 };
@@ -2574,16 +2657,19 @@ fn local_slope(
     let up_y = if y == 0 { y } else { y - 1 };
     let down_y = if y == height_dim - 1 { y } else { y + 1 };
 
-    let dh_dx = (height.get_pixel(right_x, y).0[0] as f32 - height.get_pixel(left_x, y).0[0] as f32)
+    let dh_dx = (height.get_pixel(right_x, y).0[0] as f32
+        - height.get_pixel(left_x, y).0[0] as f32)
         / 65535.0;
-    let dh_dy = (height.get_pixel(x, down_y).0[0] as f32 - height.get_pixel(x, up_y).0[0] as f32)
-        / 65535.0;
+    let dh_dy =
+        (height.get_pixel(x, down_y).0[0] as f32 - height.get_pixel(x, up_y).0[0] as f32) / 65535.0;
     (dh_dx * dh_dx + dh_dy * dh_dy).sqrt().clamp(0.0, 1.0)
 }
 
 fn biome_suitability(biome_id: &str) -> f32 {
     match biome_id {
-        "temperate_deciduous_forest" | "temperate_rainforest" | "temperate_grassland_steppe" => 0.82,
+        "temperate_deciduous_forest" | "temperate_rainforest" | "temperate_grassland_steppe" => {
+            0.82
+        }
         "savanna" | "tropical_savanna" | "mediterranean" | "taiga_boreal" => 0.66,
         "wetland" | "floodplain" | "tidal_flat" => 0.56,
         "desert" | "arid_scrubland" | "ashlands" => 0.24,
@@ -2626,7 +2712,10 @@ fn biome_hazard_bias(biome_id: &str) -> f32 {
         0.95
     } else if biome_id.contains("ash") || biome_id.contains("volcan") {
         0.84
-    } else if biome_id.contains("alpine") || biome_id.contains("ice") || biome_id.contains("glacier") {
+    } else if biome_id.contains("alpine")
+        || biome_id.contains("ice")
+        || biome_id.contains("glacier")
+    {
         0.74
     } else if biome_id.contains("desert") {
         0.66

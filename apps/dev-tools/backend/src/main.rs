@@ -6,6 +6,7 @@ mod cell_analyzer;
 mod cms;
 mod combat_engine;
 mod ecology;
+mod game_rules;
 mod exploration_engine;
 mod exploration_jobs;
 mod gemini;
@@ -13,6 +14,7 @@ mod generator;
 mod hierarchy;
 mod jobs;
 mod locations;
+mod progression;
 mod quest_ai;
 mod worldgen_pipeline;
 
@@ -1090,6 +1092,18 @@ async fn main() {
             get(cms::get_game_rules).post(cms::save_game_rules),
         )
         .route(
+            "/api/progression/preview-rules",
+            post(progression::preview_rules),
+        )
+        .route(
+            "/api/progression/resolve",
+            post(progression::resolve_progression_handler),
+        )
+        .route(
+            "/api/progression/resolve-character",
+            post(progression::resolve_character_handler),
+        )
+        .route(
             "/api/settings/world/{id}",
             get(cms::get_world_settings).post(cms::save_world_settings),
         )
@@ -1112,6 +1126,10 @@ async fn main() {
 
     let addr: SocketAddr = "127.0.0.1:8787".parse().expect("valid socket address");
     info!(%addr, "dev-tools backend listening");
+
+    if let Err(error) = progression::migrate_generated_characters_on_startup() {
+        warn!("character progression migration failed: {error}");
+    }
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await

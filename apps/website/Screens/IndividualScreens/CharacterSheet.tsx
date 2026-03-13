@@ -5,6 +5,16 @@ import { Card, ProgressBar, Badge, Stack } from '../../UI/Primitives';
 
 export const CharacterSheet: React.FC<{ state: GameState }> = ({ state }) => {
   const { player } = state;
+  const occupations = player.resolvedProgression?.occupations?.length
+    ? player.resolvedProgression.occupations
+    : (player.occupations ?? []);
+  const primaryOccupation = occupations.find((occupation) => occupation.isPrimary) ?? occupations[0];
+  const xpMax = player.resolvedProgression?.nextLevelXp ?? Math.max(player.resolvedProgression?.xpIntoLevel ?? player.xp, 1);
+  const xpValue = player.resolvedProgression?.xpIntoLevel ?? player.xp;
+  const occupationOptions = occupations.map((occupation) => ({
+    value: occupation.occupationId,
+    label: `${occupation.occupation?.name || occupation.occupationId} Lv. ${occupation.level}`,
+  }));
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-full overflow-y-auto pr-2 custom-scrollbar">
@@ -19,20 +29,34 @@ export const CharacterSheet: React.FC<{ state: GameState }> = ({ state }) => {
             <h2 className="text-2xl font-black italic mono uppercase text-white">{player.name}</h2>
             <div className="flex gap-2 flex-wrap">
               <Badge color="blue">Level {player.level}</Badge>
-              {player.occupation && (
+              {primaryOccupation && (
                 <Badge color="orange">
                   <div className="flex items-center gap-1.5">
                     {/* ICON PLACEHOLDER - Reserved for future use */}
                     <div className="w-3 h-3 flex-shrink-0" />
-                    {player.occupation.name}
+                    {primaryOccupation.occupation?.name || primaryOccupation.occupationId} Lv. {primaryOccupation.level}
                   </div>
                 </Badge>
               )}
               <Badge color="zinc">{player.age} Years</Badge>
               <Badge color="zinc">{player.gender}</Badge>
             </div>
-            <div className="text-[10px] mono text-zinc-500 mt-2">XP Progress: {player.xp}/1000</div>
-            <ProgressBar value={player.xp} max={1000} color="bg-zinc-600" />
+            {occupationOptions.length > 1 && (
+              <select className="mt-2 rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-[10px] mono text-zinc-400">
+                {occupationOptions.map((occupation) => (
+                  <option key={occupation.value} value={occupation.value}>{occupation.label}</option>
+                ))}
+              </select>
+            )}
+            <div className="text-[10px] mono text-zinc-500 mt-2">
+              XP Progress: {player.resolvedProgression ? `${player.resolvedProgression.xpIntoLevel}/${player.resolvedProgression.nextLevelXp ?? 0}` : `${player.xp}/${xpMax}`}
+            </div>
+            <ProgressBar value={xpValue} max={xpMax} color="bg-zinc-600" />
+            {player.resolvedProgression && (
+              <div className="text-[9px] mono text-zinc-600">
+                Total XP {player.resolvedProgression.totalXp.toLocaleString()} · Next level in {player.resolvedProgression.xpToNextLevel.toLocaleString()} · Pioneer {player.resolvedProgression.pioneerLevel}
+              </div>
+            )}
           </div>
         </div>
 

@@ -79,13 +79,27 @@ fn build_tactical_entity(
     roster_entry: &CombatRosterEntry,
     rules: &GameRulesConfig,
 ) -> Result<TacticalEntity, String> {
-    let occupation = character.occupation.clone().or_else(|| {
-        character
-            .progression
-            .as_ref()
-            .and_then(|progression| progression.tree_occupation_id.as_ref())
-            .and_then(|occupation_id| content.occupations.get(occupation_id).cloned())
+    let primary_occupation_state = character.occupations.as_ref().and_then(|states| {
+        states
+            .iter()
+            .find(|state| state.is_primary)
+            .or_else(|| states.first())
     });
+    let occupation = character
+        .occupation
+        .clone()
+        .or_else(|| primary_occupation_state.and_then(|state| state.occupation.clone()))
+        .or_else(|| {
+            character
+                .progression
+                .as_ref()
+                .and_then(|progression| progression.tree_occupation_id.as_ref())
+                .and_then(|occupation_id| content.occupations.get(occupation_id).cloned())
+        })
+        .or_else(|| {
+            primary_occupation_state
+                .and_then(|state| content.occupations.get(&state.occupation_id).cloned())
+        });
 
     let resolved_equipped = resolve_equipped(content, character)?;
     let main_hand_weapon = resolved_equipped
@@ -387,10 +401,17 @@ fn unlocked_nodes<'a>(
     content: &'a ContentBundle,
     character: &RawCharacter,
 ) -> Vec<&'a RawTalentNode> {
+    let primary_occupation_state = character.occupations.as_ref().and_then(|states| {
+        states
+            .iter()
+            .find(|state| state.is_primary)
+            .or_else(|| states.first())
+    });
     let occupation_id = character
         .progression
         .as_ref()
         .and_then(|progression| progression.tree_occupation_id.as_ref())
+        .or_else(|| primary_occupation_state.map(|state| &state.occupation_id))
         .or_else(|| {
             character
                 .occupation
@@ -398,15 +419,22 @@ fn unlocked_nodes<'a>(
                 .map(|occupation| &occupation.id)
         });
 
-    let unlocked_ids: HashSet<&str> = character
-        .progression
-        .as_ref()
-        .map(|progression| {
-            progression
+    let unlocked_ids: HashSet<&str> = primary_occupation_state
+        .map(|state| {
+            state
                 .unlocked_talent_node_ids
                 .iter()
                 .map(String::as_str)
                 .collect()
+        })
+        .or_else(|| {
+            character.progression.as_ref().map(|progression| {
+                progression
+                    .unlocked_talent_node_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect()
+            })
         })
         .unwrap_or_default();
 

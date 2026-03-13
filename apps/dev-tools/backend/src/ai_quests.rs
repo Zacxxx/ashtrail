@@ -780,8 +780,7 @@ pub async fn generate_quest_run_handler(
     let mut warnings = Vec::new();
     let run_id = format!("quest-{}", Uuid::new_v4());
     let timestamp = now_ms();
-    let mut chain =
-        load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
+    let mut chain = load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
     let max_node_count = run_length_to_node_count(
         payload
             .seed
@@ -961,12 +960,12 @@ pub async fn generate_quest_run_handler(
     persist_chain(&state.planets_dir, &payload.world_id, &chain)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
-    Ok(Json(QuestGenerationResponse {
+    Ok(Json(json!(QuestGenerationResponse {
         run,
         materialized_characters,
         restored_characters: vec![],
         warnings,
-    })
+    }))
     .into_response())
 }
 
@@ -1315,13 +1314,13 @@ pub async fn advance_quest_handler(
                     .and_then(Value::as_str)
                     .unwrap_or("The party pulls back and can try again.")
             ));
-            return Ok(Json(QuestAdvanceResponse {
+            return Ok(Json(json!(QuestAdvanceResponse {
                 run: reset_run,
                 party_updates: vec![],
                 materialized_characters: vec![],
                 restored_characters,
                 warnings,
-            })
+            }))
             .into_response());
         }
     }
@@ -1382,13 +1381,13 @@ pub async fn advance_quest_handler(
     persist_chain(&state.planets_dir, world_id, &chain)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
-    Ok(Json(QuestAdvanceResponse {
+    Ok(Json(json!(QuestAdvanceResponse {
         run: updated_run,
         party_updates,
         materialized_characters,
         restored_characters,
         warnings,
-    })
+    }))
     .into_response())
 }
 

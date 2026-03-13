@@ -267,13 +267,130 @@
     ],
     "shortDescription": "Coordinates teams and complex projects."
   },
+  "occupations": [
+    {
+      "availableTalentPoints": 6,
+      "isPrimary": true,
+      "level": 1,
+      "occupation": {
+        "category": "ADMIN",
+        "description": "Oversaw multi-team operations: construction projects, defense coordination, and resource extraction. Sees the big picture and keeps everyone aligned.",
+        "effects": [
+          {
+            "id": "occ-operations-manager-effect-1",
+            "isPercentage": true,
+            "name": "Administrative Leverage",
+            "scope": "economy",
+            "stacking": "multiplicative",
+            "target": "traderPriceMultiplier",
+            "trigger": "passive",
+            "type": "ACTION_MODIFIER",
+            "value": -8
+          },
+          {
+            "id": "occ-operations-manager-effect-2",
+            "isPercentage": true,
+            "name": "Operational Trust",
+            "scope": "camp",
+            "stacking": "multiplicative",
+            "target": "trustGain",
+            "trigger": "passive",
+            "type": "ACTION_MODIFIER",
+            "value": 10
+          },
+          {
+            "id": "occ-operations-manager-effect-3",
+            "isPercentage": true,
+            "name": "Conflict Mediation",
+            "scope": "social",
+            "stacking": "multiplicative",
+            "target": "conflictChance",
+            "trigger": "passive",
+            "type": "ACTION_MODIFIER",
+            "value": -10
+          }
+        ],
+        "id": "occ-operations-manager",
+        "name": "Operations Manager",
+        "perks": [
+          "Crew efficiency bonus on group tasks",
+          "Project completion times reduced",
+          "Better coordination during emergencies"
+        ],
+        "shortDescription": "Coordinates teams and complex projects."
+      },
+      "occupationId": "occ-operations-manager",
+      "spentTalentPoints": 0,
+      "unlockedTalentNodeIds": []
+    }
+  ],
   "parents": {
     "father": null,
     "mother": null
   },
   "portraitName": "Brice Alfano",
   "progression": {
-    "availableTalentPoints": 12,
+    "availableTalentPoints": 6,
+    "occupationStates": [
+      {
+        "availableTalentPoints": 6,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "ADMIN",
+          "description": "Oversaw multi-team operations: construction projects, defense coordination, and resource extraction. Sees the big picture and keeps everyone aligned.",
+          "effects": [
+            {
+              "id": "occ-operations-manager-effect-1",
+              "isPercentage": true,
+              "name": "Administrative Leverage",
+              "scope": "economy",
+              "stacking": "multiplicative",
+              "target": "traderPriceMultiplier",
+              "trigger": "passive",
+              "type": "ACTION_MODIFIER",
+              "value": -8
+            },
+            {
+              "id": "occ-operations-manager-effect-2",
+              "isPercentage": true,
+              "name": "Operational Trust",
+              "scope": "camp",
+              "stacking": "multiplicative",
+              "target": "trustGain",
+              "trigger": "passive",
+              "type": "ACTION_MODIFIER",
+              "value": 10
+            },
+            {
+              "id": "occ-operations-manager-effect-3",
+              "isPercentage": true,
+              "name": "Conflict Mediation",
+              "scope": "social",
+              "stacking": "multiplicative",
+              "target": "conflictChance",
+              "trigger": "passive",
+              "type": "ACTION_MODIFIER",
+              "value": -10
+            }
+          ],
+          "id": "occ-operations-manager",
+          "name": "Operations Manager",
+          "perks": [
+            "Crew efficiency bonus on group tasks",
+            "Project completion times reduced",
+            "Better coordination during emergencies"
+          ],
+          "shortDescription": "Coordinates teams and complex projects."
+        },
+        "occupationId": "occ-operations-manager",
+        "spentTalentPoints": 0,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "spentPioneerOccupationPoints": 0,
+    "spentPioneerStatPoints": 0,
+    "spentStatPoints": 0,
     "spentTalentPoints": 0,
     "treeOccupationId": "occ-operations-manager",
     "unlockedTalentNodeIds": []
@@ -284,6 +401,82 @@
       "type": "servant"
     }
   ],
+  "resolvedProgression": {
+    "availablePioneerPoints": 0,
+    "availableStatPoints": 2,
+    "availableTalentPoints": 6,
+    "currentLevelCumulativeXp": 5890,
+    "isMaxLevel": false,
+    "level": 6,
+    "maxLevel": 30,
+    "nextLevelCumulativeXp": 9155,
+    "nextLevelXp": 3265,
+    "occupationPointsTotal": 6,
+    "occupations": [
+      {
+        "availableTalentPoints": 6,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "ADMIN",
+          "description": "Oversaw multi-team operations: construction projects, defense coordination, and resource extraction. Sees the big picture and keeps everyone aligned.",
+          "effects": [
+            {
+              "id": "occ-operations-manager-effect-1",
+              "isPercentage": true,
+              "name": "Administrative Leverage",
+              "scope": "economy",
+              "stacking": "multiplicative",
+              "target": "traderPriceMultiplier",
+              "trigger": "passive",
+              "type": "ACTION_MODIFIER",
+              "value": -8
+            },
+            {
+              "id": "occ-operations-manager-effect-2",
+              "isPercentage": true,
+              "name": "Operational Trust",
+              "scope": "camp",
+              "stacking": "multiplicative",
+              "target": "trustGain",
+              "trigger": "passive",
+              "type": "ACTION_MODIFIER",
+              "value": 10
+            },
+            {
+              "id": "occ-operations-manager-effect-3",
+              "isPercentage": true,
+              "name": "Conflict Mediation",
+              "scope": "social",
+              "stacking": "multiplicative",
+              "target": "conflictChance",
+              "trigger": "passive",
+              "type": "ACTION_MODIFIER",
+              "value": -10
+            }
+          ],
+          "id": "occ-operations-manager",
+          "name": "Operations Manager",
+          "perks": [
+            "Crew efficiency bonus on group tasks",
+            "Project completion times reduced",
+            "Better coordination during emergencies"
+          ],
+          "shortDescription": "Coordinates teams and complex projects."
+        },
+        "occupationId": "occ-operations-manager",
+        "spentTalentPoints": 0,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "pioneerLevel": 0,
+    "pioneerPointsTotal": 0,
+    "progressPct": 0.0,
+    "statPointsTotal": 2,
+    "totalXp": 5890,
+    "xpIntoLevel": 0,
+    "xpToNextLevel": 3265
+  },
   "skills": [
     {
       "apCost": 3,
@@ -724,5 +917,5 @@
   ],
   "type": "Human",
   "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
-  "xp": 0
+  "xp": 5890
 }

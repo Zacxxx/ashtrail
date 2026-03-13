@@ -310,7 +310,10 @@ pub async fn generate_image_bytes_with_model(
         },
     };
 
-    info!("Calling Gemini image API model={} with prompt: {}", model_id, prompt);
+    info!(
+        "Calling Gemini image API model={} with prompt: {}",
+        model_id, prompt
+    );
 
     let res = client
         .post(&url)
