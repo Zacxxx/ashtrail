@@ -166,13 +166,13 @@ async fn start_generate_quest_job(
     let Some(reservation) = try_reserve_capacity(&state.quest_runtime.text_limiter) else {
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
-            "Quest generation queue full. Please wait for running jobs to finish."
-                .to_string(),
+            "Quest generation queue full. Please wait for running jobs to finish.".to_string(),
         ));
     };
-    let job_id = state
-        .quest_runtime
-        .create_job(QuestJobKind::GenerateRun, &payload.world_id, None)?;
+    let job_id =
+        state
+            .quest_runtime
+            .create_job(QuestJobKind::GenerateRun, &payload.world_id, None)?;
     let spawned_state = state.clone();
     let spawned_job_id = job_id.clone();
     tokio::spawn(async move {
@@ -224,13 +224,14 @@ async fn start_advance_quest_job(
     let Some(reservation) = try_reserve_capacity(&state.quest_runtime.text_limiter) else {
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
-            "Quest generation queue full. Please wait for running jobs to finish."
-                .to_string(),
+            "Quest generation queue full. Please wait for running jobs to finish.".to_string(),
         ));
     };
-    let job_id = state
-        .quest_runtime
-        .create_job(QuestJobKind::AdvanceRun, &world_id, Some(run_id.clone()))?;
+    let job_id = state.quest_runtime.create_job(
+        QuestJobKind::AdvanceRun,
+        &world_id,
+        Some(run_id.clone()),
+    )?;
     let spawned_state = state.clone();
     let spawned_job_id = job_id.clone();
     tokio::spawn(async move {
@@ -247,11 +248,7 @@ async fn start_advance_quest_job(
     ))
 }
 
-async fn run_generate_quest_job(
-    state: AppState,
-    payload: GenerateQuestRunRequest,
-    job_id: String,
-) {
+async fn run_generate_quest_job(state: AppState, payload: GenerateQuestRunRequest, job_id: String) {
     let runtime = state.quest_runtime.clone();
     let Ok((_global_permit, _text_permit)) = runtime.wait_for_text_permits(&job_id).await else {
         if !runtime.is_cancel_requested(&job_id) {
@@ -316,11 +313,7 @@ async fn run_generate_quest_job(
     }
 }
 
-async fn run_advance_quest_job(
-    state: AppState,
-    payload: AdvanceQuestRequest,
-    job_id: String,
-) {
+async fn run_advance_quest_job(state: AppState, payload: AdvanceQuestRequest, job_id: String) {
     let runtime = state.quest_runtime.clone();
     let Ok((_global_permit, _text_permit)) = runtime.wait_for_text_permits(&job_id).await else {
         if !runtime.is_cancel_requested(&job_id) {
@@ -385,19 +378,15 @@ async fn run_advance_quest_job(
     }
 }
 
-pub async fn generate_quest_run_handler(
-    State(state): State<AppState>,
-    Json(payload): Json<GenerateQuestRunRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if state.quest_runtime.enabled {
-        return start_generate_quest_job(state, payload).await;
-    }
-
+async fn execute_generate_quest_v2(
+    state: &AppState,
+    payload: &GenerateQuestRunRequest,
+    _job_id: &str,
+) -> Result<Value, (StatusCode, String)> {
     let mut warnings = Vec::new();
     let run_id = format!("quest-{}", Uuid::new_v4());
     let timestamp = now_ms();
-    let mut chain =
-        load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
+    let mut chain = load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
     let max_node_count = run_length_to_node_count(
         payload
             .seed
@@ -576,7 +565,7 @@ pub async fn generate_quest_run_handler(
     persist_chain(&state.planets_dir, &payload.world_id, &chain)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
-    Ok(Json(QuestGenerationResponse {
+    Ok(json!(QuestGenerationResponse {
         run,
         materialized_characters,
         restored_characters: vec![],
@@ -584,14 +573,11 @@ pub async fn generate_quest_run_handler(
     }))
 }
 
-pub async fn advance_quest_handler(
-    State(state): State<AppState>,
-    Json(payload): Json<AdvanceQuestRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if state.quest_runtime.enabled {
-        return start_advance_quest_job(state, payload).await;
-    }
-
+async fn execute_advance_quest_v2(
+    state: &AppState,
+    payload: &AdvanceQuestRequest,
+    _job_id: &str,
+) -> Result<Value, (StatusCode, String)> {
     let mut warnings = Vec::new();
     let current_run = payload.run.clone();
     let world_id = current_run.get("worldId").and_then(Value::as_str).ok_or((
@@ -925,7 +911,7 @@ pub async fn advance_quest_handler(
                     .and_then(Value::as_str)
                     .unwrap_or("The party pulls back and can try again.")
             ));
-            return Ok(Json(QuestAdvanceResponse {
+            return Ok(json!(QuestAdvanceResponse {
                 run: reset_run,
                 party_updates: vec![],
                 materialized_characters: vec![],
@@ -991,13 +977,43 @@ pub async fn advance_quest_handler(
     persist_chain(&state.planets_dir, world_id, &chain)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
-    Ok(Json(QuestAdvanceResponse {
+    Ok(json!(QuestAdvanceResponse {
         run: updated_run,
         party_updates,
         materialized_characters,
         restored_characters,
         warnings,
     }))
+}
+
+pub async fn generate_quest_run_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<GenerateQuestRunRequest>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    if state.quest_runtime.enabled {
+        return start_generate_quest_job(state, payload)
+            .await
+            .map(IntoResponse::into_response);
+    }
+
+    execute_generate_quest_v2(&state, &payload, "direct")
+        .await
+        .map(|value| Json(value).into_response())
+}
+
+pub async fn advance_quest_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<AdvanceQuestRequest>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    if state.quest_runtime.enabled {
+        return start_advance_quest_job(state, payload)
+            .await
+            .map(IntoResponse::into_response);
+    }
+
+    execute_advance_quest_v2(&state, &payload, "direct")
+        .await
+        .map(|value| Json(value).into_response())
 }
 
 pub async fn list_quest_runs(
@@ -1227,7 +1243,11 @@ pub async fn enhance_appearance_prompt_handler(
     Json(payload): Json<EnhanceAppearancePromptRequest>,
 ) -> impl IntoResponse {
     if payload.params.is_empty() {
-        return (StatusCode::BAD_REQUEST, "Missing appearance params".to_string()).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            "Missing appearance params".to_string(),
+        )
+            .into_response();
     }
 
     let gender = payload.params.get("gender").cloned().unwrap_or_default();

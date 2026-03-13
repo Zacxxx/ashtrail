@@ -325,12 +325,45 @@ pub struct Occupation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CharacterOccupationProgress {
+    pub occupation_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub occupation: Option<Occupation>,
+    #[serde(default)]
+    pub unlocked_talent_node_ids: Vec<String>,
+    #[serde(default)]
+    pub spent_talent_points: i32,
+    #[serde(default)]
+    pub available_talent_points: i32,
+    #[serde(default = "default_occupation_level")]
+    pub level: i32,
+    #[serde(default)]
+    pub is_primary: bool,
+}
+
+fn default_occupation_level() -> i32 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CharacterProgression {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tree_occupation_id: Option<String>,
+    #[serde(default)]
     pub unlocked_talent_node_ids: Vec<String>,
+    #[serde(default)]
     pub available_talent_points: i32,
+    #[serde(default)]
     pub spent_talent_points: i32,
+    #[serde(default)]
+    pub spent_stat_points: i32,
+    #[serde(default)]
+    pub spent_pioneer_occupation_points: i32,
+    #[serde(default)]
+    pub spent_pioneer_stat_points: i32,
+    #[serde(default)]
+    pub occupation_states: Vec<CharacterOccupationProgress>,
 }
 
 // ── Skill Types ─────────────────────────────────────────────

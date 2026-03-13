@@ -1020,7 +1020,8 @@ async fn generate_flora_batch_impl(
     }
 
     let biome_ids = resolve_requested_biome_ids(&bundle, &request.biome_ids);
-    let generation_prompt = build_flora_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
+    let generation_prompt =
+        build_flora_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
     let draft_response: FloraBatchDraftResponse = generate_structured_text(
         "flora batch",
         &generation_prompt,
@@ -1066,7 +1067,8 @@ async fn generate_fauna_batch_impl(
     }
 
     let biome_ids = resolve_requested_biome_ids(&bundle, &request.biome_ids);
-    let generation_prompt = build_fauna_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
+    let generation_prompt =
+        build_fauna_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
     let draft_response: FaunaBatchDraftResponse = generate_structured_text(
         "fauna batch",
         &generation_prompt,

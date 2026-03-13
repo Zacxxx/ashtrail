@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, getDefaultTalentPointsForLevel, isOccupationLinkedTrait, resolveOccupationTree } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, CharacterOccupationProgress, ResolvedProgression, isOccupationLinkedTrait, resolveOccupationTree } from "@ashtrail/core";
 import { TabBar, Modal } from "@ashtrail/ui";
 import { Background, ConnectionLineType, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge as RFEdge, type Node as RFNode } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -292,6 +292,7 @@ export function CharacterBuilderPage() {
         setActiveWorldId(id);
     };
     const [level, setLevel] = useState(1);
+    const [xp, setXp] = useState(0);
     const [characterTitle, setCharacterTitle] = useState("");
     const [characterBadge, setCharacterBadge] = useState("");
     const [faction, setFaction] = useState("");
@@ -510,7 +511,9 @@ export function CharacterBuilderPage() {
     const [occCategory, setOccCategory] = useState<OccupationCategory | "ALL">("ALL");
     const [showTalentTreeModal, setShowTalentTreeModal] = useState(false);
     const [unlockedTalentNodeIds, setUnlockedTalentNodeIds] = useState<string[]>([]);
-    const [availableTalentPoints, setAvailableTalentPoints] = useState(() => getDefaultTalentPointsForLevel(1));
+    const [availableTalentPoints, setAvailableTalentPoints] = useState(0);
+    const [occupationStates, setOccupationStates] = useState<CharacterOccupationProgress[]>([]);
+    const [resolvedProgression, setResolvedProgression] = useState<ResolvedProgression | undefined>(undefined);
 
     // Load character for editing
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -781,7 +784,7 @@ export function CharacterBuilderPage() {
         } : undefined,
         hp: derivedStats.hp,
         maxHp: derivedStats.hp,
-        xp: 0,
+        xp,
         level,
         credits: normalizeCharacterCredits(credits),
         inventory,
@@ -810,6 +813,46 @@ export function CharacterBuilderPage() {
         relationships,
         ...overrides,
     });
+
+    const applyResolvedCharacter = (resolvedCharacter: Character) => {
+        setXp(resolvedCharacter.xp || 0);
+        setLevel(resolvedCharacter.level || 1);
+        setResolvedProgression(resolvedCharacter.resolvedProgression);
+        setOccupationStates(resolvedCharacter.occupations || []);
+        setSelectedOccupation(
+            resolvedCharacter.occupations?.find((entry) => entry.isPrimary)?.occupation ||
+            resolvedCharacter.occupation ||
+            null,
+        );
+        setUnlockedTalentNodeIds(resolvedCharacter.progression?.unlockedTalentNodeIds || []);
+        setAvailableTalentPoints(
+            resolvedCharacter.resolvedProgression?.availableTalentPoints ??
+            resolvedCharacter.progression?.availableTalentPoints ??
+            0,
+        );
+        if (!isRedispatching) {
+            setAttributePoints(resolvedCharacter.resolvedProgression?.availableStatPoints ?? 0);
+        }
+    };
+
+    const resolveCharacterDraft = async (overrides: Partial<Character> = {}) => {
+        try {
+            const response = await fetch("http://127.0.0.1:8787/api/progression/resolve-character", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(buildCharacterPayload(overrides)),
+            });
+            if (!response.ok) {
+                throw new Error(`Failed to resolve draft progression for ${charId}`);
+            }
+            const resolved = await response.json() as Character;
+            applyResolvedCharacter(resolved);
+            return resolved;
+        } catch (error) {
+            console.error("Failed to resolve character draft:", error);
+            return null;
+        }
+    };
 
     const refreshSavedCharacters = async () => {
         await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
@@ -992,6 +1035,27 @@ export function CharacterBuilderPage() {
         () => selectedTreeState.unlockedNodes.reduce((sum, node) => sum + (node.cost || 1), 0),
         [selectedTreeState.unlockedNodes],
     );
+    const displayOccupationStates = useMemo(() => {
+        if (occupationStates.length > 0) {
+            return occupationStates;
+        }
+        if (!selectedOccupation) {
+            return [];
+        }
+        return [{
+            occupationId: selectedOccupation.id,
+            occupation: selectedOccupation,
+            unlockedTalentNodeIds,
+            spentTalentPoints,
+            availableTalentPoints,
+            level: resolvedProgression?.occupations?.[0]?.level ?? 1,
+            isPrimary: true,
+        }];
+    }, [availableTalentPoints, occupationStates, resolvedProgression?.occupations, selectedOccupation, spentTalentPoints, unlockedTalentNodeIds]);
+    const primaryOccupationState = displayOccupationStates.find((entry) => entry.isPrimary) ?? displayOccupationStates[0];
+    const primaryOccupationLabel = primaryOccupationState?.occupation?.name
+        ? `${primaryOccupationState.occupation.name} Lv. ${primaryOccupationState.level}`
+        : "No Occupation";
 
     const toggleTrait = (trait: Trait) => {
         const isSelected = selectedTraits.find(t => t.id === trait.id);
@@ -1035,19 +1099,22 @@ export function CharacterBuilderPage() {
             if (grantAttributePoint && normalizedLevel > prevLevel) {
                 setAttributePoints(points => points + (normalizedLevel - prevLevel));
             }
-            const pointDelta = getDefaultTalentPointsForLevel(normalizedLevel) - getDefaultTalentPointsForLevel(prevLevel);
-            if (pointDelta !== 0) {
-                setAvailableTalentPoints(points => Math.max(0, points + pointDelta));
-            }
             return normalizedLevel;
         });
+        setXp(0);
+        void resolveCharacterDraft({ level: normalizedLevel, xp: 0 });
     };
 
     const handleOccupationSelect = (occupation: Occupation | null) => {
         if (!occupation) {
             setSelectedOccupation(null);
             setUnlockedTalentNodeIds([]);
-            setAvailableTalentPoints(getDefaultTalentPointsForLevel(level));
+            setOccupationStates([]);
+            setResolvedProgression(undefined);
+            void resolveCharacterDraft({
+                occupation: undefined,
+                progression: undefined,
+            });
             return;
         }
 
@@ -1055,7 +1122,15 @@ export function CharacterBuilderPage() {
         setSelectedOccupation(occupation);
         if (changedOccupation) {
             setUnlockedTalentNodeIds([]);
-            setAvailableTalentPoints(getDefaultTalentPointsForLevel(level));
+            void resolveCharacterDraft({
+                occupation,
+                progression: {
+                    treeOccupationId: occupation.id,
+                    unlockedTalentNodeIds: [],
+                    availableTalentPoints: 0,
+                    spentTalentPoints: 0,
+                },
+            });
         }
     };
 
@@ -1171,7 +1246,11 @@ export function CharacterBuilderPage() {
         setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
         setUnlockedTalentNodeIds(char.progression?.unlockedTalentNodeIds || []);
-        setAvailableTalentPoints(char.progression?.availableTalentPoints ?? getDefaultTalentPointsForLevel(char.level || 1));
+        setXp(char.xp || 0);
+        setOccupationStates(char.occupations || []);
+        setResolvedProgression(char.resolvedProgression);
+        setAvailableTalentPoints(char.resolvedProgression?.availableTalentPoints ?? char.progression?.availableTalentPoints ?? 0);
+        setAttributePoints(char.resolvedProgression?.availableStatPoints ?? 0);
         setInventory((char.inventory || []).map(invItem => {
             if (invItem && invItem.id) {
                 const fresh = GameRegistry.getItem(invItem.id);
@@ -1241,7 +1320,8 @@ export function CharacterBuilderPage() {
         setIsFamily(false);
         setFamilyId("");
         setWorldId("665774da-472d-4570-adfb-1242ceefdfd9");
-        updateLevel(1);
+        setLevel(1);
+        setXp(0);
         setCharacterTitle("");
         setCharacterBadge("");
         setFaction("");
@@ -1259,13 +1339,16 @@ export function CharacterBuilderPage() {
         setRedispatchUpgrades(null);
         setSelectedOccupation(null);
         setUnlockedTalentNodeIds([]);
-        setAvailableTalentPoints(getDefaultTalentPointsForLevel(1));
+        setOccupationStates([]);
+        setResolvedProgression(undefined);
+        setAvailableTalentPoints(0);
         setCredits({ ...DEFAULT_CHARACTER_CREDITS });
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
         });
         setSelectedSkills(GameRegistry.getAllSkills().filter(s => s.category === "base"));
         setActiveTab("IDENTITY");
+        void resolveCharacterDraft({ level: 1, xp: 0, occupation: undefined, progression: undefined });
         // Also reset inventory to fresh mock data
         const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
         const mockInventory: Item[] = [];
@@ -1474,7 +1557,10 @@ export function CharacterBuilderPage() {
                                                     <span className="text-[11px] font-bold uppercase text-indigo-400 line-clamp-1">{c.name}</span>
                                                     {c.isNPC && <span className="text-[8px] bg-red-500/20 text-red-300 px-1 py-0.5 rounded uppercase">NPC</span>}
                                                 </div>
-                                                <p className="text-[10px] text-gray-500">Lvl {c.level} | {c.occupation?.name || "None"}</p>
+                                                <p className="text-[10px] text-gray-500">
+                                                    Lvl {c.level} | {(c.resolvedProgression?.occupations?.find((entry) => entry.isPrimary) ?? c.occupations?.[0])?.occupation?.name || c.occupation?.name || "None"}
+                                                    {(c.resolvedProgression?.occupations?.find((entry) => entry.isPrimary) ?? c.occupations?.[0])?.level ? ` Lv. ${(c.resolvedProgression?.occupations?.find((entry) => entry.isPrimary) ?? c.occupations?.[0])?.level}` : ""}
+                                                </p>
                                             </button>
                                         ))}
                                         {savedCharacters.length === 0 && (
@@ -2749,7 +2835,7 @@ export function CharacterBuilderPage() {
                                                         {/* Level & Name Overlay */}
                                                         <div className="absolute top-6 flex flex-col items-center">
                                                             <div className="text-[8px] text-orange-500/70 font-black tracking-[0.3em] uppercase">
-                                                                {selectedOccupation?.name || "SOLDAT"} | LVL {level}
+                                                                {primaryOccupationState?.occupation?.name || "SOLDAT"} | LVL {level}
                                                             </div>
                                                             <div className="text-[10px] text-white font-black tracking-[0.2em] mt-1 uppercase text-center px-4">{name || "UNNAMED"}</div>
                                                             <div className="w-8 h-0.5 bg-[#c2410c] mt-2 shadow-[0_0_8px_rgba(194,65,12,0.4)]" />
@@ -2955,7 +3041,7 @@ export function CharacterBuilderPage() {
                                                     </div>
                                                     {selectedOccupation && (
                                                         <div className="px-2 py-0.5 bg-[#c2410c]/10 border border-[#c2410c]/30 rounded text-[9px] font-bold text-[#c2410c] uppercase tracking-widest">
-                                                            {selectedOccupation.name}
+                                                            {primaryOccupationLabel}
                                                         </div>
                                                     )}
                                                 </div>
@@ -3107,8 +3193,17 @@ export function CharacterBuilderPage() {
                                                                         </h3>
                                                                     </div>
                                                                     <p className="pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.18em] text-gray-400">
-                                                                        {selectedOccupation?.name || "No Occupation"}
+                                                                        {primaryOccupationLabel}
                                                                     </p>
+                                                                    {displayOccupationStates.length > 1 && (
+                                                                        <select className="mt-1 w-full border border-white/5 bg-black/30 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.16em] text-gray-400">
+                                                                            {displayOccupationStates.map((occupationState) => (
+                                                                                <option key={occupationState.occupationId} value={occupationState.occupationId}>
+                                                                                    {(occupationState.occupation?.name || occupationState.occupationId)} Lv. {occupationState.level}
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                    )}
                                                                     <p className="pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.16em] text-gray-600">
                                                                         {characterTitle || "No Title"}
                                                                     </p>
@@ -3822,7 +3917,7 @@ export function CharacterBuilderPage() {
                                             <div className="flex gap-2">
                                                 {isNPC && <span className="px-2 py-1 bg-red-500/20 text-red-400 text-[10px] font-black uppercase rounded border border-red-500/20">NPC</span>}
                                                 <span className="px-2 py-1 bg-indigo-500/20 text-indigo-400 text-[10px] font-black uppercase rounded border border-indigo-500/20">
-                                                    {selectedOccupation?.name || "No Occupation"}
+                                                    {primaryOccupationLabel}
                                                 </span>
                                             </div>
                                         </div>
@@ -4183,13 +4278,28 @@ export function CharacterBuilderPage() {
                 onClose={() => setShowTalentTreeModal(false)}
                 onReset={() => {
                     setUnlockedTalentNodeIds([]);
-                    setAvailableTalentPoints(getDefaultTalentPointsForLevel(level));
+                    void resolveCharacterDraft({
+                        progression: selectedOccupation ? {
+                            treeOccupationId: selectedOccupation.id,
+                            unlockedTalentNodeIds: [],
+                            availableTalentPoints: 0,
+                            spentTalentPoints: 0,
+                        } : undefined,
+                    });
                 }}
                 onUnlockNode={(node) => {
                     const cost = node.cost || 1;
                     if (unlockedTalentNodeIds.includes(node.id) || availableTalentPoints < cost) return;
-                    setUnlockedTalentNodeIds((prev) => [...prev, node.id]);
-                    setAvailableTalentPoints((prev) => Math.max(0, prev - cost));
+                    const nextUnlockedTalentNodeIds = [...unlockedTalentNodeIds, node.id];
+                    setUnlockedTalentNodeIds(nextUnlockedTalentNodeIds);
+                    void resolveCharacterDraft({
+                        progression: selectedOccupation ? {
+                            treeOccupationId: selectedOccupation.id,
+                            unlockedTalentNodeIds: nextUnlockedTalentNodeIds,
+                            availableTalentPoints: Math.max(0, availableTalentPoints - cost),
+                            spentTalentPoints: spentTalentPoints + cost,
+                        } : undefined,
+                    });
                 }}
             />
         </>

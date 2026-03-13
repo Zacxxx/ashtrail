@@ -1,4 +1,9 @@
-use crate::AppState;
+use crate::{
+    combat_engine::content_loader::load_content_bundle,
+    game_rules::{load_rules_from_file, normalize_game_rules, save_rules_to_file, GameRulesConfig},
+    progression::normalize_character_payload,
+    AppState,
+};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use std::fs;
 
@@ -246,14 +251,20 @@ pub async fn get_characters(
         .join("generated")
         .join("characters");
     let mut characters = Vec::new();
+    let rules = load_rules_from_file();
+    let content = load_content_bundle().ok();
 
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                        characters.push(json);
+                if let Ok(raw) = fs::read_to_string(&path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+                        characters.push(normalize_character_payload(
+                            json,
+                            &rules,
+                            content.as_ref(),
+                        ));
                     }
                 }
             }
@@ -284,7 +295,10 @@ pub async fn save_character(
         .unwrap_or("unknown");
     let path = dir.join(format!("{}.json", id));
 
-    let json_string = serde_json::to_string_pretty(&payload).unwrap();
+    let rules = load_rules_from_file();
+    let content = load_content_bundle().ok();
+    let normalized = normalize_character_payload(payload, &rules, content.as_ref());
+    let json_string = serde_json::to_string_pretty(&normalized).unwrap();
     match fs::write(&path, json_string) {
         Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
@@ -478,35 +492,25 @@ fn save_json_array(
 pub async fn get_game_rules(
     State(_state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir()
-        .unwrap()
-        .join("../../packages/core/src/data/game_rules.json");
-    match fs::read_to_string(&path) {
-        Ok(data) => {
-            let json: serde_json::Value =
-                serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
-            Ok((StatusCode::OK, Json(json)))
-        }
-        Err(_) => {
-            // Return empty object if file doesn't exist
-            Ok((StatusCode::OK, Json(serde_json::json!({}))))
-        }
-    }
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!(load_rules_from_file())),
+    ))
 }
 
 pub async fn save_game_rules(
     State(_state): State<AppState>,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let path = std::env::current_dir()
-        .unwrap()
-        .join("../../packages/core/src/data/game_rules.json");
-
-    let json_string = serde_json::to_string_pretty(&payload).unwrap();
-    match fs::write(&path, json_string) {
-        Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-    }
+    let parsed: GameRulesConfig = serde_json::from_value(payload).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid rules payload: {e}"),
+        )
+    })?;
+    let normalized = normalize_game_rules(parsed);
+    save_rules_to_file(&normalized).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok((StatusCode::OK, Json(serde_json::json!(normalized))))
 }
 
 pub async fn get_world_settings(

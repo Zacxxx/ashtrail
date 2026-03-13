@@ -31,11 +31,41 @@
   "level": 1,
   "maxHp": 25,
   "name": "",
+  "occupations": [],
   "parents": {
     "father": null,
     "mother": null
   },
+  "progression": {
+    "availableTalentPoints": 1,
+    "occupationStates": [],
+    "spentPioneerOccupationPoints": 0,
+    "spentPioneerStatPoints": 0,
+    "spentStatPoints": 0,
+    "spentTalentPoints": 0,
+    "unlockedTalentNodeIds": []
+  },
   "relationships": [],
+  "resolvedProgression": {
+    "availablePioneerPoints": 0,
+    "availableStatPoints": 0,
+    "availableTalentPoints": 1,
+    "currentLevelCumulativeXp": 0,
+    "isMaxLevel": false,
+    "level": 1,
+    "maxLevel": 30,
+    "nextLevelCumulativeXp": 120,
+    "nextLevelXp": 120,
+    "occupationPointsTotal": 1,
+    "occupations": [],
+    "pioneerLevel": 0,
+    "pioneerPointsTotal": 0,
+    "progressPct": 0.0,
+    "statPointsTotal": 0,
+    "totalXp": 0,
+    "xpIntoLevel": 0,
+    "xpToNextLevel": 120
+  },
   "skills": [
     {
       "apCost": 3,

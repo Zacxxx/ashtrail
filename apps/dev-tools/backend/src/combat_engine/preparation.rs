@@ -3,7 +3,9 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Map, Value};
 
 use super::combat::CombatState;
-use super::content_loader::{load_character, load_content_bundle, ContentBundle, RawCharacter, RawItem, RawTalentNode};
+use super::content_loader::{
+    load_character, load_content_bundle, ContentBundle, RawCharacter, RawItem, RawTalentNode,
+};
 use super::rules::GameRulesConfig;
 use super::types::*;
 
@@ -21,12 +23,7 @@ const DEFAULT_PLAYER_SKILL_IDS: &[&str] = &[
     "analyze",
 ];
 
-const DEFAULT_ENEMY_SKILL_IDS: &[&str] = &[
-    "use-weapon",
-    "quick-shot",
-    "power-strike",
-    "war-cry",
-];
+const DEFAULT_ENEMY_SKILL_IDS: &[&str] = &["use-weapon", "quick-shot", "power-strike", "war-cry"];
 
 #[derive(Clone)]
 struct PreparedCombatant {
@@ -67,15 +64,26 @@ fn build_tactical_entity(
     roster_entry: &CombatRosterEntry,
     rules: &GameRulesConfig,
 ) -> Result<TacticalEntity, String> {
+    let primary_occupation_state = character.occupations.as_ref().and_then(|states| {
+        states
+            .iter()
+            .find(|state| state.is_primary)
+            .or_else(|| states.first())
+    });
     let occupation = character
         .occupation
         .clone()
+        .or_else(|| primary_occupation_state.and_then(|state| state.occupation.clone()))
         .or_else(|| {
             character
                 .progression
                 .as_ref()
                 .and_then(|progression| progression.tree_occupation_id.as_ref())
                 .and_then(|occupation_id| content.occupations.get(occupation_id).cloned())
+        })
+        .or_else(|| {
+            primary_occupation_state
+                .and_then(|state| content.occupations.get(&state.occupation_id).cloned())
         });
 
     let resolved_equipped = resolve_equipped(content, character)?;
@@ -151,7 +159,11 @@ fn build_combat_traits(
         if let Some(effects) = &occupation.effects {
             let combat_effects: Vec<GameplayEffect> = effects
                 .iter()
-                .filter(|effect| effect.scope.is_none() || effect.scope == Some(EffectScope::Combat) || effect.scope == Some(EffectScope::Global))
+                .filter(|effect| {
+                    effect.scope.is_none()
+                        || effect.scope == Some(EffectScope::Combat)
+                        || effect.scope == Some(EffectScope::Global)
+                })
                 .cloned()
                 .collect();
             if !combat_effects.is_empty() {
@@ -176,7 +188,11 @@ fn build_combat_traits(
         let combat_effects: Vec<GameplayEffect> = node
             .effects
             .iter()
-            .filter(|effect| effect.scope.is_none() || effect.scope == Some(EffectScope::Combat) || effect.scope == Some(EffectScope::Global))
+            .filter(|effect| {
+                effect.scope.is_none()
+                    || effect.scope == Some(EffectScope::Combat)
+                    || effect.scope == Some(EffectScope::Global)
+            })
             .cloned()
             .collect();
         if combat_effects.is_empty() {
@@ -240,7 +256,13 @@ fn refresh_skills(content: &ContentBundle, skills: &[Skill]) -> Vec<Skill> {
     skills
         .iter()
         .filter(|skill| skill.id != "slash")
-        .map(|skill| content.skills.get(&skill.id).cloned().unwrap_or_else(|| skill.clone()))
+        .map(|skill| {
+            content
+                .skills
+                .get(&skill.id)
+                .cloned()
+                .unwrap_or_else(|| skill.clone())
+        })
         .collect()
 }
 
@@ -268,7 +290,11 @@ fn patch_use_weapon_skill(skills: &mut [Skill], main_hand_weapon: Option<&RawIte
             let dmg_str = weapon
                 .effects
                 .as_ref()
-                .and_then(|effects| effects.iter().find(|effect| effect.target.as_deref() == Some("damage")))
+                .and_then(|effects| {
+                    effects
+                        .iter()
+                        .find(|effect| effect.target.as_deref() == Some("damage"))
+                })
                 .map(|effect| format!(" | Base DMG: {}", effect.value as i32))
                 .unwrap_or_default();
             let scaling_str = if weapon.weapon_type.as_deref() == Some("ranged") {
@@ -277,7 +303,11 @@ fn patch_use_weapon_skill(skills: &mut [Skill], main_hand_weapon: Option<&RawIte
                 " + STR"
             };
             let aoe_str = if skill.area_type != SkillAreaType::Single {
-                format!(" | AOE: {}({})", skill_area_label(&skill.area_type), skill.area_size)
+                format!(
+                    " | AOE: {}({})",
+                    skill_area_label(&skill.area_type),
+                    skill.area_size
+                )
             } else {
                 String::new()
             };
@@ -331,9 +361,7 @@ fn resolve_item_reference(
         .map_err(|e| format!("parse embedded equipped item: {e}"))
 }
 
-fn equipped_map_to_value(
-    equipped: HashMap<String, Option<RawItem>>,
-) -> Result<Value, String> {
+fn equipped_map_to_value(equipped: HashMap<String, Option<RawItem>>) -> Result<Value, String> {
     let mut map = Map::new();
     for (slot, item) in equipped {
         let value = match item {
@@ -346,22 +374,44 @@ fn equipped_map_to_value(
     Ok(Value::Object(map))
 }
 
-fn unlocked_nodes<'a>(content: &'a ContentBundle, character: &RawCharacter) -> Vec<&'a RawTalentNode> {
+fn unlocked_nodes<'a>(
+    content: &'a ContentBundle,
+    character: &RawCharacter,
+) -> Vec<&'a RawTalentNode> {
+    let primary_occupation_state = character.occupations.as_ref().and_then(|states| {
+        states
+            .iter()
+            .find(|state| state.is_primary)
+            .or_else(|| states.first())
+    });
     let occupation_id = character
         .progression
         .as_ref()
         .and_then(|progression| progression.tree_occupation_id.as_ref())
-        .or_else(|| character.occupation.as_ref().map(|occupation| &occupation.id));
+        .or_else(|| primary_occupation_state.map(|state| &state.occupation_id))
+        .or_else(|| {
+            character
+                .occupation
+                .as_ref()
+                .map(|occupation| &occupation.id)
+        });
 
-    let unlocked_ids: HashSet<&str> = character
-        .progression
-        .as_ref()
-        .map(|progression| {
-            progression
+    let unlocked_ids: HashSet<&str> = primary_occupation_state
+        .map(|state| {
+            state
                 .unlocked_talent_node_ids
                 .iter()
                 .map(String::as_str)
                 .collect()
+        })
+        .or_else(|| {
+            character.progression.as_ref().map(|progression| {
+                progression
+                    .unlocked_talent_node_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect()
+            })
         })
         .unwrap_or_default();
 

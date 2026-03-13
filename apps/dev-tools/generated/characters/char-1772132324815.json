@@ -37,6 +37,100 @@
     ],
     "shortDescription": "Trained combatant with military discipline."
   },
+  "occupations": [
+    {
+      "availableTalentPoints": 1,
+      "isPrimary": true,
+      "level": 1,
+      "occupation": {
+        "category": "SECURITY",
+        "description": "Served in an organized fighting force before the collapse. Knows formations, weapon maintenance, and how to follow orders under fire. Discipline is second nature.",
+        "id": "occ-soldier",
+        "name": "Soldier",
+        "perks": [
+          "Increased accuracy under suppressive fire",
+          "Faster weapon handling",
+          "Bonus morale in combat situations"
+        ],
+        "shortDescription": "Trained combatant with military discipline."
+      },
+      "occupationId": "occ-soldier",
+      "spentTalentPoints": 0,
+      "unlockedTalentNodeIds": []
+    }
+  ],
+  "progression": {
+    "availableTalentPoints": 1,
+    "occupationStates": [
+      {
+        "availableTalentPoints": 1,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "SECURITY",
+          "description": "Served in an organized fighting force before the collapse. Knows formations, weapon maintenance, and how to follow orders under fire. Discipline is second nature.",
+          "id": "occ-soldier",
+          "name": "Soldier",
+          "perks": [
+            "Increased accuracy under suppressive fire",
+            "Faster weapon handling",
+            "Bonus morale in combat situations"
+          ],
+          "shortDescription": "Trained combatant with military discipline."
+        },
+        "occupationId": "occ-soldier",
+        "spentTalentPoints": 0,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "spentPioneerOccupationPoints": 0,
+    "spentPioneerStatPoints": 0,
+    "spentStatPoints": 0,
+    "spentTalentPoints": 0,
+    "treeOccupationId": "occ-soldier",
+    "unlockedTalentNodeIds": []
+  },
+  "resolvedProgression": {
+    "availablePioneerPoints": 0,
+    "availableStatPoints": 0,
+    "availableTalentPoints": 1,
+    "currentLevelCumulativeXp": 0,
+    "isMaxLevel": false,
+    "level": 1,
+    "maxLevel": 30,
+    "nextLevelCumulativeXp": 120,
+    "nextLevelXp": 120,
+    "occupationPointsTotal": 1,
+    "occupations": [
+      {
+        "availableTalentPoints": 1,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "SECURITY",
+          "description": "Served in an organized fighting force before the collapse. Knows formations, weapon maintenance, and how to follow orders under fire. Discipline is second nature.",
+          "id": "occ-soldier",
+          "name": "Soldier",
+          "perks": [
+            "Increased accuracy under suppressive fire",
+            "Faster weapon handling",
+            "Bonus morale in combat situations"
+          ],
+          "shortDescription": "Trained combatant with military discipline."
+        },
+        "occupationId": "occ-soldier",
+        "spentTalentPoints": 0,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "pioneerLevel": 0,
+    "pioneerPointsTotal": 0,
+    "progressPct": 0.0,
+    "statPointsTotal": 0,
+    "totalXp": 0,
+    "xpIntoLevel": 0,
+    "xpToNextLevel": 120
+  },
   "stats": {
     "agility": 3,
     "charisma": 11,
@@ -92,7 +186,7 @@
       "type": "positive"
     }
   ],
-  "xp": 0,
   "type": "Human",
-  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9"
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
+  "xp": 0
 }

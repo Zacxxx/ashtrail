@@ -110,10 +110,7 @@ impl QuestRuntime {
         Ok(job_id)
     }
 
-    pub fn get_job(
-        &self,
-        job_id: &str,
-    ) -> Result<Option<QuestJobRecord>, (StatusCode, String)> {
+    pub fn get_job(&self, job_id: &str) -> Result<Option<QuestJobRecord>, (StatusCode, String)> {
         let jobs = self.jobs.lock().map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -296,8 +293,8 @@ impl QuestRuntime {
                 .await
                 {
                     Ok(bytes) => return Ok((bytes, model_id)),
-                    Err((status, message)) if should_retry(status)
-                        && attempt < self.config.max_retries_image =>
+                    Err((status, message))
+                        if should_retry(status) && attempt < self.config.max_retries_image =>
                     {
                         let delay_ms = self
                             .config

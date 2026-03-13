@@ -1,6 +1,7 @@
 import { ALL_SKILLS, ALL_TRAITS, TALENT_TREE_LOOKUP } from '../../content';
 import {
   Character,
+  CharacterOccupationProgress,
   CharacterProgression,
   GameplayEffect,
   Item,
@@ -26,10 +27,21 @@ export interface EffectResolutionContext {
 export interface EffectSource {
   traits?: Trait[];
   occupation?: Occupation;
+  occupations?: CharacterOccupationProgress[];
   progression?: CharacterProgression;
   equipped?: Record<string, Item | null | undefined> | null;
   activeEffects?: GameplayEffect[] | null;
   skills?: Skill[];
+}
+
+function getPrimaryOccupationState(
+  progression?: CharacterProgression,
+  occupations?: CharacterOccupationProgress[],
+): CharacterOccupationProgress | undefined {
+  const progressionPrimary = progression?.occupationStates?.find((state) => state.isPrimary)
+    || progression?.occupationStates?.[0];
+  if (progressionPrimary) return progressionPrimary;
+  return occupations?.find((state) => state.isPrimary) || occupations?.[0];
 }
 
 export interface ResolvedModifier {
@@ -195,8 +207,10 @@ export function resolveCharacterTraitGrants(source: EffectSource): {
   grantedTraitIds: string[];
   grantedSkillIds: string[];
 } {
-  const occupationId = source.progression?.treeOccupationId || source.occupation?.id;
-  const treeState = resolveOccupationTree(occupationId, source.progression?.unlockedTalentNodeIds || []);
+  const primaryOccupationState = getPrimaryOccupationState(source.progression, source.occupations);
+  const occupationId = primaryOccupationState?.occupationId || source.progression?.treeOccupationId || source.occupation?.id;
+  const unlockedTalentNodeIds = primaryOccupationState?.unlockedTalentNodeIds || source.progression?.unlockedTalentNodeIds || [];
+  const treeState = resolveOccupationTree(occupationId, unlockedTalentNodeIds);
   const resolvedTraitGrants: ResolvedTraitGrant[] = [];
 
   (source.traits || []).forEach((trait) => {
@@ -325,11 +339,12 @@ export function resolveCharacterEffects(source: EffectSource, context: EffectRes
   };
 }
 
-export function resolveCharacterSkills(character: Pick<Character, 'skills' | 'occupation' | 'progression' | 'traits'>): Skill[] {
+export function resolveCharacterSkills(character: Pick<Character, 'skills' | 'occupation' | 'occupations' | 'progression' | 'traits'>): Skill[] {
   const persistedSkills = character.skills || [];
   const traitState = resolveCharacterTraitGrants({
     traits: character.traits,
     occupation: character.occupation,
+    occupations: character.occupations,
     progression: character.progression,
   });
   const grantedSkills = traitState.grantedSkillIds
