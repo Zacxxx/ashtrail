@@ -170,6 +170,16 @@ export function JobsDropdown() {
                                             Redo
                                         </button>
                                     )}
+                                    {!isActiveJob(job) && job.kind === "worldgen.locations.generate" && (
+                                        <>
+                                            <button type="button" onClick={() => void redoJob(job.jobId, "same")} className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200 hover:bg-amber-500/20">
+                                                Redo Same Scope
+                                            </button>
+                                            <button type="button" onClick={() => void redoJob(job.jobId, "world")} className="rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-200 hover:bg-orange-500/20">
+                                                Redo Full World
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         );

@@ -3,6 +3,7 @@ import type { SimulationConfig } from "../modules/geo/types";
 import type { GenerationProgress, PlanetWorld, ContinentConfig, HumanityScopeTarget } from "./types";
 import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { BIOME_META } from "../modules/geo/biomes";
+import { useJobs } from "../jobs/useJobs";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 
 interface UseWorldGenerationParams {
@@ -53,6 +54,7 @@ export function useWorldGeneration({
     onHumanityGenerated,
 }: UseWorldGenerationParams) {
     const launchTrackedJob = useTrackedJobLauncher();
+    const { waitForJob } = useJobs();
     const [genProgress, setGenProgress] = useState<GenerationProgress>({
         isActive: false,
         progress: 0,

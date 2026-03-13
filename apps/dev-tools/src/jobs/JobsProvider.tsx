@@ -20,7 +20,7 @@ interface JobsContextValue {
     getJobDetail: (jobId: string) => Promise<JobDetail | null>;
     cancelJob: (jobId: string) => Promise<void>;
     openOutput: (job: JobListItem, outputRef?: JobOutputRef | null) => Promise<void>;
-    redoJob: (jobId: string) => Promise<void>;
+    redoJob: (jobId: string, mode?: "same" | "world") => Promise<void>;
     registerOptimisticJob: (job: OptimisticJobInput) => void;
     waitForJob: (jobId: string) => Promise<JobDetail>;
 }
@@ -86,7 +86,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         }
     }, [navigate]);
 
-    const redoJob = useCallback(async (jobId: string) => {
+    const redoJob = useCallback(async (jobId: string, mode: "same" | "world" = "same") => {
         const detail = await getJobDetail(jobId);
         const restore = detail?.metadata?.restore as JobRestoreSpec | undefined;
         if (!restore?.route) return;
@@ -96,6 +96,9 @@ export function JobsProvider({ children }: { children: ReactNode }) {
             params.set(key, String(value));
         });
         params.set("restoreJob", jobId);
+        if (mode === "world") {
+            params.set("redoScope", "world");
+        }
         navigate(`${restore.route}?${params.toString()}`);
     }, [getJobDetail, navigate]);
 

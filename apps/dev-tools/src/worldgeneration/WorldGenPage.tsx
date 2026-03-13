@@ -69,7 +69,7 @@ function resolveProvinceCount(regions: WorldgenRegionRecord[], scopeKind: Humani
 }
 
 export function WorldGenPage() {
-    const [searchParams, setSearchParams] = useSearchParams();
+    const [searchParams] = useSearchParams();
     const { getJobDetail } = useJobs();
     const restoredJobIdRef = useRef<string | null>(null);
     // ── Core UI State ──
@@ -334,6 +334,13 @@ export function WorldGenPage() {
         };
         void restore();
     }, [getJobDetail, searchParams, setActiveWorldId]);
+
+    useEffect(() => {
+        const step = searchParams.get("step");
+        if (step === "GEO" || step === "GEOGRAPHY" || step === "ECO" || step === "HUMANITY") {
+            setActiveStep(step);
+        }
+    }, [searchParams]);
 
     useEffect(() => {
         if (humanityScopeKind === "world") {

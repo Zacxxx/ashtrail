@@ -845,6 +845,10 @@ async fn main() {
             get(exploration_jobs::get_exploration_manifest),
         )
         .route(
+            "/api/planet/locations/{world_id}/exploration-manifests",
+            get(exploration_jobs::list_exploration_manifests),
+        )
+        .route(
             "/api/planet/location-generation/{id}",
             get(get_location_generation),
         )

@@ -20,12 +20,13 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use crate::{
     gemini,
     jobs::{now_ms, JobOutputRef, JobRecord, JobRouteRef, JobStatus},
-    locations::{self, LocationRecord},
+    locations::{self, LocationCategory, LocationHistoryHooks, LocationRecord, LocationScale, LocationStatus, RecordSource},
     AppState,
 };
 
 const DEFAULT_ROWS: u32 = 64;
 const DEFAULT_COLS: u32 = 64;
+pub const TEST_EXPLORATION_LOCATION_ID: &str = "__test_exploration__";
 
 #[derive(Clone)]
 pub struct ExplorationGenerationRuntime {
@@ -197,6 +198,16 @@ struct GenerationContext {
     rows: u32,
     cols: u32,
     seed: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorationManifestListItem {
+    pub location_id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_name: Option<String>,
+    pub built_in: bool,
 }
 
 impl ExplorationWorkLimiter {
@@ -410,6 +421,10 @@ pub async fn get_exploration_manifest(
 ) -> impl IntoResponse {
     let path = manifest_path(&state.planets_dir, &world_id, &location_id);
     if !path.exists() {
+        if is_test_exploration_location(&location_id) {
+            let manifest = build_test_manifest_value(&world_id);
+            return (StatusCode::OK, Json(manifest)).into_response();
+        }
         return (StatusCode::NOT_FOUND, "Exploration manifest not found".to_string()).into_response();
     }
 
@@ -428,6 +443,67 @@ pub async fn get_exploration_manifest(
         )
             .into_response(),
     }
+}
+
+pub async fn list_exploration_manifests(
+    State(state): State<AppState>,
+    Path(world_id): Path<String>,
+) -> impl IntoResponse {
+    let mut items = vec![ExplorationManifestListItem {
+        location_id: TEST_EXPLORATION_LOCATION_ID.to_string(),
+        name: "Test Exploration".to_string(),
+        manifest_name: Some("Test Exploration".to_string()),
+        built_in: true,
+    }];
+
+    let location_names: HashMap<String, String> = locations::read_locations(&state.planets_dir, &world_id)
+        .into_iter()
+        .map(|entry| (entry.id, entry.name))
+        .collect();
+
+    let root = state.planets_dir.join(&world_id).join("exploration");
+    if let Ok(entries) = fs::read_dir(root) {
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if !file_type.is_dir() {
+                continue;
+            }
+
+            let location_id = entry.file_name().to_string_lossy().to_string();
+            let path = entry.path().join("manifest.json");
+            if !path.exists() {
+                continue;
+            }
+
+            let manifest_name = fs::read_to_string(&path)
+                .ok()
+                .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+                .and_then(|value| value.get("name").and_then(Value::as_str).map(str::to_string));
+
+            let name = location_names
+                .get(&location_id)
+                .cloned()
+                .or_else(|| manifest_name.clone())
+                .unwrap_or_else(|| location_id.clone());
+
+            items.push(ExplorationManifestListItem {
+                location_id,
+                name,
+                manifest_name,
+                built_in: false,
+            });
+        }
+    }
+
+    items.sort_by(|left, right| {
+        right.built_in
+            .cmp(&left.built_in)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+
+    (StatusCode::OK, Json(items)).into_response()
 }
 
 async fn start_placeholder_asset_job(
@@ -521,6 +597,9 @@ async fn run_generate_location_job(
     let locations = locations::read_locations(&state.planets_dir, &payload.world_id);
     let location_record = match locations.into_iter().find(|entry| entry.id == payload.location_id) {
         Some(entry) => entry,
+        None if is_test_exploration_location(&payload.location_id) => {
+            build_test_location_record(&payload.world_id)
+        }
         None => {
             runtime.update_job(
                 &job_id,
@@ -913,6 +992,82 @@ fn build_generation_context(
             .seed
             .unwrap_or_else(|| now_ms()),
     }
+}
+
+fn is_test_exploration_location(location_id: &str) -> bool {
+    location_id == TEST_EXPLORATION_LOCATION_ID
+}
+
+fn build_test_location_record(world_id: &str) -> LocationRecord {
+    LocationRecord {
+        id: TEST_EXPLORATION_LOCATION_ID.to_string(),
+        name: "Test Exploration".to_string(),
+        category: LocationCategory::Settlement,
+        subtype: "debug_sandbox".to_string(),
+        status: LocationStatus::Stable,
+        scale: LocationScale::Minor,
+        province_id: 0,
+        province_region_id: format!("test-region-{world_id}"),
+        province_name: "Debug Province".to_string(),
+        duchy_id: None,
+        kingdom_id: None,
+        continent_id: None,
+        x: 0.0,
+        y: 0.0,
+        population_estimate: Some(12),
+        importance: 1,
+        habitability_score: 100,
+        economic_score: 40,
+        strategic_score: 20,
+        hazard_score: 5,
+        ruling_faction: "Debug Crew".to_string(),
+        tags: vec!["test".to_string(), "sandbox".to_string(), "exploration".to_string()],
+        placement_drivers: vec!["debug".to_string(), "iteration".to_string()],
+        history_hooks: LocationHistoryHooks {
+            founding_reason: "Built as a stable sandbox for exploration iteration.".to_string(),
+            current_tension: "Used to reproduce UI and traversal bugs quickly.".to_string(),
+            story_seeds: vec![
+                "Check pathing around the central compound.".to_string(),
+                "Inspect line of sight around the ruin wall.".to_string(),
+            ],
+            linked_lore_snippet_ids: Vec::new(),
+        },
+        lore: "A compact sandbox location used to test traversal, spawning, structures, and UI flows without depending on generated world content.".to_string(),
+        source: RecordSource::Manual,
+        is_customized: true,
+        last_humanity_job_id: None,
+        type_label: "Test Sandbox".to_string(),
+    }
+}
+
+fn build_test_manifest_value(world_id: &str) -> Value {
+    let payload = GenerateExplorationLocationRequest {
+        world_id: world_id.to_string(),
+        location_id: TEST_EXPLORATION_LOCATION_ID.to_string(),
+        location_name: Some("Test Exploration".to_string()),
+        prompt: "Debug sandbox with a central courtyard, a few walls, and obstacles for pathing validation.".to_string(),
+        rows: DEFAULT_ROWS,
+        cols: DEFAULT_COLS,
+        selected_char_ids: Vec::new(),
+        biome_pack_id: None,
+        biome_source: Some("built-in".to_string()),
+        biome_name: Some("Test Grounds".to_string()),
+        structure_pack_ids: Vec::new(),
+        structure_source_map: HashMap::new(),
+        structure_names: vec![
+            "debug compound".to_string(),
+            "test ruin".to_string(),
+            "pathing lane".to_string(),
+        ],
+        seed: Some(1337),
+        generation_mode: Some("procedural".to_string()),
+        block_palette_id: None,
+        asset_mode: Some("textureless".to_string()),
+    };
+    let location = build_test_location_record(world_id);
+    let context = build_generation_context(&payload, &location);
+    let manifest = build_manifest(&payload, &location, &context, Some("sandbox"));
+    build_manifest_value(&manifest, &payload, &context)
 }
 
 fn build_manifest(

@@ -1,5 +1,7 @@
 import { Character, ExplorationMap, ExplorationPawn, GameRegistry } from "@ashtrail/core";
 
+export const TEST_EXPLORATION_LOCATION_ID = "__test_exploration__";
+
 export interface GenerateExplorationLocationRequest extends Record<string, unknown> {
     worldId: string;
     locationId: string;
@@ -23,6 +25,13 @@ export interface GenerateExplorationLocationRequest extends Record<string, unkno
 export interface ExplorationJobAcceptedResponse {
     jobId: string;
     kind: string;
+}
+
+export interface ExplorationManifestListItem {
+    locationId: string;
+    name: string;
+    manifestName?: string | null;
+    builtIn: boolean;
 }
 
 function getPawnType(character: Character | null | undefined): ExplorationPawn["type"] {
@@ -109,4 +118,14 @@ export async function fetchExplorationManifest(worldId: string, locationId: stri
         throw new Error(details || `Failed to load exploration manifest (${response.status})`);
     }
     return response.json();
+}
+
+export async function fetchExplorationManifestIndex(worldId: string): Promise<ExplorationManifestListItem[]> {
+    const response = await fetch(`/api/planet/locations/${worldId}/exploration-manifests`);
+    if (!response.ok) {
+        const details = await response.text().catch(() => "");
+        throw new Error(details || `Failed to load exploration manifest index (${response.status})`);
+    }
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
 }

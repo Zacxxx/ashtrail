@@ -3,6 +3,7 @@ import { Button } from "@ashtrail/ui";
 import { type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { type HistoryTab } from "./HistoryPage";
 import { type Faction } from "./FactionsTab";
+import type { LoreSnippet } from "../types/lore";
 import {
     LOCATION_CATEGORY_OPTIONS,
     LOCATION_SCALE_OPTIONS,
@@ -92,6 +93,7 @@ function createLocationTemplate(province: ProvinceInfo | null) {
 export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps) {
     const [locations, setLocations] = useState<WorldLocation[]>([]);
     const [factions, setFactions] = useState<Faction[]>([]);
+    const [loreSnippets, setLoreSnippets] = useState<LoreSnippet[]>([]);
     const [provinces, setProvinces] = useState<ProvinceInfo[]>([]);
     const [editingLocation, setEditingLocation] = useState<WorldLocation | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -106,6 +108,7 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
         if (!selectedWorld) {
             setLocations([]);
             setFactions([]);
+            setLoreSnippets([]);
             setProvinces([]);
             setEditingLocation(null);
             return;
@@ -116,15 +119,17 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
 
         async function load() {
             try {
-                const [locationsRes, factionsRes, worldgenRegionsRes] = await Promise.all([
+                const [locationsRes, factionsRes, loreRes, worldgenRegionsRes] = await Promise.all([
                     fetch(`http://127.0.0.1:8787/api/planet/locations/${selectedWorld.id}`),
                     fetch(`http://127.0.0.1:8787/api/planet/factions/${selectedWorld.id}`),
+                    fetch(`http://127.0.0.1:8787/api/planet/lore-snippets/${selectedWorld.id}`),
                     fetch(`http://127.0.0.1:8787/api/planet/worldgen-regions/${selectedWorld.id}`),
                 ]);
 
-                const [locationsData, factionsData, worldgenRegionsData] = await Promise.all([
+                const [locationsData, factionsData, loreData, worldgenRegionsData] = await Promise.all([
                     locationsRes.ok ? locationsRes.json() : [],
                     factionsRes.ok ? factionsRes.json() : [],
+                    loreRes.ok ? loreRes.json() : [],
                     worldgenRegionsRes.ok ? worldgenRegionsRes.json() : [],
                 ]);
 
@@ -147,6 +152,7 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
 
                 setLocations(nextLocations);
                 setFactions(Array.isArray(factionsData) ? factionsData : []);
+                setLoreSnippets(Array.isArray(loreData) ? loreData : []);
                 setProvinces(nextProvinces);
                 setEditingLocation((prev) => {
                     if (prev && nextLocations.some((entry) => entry.id === prev.id)) {
@@ -159,6 +165,7 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
                 if (!cancelled) {
                     setLocations([]);
                     setFactions([]);
+                    setLoreSnippets([]);
                     setProvinces([]);
                     setEditingLocation(null);
                 }
@@ -187,7 +194,10 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
             if (!response.ok) {
                 throw new Error(`Failed to save locations: ${response.status}`);
             }
-            const normalized = updated.map((entry) => normalizeLocation(entry));
+            const savedData = await response.json();
+            const normalized = Array.isArray(savedData)
+                ? savedData.map((entry) => normalizeLocation(entry))
+                : updated.map((entry) => normalizeLocation(entry));
             setLocations(normalized);
             setEditingLocation((prev) => {
                 if (!prev) return normalized[0] || null;
@@ -227,6 +237,10 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
     }, [locations]);
 
     const settlementCount = locations.filter((location) => location.category === "settlement").length;
+    const loreById = useMemo(
+        () => Object.fromEntries(loreSnippets.map((snippet) => [snippet.id, snippet])),
+        [loreSnippets],
+    );
 
     const handleAdd = () => {
         const next = createLocationTemplate(provinces[0] || null);
@@ -386,6 +400,10 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
                                     <span>{titleCaseLocation(location.category)}</span>
                                     <span>{titleCaseLocation(location.status)}</span>
                                     <span>{titleCaseLocation(location.subtype)}</span>
+                                    <span className={location.source === "humanity_generated" ? "text-orange-300" : "text-cyan-300"}>
+                                        {location.source === "humanity_generated" ? "Humanity" : "Manual"}
+                                    </span>
+                                    {location.isCustomized && <span className="text-emerald-300">Customized</span>}
                                     {location.populationEstimate !== null && <span>Pop {location.populationEstimate.toLocaleString()}</span>}
                                 </div>
                             </button>
@@ -403,6 +421,12 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
                                 <p className="text-[10px] tracking-[0.18em] text-gray-500 uppercase">
                                     {editingLocation.provinceName} • {titleCaseLocation(editingLocation.category)}
                                 </p>
+                                <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.18em]">
+                                    <span className={`rounded-full px-2 py-1 ${editingLocation.source === "humanity_generated" ? "bg-orange-500/10 text-orange-200" : "bg-cyan-500/10 text-cyan-200"}`}>
+                                        {editingLocation.source === "humanity_generated" ? "Humanity Generated" : "Manual"}
+                                    </span>
+                                    {editingLocation.isCustomized && <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-200">Customized</span>}
+                                </div>
                             </div>
                             <div className="flex gap-3">
                                 <Button
@@ -680,15 +704,21 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
                                 />
                             </Field>
                             <Field label="Linked Lore Snippet Ids">
-                                <textarea
-                                    value={joinListField(editingLocation.historyHooks.linkedLoreSnippetIds)}
-                                    onChange={(event) => setEditingLocation({
-                                        ...editingLocation,
-                                        historyHooks: { ...editingLocation.historyHooks, linkedLoreSnippetIds: splitListField(event.target.value) },
+                                <div className="rounded-xl border border-white/10 bg-black/20 p-3 min-h-[110px] space-y-2">
+                                    {editingLocation.historyHooks.linkedLoreSnippetIds.length === 0 ? (
+                                        <p className="text-xs text-gray-500">No linked lore snippets.</p>
+                                    ) : editingLocation.historyHooks.linkedLoreSnippetIds.map((snippetId) => {
+                                        const snippet = loreById[snippetId];
+                                        return (
+                                            <div key={snippetId} className="rounded-lg border border-white/5 bg-[#05080c] px-3 py-2">
+                                                <div className="text-xs font-semibold text-gray-200">{snippet?.title || snippet?.location || snippetId}</div>
+                                                <div className="text-[10px] uppercase tracking-[0.18em] text-gray-500">
+                                                    {snippet?.source === "humanity_generated" ? "Humanity Generated" : "Manual"}
+                                                </div>
+                                            </div>
+                                        );
                                     })}
-                                    className="input-shell min-h-[110px]"
-                                    placeholder="snippet ids"
-                                />
+                                </div>
                             </Field>
                         </div>
                     </div>
