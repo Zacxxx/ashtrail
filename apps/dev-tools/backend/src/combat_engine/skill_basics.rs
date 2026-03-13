@@ -202,7 +202,8 @@ pub fn distract_mp_reduction(charisma: i32, rules: &GameRulesConfig) -> i32 {
 
 pub fn analyze_crit_bonus(intelligence: i32, rules: &GameRulesConfig) -> f64 {
     let int_value = intelligence.max(0) as f64;
-    rules.combat.analyze_base_crit + (rules.combat.analyze_intel_scale * (int_value + 1.0).ln() * 10.0)
+    (rules.combat.analyze_base_crit + (rules.combat.analyze_intel_scale * (int_value + 1.0).ln() * 10.0))
+        .floor()
 }
 
 pub fn stealth_duration(wisdom: i32, rules: &GameRulesConfig) -> u32 {

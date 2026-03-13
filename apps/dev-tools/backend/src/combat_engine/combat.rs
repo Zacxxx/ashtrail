@@ -506,6 +506,92 @@ impl CombatState {
         false
     }
 
+    fn apply_protection_to_target(
+        &mut self,
+        target_id: &str,
+        incoming_damage: i32,
+        rng: &mut impl rand::Rng,
+    ) -> (i32, Vec<(String, GridPos, String)>) {
+        let mut defeated = Vec::new();
+
+        let Some(target) = self.entities.get(target_id).cloned() else {
+            return (incoming_damage, defeated);
+        };
+
+        let Some(protection) = target.active_effects.as_ref().and_then(|effects| {
+            effects
+                .iter()
+                .find(|effect| effect.effect_type == EffectType::ProtectionStance)
+        }) else {
+            return (incoming_damage, defeated);
+        };
+
+        let Some(protector_id) = protection.protector_id.as_ref() else {
+            return (incoming_damage, defeated);
+        };
+
+        let Some(protector) = self.entities.get(protector_id).cloned() else {
+            return (incoming_damage, defeated);
+        };
+
+        if protector.hp <= 0 {
+            return (incoming_damage, defeated);
+        }
+
+        let defend = resolve_defend(
+            protector.endurance,
+            protector.defense,
+            incoming_damage,
+            &self.rules,
+            rng,
+        );
+
+        let mut protector_name = protector.name.clone();
+        let mut protector_revealed = false;
+
+        if let Some(protector_ref) = self.entities.get_mut(protector_id) {
+            protector_ref.hp = (protector_ref.hp - defend.protector_damage).max(0);
+            protector_name = protector_ref.name.clone();
+            if protector_ref.hp <= 0 {
+                defeated.push((
+                    protector_ref.id.clone(),
+                    protector_ref.grid_pos.clone(),
+                    protector_ref.name.clone(),
+                ));
+            }
+        }
+
+        if defend.protector_damage > 0 {
+            protector_revealed = self.break_stealth(protector_id);
+        }
+
+        if protector_revealed {
+            self.add_log(
+                &format!("{protector_name} was revealed by taking damage!"),
+                LogType::Info,
+            );
+        }
+
+        self.add_log(
+            &format!(
+                "🛡️ {} protects {} [{} vs {} | {} | block {}]. {} absorbs {}, {} takes {}.",
+                protector.name,
+                target.name,
+                defend.roll_value,
+                incoming_damage,
+                defend.outcome_label,
+                defend.armor_block,
+                protector.name,
+                defend.protector_damage,
+                target.name,
+                defend.ally_damage
+            ),
+            LogType::Info,
+        );
+
+        (defend.ally_damage, defeated)
+    }
+
     pub fn preview_move(
         &self,
         entity_id: &str,
@@ -992,75 +1078,49 @@ impl CombatState {
         let is_crit = damage_roll.is_crit;
         let actual_damage = damage_roll.actual_damage;
 
-        // Stealth break check
-        if let Some(defender) = self.entities.get_mut(defender_id) {
-            let mut broke_stealth = false;
-            if let Some(effs) = &mut defender.active_effects {
-                let initial_len = effs.len();
-                effs.retain(|e| e.effect_type != EffectType::Stealth);
-                if effs.len() < initial_len && actual_damage > 0 {
-                    broke_stealth = true;
-                }
-                if effs.is_empty() {
-                    defender.active_effects = None;
-                }
-            }
-            if broke_stealth {
-                self.add_log(
-                    &format!("👁️ {} was REVEALED by taking damage!", def_name),
-                    LogType::Info,
-                );
-            }
-        }
+        let (final_damage, defeated_protectors) =
+            self.apply_protection_to_target(defender_id, actual_damage, &mut rng);
 
-        // Protection check
-        let mut final_defender_id = defender_id.to_string();
-        if let Some(defender) = self.entities.get(defender_id) {
-            if let Some(effs) = &defender.active_effects {
-                if let Some(prot) = effs
-                    .iter()
-                    .find(|e| e.effect_type == EffectType::ProtectionStance)
-                {
-                    if let Some(ref prot_id) = prot.protector_id {
-                        if self.entities.contains_key(prot_id) {
-                            final_defender_id = prot_id.clone();
-                            self.add_log(
-                                &format!("🛡️ Attack redirected from {} to protector!", def_name),
-                                LogType::Info,
-                            );
-                        }
-                    }
-                }
-            }
+        if final_damage > 0 && self.break_stealth(defender_id) {
+            self.add_log(
+                &format!("👁️ {} was REVEALED by taking damage!", def_name),
+                LogType::Info,
+            );
         }
 
         self.add_log(
             &format!(
-                "🗡️ {atk_name} strikes {} for {}{actual_damage} damage! (-{MELEE_ATTACK_COST} AP)",
-                self.entities
-                    .get(&final_defender_id)
-                    .map(|e| e.name.as_str())
-                    .unwrap_or("Unknown"),
+                "🗡️ {atk_name} strikes {} for {}{final_damage} damage! (-{MELEE_ATTACK_COST} AP)",
+                def_name,
                 if is_crit { "CRITICAL " } else { "" }
             ),
             LogType::Damage,
         );
 
-        let new_hp = (self.entities.get(&final_defender_id).unwrap().hp - actual_damage).max(0);
-        if let Some(defender) = self.entities.get_mut(&final_defender_id) {
+        let new_hp = (self.entities.get(defender_id).unwrap().hp - final_damage).max(0);
+        if let Some(defender) = self.entities.get_mut(defender_id) {
             defender.hp = new_hp;
         }
 
         events.push(CombatEvent::AttackResult {
             attacker_id: attacker_id.to_string(),
-            defender_id: final_defender_id.clone(),
-            damage: actual_damage,
+            defender_id: defender_id.to_string(),
+            damage: final_damage,
             is_crit,
             is_miss: false,
         });
 
+        for (prot_id, prot_pos, prot_name) in defeated_protectors {
+            self.add_log(&format!("💀 {prot_name} has been defeated!"), LogType::System);
+            remove_entity(&mut self.grid, prot_pos.row, prot_pos.col);
+            events.push(CombatEvent::EntityDefeated {
+                entity_id: prot_id.clone(),
+            });
+            events.extend(self.check_win_loss(&prot_id));
+        }
+
         if new_hp <= 0 {
-            let def_name = self.entities.get(&final_defender_id).unwrap().name.clone();
+            let def_name = self.entities.get(defender_id).unwrap().name.clone();
             self.add_log(
                 &format!("💀 {def_name} has been defeated!"),
                 LogType::System,
@@ -1234,7 +1294,7 @@ impl CombatState {
                     self.add_log(
                         &format!(
                             "🔍 {} identifies flaws in {}! +{}% Crit chance.",
-                            caster_name, target.name, crit_bonus
+                            caster_name, target.name, crit_bonus as i32
                         ),
                         LogType::Info,
                     );
@@ -1567,68 +1627,33 @@ impl CombatState {
                     (scaled_damage - (target.defense + total_armor)).max(1)
                 };
 
-                // Stealth break check
-                let mut broke_stealth = false;
-                if let Some(t_ref) = self.entities.get_mut(&occupant_id) {
-                    if let Some(effs) = &mut t_ref.active_effects {
-                        let initial_len = effs.len();
-                        effs.retain(|e| e.effect_type != EffectType::Stealth);
-                        if effs.len() < initial_len && actual_damage > 0 {
-                            broke_stealth = true;
-                        }
-                        if effs.is_empty() {
-                            t_ref.active_effects = None;
-                        }
-                    }
-                }
-                if broke_stealth {
+                let (final_damage, defeated_protectors) =
+                    self.apply_protection_to_target(&occupant_id, actual_damage, &mut rng);
+
+                if final_damage > 0 && self.break_stealth(&occupant_id) {
                     self.add_log(
                         &format!("👁️ {} was REVEALED by taking damage!", target.name),
                         LogType::Info,
                     );
                 }
 
-                // Protection check
-                let mut final_defender_id = occupant_id.clone();
-                if let Some(effs) = &target.active_effects {
-                    if let Some(prot) = effs
-                        .iter()
-                        .find(|e| e.effect_type == EffectType::ProtectionStance)
-                    {
-                        if let Some(ref prot_id) = prot.protector_id {
-                            if self.entities.contains_key(prot_id) {
-                                final_defender_id = prot_id.clone();
-                                self.add_log(
-                                    &format!(
-                                        "🛡️ Attack redirected from {} to protector!",
-                                        target.name
-                                    ),
-                                    LogType::Info,
-                                );
-                            }
-                        }
-                    }
-                }
-
-                new_hp = (self.entities.get(&final_defender_id).unwrap().hp - actual_damage).max(0);
-                target_damage = Some(actual_damage);
+                new_hp = (self.entities.get(&occupant_id).unwrap().hp - final_damage).max(0);
+                target_damage = Some(final_damage);
+                defeated_ids.extend(defeated_protectors);
 
                 let icon = skill.icon.as_deref().unwrap_or("✨");
                 self.add_log(
                     &format!(
-                        "{icon} {caster_name} uses {} on {} → {}{actual_damage} damage!",
+                        "{icon} {caster_name} uses {} on {} → {}{final_damage} damage!",
                         skill.name,
-                        self.entities
-                            .get(&final_defender_id)
-                            .map(|e| e.name.as_str())
-                            .unwrap_or("Unknown"),
+                        target.name,
                         if is_crit { "CRITICAL " } else { "" }
                     ),
                     LogType::Damage,
                 );
 
                 // Apply HP change
-                if let Some(t) = self.entities.get_mut(&final_defender_id) {
+                if let Some(t) = self.entities.get_mut(&occupant_id) {
                     t.hp = new_hp;
                 }
 
@@ -1744,6 +1769,15 @@ impl CombatState {
                     let mut new_eff = eff.clone();
                     if new_eff.effect_type == EffectType::ProtectionStance {
                         new_eff.protector_id = Some(caster_id.to_string());
+                        self.add_log(
+                            &format!(
+                                "🛡️ {} is now protected by {} ({} turn).",
+                                target.name,
+                                caster_name,
+                                new_eff.duration.unwrap_or(1)
+                            ),
+                            LogType::Info,
+                        );
                     } else if new_eff.effect_type == EffectType::Stealth {
                         new_eff.duration = Some(stealth_duration(caster_wisdom, &self.rules));
                         new_eff.last_known_position = Some(caster_pos.clone());
@@ -2130,6 +2164,27 @@ mod tests {
         }
     }
 
+    fn protection_effect() -> GameplayEffect {
+        GameplayEffect {
+            id: None,
+            name: Some("Protection".to_string()),
+            description: None,
+            effect_type: EffectType::ProtectionStance,
+            target: None,
+            value: 0.0,
+            is_percentage: Some(false),
+            duration: Some(1),
+            trigger: None,
+            scope: None,
+            stacking: None,
+            condition: None,
+            icon: None,
+            protector_id: None,
+            last_known_position: None,
+            just_applied: None,
+        }
+    }
+
     fn make_test_entity(id: &str, is_player: bool, row: usize, col: usize) -> TacticalEntity {
         TacticalEntity {
             id: id.to_string(),
@@ -2242,6 +2297,25 @@ mod tests {
                 push_distance: None,
                 icon: None,
                 effects: Some(vec![sprint_effect()]),
+            },
+            "defend" => Skill {
+                id: "defend".to_string(),
+                name: "Defend".to_string(),
+                description: "Protect an ally".to_string(),
+                category: SkillCategory::Base,
+                ap_cost: 4,
+                min_range: 1,
+                max_range: 2,
+                area_type: SkillAreaType::Single,
+                area_size: 0,
+                target_type: SkillTargetType::Ally,
+                damage: None,
+                healing: None,
+                cooldown: 3,
+                effect_type: Some(SkillEffectType::Support),
+                push_distance: None,
+                icon: None,
+                effects: Some(vec![protection_effect()]),
             },
             _ => panic!("Unsupported test skill"),
         }
@@ -2460,5 +2534,55 @@ mod tests {
         let player = state.entities.get("p1").unwrap();
         assert_eq!(player.max_mp, 3);
         assert_eq!(player.mp, 3);
+    }
+
+    #[test]
+    fn test_defend_logs_when_applied() {
+        let mut state = make_combat_state();
+        let protector_target = make_test_entity("p2", true, 10, 3);
+        place_entity(&mut state.grid, "p2", 10, 3);
+        state.entities.insert("p2".to_string(), protector_target);
+        state.turn_order.push("p2".to_string());
+        let player = state.entities.get_mut("p1").unwrap();
+        player.skills = vec![make_skill("defend")];
+
+        state.execute_skill("p1", 10, 3, "defend");
+
+        assert!(state
+            .logs
+            .iter()
+            .any(|entry| entry.message.contains("is now protected by")));
+    }
+
+    #[test]
+    fn test_defend_absorbs_basic_attack_damage() {
+        let mut state = make_combat_state();
+        let protector = make_test_entity("p2", true, 10, 3);
+        place_entity(&mut state.grid, "p2", 10, 3);
+        state.entities.insert("p2".to_string(), protector);
+        state.turn_order.push("p2".to_string());
+
+        move_entity_on_grid(&mut state.grid, "e1", 1, 10, 10, 2);
+        state.entities.get_mut("e1").unwrap().grid_pos = GridPos { row: 10, col: 2 };
+        state.entities.get_mut("e1").unwrap().evasion = 0;
+        state.entities.get_mut("p1").unwrap().evasion = 0;
+        state.entities.get_mut("p1").unwrap().active_effects = Some(vec![GameplayEffect {
+            protector_id: Some("p2".to_string()),
+            ..protection_effect()
+        }]);
+        state.entities.get_mut("p2").unwrap().endurance = 100;
+        state.entities.get_mut("p2").unwrap().defense = 0;
+
+        let protected_hp = state.entities.get("p1").unwrap().hp;
+        let protector_hp = state.entities.get("p2").unwrap().hp;
+
+        state.perform_attack("e1", "p1");
+
+        assert_eq!(state.entities.get("p1").unwrap().hp, protected_hp);
+        assert!(state.entities.get("p2").unwrap().hp < protector_hp);
+        assert!(state
+            .logs
+            .iter()
+            .any(|entry| entry.message.contains("protects Player_p1")));
     }
 }
