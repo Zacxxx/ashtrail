@@ -12,6 +12,7 @@ use tracing::{error, info, warn};
 
 use super::ai::run_ai_turn;
 use super::combat::CombatState;
+use super::preparation::prepare_combatants;
 use super::rules::load_rules_from_file;
 use super::types::*;
 
@@ -101,34 +102,53 @@ fn process_action(
 ) -> Vec<CombatEvent> {
     match action {
         CombatAction::StartCombat {
+            roster,
             players,
             enemies,
             grid,
             config,
         } => {
+            let sanitized_grid = sanitize_grid(grid, &config);
             info!(
-                players = players.len(),
-                enemies = enemies.len(),
+                roster = roster.as_ref().map(|entries| entries.len()).unwrap_or(0),
+                players = players.as_ref().map(|entries| entries.len()).unwrap_or(0),
+                enemies = enemies.as_ref().map(|entries| entries.len()).unwrap_or(0),
                 grid_rows = config.grid_rows,
                 grid_cols = config.grid_cols,
                 "Starting new combat session"
             );
 
             let rules = load_rules_from_file();
-            let state = CombatState::new(players, enemies, grid, &config, rules);
+            let (players, enemies) = if let Some(roster) = roster.as_ref() {
+                match prepare_combatants(roster, &rules) {
+                    Ok(prepared) => prepared,
+                    Err(message) => {
+                        return vec![CombatEvent::Error { message }];
+                    }
+                }
+            } else {
+                (
+                    players.unwrap_or_default(),
+                    enemies.unwrap_or_default(),
+                )
+            };
+
+            let state = CombatState::new(players, enemies, sanitized_grid, &config, rules);
             let snapshot = state.snapshot();
             *combat_state = Some(state);
 
-            // Send initial highlight for reachable cells
             let mut events = vec![CombatEvent::StateSync { state: snapshot }];
 
-            if let Some(state) = combat_state {
-                let reachable = state.get_reachable_for_active();
-                if !reachable.is_empty() {
-                    events.push(CombatEvent::HighlightCells {
-                        cells: reachable,
-                        highlight_type: HighlightType::Move,
-                    });
+            if let Some(state) = combat_state.as_ref() {
+                if let Some(active_id) = state.get_active_entity_id() {
+                    let preview = state.preview_move(active_id, None, None);
+                    if !preview.reachable_cells.is_empty() {
+                        events.push(CombatEvent::PreviewState { preview: preview.clone() });
+                        events.push(CombatEvent::HighlightCells {
+                            cells: preview.reachable_cells,
+                            highlight_type: HighlightType::Move,
+                        });
+                    }
                 }
             }
 
@@ -233,7 +253,87 @@ fn process_action(
             });
             events
         }
+
+        CombatAction::PreviewMove {
+            entity_id,
+            hover_row,
+            hover_col,
+        } => {
+            let Some(state) = combat_state.as_ref() else {
+                return vec![CombatEvent::Error {
+                    message: "No active combat".to_string(),
+                }];
+            };
+            vec![CombatEvent::PreviewState {
+                preview: state.preview_move(&entity_id, hover_row, hover_col),
+            }]
+        }
+
+        CombatAction::PreviewBasicAttack {
+            attacker_id,
+            hover_row,
+            hover_col,
+        } => {
+            let Some(state) = combat_state.as_ref() else {
+                return vec![CombatEvent::Error {
+                    message: "No active combat".to_string(),
+                }];
+            };
+            vec![CombatEvent::PreviewState {
+                preview: state.preview_basic_attack(&attacker_id, hover_row, hover_col),
+            }]
+        }
+
+        CombatAction::PreviewSkill {
+            caster_id,
+            skill_id,
+            hover_row,
+            hover_col,
+        } => {
+            let Some(state) = combat_state.as_ref() else {
+                return vec![CombatEvent::Error {
+                    message: "No active combat".to_string(),
+                }];
+            };
+            vec![CombatEvent::PreviewState {
+                preview: state.preview_skill(&caster_id, &skill_id, hover_row, hover_col),
+            }]
+        }
+
+        CombatAction::ClearPreview => vec![CombatEvent::PreviewState {
+            preview: CombatPreviewState::default(),
+        }],
     }
+}
+
+fn sanitize_grid(grid: Option<Grid>, config: &CombatConfig) -> Option<Grid> {
+    let mut grid = grid?;
+    if grid.len() != config.grid_rows {
+        return None;
+    }
+
+    let mut sanitized = Vec::with_capacity(config.grid_rows);
+    for (row_index, row) in grid.drain(..).enumerate() {
+        if row.len() != config.grid_cols {
+            return None;
+        }
+
+        let mut sanitized_row = Vec::with_capacity(config.grid_cols);
+        for (col_index, cell) in row.into_iter().enumerate() {
+            sanitized_row.push(GridCell {
+                row: row_index,
+                col: col_index,
+                walkable: cell.walkable,
+                occupant_id: None,
+                is_spawn_zone: cell.is_spawn_zone,
+                highlight: None,
+                texture_url: cell.texture_url,
+            });
+        }
+        sanitized.push(sanitized_row);
+    }
+
+    Some(sanitized)
 }
 
 async fn send_event(socket: &mut WebSocket, event: &CombatEvent) -> Result<(), ()> {

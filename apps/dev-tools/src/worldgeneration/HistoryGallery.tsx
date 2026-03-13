@@ -8,6 +8,8 @@ interface HistoryGalleryProps {
     onSelectPlanet: (item: GenerationHistoryItem) => void;
     onSelectTexture: (planetId: string, textureUrl: string) => void;
     showExtendedTabs?: boolean;
+    initialTab?: TabType;
+    extendedRefreshKey?: number;
     onRenameWorld?: (id: string, newName: string) => void;
 }
 
@@ -64,10 +66,12 @@ export function HistoryGallery({
     onSelectPlanet,
     onSelectTexture,
     showExtendedTabs = false,
+    initialTab = "planets",
+    extendedRefreshKey = 0,
     onRenameWorld,
 }: HistoryGalleryProps) {
     const ISOLATED_PAGE_SIZE = 24;
-    const [activeTab, setActiveTab] = useState<TabType>("planets");
+    const [activeTab, setActiveTab] = useState<TabType>(initialTab);
     const [iconImages, setIconImages] = useState<IconImageItem[]>([]);
     const [textureImages, setTextureImages] = useState<TextureImageItem[]>([]);
     const [characterPortraits, setCharacterPortraits] = useState<CharacterPortraitItem[]>([]);
@@ -152,6 +156,10 @@ export function HistoryGallery({
     }, [isolatedPage, isolatedPageCount]);
 
     useEffect(() => {
+        setActiveTab(initialTab);
+    }, [initialTab]);
+
+    useEffect(() => {
         if (!showExtendedTabs) return;
 
         let isCancelled = false;
@@ -211,7 +219,7 @@ export function HistoryGallery({
                     .filter((c: any) => typeof c?.portraitUrl === "string" && c.portraitUrl.length > 0)
                     .map((c: any, index: number) => ({
                         id: c.id || c.name || `character-${index}`,
-                        name: c.name || `Character ${index + 1}`,
+                        name: c.portraitName || c.name || `Character ${index + 1}`,
                         portraitUrl: c.portraitUrl,
                     } as CharacterPortraitItem));
 
@@ -260,7 +268,7 @@ export function HistoryGallery({
         return () => {
             isCancelled = true;
         };
-    }, [showExtendedTabs]);
+    }, [showExtendedTabs, extendedRefreshKey]);
 
     return (
         <div className="flex flex-col h-full bg-black/50 overflow-hidden">
@@ -459,7 +467,7 @@ export function HistoryGallery({
                     <div
                         key={character.id}
                         className="relative flex flex-col justify-end aspect-[3/4] group border border-white/10 bg-black/40 rounded-xl overflow-hidden cursor-pointer hover:border-emerald-400/40 transition-all"
-                        onClick={() => onSelectTexture("characters", character.portraitUrl)}
+                        onClick={() => onSelectTexture(`characters:${character.id}`, character.portraitUrl)}
                     >
                         <img src={character.portraitUrl} alt={character.name} className="absolute top-0 left-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-300" />
                         <div className="relative p-3 bg-black/70 backdrop-blur-sm mt-auto">

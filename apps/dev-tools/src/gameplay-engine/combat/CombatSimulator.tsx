@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { GameRegistry, Character, Skill, resolveCharacterSkills, resolveCharacterTraitGrants } from '@ashtrail/core';
-import type { TacticalEntity, CombatConfig, DamagePreview, CombatResolutionSummary } from '@ashtrail/core';
+import type { TacticalEntity, CombatConfig, DamagePreview, CombatResolutionSummary, CombatRosterEntry } from '@ashtrail/core';
 import { TacticalArena, type TacticalArenaUtilityAction } from './TacticalArena';
 import { useCombatWebSocket } from './useCombatWebSocket';
 import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacticalGrid';
@@ -744,6 +744,28 @@ export function CombatEncounterView({
     const defaultPlayerSkills = getDefaultPlayerSkills();
     const defaultEnemySkills = getDefaultEnemySkills();
     const faunaById = React.useMemo(() => new Map(faunaEntries.map((entry) => [entry.id, entry])), [faunaEntries]);
+    const usesRoster = React.useMemo(
+        () => [...playerIds, ...enemyIds].every((id) => !isFaunaSelection(id)),
+        [enemyIds, playerIds],
+    );
+
+    const playerRoster = React.useMemo<CombatRosterEntry[]>(
+        () => playerIds.map((characterId, index) => ({
+            rosterId: `player-${index}`,
+            characterId,
+            team: 'player',
+        })),
+        [playerIds],
+    );
+
+    const enemyRoster = React.useMemo<CombatRosterEntry[]>(
+        () => enemyIds.map((characterId, index) => ({
+            rosterId: `enemy-${index}`,
+            characterId,
+            team: 'enemy',
+        })),
+        [enemyIds],
+    );
 
     // Build TacticalEntity for each character using the resolved data from mapCharToTactical
     const playerEntities = playerIds
@@ -768,17 +790,30 @@ export function CombatEncounterView({
         })
         .filter((entity): entity is TacticalEntity => entity !== null);
 
+    const combatSetup = React.useMemo(() => {
+        if (usesRoster) {
+            return {
+                roster: [...playerRoster, ...enemyRoster],
+                grid: aiGrid || undefined,
+                config,
+            };
+        }
+
+        return {
+            players: playerEntities,
+            enemies: enemyEntities,
+            grid: aiGrid || undefined,
+            config,
+        };
+    }, [aiGrid, config, enemyEntities, enemyRoster, playerEntities, playerRoster, usesRoster]);
+
     // ── Use LOCAL combat engine (correct weapon damage, game rules, modifiers) ──
     const {
         grid, entities, turnOrder, activeEntityId, activeEntity,
         isPlayerTurn, phase, playerAction, logs, turnNumber,
-        handleCellClick, endTurn, selectSkill, selectedSkill, MELEE_ATTACK_COST,
-    } = useCombatWebSocket({
-        players: playerEntities,
-        enemies: enemyEntities,
-        grid: aiGrid || undefined,
-        config,
-    });
+        handleCellClick, endTurn, selectSkill, selectedSkill, previewState,
+        previewMove, previewBasicAttack, previewSkill, MELEE_ATTACK_COST,
+    } = useCombatWebSocket(combatSetup);
 
     const hasReportedCombatEnd = React.useRef(false);
     const resolveEntityByBaseId = React.useCallback((baseId: string, isPlayer: boolean) => {
@@ -793,8 +828,16 @@ export function CombatEncounterView({
         hasReportedCombatEnd.current = true;
         onCombatFinished?.({
             outcome: phase,
-            survivingPlayerIds: playerIds.filter((id) => (resolveEntityByBaseId(id, true)?.hp ?? 0) > 0),
-            defeatedEnemyIds: enemyIds.filter((id) => (resolveEntityByBaseId(id, false)?.hp ?? 0) <= 0),
+            survivingPlayerIds: usesRoster
+                ? playerRoster
+                    .filter((entry) => (entities.get(entry.rosterId)?.hp ?? 0) > 0)
+                    .map((entry) => entry.characterId)
+                : playerIds.filter((id) => (resolveEntityByBaseId(id, true)?.hp ?? 0) > 0),
+            defeatedEnemyIds: usesRoster
+                ? enemyRoster
+                    .filter((entry) => (entities.get(entry.rosterId)?.hp ?? 0) <= 0)
+                    .map((entry) => entry.characterId)
+                : enemyIds.filter((id) => (resolveEntityByBaseId(id, false)?.hp ?? 0) <= 0),
             playerSnapshots: Array.from(entities.values())
                 .filter((entity) => entity.isPlayer)
                 .map((entity) => ({ id: entity.id, hp: entity.hp, maxHp: entity.maxHp })),
@@ -803,7 +846,7 @@ export function CombatEncounterView({
                 .map((entity) => ({ id: entity.id, hp: entity.hp, maxHp: entity.maxHp })),
             turnCount: turnNumber,
         });
-    }, [enemyIds, entities, onCombatFinished, phase, playerIds, resolveEntityByBaseId, turnNumber]);
+    }, [enemyIds, enemyRoster, entities, onCombatFinished, phase, playerIds, playerRoster, resolveEntityByBaseId, turnNumber, usesRoster]);
 
     const getDamagePreview = React.useCallback((attacker: TacticalEntity, target: TacticalEntity, skill: Skill): DamagePreview | null => {
         if (!skill.damage && !skill.pushDistance) return null;
@@ -830,7 +873,6 @@ export function CombatEncounterView({
         const vMin = rules.combat.damageVarianceMin || 0.85;
         const vMax = rules.combat.damageVarianceMax || 1.15;
 
-        // Critical Hit check
         const analyzedBonus = target.activeEffects?.filter(e => e.type === 'ANALYZED' as any).reduce((sum: number, e: any) => sum + (e.value || 0), 0) || 0;
         const finalCritChance = attacker.critChance + (analyzedBonus / 100);
 
@@ -840,9 +882,8 @@ export function CombatEncounterView({
             if (isMagical) {
                 const resist = Math.floor(d * (target.resistance || 0));
                 return Math.max(1, d - resist);
-            } else {
-                return Math.max(1, d - (target.defense || 0));
             }
+            return Math.max(1, d - (target.defense || 0));
         };
 
         return {
@@ -851,7 +892,7 @@ export function CombatEncounterView({
             critMin: calc(minStrBonus, vMin, true),
             critMax: calc(maxStrBonus, vMax, true),
             isMagical,
-            critChance: isNaN(finalCritChance) ? (attacker.critChance || 0) : finalCritChance
+            critChance: isNaN(finalCritChance) ? (attacker.critChance || 0) : finalCritChance,
         };
     }, []);
 
@@ -876,6 +917,10 @@ export function CombatEncounterView({
             getDamagePreview={getDamagePreview}
             variant={variant}
             utilityActions={utilityActions}
+            previewState={previewState}
+            onPreviewMove={previewMove}
+            onPreviewBasicAttack={previewBasicAttack}
+            onPreviewSkill={previewSkill}
         />
     );
 }

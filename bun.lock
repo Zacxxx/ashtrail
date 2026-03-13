@@ -18,6 +18,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ashtrail/core": "workspace:*",
+        "@ashtrail/geo-wasm": "workspace:*",
         "@ashtrail/ui": "workspace:*",
         "@google/genai": "^1.41.0",
         "@xyflow/react": "^12.10.1",

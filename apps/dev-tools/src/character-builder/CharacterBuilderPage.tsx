@@ -9,6 +9,16 @@ import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGe
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { CharacterGeneratorModal } from "./CharacterGeneratorModal";
+import {
+    CharacterAppearanceSection,
+    DEFAULT_APPEARANCE_SELECTORS,
+    type AppearanceSelectors,
+    type AppearanceSelectorKey,
+} from "../../../website/Screens/IndividualScreens/CharacterAppearanceSection";
+import {
+    enhanceAppearancePromptViaApi,
+    generateCharacterPortraitViaApi,
+} from "../../../website/services/gmApi";
 
 // Map item category + name to an equipment slot
 const SLOT_MAP: Record<string, EquipSlot> = {
@@ -52,7 +62,17 @@ function isEquipable(item: Item): boolean {
     return getEquipSlot(item) !== null;
 }
 
-type BuilderTab = "IDENTITY" | "LORE" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
+type BuilderTab = "IDENTITY" | "APPEARANCE" | "LORE" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
+
+function injectAppearanceTab(tabs: BuilderTab[]): BuilderTab[] {
+    if (tabs.includes("APPEARANCE")) return tabs;
+    const loreIndex = tabs.indexOf("LORE");
+    const identityIndex = tabs.indexOf("IDENTITY");
+    if (loreIndex === -1 || identityIndex === -1) return tabs;
+    const nextTabs = [...tabs];
+    nextTabs.splice(loreIndex, 0, "APPEARANCE");
+    return nextTabs;
+}
 
 const DEFAULT_STATS: Stats = { strength: 3, agility: 3, intelligence: 3, wisdom: 3, endurance: 3, charisma: 3 };
 const ZERO_STATS: Stats = { strength: 0, agility: 0, intelligence: 0, wisdom: 0, endurance: 0, charisma: 0 };
@@ -242,6 +262,12 @@ export function CharacterBuilderPage() {
     const [name, setName] = useState("");
     const [age, setAge] = useState(25);
     const [gender, setGender] = useState("Male");
+    const [appearanceSelectors, setAppearanceSelectors] = useState<AppearanceSelectors>(() => ({ ...DEFAULT_APPEARANCE_SELECTORS }));
+    const [appearancePrompt, setAppearancePrompt] = useState("");
+    const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
+    const [isGeneratingPortrait, setIsGeneratingPortrait] = useState(false);
+    const [isSyncingAppearance, setIsSyncingAppearance] = useState(false);
+    const [isProfileModified, setIsProfileModified] = useState(false);
     const [backstory, setBackstory] = useState("");
     const [history, setHistory] = useState("");
     const [currentStory, setCurrentStory] = useState("");
@@ -325,6 +351,80 @@ export function CharacterBuilderPage() {
         return () => clearInterval(interval);
     }, [isGeneratingStory]);
 
+    useEffect(() => {
+        if (gender === "Female" && appearanceSelectors.facialHair !== "None") {
+            setAppearanceSelectors(prev => ({ ...prev, facialHair: "None" }));
+        }
+    }, [gender, appearanceSelectors.facialHair]);
+
+    const handleRefreshPortrait = async (specificText?: string) => {
+        if (isGeneratingPortrait) return;
+        setIsGeneratingPortrait(true);
+
+        const selectorsSummary = Object.entries(appearanceSelectors)
+            .map(([key, value]) => `${key.replace(/([A-Z])/g, " $1")}: ${value}`)
+            .join(", ");
+
+        const profileText = (specificText || appearancePrompt).trim();
+        const contextPrompt = `A ${gender} wasteland explorer, aged ${age}. Overall characteristics: ${selectorsSummary}. Detailed appearance: ${profileText}`;
+
+        try {
+            const url = await generateCharacterPortraitViaApi(contextPrompt);
+            if (url) {
+                setPortraitUrl(url);
+                setIsProfileModified(false);
+                await persistCharacterRecord(buildCharacterPayload({
+                    appearancePrompt: profileText,
+                    portraitUrl: url,
+                }));
+            }
+        } catch (error) {
+            console.error("Portrait API failed:", error);
+        }
+
+        setIsGeneratingPortrait(false);
+    };
+
+    const handleManifestAppearance = async () => {
+        if (isSyncingAppearance || isGeneratingPortrait) return;
+
+        setIsSyncingAppearance(true);
+        let narrative = "";
+        const selectorsSummary = Object.entries(appearanceSelectors)
+            .map(([key, value]) => `${key.replace(/([A-Z])/g, " $1")}: ${value}`)
+            .join(", ");
+
+        try {
+            narrative = await enhanceAppearancePromptViaApi({
+                ...appearanceSelectors,
+                age: age.toString(),
+                gender,
+            });
+            setAppearancePrompt(narrative || "");
+        } catch (error) {
+            console.error("Appearance prompt API failed:", error);
+        } finally {
+            setIsSyncingAppearance(false);
+        }
+
+        const fallbackNarrative = appearancePrompt.trim() || `Weathered survivor profile. ${selectorsSummary}.`;
+        const resolvedNarrative = (narrative || fallbackNarrative).trim();
+        if (!narrative && !appearancePrompt.trim()) {
+            setAppearancePrompt(resolvedNarrative);
+        }
+
+        try {
+            await persistCharacterRecord(buildCharacterPayload({
+                appearancePrompt: resolvedNarrative,
+                portraitUrl: portraitUrl || undefined,
+            }), false);
+        } catch (error) {
+            console.error("Failed to persist appearance profile:", error);
+        }
+
+        await handleRefreshPortrait(resolvedNarrative);
+    };
+
     // Fetch world's lore snippets
     useEffect(() => {
         if (!worldId) return;
@@ -341,6 +441,7 @@ export function CharacterBuilderPage() {
     // World Picker
     const { history: generationHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const [showGalleryModal, setShowGalleryModal] = useState(false);
+    const [galleryMode, setGalleryMode] = useState<"worlds" | "characters">("worlds");
     const [showGeneratorModal, setShowGeneratorModal] = useState(false);
 
     const handleGenerateConfirm = async (characters: Character[]) => {
@@ -473,6 +574,7 @@ export function CharacterBuilderPage() {
 
     const activeBaseTypes = worldSettings?.baseTypes && worldSettings.baseTypes.length > 0 ? worldSettings.baseTypes : DEFAULT_BASE_TYPES;
     const activeRules = currentBaseTypeRules || activeBaseTypes.find(t => t.id === characterType) || DEFAULT_BASE_TYPES[0];
+    const visibleTabs = useMemo(() => injectAppearanceTab(activeRules.allowedTabs as BuilderTab[]), [activeRules.allowedTabs]);
     const supportsExplorationSprite = SPRITE_ENABLED_TYPES.has(characterType);
     const spriteActorType = CHARACTER_SPRITE_TYPE_MAP[characterType] ?? "human";
     const spriteGeneratorLink = `/asset-generator?tab=sprites&mode=directional-set&spriteType=${spriteActorType}&targetKind=character&targetId=${charId}`;
@@ -652,6 +754,84 @@ export function CharacterBuilderPage() {
             })(),
         };
     }, [effectiveStats, equippedItems]);
+
+    const buildCharacterPayload = (overrides: Partial<Character> = {}): Character => ({
+        id: charId,
+        isNPC,
+        type: characterType,
+        isFamily,
+        familyId: isFamily ? familyId : undefined,
+        worldId,
+        name,
+        age,
+        gender,
+        history,
+        backstory,
+        appearancePrompt,
+        portraitUrl: portraitUrl || undefined,
+        portraitName: name.trim() || charId,
+        stats: { ...stats },
+        traits: selectedTraits,
+        occupation: selectedOccupation || undefined,
+        progression: selectedOccupation ? {
+            treeOccupationId: selectedOccupation.id,
+            unlockedTalentNodeIds,
+            availableTalentPoints,
+            spentTalentPoints,
+        } : undefined,
+        hp: derivedStats.hp,
+        maxHp: derivedStats.hp,
+        xp: 0,
+        level,
+        credits: normalizeCharacterCredits(credits),
+        inventory,
+        skills: (() => {
+            if (isNPC) return selectedSkills;
+            const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
+            const merged = [...selectedSkills];
+            baseSkills.forEach(bs => {
+                if (!merged.some(ms => ms.id === bs.id)) {
+                    merged.push(bs);
+                }
+            });
+            return merged;
+        })(),
+        equipped: equippedItems,
+        title: characterTitle,
+        badge: characterBadge,
+        faction,
+        alignment,
+        currentStory,
+        explorationSprite,
+        parents: {
+            father: relationships.find(r => r.type === "father")?.targetId || null,
+            mother: relationships.find(r => r.type === "mother")?.targetId || null,
+        },
+        relationships,
+        ...overrides,
+    });
+
+    const refreshSavedCharacters = async () => {
+        await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+        setSavedCharacters(GameRegistry.getAllCharacters());
+    };
+
+    const persistCharacterRecord = async (character: Character, markEditing = true) => {
+        const res = await fetch("http://127.0.0.1:8787/api/data/characters", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(character),
+        });
+
+        if (!res.ok) {
+            throw new Error(`Failed to persist character ${character.id}`);
+        }
+
+        await refreshSavedCharacters();
+        if (markEditing) {
+            setEditingId(character.id);
+        }
+    };
 
     // Check if an item is currently equipped (used by context menu)
     const isItemEquipped = (item: Item): EquipSlot | null => {
@@ -941,12 +1121,25 @@ export function CharacterBuilderPage() {
     };
 
     const loadCharacter = (char: Character) => {
+        const loadedBackstory = char.backstory || "";
+        const loadedAppearancePrompt = (() => {
+            const prompt = (char.appearancePrompt || "").trim();
+            if (!prompt) return "";
+            if (prompt === loadedBackstory.trim()) return "";
+            return prompt;
+        })();
+
         setEditingId(char.id);
         setCharId(char.id);
         setName(char.name);
         setAge(char.age);
         setGender(char.gender);
-        const loadedBackstory = char.backstory || char.appearancePrompt || "";
+        setAppearanceSelectors({ ...DEFAULT_APPEARANCE_SELECTORS });
+        setAppearancePrompt(loadedAppearancePrompt);
+        setPortraitUrl(char.portraitUrl || null);
+        setIsGeneratingPortrait(false);
+        setIsSyncingAppearance(false);
+        setIsProfileModified(false);
         setBackstory(loadedBackstory);
         // If history is identical to backstory, it shows it wasn't a real generated story
         const loadedHistory = (char.history && char.history !== loadedBackstory && char.history.length > loadedBackstory.length + 50) ? char.history : "";
@@ -1034,6 +1227,12 @@ export function CharacterBuilderPage() {
         setName("");
         setAge(25);
         setGender("Male");
+        setAppearanceSelectors({ ...DEFAULT_APPEARANCE_SELECTORS });
+        setAppearancePrompt("");
+        setPortraitUrl(null);
+        setIsGeneratingPortrait(false);
+        setIsSyncingAppearance(false);
+        setIsProfileModified(false);
         setHistory("");
         setBackstory("");
         setIsNPC(false);
@@ -1088,70 +1287,10 @@ export function CharacterBuilderPage() {
     };
 
     const handleSave = async () => {
-        const finalStats = { ...stats };
-        const character: Character = {
-            id: charId,
-            isNPC,
-            type: characterType,
-            isFamily,
-            familyId: isFamily ? familyId : undefined,
-            worldId,
-            name,
-            age,
-            gender,
-            history,
-            backstory,
-            appearancePrompt: backstory, // Keep both in sync for legacy data/backend support
-            stats: finalStats,
-            traits: selectedTraits,
-            occupation: selectedOccupation || undefined,
-            progression: selectedOccupation ? {
-                treeOccupationId: selectedOccupation.id,
-                unlockedTalentNodeIds,
-                availableTalentPoints,
-                spentTalentPoints,
-            } : undefined,
-            hp: derivedStats.hp,
-            maxHp: derivedStats.hp,
-            xp: 0,
-            level: level,
-            credits: normalizeCharacterCredits(credits),
-            inventory: inventory,
-            skills: (() => {
-                if (isNPC) return selectedSkills;
-                // Enforce base skills for players
-                const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
-                const merged = [...selectedSkills];
-                baseSkills.forEach(bs => {
-                    if (!merged.some(ms => ms.id === bs.id)) {
-                        merged.push(bs);
-                    }
-                });
-                return merged;
-            })(),
-            equipped: equippedItems,
-            title: characterTitle,
-            badge: characterBadge,
-            faction: faction,
-            alignment: alignment,
-            currentStory: currentStory,
-            explorationSprite,
-            parents: { father: relationships.find(r => r.type === 'father')?.targetId || null, mother: relationships.find(r => r.type === 'mother')?.targetId || null },
-            relationships,
-        };
+        const character = buildCharacterPayload();
 
         try {
-            const res = await fetch("http://127.0.0.1:8787/api/data/characters", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(character),
-            });
-            if (res.ok) {
-                // Refresh list
-                await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
-                setSavedCharacters(GameRegistry.getAllCharacters());
-                setEditingId(character.id);
-            }
+            await persistCharacterRecord(character);
         } catch (e) {
             console.error("Failed to save character:", e);
         }
@@ -1291,7 +1430,7 @@ export function CharacterBuilderPage() {
 
                     {/* Left: Saved Characters Sidebar */}
                     {
-                        activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT" && activeTab !== "CHARACTER_SHEET" && activeTab !== "SKILLS" && (
+                        activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT" && activeTab !== "CHARACTER_SHEET" && activeTab !== "SKILLS" && activeTab !== "APPEARANCE" && (
                             <aside className="w-[260px] flex flex-col gap-4 shrink-0">
                                 <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
                                     <div className="flex flex-col gap-2 border-b border-indigo-900/30 pb-2">
@@ -1352,7 +1491,7 @@ export function CharacterBuilderPage() {
                         {/* Tab Navigation */}
                         <div className="shrink-0 flex items-center justify-center p-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md">
                             <TabBar
-                                tabs={activeRules.allowedTabs}
+                                tabs={visibleTabs}
                                 activeTab={activeTab}
                                 onTabChange={(t) => setActiveTab(t as BuilderTab)}
                             />
@@ -1807,6 +1946,41 @@ export function CharacterBuilderPage() {
                             )}
 
                             {/* ═══ LORE TAB ═══ */}
+                            {activeTab === "APPEARANCE" && (
+                                <div className="mx-auto flex h-full max-w-6xl flex-col gap-6 py-2">
+                                    <div className="space-y-2">
+                                        <h2 className="text-lg font-black uppercase tracking-widest text-indigo-400">Appearance</h2>
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">
+                                            Physical vectors, portrait synthesis, and the same appearance prompt generation flow used by the website character creation.
+                                        </p>
+                                    </div>
+
+                                    <div className="min-h-0 flex-1">
+                                        <CharacterAppearanceSection
+                                            appearanceSelectors={appearanceSelectors}
+                                            onAppearanceSelectorChange={(key: AppearanceSelectorKey, value: string) => {
+                                                setAppearanceSelectors(prev => ({ ...prev, [key]: value }));
+                                            }}
+                                            appearancePrompt={appearancePrompt}
+                                            onAppearancePromptChange={(value: string) => {
+                                                setAppearancePrompt(value);
+                                                setIsProfileModified(true);
+                                            }}
+                                            portraitUrl={portraitUrl}
+                                            isGeneratingPortrait={isGeneratingPortrait}
+                                            isSyncing={isSyncingAppearance}
+                                            isProfileModified={isProfileModified}
+                                            onManifestIdentity={handleManifestAppearance}
+                                            onRefreshPortrait={() => handleRefreshPortrait()}
+                                            onOpenGallery={() => {
+                                                setGalleryMode("characters");
+                                                setShowGalleryModal(true);
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
                             {activeTab === "LORE" && (
                                 <div className="flex flex-col h-full relative font-mono overflow-hidden py-2 px-2 gap-4 animate-ash-settling">
                                     <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pt-2 pb-6 max-w-6xl mx-auto w-full">
@@ -1833,7 +2007,7 @@ export function CharacterBuilderPage() {
                                                         <div className="flex-1 p-8 bg-orange-500/[0.03] border border-orange-500/10 rounded-3xl flex flex-col group/world max-h-[420px]">
                                                             <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
                                                                 <p className="text-base text-gray-400 leading-relaxed italic font-medium">
-                                                                    {worldSnippets.length > 0
+                                                                    {worldSnippets.length > 0 && worldSnippets[worldSnippets.length - 1].content.trim()
                                                                         ? worldSnippets[worldSnippets.length - 1].content
                                                                         : ASH_TRAIL_CHRONICLES.find(c => c.id === "ASH-4")?.event || "No records found for this coordinate."}
                                                                 </p>
@@ -3797,12 +3971,25 @@ export function CharacterBuilderPage() {
                                 activePlanetId={worldId}
                                 deleteFromHistory={deleteFromHistory}
                                 onRenameWorld={renameInHistory}
+                                initialTab={galleryMode === "characters" ? "characters" : "planets"}
                                 onSelectPlanet={(item) => {
                                     handleUpdateWorldId(item.id);
                                     setShowGalleryModal(false);
                                 }}
-                                onSelectTexture={() => { }}
-                                showExtendedTabs={false}
+                                onSelectTexture={async (source, textureUrl) => {
+                                    if (!source.startsWith("characters")) return;
+                                    setPortraitUrl(textureUrl);
+                                    setIsProfileModified(false);
+                                    try {
+                                        await persistCharacterRecord(buildCharacterPayload({
+                                            portraitUrl: textureUrl,
+                                        }));
+                                    } catch (error) {
+                                        console.error("Failed to persist gallery portrait:", error);
+                                    }
+                                    setShowGalleryModal(false);
+                                }}
+                                showExtendedTabs={galleryMode === "characters"}
                             />
                         </div>
                     </div>

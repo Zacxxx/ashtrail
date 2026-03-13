@@ -102,6 +102,80 @@ pub struct BaseStats {
     pub defense: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DamagePreview {
+    pub min: i32,
+    pub max: i32,
+    pub crit_min: i32,
+    pub crit_max: i32,
+    pub is_magical: bool,
+    pub crit_chance: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CombatRosterEntry {
+    pub roster_id: String,
+    pub character_id: String,
+    pub team: CombatTeam,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CombatTeam {
+    Player,
+    Enemy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CombatTargetPreview {
+    pub entity_id: String,
+    pub preview: DamagePreview,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PreviewMode {
+    None,
+    Move,
+    Attack,
+    Skill,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CombatPreviewState {
+    pub mode: PreviewMode,
+    pub reachable_cells: Vec<GridPos>,
+    pub path_cells: Vec<GridPos>,
+    pub attackable_cells: Vec<GridPos>,
+    pub blocked_cells: Vec<GridPos>,
+    pub aoe_cells: Vec<GridPos>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hovered_cell: Option<GridPos>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hovered_error: Option<String>,
+    pub target_previews: Vec<CombatTargetPreview>,
+}
+
+impl Default for CombatPreviewState {
+    fn default() -> Self {
+        Self {
+            mode: PreviewMode::None,
+            reachable_cells: Vec::new(),
+            path_cells: Vec::new(),
+            attackable_cells: Vec::new(),
+            blocked_cells: Vec::new(),
+            aoe_cells: Vec::new(),
+            hovered_cell: None,
+            hovered_error: None,
+            target_previews: Vec::new(),
+        }
+    }
+}
+
 // ── Gameplay Effect Types ───────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -295,6 +369,7 @@ pub enum SkillCategory {
     Occupation,
     Base,
     Unique,
+    Equipment,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -303,7 +378,10 @@ pub enum SkillAreaType {
     Single,
     Cross,
     Circle,
+    Splash,
     Line,
+    Cone,
+    Perpendicular,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -398,8 +476,12 @@ pub struct SkillTarget {
 pub enum CombatAction {
     #[serde(rename_all = "camelCase")]
     StartCombat {
-        players: Vec<TacticalEntity>,
-        enemies: Vec<TacticalEntity>,
+        #[serde(default)]
+        roster: Option<Vec<CombatRosterEntry>>,
+        #[serde(default)]
+        players: Option<Vec<TacticalEntity>>,
+        #[serde(default)]
+        enemies: Option<Vec<TacticalEntity>>,
         grid: Option<Grid>,
         config: CombatConfig,
     },
@@ -421,6 +503,32 @@ pub enum CombatAction {
         target_row: usize,
         target_col: usize,
     },
+    #[serde(rename_all = "camelCase")]
+    PreviewMove {
+        entity_id: String,
+        #[serde(default)]
+        hover_row: Option<usize>,
+        #[serde(default)]
+        hover_col: Option<usize>,
+    },
+    #[serde(rename_all = "camelCase")]
+    PreviewBasicAttack {
+        attacker_id: String,
+        #[serde(default)]
+        hover_row: Option<usize>,
+        #[serde(default)]
+        hover_col: Option<usize>,
+    },
+    #[serde(rename_all = "camelCase")]
+    PreviewSkill {
+        caster_id: String,
+        skill_id: String,
+        #[serde(default)]
+        hover_row: Option<usize>,
+        #[serde(default)]
+        hover_col: Option<usize>,
+    },
+    ClearPreview,
     EndTurn,
 }
 
@@ -431,6 +539,10 @@ pub enum CombatEvent {
     #[serde(rename_all = "camelCase")]
     StateSync {
         state: CombatStateSnapshot,
+    },
+    #[serde(rename_all = "camelCase")]
+    PreviewState {
+        preview: CombatPreviewState,
     },
     #[serde(rename_all = "camelCase")]
     EntityMoved {

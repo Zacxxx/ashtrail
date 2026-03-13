@@ -75,6 +75,29 @@ export interface DamagePreview {
     critChance: number;
 }
 
+export interface CombatRosterEntry {
+    rosterId: string;
+    characterId: string;
+    team: 'player' | 'enemy';
+}
+
+export interface CombatTargetPreview {
+    entityId: string;
+    preview: DamagePreview;
+}
+
+export interface CombatPreviewState {
+    mode: 'none' | 'move' | 'attack' | 'skill';
+    reachableCells: GridPos[];
+    pathCells: GridPos[];
+    attackableCells: GridPos[];
+    blockedCells: GridPos[];
+    aoeCells: GridPos[];
+    hoveredCell?: GridPos;
+    hoveredError?: string;
+    targetPreviews: CombatTargetPreview[];
+}
+
 export interface GridPos {
     row: number;
     col: number;
@@ -119,15 +142,20 @@ export interface SkillTarget {
 
 /** Client → Server messages */
 export type CombatAction =
-    | { type: 'start_combat'; players: TacticalEntity[]; enemies: TacticalEntity[]; grid?: Grid; config: CombatConfig }
+    | { type: 'start_combat'; roster?: CombatRosterEntry[]; players?: TacticalEntity[]; enemies?: TacticalEntity[]; grid?: Grid; config: CombatConfig }
     | { type: 'move'; entityId: string; targetRow: number; targetCol: number }
     | { type: 'attack'; attackerId: string; defenderId: string }
     | { type: 'use_skill'; casterId: string; skillId: string; targetRow: number; targetCol: number }
+    | { type: 'preview_move'; entityId: string; hoverRow?: number; hoverCol?: number }
+    | { type: 'preview_basic_attack'; attackerId: string; hoverRow?: number; hoverCol?: number }
+    | { type: 'preview_skill'; casterId: string; skillId: string; hoverRow?: number; hoverCol?: number }
+    | { type: 'clear_preview' }
     | { type: 'end_turn' };
 
 /** Server → Client messages */
 export type CombatEvent =
     | { type: 'state_sync'; state: CombatStateSnapshot }
+    | { type: 'preview_state'; preview: CombatPreviewState }
     | { type: 'entity_moved'; entityId: string; from: GridPos; to: GridPos; mpCost: number; tackleCost: number }
     | { type: 'attack_result'; attackerId: string; defenderId: string; damage: number; isCrit: boolean; isMiss: boolean }
     | { type: 'skill_used'; casterId: string; skillId: string; targets: SkillTarget[] }

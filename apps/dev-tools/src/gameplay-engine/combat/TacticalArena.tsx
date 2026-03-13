@@ -4,11 +4,10 @@
 
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Skill } from '@ashtrail/core';
-import type { TacticalEntity, CombatPhase, CombatLogMessage } from '@ashtrail/core';
+import type { TacticalEntity, CombatPhase, CombatLogMessage, CombatPreviewState, DamagePreview } from '@ashtrail/core';
 import { Modal } from '@ashtrail/ui';
-import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells, getReachableCells, getAttackableCells, findPath } from './tacticalGrid';
+import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, findPath } from './tacticalGrid';
 import type { PlayerAction } from './useCombatWebSocket';
-import type { DamagePreview } from '@ashtrail/core';
 import { GameRulesManager } from '../rules/useGameRules';
 
 export interface TacticalArenaUtilityAction {
@@ -37,6 +36,10 @@ interface TacticalArenaProps {
     getDamagePreview: (attacker: TacticalEntity, target: TacticalEntity, skill: Skill) => DamagePreview | null;
     variant?: 'gameplay' | 'quest';
     utilityActions?: TacticalArenaUtilityAction[];
+    previewState: CombatPreviewState;
+    onPreviewMove: (entityId: string, hoverRow?: number, hoverCol?: number) => void;
+    onPreviewBasicAttack: (attackerId: string, hoverRow?: number, hoverCol?: number) => void;
+    onPreviewSkill: (casterId: string, skillId: string, hoverRow?: number, hoverCol?: number) => void;
 }
 
 export function TacticalArena({
@@ -48,6 +51,10 @@ export function TacticalArena({
     getDamagePreview,
     variant = 'gameplay',
     utilityActions = [],
+    previewState,
+    onPreviewMove,
+    onPreviewBasicAttack,
+    onPreviewSkill
 }: TacticalArenaProps) {
     const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -73,11 +80,16 @@ export function TacticalArena({
     }, [grid]);
 
     const [hoveredCell, setHoveredCell] = useState<{ row: number, col: number } | null>(null);
+    const [battlemapLoaded, setBattlemapLoaded] = useState(false);
     const [isHotbarUnlocked, setIsHotbarUnlocked] = useState(false);
     const [skillOrders, setSkillOrders] = useState<Record<string, (Skill | null)[]>>({});
     const [hoveredDragSlot, setHoveredDragSlot] = useState<number | null>(null);
     const [showTimelineModal, setShowTimelineModal] = useState(false);
     const [showCombatLogModal, setShowCombatLogModal] = useState(false);
+
+    useEffect(() => {
+        setBattlemapLoaded(false);
+    }, [battlemapUrl]);
 
     const currentSkills = useMemo(() => {
         if (!activeEntity) return Array.from({ length: 20 }, () => null);
@@ -123,59 +135,36 @@ export function TacticalArena({
     };
 
     const aoeSet = useMemo(() => {
-        if (!selectedSkill || !hoveredCell || !activeEntity || phase !== 'combat' || playerAction !== 'targeting_skill') return new Set<string>();
-        if (selectedSkill.areaType === 'single') return new Set<string>();
-
-        const dr = hoveredCell.row - activeEntity.gridPos.row;
-        const dc = hoveredCell.col - activeEntity.gridPos.col;
-
-        let dirR = 0; let dirC = 0;
-        if (Math.abs(dr) > Math.abs(dc)) dirR = dr > 0 ? 1 : -1;
-        else if (Math.abs(dc) > Math.abs(dr)) dirC = dc > 0 ? 1 : -1;
-        else { dirR = dr > 0 ? 1 : -1; dirC = 0; }
-
-        const aoe = getAoECells(grid, hoveredCell.row, hoveredCell.col, selectedSkill.areaType, selectedSkill.areaSize || 0, dirR, dirC);
         const set = new Set<string>();
-        aoe.forEach(c => set.add(`${c.row},${c.col}`));
+        previewState.aoeCells.forEach((cell) => set.add(`${cell.row},${cell.col}`));
         return set;
-    }, [selectedSkill, hoveredCell, activeEntity, grid, phase, playerAction]);
+    }, [previewState.aoeCells]);
+
+    const targetPreviewMap = useMemo(() => {
+        const map = new Map<string, CombatPreviewState['targetPreviews'][number]['preview']>();
+        previewState.targetPreviews.forEach((target) => {
+            map.set(target.entityId, target.preview);
+        });
+        return map;
+    }, [previewState.targetPreviews]);
 
     const displayGrid = useMemo(() => {
-        // Create a shallow copy of the grid rows/cells to inject highlights
         const newGrid = grid.map(row => row.map(cell => ({ ...cell, highlight: null as 'move' | 'attack' | 'attack-blocked' | 'path' | null })));
-
-        if (!activeEntity || phase !== 'combat' || !isPlayerTurn) return newGrid;
-
-        if (playerAction === 'idle') {
-            const reachable = getReachableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, activeEntity.mp);
-            reachable.forEach(c => {
-                newGrid[c.row][c.col].highlight = 'move';
-            });
-
-            // Add path highlighting on hover
-            if (hoveredCell) {
-                const isReachable = reachable.some(c => c.row === hoveredCell.row && c.col === hoveredCell.col);
-                if (isReachable) {
-                    const path = findPath(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, hoveredCell.row, hoveredCell.col);
-                    if (path) {
-                        path.forEach(c => {
-                            newGrid[c.row][c.col].highlight = 'path';
-                        });
-                    }
-                }
-            }
-        } else if (playerAction === 'targeting_skill' && selectedSkill) {
-            const attackable = getAttackableCells(grid, activeEntity.gridPos.row, activeEntity.gridPos.col, selectedSkill.minRange, selectedSkill.maxRange);
-            attackable.valid.forEach(c => {
-                newGrid[c.row][c.col].highlight = 'attack';
-            });
-            attackable.blocked.forEach(c => {
-                newGrid[c.row][c.col].highlight = 'attack-blocked';
-            });
-        }
+        previewState.reachableCells.forEach((cell) => {
+            newGrid[cell.row][cell.col].highlight = 'move';
+        });
+        previewState.attackableCells.forEach((cell) => {
+            newGrid[cell.row][cell.col].highlight = 'attack';
+        });
+        previewState.blockedCells.forEach((cell) => {
+            newGrid[cell.row][cell.col].highlight = 'attack-blocked';
+        });
+        previewState.pathCells.forEach((cell) => {
+            newGrid[cell.row][cell.col].highlight = 'path';
+        });
 
         return newGrid;
-    }, [grid, activeEntity, phase, isPlayerTurn, playerAction, selectedSkill, hoveredCell]);
+    }, [grid, previewState]);
 
     const compactTurnOrder = useMemo(
         () => turnOrder.slice(0, variant === 'quest' ? 4 : 6).map((id) => entities.get(id)).filter((entity): entity is TacticalEntity => Boolean(entity)),
@@ -282,6 +271,8 @@ export function TacticalArena({
                                 src={battlemapUrl}
                                 alt="Battlemap"
                                 className="pointer-events-none"
+                                onLoad={() => setBattlemapLoaded(true)}
+                                onError={() => setBattlemapLoaded(false)}
                                 style={{
                                     position: 'absolute',
                                     left: gridBounds.minX,
@@ -300,15 +291,11 @@ export function TacticalArena({
                             row.map((cell, c) => {
                                 const { x, y } = gridToScreen(r, c);
                                 const occupant = cell.occupantId ? entities.get(cell.occupantId) : undefined;
-                                let error = "";
-                                if (selectedSkill?.id === 'analyze' && occupant) {
-                                    if (occupant.level > (activeEntity?.level || 10) + 5) {
-                                        error = "Target too powerful to analyze";
-                                    }
-                                }
-
-                                const damagePreview = (occupant && activeEntity && selectedSkill)
-                                    ? getDamagePreview(activeEntity, occupant, selectedSkill)
+                                const isHoveredTile = hoveredCell?.row === r && hoveredCell?.col === c;
+                                const error = isHoveredTile ? previewState.hoveredError || "" : "";
+                                const damagePreview = occupant
+                                    ? targetPreviewMap.get(occupant.id)
+                                        || (activeEntity && selectedSkill ? getDamagePreview(activeEntity, occupant, selectedSkill) : null)
                                     : null;
 
                                 return (
@@ -320,13 +307,37 @@ export function TacticalArena({
                                         entity={occupant}
                                         isActive={cell.occupantId === activeEntityId}
                                         isAoe={aoeSet.has(`${r},${c}`)}
-                                        hasBattlemap={!!battlemapUrl}
+                                        hasBattlemap={!!battlemapUrl && battlemapLoaded}
                                         onClick={() => {
                                             if (error) return; // Block clicking
                                             onCellClick(r, c);
                                         }}
-                                        onHover={() => setHoveredCell({ row: r, col: c })}
-                                        onLeave={() => setHoveredCell(null)}
+                                        onHover={() => {
+                                            setHoveredCell({ row: r, col: c });
+                                            if (!activeEntity || !isPlayerTurn || phase !== 'combat') return;
+                                            if (selectedSkill) {
+                                                onPreviewSkill(activeEntity.id, selectedSkill.id, r, c);
+                                                return;
+                                            }
+                                            if (occupant && occupant.id !== activeEntity.id && occupant.isPlayer !== activeEntity.isPlayer) {
+                                                onPreviewBasicAttack(activeEntity.id, r, c);
+                                                return;
+                                            }
+                                            if (occupant) {
+                                                onPreviewMove(activeEntity.id);
+                                                return;
+                                            }
+                                            onPreviewMove(activeEntity.id, r, c);
+                                        }}
+                                        onLeave={() => {
+                                            setHoveredCell(null);
+                                            if (!activeEntity || !isPlayerTurn || phase !== 'combat') return;
+                                            if (selectedSkill) {
+                                                onPreviewSkill(activeEntity.id, selectedSkill.id);
+                                            } else {
+                                                onPreviewMove(activeEntity.id);
+                                            }
+                                        }}
                                         errorMessage={error}
                                         damagePreview={damagePreview}
                                     />
@@ -469,6 +480,8 @@ export function TacticalArena({
                                                                 let strBonus = 0;
                                                                 if (skill.pushDistance && skill.pushDistance > 0) {
                                                                     strBonus = activeEntity ? Math.floor(activeEntity.strength * (rules.combat.shovePushDamageRatio || 0.1)) : 0;
+                                                                } else if (hasWeaponScaling && weapon?.weaponType === 'ranged') {
+                                                                    strBonus = 0;
                                                                 } else {
                                                                     strBonus = activeEntity ? Math.floor(activeEntity.strength * 0.3) : 0;
                                                                 }
@@ -481,7 +494,7 @@ export function TacticalArena({
                                                                     if (weaponDmgEffect) baseVal = weaponDmgEffect.value;
                                                                 }
 
-                                                                const total = (skill.damage || 0) + strBonus;
+                                                                const total = hasWeaponScaling ? (baseVal + strBonus) : ((skill.damage || 0) + strBonus);
                                                                 const isDistract = skill.id === 'distract';
                                                                 const isAnalyze = skill.id === 'analyze';
                                                                 const isStealth = skill.effects?.some(e => e.type === 'STEALTH' as any);
@@ -553,31 +566,43 @@ export function TacticalArena({
                                                                     );
                                                                 }
 
-                                                                if (skill.damage || strBonus > 0 || skill.pushDistance) {
-                                                                    // Only show damage block if the skill ACTUALLY has a damage property or is a push skill
-                                                                    if (!skill.damage && !skill.pushDistance) return null;
+                                                                if (hasWeaponScaling) {
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="text-red-400 font-black uppercase">Damage</span>
+                                                                                <span className="text-white font-mono">Weapon-based</span>
+                                                                            </div>
+                                                                            <div className="text-[8px] text-gray-500 italic leading-snug">
+                                                                                Hover a target to see the Rust combat preview.
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                if (skill.pushDistance) {
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full">
+                                                                            <div className="flex items-center justify-between text-[9px]">
+                                                                                <span className="text-indigo-400 font-bold uppercase">Pushback</span>
+                                                                                <span className="text-white font-mono">{skill.pushDistance} cells</span>
+                                                                            </div>
+                                                                            <div className="text-[8px] text-gray-500 italic leading-snug">
+                                                                                Damage and shock are resolved by the Rust combat engine.
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                if (skill.damage || strBonus > 0) {
                                                                     return (
                                                                         <div className="flex flex-col gap-1 w-full">
                                                                             <div className="flex items-center gap-1.5">
                                                                                 <span className="text-red-400 font-black">{total} dmg</span>
                                                                                 <span className="text-[8px] text-gray-500">
-                                                                                    ({hasWeaponScaling ? (weapon ? '⚔️' : '👊') : ''}{baseVal} + 💪{strBonus})
+                                                                                    ({baseVal} + str {strBonus})
                                                                                 </span>
                                                                             </div>
-                                                                            {skill.pushDistance && (
-                                                                                <div className="flex flex-col gap-0.5 border-t border-white/5 pt-1 mt-0.5">
-                                                                                    <div className="flex items-center justify-between text-[9px]">
-                                                                                        <span className="text-indigo-400 font-bold uppercase">Pushback</span>
-                                                                                        <span className="text-white font-mono">{skill.pushDistance} cells</span>
-                                                                                    </div>
-                                                                                    <div className="flex items-center justify-between text-[9px]">
-                                                                                        <span className="text-indigo-400/70 italic">Shock Potential</span>
-                                                                                        <span className="text-indigo-300 font-mono">
-                                                                                            ~{activeEntity ? Math.floor(1 * activeEntity.strength * (rules.combat.shoveShockDamageRatio || 0.3)) : 0}/cell
-                                                                                        </span>
-                                                                                    </div>
-                                                                                </div>
-                                                                            )}
                                                                         </div>
                                                                     );
                                                                 }

@@ -1,8 +1,3 @@
-// ═══════════════════════════════════════════════════════════
-// useCombatWebSocket.ts — Replaces useTacticalCombat with server-driven state
-// Connects to the Rust backend via WebSocket, sends actions, receives state.
-// ═══════════════════════════════════════════════════════════
-
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Skill } from '@ashtrail/core';
 import type {
@@ -13,34 +8,38 @@ import type {
     CombatPhase,
     CombatLogMessage,
     CombatConfig,
-    GridPos,
+    Grid,
+    CombatRosterEntry,
+    CombatPreviewState,
 } from '@ashtrail/core';
-import { Grid } from './tacticalGrid';
-
-// ── Types ──
 
 export type PlayerAction = 'idle' | 'moving' | 'attacking' | 'targeting_skill';
 
 export interface CombatSetup {
-    players: TacticalEntity[];
-    enemies: TacticalEntity[];
+    roster?: CombatRosterEntry[];
+    players?: TacticalEntity[];
+    enemies?: TacticalEntity[];
     grid?: Grid;
     config: CombatConfig;
 }
 
 const WS_URL = `ws://${window.location.hostname}:8787/api/combat/ws`;
-
 const MELEE_ATTACK_COST = 3;
-
-// ── Hook ──
+const EMPTY_PREVIEW: CombatPreviewState = {
+    mode: 'none',
+    reachableCells: [],
+    pathCells: [],
+    attackableCells: [],
+    blockedCells: [],
+    aoeCells: [],
+    targetPreviews: [],
+};
 
 export function useCombatWebSocket(setup: CombatSetup) {
-    // State from server
     const [serverState, setServerState] = useState<CombatStateSnapshot | null>(null);
+    const [previewState, setPreviewState] = useState<CombatPreviewState>(EMPTY_PREVIEW);
     const [isConnected, setIsConnected] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
-    // Local UI state (not server-driven)
     const [playerAction, setPlayerAction] = useState<PlayerAction>('idle');
     const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
 
@@ -48,7 +47,12 @@ export function useCombatWebSocket(setup: CombatSetup) {
     const setupRef = useRef(setup);
     setupRef.current = setup;
 
-    // Connect and start combat
+    const sendAction = useCallback((action: CombatAction) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify(action));
+        }
+    }, []);
+
     useEffect(() => {
         const ws = new WebSocket(WS_URL);
         wsRef.current = ws;
@@ -56,28 +60,45 @@ export function useCombatWebSocket(setup: CombatSetup) {
         ws.onopen = () => {
             setIsConnected(true);
             setError(null);
-            // Send start combat action immediately
-            const action: CombatAction = {
+            sendAction({
                 type: 'start_combat',
+                roster: setupRef.current.roster,
                 players: setupRef.current.players,
                 enemies: setupRef.current.enemies,
                 grid: setupRef.current.grid,
                 config: setupRef.current.config,
-            };
-            ws.send(JSON.stringify(action));
+            });
         };
 
         ws.onmessage = (event) => {
             try {
                 const combatEvent: CombatEvent = JSON.parse(event.data);
-                handleEvent(combatEvent);
-            } catch (e) {
-                console.error('Failed to parse combat event:', e);
+                switch (combatEvent.type) {
+                    case 'state_sync':
+                        setServerState(combatEvent.state);
+                        break;
+                    case 'preview_state':
+                        setPreviewState(combatEvent.preview);
+                        break;
+                    case 'error':
+                        setError(combatEvent.message);
+                        break;
+                    case 'entity_moved':
+                    case 'attack_result':
+                    case 'skill_used':
+                    case 'entity_defeated':
+                    case 'turn_changed':
+                    case 'combat_ended':
+                    case 'log':
+                    case 'highlight_cells':
+                        break;
+                }
+            } catch (parseError) {
+                console.error('Failed to parse combat event:', parseError);
             }
         };
 
-        ws.onerror = (e) => {
-            console.error('Combat WebSocket error:', e);
+        ws.onerror = () => {
             setError('WebSocket connection error');
         };
 
@@ -89,51 +110,54 @@ export function useCombatWebSocket(setup: CombatSetup) {
             ws.close();
             wsRef.current = null;
         };
-    }, []); // Connect once on mount
+    }, [sendAction]);
 
-    const handleEvent = useCallback((event: CombatEvent) => {
-        switch (event.type) {
-            case 'state_sync':
-                setServerState(event.state);
-                break;
-            case 'error':
-                setError(event.message);
-                console.warn('[Combat WS] Error:', event.message);
-                break;
-            // Other events are informational — the state_sync after them updates everything
-            // But we could add animations/effects based on these events in the future
-            case 'entity_moved':
-            case 'attack_result':
-            case 'skill_used':
-            case 'entity_defeated':
-            case 'turn_changed':
-            case 'combat_ended':
-            case 'log':
-            case 'highlight_cells':
-                break;
+    const previewMove = useCallback((entityId: string, hoverRow?: number, hoverCol?: number) => {
+        sendAction({ type: 'preview_move', entityId, hoverRow, hoverCol });
+    }, [sendAction]);
+
+    const previewBasicAttack = useCallback((attackerId: string, hoverRow?: number, hoverCol?: number) => {
+        sendAction({ type: 'preview_basic_attack', attackerId, hoverRow, hoverCol });
+    }, [sendAction]);
+
+    const previewSkill = useCallback((casterId: string, skillId: string, hoverRow?: number, hoverCol?: number) => {
+        sendAction({ type: 'preview_skill', casterId, skillId, hoverRow, hoverCol });
+    }, [sendAction]);
+
+    const clearPreview = useCallback(() => {
+        sendAction({ type: 'clear_preview' });
+    }, [sendAction]);
+
+    const activeEntityId = serverState?.activeEntityId ?? '';
+    const activeEntity = serverState?.entities[activeEntityId];
+    const isPlayerTurn = activeEntity?.isPlayer ?? false;
+
+    useEffect(() => {
+        if (!serverState || serverState.phase !== 'combat' || !activeEntity || !activeEntity.isPlayer) {
+            setPreviewState(EMPTY_PREVIEW);
+            setSelectedSkill(null);
+            setPlayerAction('idle');
+            return;
         }
-    }, []);
 
-    // ── Actions (send to server) ──
-
-    const sendAction = useCallback((action: CombatAction) => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(action));
+        if (selectedSkill) {
+            previewSkill(activeEntity.id, selectedSkill.id);
+            setPlayerAction('targeting_skill');
+        } else {
+            previewMove(activeEntity.id);
+            setPlayerAction('idle');
         }
-    }, []);
+    }, [activeEntity?.id, activeEntity?.isPlayer, previewMove, previewSkill, selectedSkill, serverState]);
 
     const handleCellClick = useCallback((row: number, col: number) => {
-        if (!serverState || serverState.phase !== 'combat') return;
+        if (!serverState || serverState.phase !== 'combat' || !activeEntity || !activeEntity.isPlayer) {
+            return;
+        }
 
-        const activeId = serverState.activeEntityId;
-        const activeEntity = serverState.entities[activeId];
-        if (!activeEntity || !activeEntity.isPlayer) return;
-
-        // ── Skill targeting mode ──
         if (selectedSkill) {
             sendAction({
                 type: 'use_skill',
-                casterId: activeId,
+                casterId: activeEntity.id,
                 skillId: selectedSkill.id,
                 targetRow: row,
                 targetCol: col,
@@ -146,33 +170,24 @@ export function useCombatWebSocket(setup: CombatSetup) {
         const cell = serverState.grid[row]?.[col];
         if (!cell) return;
 
-        // ── Click on enemy: basic attack ──
-        if (cell.occupantId && cell.occupantId !== activeId) {
-            const target = serverState.entities[cell.occupantId];
-            if (target && !target.isPlayer) {
-                const dist = Math.abs(row - activeEntity.gridPos.row) + Math.abs(col - activeEntity.gridPos.col);
-                const weaponRange = (activeEntity as any).equipped?.mainHand?.weaponRange || 1;
-                if (dist <= weaponRange && activeEntity.ap >= MELEE_ATTACK_COST) {
-                    sendAction({
-                        type: 'attack',
-                        attackerId: activeId,
-                        defenderId: cell.occupantId,
-                    });
-                    return;
-                }
-            }
+        if (cell.occupantId && cell.occupantId !== activeEntity.id) {
+            sendAction({
+                type: 'attack',
+                attackerId: activeEntity.id,
+                defenderId: cell.occupantId,
+            });
+            return;
         }
 
-        // ── Click on empty walkable cell: move ──
-        if (cell.walkable && !cell.occupantId && activeEntity.mp > 0) {
+        if (cell.walkable && !cell.occupantId) {
             sendAction({
                 type: 'move',
-                entityId: activeId,
+                entityId: activeEntity.id,
                 targetRow: row,
                 targetCol: col,
             });
         }
-    }, [serverState, selectedSkill, sendAction]);
+    }, [activeEntity, selectedSkill, sendAction, serverState]);
 
     const endTurn = useCallback(() => {
         sendAction({ type: 'end_turn' });
@@ -182,19 +197,25 @@ export function useCombatWebSocket(setup: CombatSetup) {
 
     const selectSkill = useCallback((skill: Skill | null) => {
         setSelectedSkill(skill);
-        setPlayerAction(skill ? 'targeting_skill' : 'idle');
-    }, []);
+        if (!activeEntity || !activeEntity.isPlayer || !serverState || serverState.phase !== 'combat') {
+            setPlayerAction('idle');
+            return;
+        }
 
-    // ── Derived values (matching useTacticalCombat interface) ──
+        if (skill) {
+            setPlayerAction('targeting_skill');
+            previewSkill(activeEntity.id, skill.id);
+        } else {
+            setPlayerAction('idle');
+            previewMove(activeEntity.id);
+        }
+    }, [activeEntity, previewMove, previewSkill, serverState]);
 
     const grid = serverState?.grid ?? [];
     const entities: Map<string, TacticalEntity> = new Map(
         serverState ? Object.entries(serverState.entities) : []
     );
     const turnOrder = serverState?.turnOrder ?? [];
-    const activeEntityId = serverState?.activeEntityId ?? '';
-    const activeEntity = serverState?.entities[activeEntityId];
-    const isPlayerTurn = activeEntity?.isPlayer ?? false;
     const phase: CombatPhase = serverState?.phase ?? 'placement';
     const logs: CombatLogMessage[] = serverState?.logs ?? [];
     const turnNumber = serverState?.turnNumber ?? 1;
@@ -214,6 +235,11 @@ export function useCombatWebSocket(setup: CombatSetup) {
         endTurn,
         selectSkill,
         selectedSkill,
+        previewState,
+        previewMove,
+        previewBasicAttack,
+        previewSkill,
+        clearPreview,
         MELEE_ATTACK_COST,
         isConnected,
         error,

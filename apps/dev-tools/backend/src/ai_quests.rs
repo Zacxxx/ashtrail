@@ -92,6 +92,12 @@ pub struct UpsertGlossaryEntryRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct EnhanceAppearancePromptRequest {
+    pub params: std::collections::HashMap<String, String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GenerateQuestPortraitRequest {
     pub prompt: String,
 }
@@ -922,6 +928,40 @@ pub async fn generate_character_portrait_handler(
             )
                 .into_response()
         }
+        Err((code, message)) => (code, message).into_response(),
+    }
+}
+
+pub async fn enhance_appearance_prompt_handler(
+    Json(payload): Json<EnhanceAppearancePromptRequest>,
+) -> impl IntoResponse {
+    if payload.params.is_empty() {
+        return (StatusCode::BAD_REQUEST, "Missing appearance params".to_string()).into_response();
+    }
+
+    let gender = payload.params.get("gender").cloned().unwrap_or_default();
+    let age = payload.params.get("age").cloned().unwrap_or_default();
+    let physical_parameters = payload
+        .params
+        .iter()
+        .filter(|(key, _)| key.as_str() != "gender" && key.as_str() != "age")
+        .map(|(key, value)| format!("{key}: {value}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let prompt = format!(
+        "You are a creative writer. Turn technical character attributes into immersive prose. Ensure gender and age are reflected in tone and vocabulary.\n\n\
+Transform character appearance parameters into a gritty, atmospheric 2-sentence worded description for a post-apocalyptic survivor.\n\n\
+Context:\n\
+Gender: {gender}\n\
+Age: {age}\n\n\
+Physical Parameters:\n\
+{physical_parameters}\n\n\
+Return ONLY the description text. Focus on how the ash-filled world has weathered their specific features."
+    );
+
+    match generate_text(&prompt).await {
+        Ok(text) => (StatusCode::OK, Json(json!({ "text": text }))).into_response(),
         Err((code, message)) => (code, message).into_response(),
     }
 }

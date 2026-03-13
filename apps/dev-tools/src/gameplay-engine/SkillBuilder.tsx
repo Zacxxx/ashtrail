@@ -3,6 +3,16 @@ import { Skill, GameRegistry, SkillTargetType, SkillAreaType, SkillCategory, Gam
 import { IconGallerySelector } from "../components/IconGallerySelector";
 import { ModifierEditor } from "../components/ModifierEditor";
 
+const SKILL_AREA_TYPE_OPTIONS: SkillAreaType[] = [
+    "single",
+    "cross",
+    "circle",
+    "splash",
+    "line",
+    "cone",
+    "perpendicular",
+];
+
 export function SkillBuilder() {
     const [savedSkills, setSavedSkills] = useState<Skill[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -334,10 +344,11 @@ export function SkillBuilder() {
                         <div className="space-y-1">
                             <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Area Type</label>
                             <select value={areaType} onChange={e => setAreaType(e.target.value as SkillAreaType)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-indigo-500/50">
-                                <option value="single">Single</option>
-                                <option value="circle">Circle</option>
-                                <option value="cross">Cross</option>
-                                <option value="line">Line</option>
+                                {SKILL_AREA_TYPE_OPTIONS.map(option => (
+                                    <option key={option} value={option}>
+                                        {option === "perpendicular" ? "PERP" : option.charAt(0).toUpperCase() + option.slice(1)}
+                                    </option>
+                                ))}
                             </select>
                         </div>
                         <div className="space-y-1">
