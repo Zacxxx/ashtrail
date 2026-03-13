@@ -54,6 +54,8 @@ apps/dev-tools/generated/world-cache/*
 apps/dev-tools/backend/bin/*
 apps/dev-tools/generated/upscale/*
 apps/dev-tools/generated/planets/*
+apps/dev-tools/generated/characters/portraits/*
+!apps/dev-tools/generated/characters/portraits/.gitkeep
 
 
 

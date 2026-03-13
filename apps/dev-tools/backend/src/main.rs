@@ -55,6 +55,8 @@ struct AppState {
     exploration_runtime: exploration_jobs::ExplorationGenerationRuntime,
     planets_dir: PathBuf,
     planet_root: PathBuf,
+    characters_dir: PathBuf,
+    character_portraits_dir: PathBuf,
     icons_dir: PathBuf,
     icons_export_dir: PathBuf,
     textures_dir: PathBuf,
@@ -633,6 +635,13 @@ async fn main() {
     let planets_dir = PathBuf::from("generated/planets");
     std::fs::create_dir_all(&planets_dir).expect("failed to create planets directory");
 
+    let characters_dir = PathBuf::from("generated/characters");
+    std::fs::create_dir_all(&characters_dir).expect("failed to create characters directory");
+
+    let character_portraits_dir = characters_dir.join("portraits");
+    std::fs::create_dir_all(&character_portraits_dir)
+        .expect("failed to create character portraits directory");
+
     let icons_dir = PathBuf::from("../../game-assets/assets/Icons");
     std::fs::create_dir_all(&icons_dir)
         .expect("failed to create game-assets/assets/Icons directory");
@@ -687,6 +696,8 @@ async fn main() {
         exploration_runtime: exploration_jobs::ExplorationGenerationRuntime::from_env(true, jobs),
         planets_dir,
         planet_root: PathBuf::from("generated/planet"), // For the hierarchical generator
+        characters_dir: characters_dir.clone(),
+        character_portraits_dir: character_portraits_dir.clone(),
         icons_dir: icons_dir.clone(),
         icons_export_dir,
         textures_dir: textures_dir.clone(),
@@ -1082,6 +1093,7 @@ async fn main() {
         .route("/api/combat/ws", get(combat_engine::session::ws_handler))
         .merge(asset_packs::router())
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
+        .nest_service("/api/character-portraits", ServeDir::new(character_portraits_dir.clone()))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .nest_service("/api/textures", ServeDir::new(textures_dir.clone()))
         .nest_service("/api/sprites", ServeDir::new(sprites_dir.clone()))
@@ -7096,6 +7108,9 @@ fn local_to_cloud_key(
     if let Ok(rel) = local_path.strip_prefix(&state.planets_dir) {
         return Some(format!("{}/planets/{}", cfg.prefix, normalize_slashes(rel)));
     }
+    if let Ok(rel) = local_path.strip_prefix(&state.characters_dir) {
+        return Some(format!("{}/characters/{}", cfg.prefix, normalize_slashes(rel)));
+    }
     if let Ok(rel) = local_path.strip_prefix(&state.icons_dir) {
         return Some(format!("{}/icons/{}", cfg.prefix, normalize_slashes(rel)));
     }
@@ -7111,10 +7126,14 @@ fn local_to_cloud_key(
 
 fn cloud_key_to_local(state: &AppState, cfg: &SupabaseStorageConfig, key: &str) -> Option<PathBuf> {
     let planets_prefix = format!("{}/planets/", cfg.prefix);
+    let characters_prefix = format!("{}/characters/", cfg.prefix);
     let icons_prefix = format!("{}/icons/", cfg.prefix);
     let isolated_prefix = format!("{}/isolated/", cfg.prefix);
     if let Some(rel) = key.strip_prefix(&planets_prefix) {
         return Some(state.planets_dir.join(rel));
+    }
+    if let Some(rel) = key.strip_prefix(&characters_prefix) {
+        return Some(state.characters_dir.join(rel));
     }
     if let Some(rel) = key.strip_prefix(&icons_prefix) {
         return Some(state.icons_dir.join(rel));
@@ -7414,6 +7433,7 @@ async fn sync_supabase_storage(
     let mut failed = 0usize;
 
     let planets_prefix = format!("{}/planets", cfg.prefix);
+    let characters_prefix = format!("{}/characters", cfg.prefix);
     let icons_prefix = format!("{}/icons", cfg.prefix);
     let isolated_prefix = format!("{}/isolated", cfg.prefix);
     let remote_planets = match list_supabase_objects_recursive(&client, cfg, &planets_prefix).await
@@ -7448,8 +7468,20 @@ async fn sync_supabase_storage(
                     .into_response();
             }
         };
+    let remote_characters =
+        match list_supabase_objects_recursive(&client, cfg, &characters_prefix).await {
+            Ok(v) => v,
+            Err(err) => {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({ "error": err })),
+                )
+                    .into_response();
+            }
+        };
     let remote_files = remote_planets
         .into_iter()
+        .chain(remote_characters.into_iter())
         .chain(remote_icons.into_iter())
         .chain(remote_isolated.into_iter())
         .collect::<Vec<_>>();
@@ -7460,6 +7492,7 @@ async fn sync_supabase_storage(
 
     let mut local_files = Vec::new();
     collect_files_recursive(&state.planets_dir, &mut local_files);
+    collect_files_recursive(&state.characters_dir, &mut local_files);
     collect_files_recursive(&state.icons_dir, &mut local_files);
     collect_files_recursive(&state.isolated_dir, &mut local_files);
 
