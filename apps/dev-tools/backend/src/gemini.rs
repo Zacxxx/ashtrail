@@ -226,6 +226,52 @@ pub async fn generate_image_bytes(
     rows: u32,
     aspect_ratio: Option<&str>,
 ) -> Result<Vec<u8>, (StatusCode, String)> {
+    let model_catalog = image_model_catalog();
+    let mut model_chain = Vec::new();
+    if !model_catalog.default_model_id.is_empty() {
+        model_chain.push(model_catalog.default_model_id);
+    }
+    for model_id in model_catalog.fallback_chain {
+        if !model_chain.contains(&model_id) {
+            model_chain.push(model_id);
+        }
+    }
+
+    let mut first_error: Option<(StatusCode, String)> = None;
+    for model_id in model_chain {
+        match generate_image_bytes_with_model(
+            prompt,
+            temperature,
+            cols,
+            rows,
+            aspect_ratio,
+            &model_id,
+        )
+        .await
+        {
+            Ok(bytes) => return Ok(bytes),
+            Err(err) => {
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
+            }
+        }
+    }
+
+    Err(first_error.unwrap_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "No configured image models available".to_string(),
+    )))
+}
+
+pub async fn generate_image_bytes_with_model(
+    prompt: &str,
+    temperature: Option<f32>,
+    cols: u32,
+    rows: u32,
+    aspect_ratio: Option<&str>,
+    model_id: &str,
+) -> Result<Vec<u8>, (StatusCode, String)> {
     let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
         let msg = "GEMINI_API_KEY environment variable not set";
         error!(msg);
@@ -233,8 +279,8 @@ pub async fn generate_image_bytes(
     })?;
 
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={}",
-        api_key
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        model_id, api_key
     );
 
     let client = Client::new();
@@ -264,7 +310,7 @@ pub async fn generate_image_bytes(
         },
     };
 
-    info!("Calling Gemini Imagen 3 API with prompt: {}", prompt);
+    info!("Calling Gemini image API model={} with prompt: {}", model_id, prompt);
 
     let res = client
         .post(&url)
@@ -323,6 +369,13 @@ pub async fn generate_image_bytes(
 }
 
 pub async fn generate_text(prompt: &str) -> Result<String, (StatusCode, String)> {
+    generate_text_with_options(prompt, 0.9).await
+}
+
+pub async fn generate_text_with_options(
+    prompt: &str,
+    temperature: f32,
+) -> Result<String, (StatusCode, String)> {
     let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
         let msg = "GEMINI_API_KEY environment variable not set";
         error!(msg);
@@ -343,7 +396,7 @@ pub async fn generate_text(prompt: &str) -> Result<String, (StatusCode, String)>
         }],
         generation_config: GenerationConfig {
             response_modalities: vec!["TEXT".to_string()],
-            temperature: Some(0.9), // Higher variance
+            temperature: Some(temperature),
             image_config: None,
         },
     };

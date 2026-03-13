@@ -1,4 +1,7 @@
 use crate::gemini::{generate_image_bytes, generate_text};
+use crate::quest_ai::{
+    try_reserve_capacity, QuestAiWorkKind, QuestJobAcceptedResponse, QuestJobKind, QuestJobStatus,
+};
 use crate::AppState;
 use axum::{
     extract::{Path, Query, State},
@@ -10,7 +13,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -22,7 +25,11 @@ use uuid::Uuid;
 pub struct GenerateQuestRunRequest {
     pub world_id: String,
     pub seed: Value,
+    #[serde(default)]
+    pub party_character_ids: Vec<String>,
+    #[serde(default)]
     pub party: Value,
+    #[serde(default)]
     pub gm_context: Value,
     #[serde(default)]
     pub factions: Value,
@@ -37,8 +44,15 @@ pub struct GenerateQuestRunRequest {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdvanceQuestRequest {
+    #[serde(default)]
+    pub world_id: Option<String>,
+    #[serde(default)]
+    pub run_id: Option<String>,
+    #[serde(default)]
     pub run: Value,
+    #[serde(default)]
     pub party: Value,
+    #[serde(default)]
     pub gm_context: Value,
     #[serde(default)]
     pub factions: Value,
@@ -102,10 +116,283 @@ pub struct GenerateQuestPortraitRequest {
     pub prompt: String,
 }
 
+#[derive(Clone)]
+struct QuestContextDigest {
+    world_summary: String,
+    lore_summary: String,
+    anchor_summary: String,
+    party_summary: String,
+    npc_candidate_summary: String,
+    fauna_candidates: String,
+    chain_summary: String,
+}
+
+#[derive(Clone)]
+struct QuestContextBundle {
+    digest: QuestContextDigest,
+    gm_context: Value,
+    factions: Value,
+    locations: Value,
+    ecology: Value,
+    history_characters: Value,
+}
+
+pub async fn get_quest_job(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+) -> impl IntoResponse {
+    match state.quest_runtime.get_job(&job_id) {
+        Ok(Some(job)) => (StatusCode::OK, Json(json!(job))).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "Quest job not found".to_string()).into_response(),
+        Err((status, message)) => (status, message).into_response(),
+    }
+}
+
+pub async fn cancel_quest_job(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+) -> impl IntoResponse {
+    match state.quest_runtime.cancel_job(&job_id) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err((status, message)) => (status, message).into_response(),
+    }
+}
+
+async fn start_generate_quest_job(
+    state: AppState,
+    payload: GenerateQuestRunRequest,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let Some(reservation) = try_reserve_capacity(&state.quest_runtime.text_limiter) else {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Quest generation queue full. Please wait for running jobs to finish."
+                .to_string(),
+        ));
+    };
+    let job_id = state
+        .quest_runtime
+        .create_job(QuestJobKind::GenerateRun, &payload.world_id, None)?;
+    let spawned_state = state.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        let _reservation = reservation;
+        run_generate_quest_job(spawned_state, payload, spawned_job_id).await;
+    });
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(QuestJobAcceptedResponse {
+            job_id,
+            kind: QuestJobKind::GenerateRun,
+        }),
+    ))
+}
+
+async fn start_advance_quest_job(
+    state: AppState,
+    payload: AdvanceQuestRequest,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let world_id = payload
+        .world_id
+        .clone()
+        .or_else(|| {
+            payload
+                .run
+                .get("worldId")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            "Quest advance request is missing worldId".to_string(),
+        ))?;
+    let run_id = payload
+        .run_id
+        .clone()
+        .or_else(|| {
+            payload
+                .run
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            "Quest advance request is missing runId".to_string(),
+        ))?;
+    let Some(reservation) = try_reserve_capacity(&state.quest_runtime.text_limiter) else {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Quest generation queue full. Please wait for running jobs to finish."
+                .to_string(),
+        ));
+    };
+    let job_id = state
+        .quest_runtime
+        .create_job(QuestJobKind::AdvanceRun, &world_id, Some(run_id.clone()))?;
+    let spawned_state = state.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        let _reservation = reservation;
+        run_advance_quest_job(spawned_state, payload, spawned_job_id).await;
+    });
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(QuestJobAcceptedResponse {
+            job_id,
+            kind: QuestJobKind::AdvanceRun,
+        }),
+    ))
+}
+
+async fn run_generate_quest_job(
+    state: AppState,
+    payload: GenerateQuestRunRequest,
+    job_id: String,
+) {
+    let runtime = state.quest_runtime.clone();
+    let Ok((_global_permit, _text_permit)) = runtime.wait_for_text_permits(&job_id).await else {
+        if !runtime.is_cancel_requested(&job_id) {
+            runtime.update_job(
+                &job_id,
+                QuestJobStatus::Failed,
+                0.0,
+                "Failed",
+                None,
+                Some("Quest text capacity unavailable.".to_string()),
+            );
+        }
+        return;
+    };
+
+    if runtime.is_cancel_requested(&job_id) {
+        runtime.update_job(
+            &job_id,
+            QuestJobStatus::Cancelled,
+            0.0,
+            "Cancelled",
+            None,
+            None,
+        );
+        return;
+    }
+
+    runtime.update_job(
+        &job_id,
+        QuestJobStatus::Running,
+        5.0,
+        "Compiling context",
+        None,
+        None,
+    );
+
+    match execute_generate_quest_v2(&state, &payload, &job_id).await {
+        Ok(result) => runtime.update_job(
+            &job_id,
+            QuestJobStatus::Completed,
+            100.0,
+            "Completed",
+            Some(result),
+            None,
+        ),
+        Err((status, message)) if runtime.is_cancel_requested(&job_id) => runtime.update_job(
+            &job_id,
+            QuestJobStatus::Cancelled,
+            100.0,
+            "Cancelled",
+            None,
+            Some(format!("{status}: {message}")),
+        ),
+        Err((_status, message)) => runtime.update_job(
+            &job_id,
+            QuestJobStatus::Failed,
+            100.0,
+            "Failed",
+            None,
+            Some(message),
+        ),
+    }
+}
+
+async fn run_advance_quest_job(
+    state: AppState,
+    payload: AdvanceQuestRequest,
+    job_id: String,
+) {
+    let runtime = state.quest_runtime.clone();
+    let Ok((_global_permit, _text_permit)) = runtime.wait_for_text_permits(&job_id).await else {
+        if !runtime.is_cancel_requested(&job_id) {
+            runtime.update_job(
+                &job_id,
+                QuestJobStatus::Failed,
+                0.0,
+                "Failed",
+                None,
+                Some("Quest text capacity unavailable.".to_string()),
+            );
+        }
+        return;
+    };
+
+    if runtime.is_cancel_requested(&job_id) {
+        runtime.update_job(
+            &job_id,
+            QuestJobStatus::Cancelled,
+            0.0,
+            "Cancelled",
+            None,
+            None,
+        );
+        return;
+    }
+
+    runtime.update_job(
+        &job_id,
+        QuestJobStatus::Running,
+        5.0,
+        "Compiling context",
+        None,
+        None,
+    );
+
+    match execute_advance_quest_v2(&state, &payload, &job_id).await {
+        Ok(result) => runtime.update_job(
+            &job_id,
+            QuestJobStatus::Completed,
+            100.0,
+            "Completed",
+            Some(result),
+            None,
+        ),
+        Err((status, message)) if runtime.is_cancel_requested(&job_id) => runtime.update_job(
+            &job_id,
+            QuestJobStatus::Cancelled,
+            100.0,
+            "Cancelled",
+            None,
+            Some(format!("{status}: {message}")),
+        ),
+        Err((_status, message)) => runtime.update_job(
+            &job_id,
+            QuestJobStatus::Failed,
+            100.0,
+            "Failed",
+            None,
+            Some(message),
+        ),
+    }
+}
+
 pub async fn generate_quest_run_handler(
     State(state): State<AppState>,
     Json(payload): Json<GenerateQuestRunRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if state.quest_runtime.enabled {
+        return start_generate_quest_job(state, payload).await;
+    }
+
     let mut warnings = Vec::new();
     let run_id = format!("quest-{}", Uuid::new_v4());
     let timestamp = now_ms();
@@ -301,6 +588,10 @@ pub async fn advance_quest_handler(
     State(state): State<AppState>,
     Json(payload): Json<AdvanceQuestRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if state.quest_runtime.enabled {
+        return start_advance_quest_job(state, payload).await;
+    }
+
     let mut warnings = Vec::new();
     let current_run = payload.run.clone();
     let world_id = current_run.get("worldId").and_then(Value::as_str).ok_or((

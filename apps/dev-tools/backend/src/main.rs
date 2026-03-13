@@ -10,6 +10,7 @@ mod gemini;
 mod generator;
 mod hierarchy;
 mod locations;
+mod quest_ai;
 mod worldgen_pipeline;
 
 use axum::{
@@ -46,6 +47,7 @@ use worldgen_core::graph::ProvinceAdjacency;
 #[derive(Clone)]
 struct AppState {
     jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
+    quest_runtime: quest_ai::QuestRuntime,
     planets_dir: PathBuf,
     planet_root: PathBuf,
     icons_dir: PathBuf,
@@ -584,9 +586,14 @@ async fn main() {
     if supabase.is_none() {
         warn!("Supabase storage sync disabled (missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)");
     }
+    let quest_v2_enabled = std::env::var("QUEST_V2")
+        .ok()
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(true);
 
     let state = AppState {
         jobs: Arc::new(Mutex::new(HashMap::new())),
+        quest_runtime: quest_ai::QuestRuntime::from_env(quest_v2_enabled),
         planets_dir,
         planet_root: PathBuf::from("generated/planet"), // For the hierarchical generator
         icons_dir: icons_dir.clone(),
@@ -649,6 +656,10 @@ async fn main() {
         .route(
             "/api/quests/advance",
             post(ai_quests::advance_quest_handler),
+        )
+        .route(
+            "/api/quests/jobs/{job_id}",
+            get(ai_quests::get_quest_job).delete(ai_quests::cancel_quest_job),
         )
         .route(
             "/api/gm/enhance-appearance-prompt",
