@@ -3,7 +3,9 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Map, Value};
 
 use super::combat::CombatState;
-use super::content_loader::{load_character, load_content_bundle, ContentBundle, RawCharacter, RawItem, RawTalentNode};
+use super::content_loader::{
+    load_character, load_content_bundle, ContentBundle, RawCharacter, RawItem, RawTalentNode,
+};
 use super::rules::GameRulesConfig;
 use super::types::*;
 
@@ -21,12 +23,22 @@ const DEFAULT_PLAYER_SKILL_IDS: &[&str] = &[
     "analyze",
 ];
 
-const DEFAULT_ENEMY_SKILL_IDS: &[&str] = &[
-    "use-weapon",
-    "quick-shot",
-    "power-strike",
-    "war-cry",
-];
+const DEFAULT_ENEMY_SKILL_IDS: &[&str] = &["use-weapon", "quick-shot", "power-strike", "war-cry"];
+
+fn canonical_skill_id(skill_id: &str) -> &str {
+    match skill_id {
+        "slash" => "use-weapon",
+        _ => skill_id,
+    }
+}
+
+fn combat_skill_priority(skill_id: &str) -> usize {
+    match skill_id {
+        "use-weapon" => 0,
+        "first-aid" => 1,
+        _ => usize::MAX,
+    }
+}
 
 #[derive(Clone)]
 struct PreparedCombatant {
@@ -67,16 +79,13 @@ fn build_tactical_entity(
     roster_entry: &CombatRosterEntry,
     rules: &GameRulesConfig,
 ) -> Result<TacticalEntity, String> {
-    let occupation = character
-        .occupation
-        .clone()
-        .or_else(|| {
-            character
-                .progression
-                .as_ref()
-                .and_then(|progression| progression.tree_occupation_id.as_ref())
-                .and_then(|occupation_id| content.occupations.get(occupation_id).cloned())
-        });
+    let occupation = character.occupation.clone().or_else(|| {
+        character
+            .progression
+            .as_ref()
+            .and_then(|progression| progression.tree_occupation_id.as_ref())
+            .and_then(|occupation_id| content.occupations.get(occupation_id).cloned())
+    });
 
     let resolved_equipped = resolve_equipped(content, character)?;
     let main_hand_weapon = resolved_equipped
@@ -151,7 +160,11 @@ fn build_combat_traits(
         if let Some(effects) = &occupation.effects {
             let combat_effects: Vec<GameplayEffect> = effects
                 .iter()
-                .filter(|effect| effect.scope.is_none() || effect.scope == Some(EffectScope::Combat) || effect.scope == Some(EffectScope::Global))
+                .filter(|effect| {
+                    effect.scope.is_none()
+                        || effect.scope == Some(EffectScope::Combat)
+                        || effect.scope == Some(EffectScope::Global)
+                })
                 .cloned()
                 .collect();
             if !combat_effects.is_empty() {
@@ -176,7 +189,11 @@ fn build_combat_traits(
         let combat_effects: Vec<GameplayEffect> = node
             .effects
             .iter()
-            .filter(|effect| effect.scope.is_none() || effect.scope == Some(EffectScope::Combat) || effect.scope == Some(EffectScope::Global))
+            .filter(|effect| {
+                effect.scope.is_none()
+                    || effect.scope == Some(EffectScope::Combat)
+                    || effect.scope == Some(EffectScope::Global)
+            })
             .cloned()
             .collect();
         if combat_effects.is_empty() {
@@ -207,7 +224,7 @@ fn resolve_combat_skills(
     let granted_skills = unlocked_nodes(content, character)
         .iter()
         .flat_map(|node| node.grants_skill_ids.iter())
-        .filter_map(|skill_id| content.skills.get(skill_id).cloned())
+        .filter_map(|skill_id| content.skills.get(canonical_skill_id(skill_id)).cloned())
         .collect::<Vec<_>>();
     skills.extend(granted_skills);
     skills = dedupe_skills(skills);
@@ -233,14 +250,28 @@ fn resolve_combat_skills(
         );
     }
 
-    dedupe_skills(skills)
+    prioritize_skills(dedupe_skills(skills))
 }
 
 fn refresh_skills(content: &ContentBundle, skills: &[Skill]) -> Vec<Skill> {
     skills
         .iter()
-        .filter(|skill| skill.id != "slash")
-        .map(|skill| content.skills.get(&skill.id).cloned().unwrap_or_else(|| skill.clone()))
+        .map(|skill| {
+            let canonical_id = canonical_skill_id(&skill.id);
+            content
+                .skills
+                .get(canonical_id)
+                .cloned()
+                .unwrap_or_else(|| {
+                    if canonical_id == skill.id {
+                        skill.clone()
+                    } else {
+                        let mut normalized = skill.clone();
+                        normalized.id = canonical_id.to_string();
+                        normalized
+                    }
+                })
+        })
         .collect()
 }
 
@@ -268,7 +299,11 @@ fn patch_use_weapon_skill(skills: &mut [Skill], main_hand_weapon: Option<&RawIte
             let dmg_str = weapon
                 .effects
                 .as_ref()
-                .and_then(|effects| effects.iter().find(|effect| effect.target.as_deref() == Some("damage")))
+                .and_then(|effects| {
+                    effects
+                        .iter()
+                        .find(|effect| effect.target.as_deref() == Some("damage"))
+                })
                 .map(|effect| format!(" | Base DMG: {}", effect.value as i32))
                 .unwrap_or_default();
             let scaling_str = if weapon.weapon_type.as_deref() == Some("ranged") {
@@ -277,7 +312,11 @@ fn patch_use_weapon_skill(skills: &mut [Skill], main_hand_weapon: Option<&RawIte
                 " + STR"
             };
             let aoe_str = if skill.area_type != SkillAreaType::Single {
-                format!(" | AOE: {}({})", skill_area_label(&skill.area_type), skill.area_size)
+                format!(
+                    " | AOE: {}({})",
+                    skill_area_label(&skill.area_type),
+                    skill.area_size
+                )
             } else {
                 String::new()
             };
@@ -331,9 +370,7 @@ fn resolve_item_reference(
         .map_err(|e| format!("parse embedded equipped item: {e}"))
 }
 
-fn equipped_map_to_value(
-    equipped: HashMap<String, Option<RawItem>>,
-) -> Result<Value, String> {
+fn equipped_map_to_value(equipped: HashMap<String, Option<RawItem>>) -> Result<Value, String> {
     let mut map = Map::new();
     for (slot, item) in equipped {
         let value = match item {
@@ -346,12 +383,20 @@ fn equipped_map_to_value(
     Ok(Value::Object(map))
 }
 
-fn unlocked_nodes<'a>(content: &'a ContentBundle, character: &RawCharacter) -> Vec<&'a RawTalentNode> {
+fn unlocked_nodes<'a>(
+    content: &'a ContentBundle,
+    character: &RawCharacter,
+) -> Vec<&'a RawTalentNode> {
     let occupation_id = character
         .progression
         .as_ref()
         .and_then(|progression| progression.tree_occupation_id.as_ref())
-        .or_else(|| character.occupation.as_ref().map(|occupation| &occupation.id));
+        .or_else(|| {
+            character
+                .occupation
+                .as_ref()
+                .map(|occupation| &occupation.id)
+        });
 
     let unlocked_ids: HashSet<&str> = character
         .progression
@@ -384,6 +429,11 @@ fn dedupe_skills(skills: Vec<Skill>) -> Vec<Skill> {
         .into_iter()
         .filter(|skill| seen.insert(skill.id.clone()))
         .collect()
+}
+
+fn prioritize_skills(mut skills: Vec<Skill>) -> Vec<Skill> {
+    skills.sort_by_key(|skill| combat_skill_priority(&skill.id));
+    skills
 }
 
 fn dedupe_traits(traits: Vec<Trait>) -> Vec<Trait> {

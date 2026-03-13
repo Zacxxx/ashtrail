@@ -1,6 +1,15 @@
 use crate::gemini::generate_text;
-use axum::{http::StatusCode, response::IntoResponse, Json};
+use crate::{build_text_output_ref, make_job_record, parse_tracked_job_meta, AppState};
+use crate::jobs::{now_ms, JobStatus};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::sync::{Arc, Mutex};
 use tracing::{error, info};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -47,9 +56,51 @@ pub struct GenerateEventResponse {
     pub raw_json: String,
 }
 
-pub async fn generate_event_handler(
-    Json(payload): Json<GenerateEventRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+fn job_store_lock_error() -> (StatusCode, String) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "job store lock poisoned".to_string(),
+    )
+}
+
+fn finish_tracked_event_job(
+    jobs: &Arc<Mutex<std::collections::HashMap<String, crate::jobs::JobRecord>>>,
+    job_id: &str,
+    result: serde_json::Value,
+    output_label: &str,
+    summary: &str,
+) {
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(job_id) {
+            job.status = JobStatus::Completed;
+            job.progress = 100.0;
+            job.current_stage = "Completed".to_string();
+            job.result = Some(result);
+            job.output_refs = vec![build_text_output_ref(output_label, summary)];
+            job.updated_at = now_ms();
+        }
+    }
+}
+
+fn fail_tracked_event_job(
+    jobs: &Arc<Mutex<std::collections::HashMap<String, crate::jobs::JobRecord>>>,
+    job_id: &str,
+    message: String,
+) {
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(job_id) {
+            job.status = JobStatus::Failed;
+            job.progress = 100.0;
+            job.current_stage = "Failed".to_string();
+            job.error = Some(message);
+            job.updated_at = now_ms();
+        }
+    }
+}
+
+async fn execute_generate_event(
+    payload: GenerateEventRequest,
+) -> Result<GenerateEventResponse, (StatusCode, String)> {
     let traits_list: Vec<String> = payload
         .character_traits
         .iter()
@@ -105,10 +156,7 @@ Output strictly in JSON format matching this schema:
     );
 
     info!("Generating event: {}", payload.context);
-
     let generated_text = generate_text(&prompt).await?;
-
-    // Clean up potential markdown formatting from Gemini
     let cleaned = generated_text
         .trim()
         .strip_prefix("```json")
@@ -118,7 +166,63 @@ Output strictly in JSON format matching this schema:
         .trim()
         .to_string();
 
-    Ok(Json(GenerateEventResponse { raw_json: cleaned }))
+    Ok(GenerateEventResponse { raw_json: cleaned })
+}
+
+pub async fn generate_event_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<GenerateEventRequest>,
+) -> Result<Response, (StatusCode, String)> {
+    if let Some(meta) = parse_tracked_job_meta(&headers) {
+        let job_id = uuid::Uuid::new_v4().to_string();
+        {
+            let mut jobs = state.jobs.lock().map_err(|_| job_store_lock_error())?;
+            let mut job = make_job_record(
+                meta.kind.as_deref().unwrap_or("events.generate"),
+                meta.title.as_deref().unwrap_or("Generate Event"),
+                meta.tool.as_deref().unwrap_or("gameplay-engine"),
+                "Queued",
+                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(serde_json::Value::as_str).map(str::to_string),
+                None,
+            );
+            if meta.restore.is_some() || meta.metadata.is_some() {
+                let mut metadata = serde_json::Map::new();
+                if let Some(restore) = meta.restore {
+                    metadata.insert("restore".to_string(), restore);
+                }
+                if let Some(extra) = meta.metadata {
+                    metadata.insert("metadata".to_string(), extra);
+                }
+                job.metadata = Some(serde_json::Value::Object(metadata));
+            }
+            jobs.insert(job_id.clone(), job);
+        }
+        let jobs = state.jobs.clone();
+        let spawned_job_id = job_id.clone();
+        tokio::spawn(async move {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.status = JobStatus::Running;
+                    job.progress = 25.0;
+                    job.current_stage = "Generating event".to_string();
+                    job.updated_at = now_ms();
+                }
+            }
+            match execute_generate_event(payload).await {
+                Ok(response) => finish_tracked_event_job(
+                    &jobs,
+                    &spawned_job_id,
+                    json!({ "rawJson": response.raw_json }),
+                    "Generated Event",
+                    &response.raw_json,
+                ),
+                Err((_status, message)) => fail_tracked_event_job(&jobs, &spawned_job_id, message),
+            }
+        });
+        return Ok((StatusCode::ACCEPTED, Json(json!({ "jobId": job_id }))).into_response());
+    }
+    Ok(Json(execute_generate_event(payload).await?).into_response())
 }
 
 #[derive(Deserialize, Debug)]
@@ -138,9 +242,9 @@ pub struct ResolveEventResponse {
     pub raw_json: String,
 }
 
-pub async fn resolve_event_handler(
-    Json(payload): Json<ResolveEventRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+async fn execute_resolve_event(
+    payload: ResolveEventRequest,
+) -> Result<ResolveEventResponse, (StatusCode, String)> {
     let traits_list: Vec<String> = payload
         .character_traits
         .iter()
@@ -200,9 +304,7 @@ Output strictly in JSON format matching this schema:
 }}",
         gm_context_block,
         payload.event_description,
-        payload
-            .character_alignment
-            .unwrap_or_else(|| "Neutral".to_string()),
+        payload.character_alignment.unwrap_or_else(|| "Neutral".to_string()),
         traits_list.join(", "),
         payload.character_stats.strength,
         payload.character_stats.agility,
@@ -212,9 +314,7 @@ Output strictly in JSON format matching this schema:
         payload.character_stats.charisma,
         payload.chosen_action
     );
-
     let generated_text = generate_text(&prompt).await?;
-
     let cleaned = generated_text
         .trim()
         .strip_prefix("```json")
@@ -223,8 +323,63 @@ Output strictly in JSON format matching this schema:
         .unwrap_or(&generated_text)
         .trim()
         .to_string();
+    Ok(ResolveEventResponse { raw_json: cleaned })
+}
 
-    Ok(Json(ResolveEventResponse { raw_json: cleaned }))
+pub async fn resolve_event_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ResolveEventRequest>,
+) -> Result<Response, (StatusCode, String)> {
+    if let Some(meta) = parse_tracked_job_meta(&headers) {
+        let job_id = uuid::Uuid::new_v4().to_string();
+        {
+            let mut jobs = state.jobs.lock().map_err(|_| job_store_lock_error())?;
+            let mut job = make_job_record(
+                meta.kind.as_deref().unwrap_or("events.resolve"),
+                meta.title.as_deref().unwrap_or("Resolve Event"),
+                meta.tool.as_deref().unwrap_or("gameplay-engine"),
+                "Queued",
+                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(serde_json::Value::as_str).map(str::to_string),
+                None,
+            );
+            if meta.restore.is_some() || meta.metadata.is_some() {
+                let mut metadata = serde_json::Map::new();
+                if let Some(restore) = meta.restore {
+                    metadata.insert("restore".to_string(), restore);
+                }
+                if let Some(extra) = meta.metadata {
+                    metadata.insert("metadata".to_string(), extra);
+                }
+                job.metadata = Some(serde_json::Value::Object(metadata));
+            }
+            jobs.insert(job_id.clone(), job);
+        }
+        let jobs = state.jobs.clone();
+        let spawned_job_id = job_id.clone();
+        tokio::spawn(async move {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.status = JobStatus::Running;
+                    job.progress = 25.0;
+                    job.current_stage = "Resolving event".to_string();
+                    job.updated_at = now_ms();
+                }
+            }
+            match execute_resolve_event(payload).await {
+                Ok(response) => finish_tracked_event_job(
+                    &jobs,
+                    &spawned_job_id,
+                    json!({ "rawJson": response.raw_json }),
+                    "Resolved Outcome",
+                    &response.raw_json,
+                ),
+                Err((_status, message)) => fail_tracked_event_job(&jobs, &spawned_job_id, message),
+            }
+        });
+        return Ok((StatusCode::ACCEPTED, Json(json!({ "jobId": job_id }))).into_response());
+    }
+    Ok(Json(execute_resolve_event(payload).await?).into_response())
 }
 
 #[derive(Deserialize, Debug)]
@@ -243,9 +398,9 @@ pub struct RethinkEventResponse {
     pub raw_json: String,
 }
 
-pub async fn rethink_event_handler(
-    Json(payload): Json<RethinkEventRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+async fn execute_rethink_event(
+    payload: RethinkEventRequest,
+) -> Result<RethinkEventResponse, (StatusCode, String)> {
     let traits_list: Vec<String> = payload
         .character_traits
         .iter()
@@ -293,7 +448,6 @@ Output strictly in JSON format matching this schema:
     );
 
     let generated_text = generate_text(&prompt).await?;
-
     let cleaned = generated_text
         .trim()
         .strip_prefix("```json")
@@ -303,5 +457,61 @@ Output strictly in JSON format matching this schema:
         .trim()
         .to_string();
 
-    Ok(Json(RethinkEventResponse { raw_json: cleaned }))
+    Ok(RethinkEventResponse { raw_json: cleaned })
+}
+
+pub async fn rethink_event_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<RethinkEventRequest>,
+) -> Result<Response, (StatusCode, String)> {
+    if let Some(meta) = parse_tracked_job_meta(&headers) {
+        let job_id = uuid::Uuid::new_v4().to_string();
+        {
+            let mut jobs = state.jobs.lock().map_err(|_| job_store_lock_error())?;
+            let mut job = make_job_record(
+                meta.kind.as_deref().unwrap_or("events.rethink"),
+                meta.title.as_deref().unwrap_or("Rethink Event"),
+                meta.tool.as_deref().unwrap_or("gameplay-engine"),
+                "Queued",
+                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(serde_json::Value::as_str).map(str::to_string),
+                None,
+            );
+            if meta.restore.is_some() || meta.metadata.is_some() {
+                let mut metadata = serde_json::Map::new();
+                if let Some(restore) = meta.restore {
+                    metadata.insert("restore".to_string(), restore);
+                }
+                if let Some(extra) = meta.metadata {
+                    metadata.insert("metadata".to_string(), extra);
+                }
+                job.metadata = Some(serde_json::Value::Object(metadata));
+            }
+            jobs.insert(job_id.clone(), job);
+        }
+        let jobs = state.jobs.clone();
+        let spawned_job_id = job_id.clone();
+        tokio::spawn(async move {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.status = JobStatus::Running;
+                    job.progress = 25.0;
+                    job.current_stage = "Rethinking choices".to_string();
+                    job.updated_at = now_ms();
+                }
+            }
+            match execute_rethink_event(payload).await {
+                Ok(response) => finish_tracked_event_job(
+                    &jobs,
+                    &spawned_job_id,
+                    json!({ "rawJson": response.raw_json }),
+                    "Rethought Choices",
+                    &response.raw_json,
+                ),
+                Err((_status, message)) => fail_tracked_event_job(&jobs, &spawned_job_id, message),
+            }
+        });
+        return Ok((StatusCode::ACCEPTED, Json(json!({ "jobId": job_id }))).into_response());
+    }
+    Ok(Json(execute_rethink_event(payload).await?).into_response())
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GameRegistry, Character, Skill, resolveCharacterSkills, resolveCharacterTraitGrants } from '@ashtrail/core';
+import { GameRegistry, Character, Skill, resolveCharacterSkills, resolveCharacterTraitGrants, sanitizeSkillLoadout } from '@ashtrail/core';
 import type { TacticalEntity, CombatConfig, DamagePreview, CombatResolutionSummary, CombatRosterEntry } from '@ashtrail/core';
 import { TacticalArena, type TacticalArenaUtilityAction } from './TacticalArena';
 import { useCombatWebSocket } from './useCombatWebSocket';
@@ -11,10 +11,14 @@ import type { EcologyBundle, FaunaEntry } from '../../ecology/types';
 
 // ── Default skills given to characters without their own ──
 function getDefaultPlayerSkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id));
+    return sanitizeSkillLoadout(
+        GameRegistry.getAllSkills().filter(s => ['use-weapon', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id)),
+    );
 }
 function getDefaultEnemySkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+    return sanitizeSkillLoadout(
+        GameRegistry.getAllSkills().filter(s => ['use-weapon', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id)),
+    );
 }
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number, defaultPlayerSkills: Skill[], defaultEnemySkills: Skill[]): TacticalEntity {
@@ -43,15 +47,11 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
 
     // ── 2. Resolve skills (prefer effect-aware resolution, then hydrate from registry) ──
     const refreshSkill = (skill: Skill) => GameRegistry.getSkill(skill.id) || skill;
-    const resolvedSkills = resolveCharacterSkills(char)
-        .filter((skill) => skill.id !== 'slash')
-        .map(refreshSkill);
+    const resolvedSkills = sanitizeSkillLoadout(resolveCharacterSkills(char).map(refreshSkill));
 
     let skills: Skill[] = resolvedSkills.length > 0
         ? resolvedSkills
-        : (char.skills || [])
-            .filter((skill) => skill.id !== 'slash')
-            .map(refreshSkill);
+        : sanitizeSkillLoadout((char.skills || []).map(refreshSkill));
 
     if (skills.length === 0) {
         skills = (isPlayer ? defaultPlayerSkills : defaultEnemySkills).map(refreshSkill);
@@ -59,11 +59,7 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
 
     if (isPlayer) {
         const baseSkills = GameRegistry.getAllSkills().filter((skill) => skill.category === 'base');
-        baseSkills.forEach((baseSkill) => {
-            if (!skills.some((skill) => skill.id === baseSkill.id)) {
-                skills.push(baseSkill);
-            }
-        });
+        skills = sanitizeSkillLoadout([...skills, ...baseSkills]);
     }
 
     // ── 3. Patch use-weapon skill with live weapon data (range + description + AOE) ──

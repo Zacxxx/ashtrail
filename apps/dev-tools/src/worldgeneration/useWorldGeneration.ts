@@ -3,6 +3,8 @@ import type { SimulationConfig } from "../modules/geo/types";
 import type { GenerationProgress, PlanetWorld, ContinentConfig } from "./types";
 import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { BIOME_META } from "../modules/geo/biomes";
+import { useJobs } from "../jobs/useJobs";
+import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 
 interface UseWorldGenerationParams {
     activeWorldId: string | null;
@@ -47,6 +49,8 @@ export function useWorldGeneration({
     saveCellSubTiles,
     onHumanityGenerated,
 }: UseWorldGenerationParams) {
+    const { waitForJob } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
     const [genProgress, setGenProgress] = useState<GenerationProgress>({
         isActive: false,
         progress: 0,
@@ -201,17 +205,23 @@ ${configPrompt}${continentsPrompt}`;
     const handleAutoGenerateContinents = useCallback(async () => {
         setIsGeneratingText(true);
         try {
-            const response = await fetch("/api/text/generate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: "/api/text/generate",
+                request: {
                     prompt: "Generate 3 unique geographic descriptions for major continents on a fantasy or alien planet. Format the response ONLY as a strict JSON array of objects, with each object containing a 'name' string and a detailed 'prompt' string describing the landscape. Do not include markdown formatting or backticks around the JSON."
-                }),
+                },
+                optimisticJob: {
+                    kind: "worldgen.text-helper",
+                    title: "Generate Continents",
+                    tool: "worldgen",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId: activeWorldId,
+                },
             });
-            if (!response.ok) throw new Error("Failed to generate text");
-
-            const data = await response.json();
-            const parsed = JSON.parse(data.text);
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") throw new Error(detail.error || "Failed to generate text");
+            const parsed = JSON.parse(String((detail.result as { text?: string } | undefined)?.text || "[]"));
             if (Array.isArray(parsed)) {
                 setContinents(parsed.map((c: any) => ({
                     id: crypto.randomUUID(),
@@ -225,7 +235,7 @@ ${configPrompt}${continentsPrompt}`;
         } finally {
             setIsGeneratingText(false);
         }
-    }, [setContinents]);
+    }, [activeWorldId, launchTrackedJob, setContinents, waitForJob]);
 
     const generateEcology = useCallback(async (targetRegionName?: string) => {
         if (!globeWorld?.textureUrl) {
@@ -454,10 +464,9 @@ Parameters: Vegetation Density: ${ecoVegetation}, Fauna Hotspots: ${ecoFauna}${r
         setIsGeneratingText(true);
 
         try {
-            const response = await fetch("/api/text/generate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: "/api/text/generate",
+                request: {
                     prompt: `Generate 7 localized hexagonal sub-tiles (1 center, 6 neighbors) for a region with biome: ${selectedCell.biome}, elevation: ${selectedCell.elevationMeters}m. The planet theme is: ${prompt}.
                     Format the response ONLY as a strict JSON array of objects.
                     Each object must have:
@@ -465,13 +474,19 @@ Parameters: Vegetation Density: ${ecoVegetation}, Fauna Hotspots: ${ecoFauna}${r
                     - 'biome' (a sub-variant of the main biome)
                     - 'description' (a very brief 1-sentence description of the terrain at this sub-tile).
                     Do not include markdown formatting or backticks around the JSON.`
-                }),
+                },
+                optimisticJob: {
+                    kind: "worldgen.text-helper",
+                    title: "Generate Cell Sub-Tiles",
+                    tool: "worldgen",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId: activeWorldId,
+                },
             });
-
-            if (!response.ok) throw new Error("Failed to generate sub-tiles");
-
-            const data = await response.json();
-            const parsed = JSON.parse(data.text);
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") throw new Error(detail.error || "Failed to generate sub-tiles");
+            const parsed = JSON.parse(String((detail.result as { text?: string } | undefined)?.text || "[]"));
 
             if (Array.isArray(parsed) && globeWorld) {
                 const newCellData = [...globeWorld.cellData];
@@ -487,7 +502,7 @@ Parameters: Vegetation Density: ${ecoVegetation}, Fauna Hotspots: ${ecoFauna}${r
         } finally {
             setIsGeneratingText(false);
         }
-    }, [prompt, globeWorld, setGlobeWorld, saveCellSubTiles]);
+    }, [activeWorldId, globeWorld, launchTrackedJob, prompt, saveCellSubTiles, setGlobeWorld, waitForJob]);
 
     return {
         genProgress,

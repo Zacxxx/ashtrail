@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Button, Card, Modal, TabBar } from "@ashtrail/ui";
 import {
@@ -8,13 +8,11 @@ import {
     QuestChainRecord,
     QuestGlossaryEntry,
     QuestIllustrationRecord,
+    QuestJobAcceptedResponse,
     QuestRunRecord,
     QuestRunSummary,
     QuestSeedConfig,
     QuestTermRef,
-    Skill,
-    Trait,
-    type Item,
 } from "@ashtrail/core";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
@@ -23,22 +21,14 @@ import type { Faction } from "../history/FactionsTab";
 import type { Area } from "../history/locationTypes";
 import type { EcologyBundle } from "../ecology/types";
 import { CombatEncounterView } from "../gameplay-engine/combat/CombatSimulator";
+import { useJobs } from "../jobs/useJobs";
+import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
+import type { JobDetail, JobListItem } from "../jobs/types";
 import { QuestWorkflowBar } from "./QuestWorkflowBar";
 
 type QuestTab = "seed" | "run" | "archive";
 type QuestSeedStep = "BRIEF" | "PARTY" | "ANCHORS" | "REVIEW";
 type QuestLogTab = "HISTORY" | "CHAIN" | "GLOSSARY" | "ARC";
-
-interface HistoryCharacterRecord {
-    id: string;
-    name: string;
-    role: string;
-    status: string;
-    location: string;
-    affiliation: string;
-    lore: string;
-    relationships: string;
-}
 
 interface EcologyOption {
     id: string;
@@ -51,19 +41,8 @@ interface QuestEngineResponse {
     run: QuestRunRecord;
     materializedCharacters?: Character[];
     restoredCharacters?: Character[];
-    partyUpdates?: PartyUpdate[];
     warnings?: string[];
-}
-
-interface PartyUpdate {
-    characterId: string;
-    summary: string;
-    statChanges: Array<{ target: string; value: number }>;
-    addTraitNames: string[];
-    removeTraitNames: string[];
-    addItems: Array<{ name: string; category: string; rarity: string; description: string }>;
-    addSkills: Array<{ name: string; description: string; category: string }>;
-    relationshipChanges: Array<{ characterName: string; change: number }>;
+    partyUpdates?: Array<Record<string, unknown>>;
 }
 
 const DEFAULT_SEED: QuestSeedConfig = {
@@ -96,84 +75,6 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
         throw new Error(details || `Request failed: ${response.status}`);
     }
     return response.json();
-}
-
-function normalizeItemCategory(category?: string): Item["category"] {
-    switch ((category || "").toLowerCase()) {
-        case "weapon":
-        case "armor":
-        case "consumable":
-        case "resource":
-        case "junk":
-            return category.toLowerCase() as Item["category"];
-        default:
-            return "junk";
-    }
-}
-
-function normalizeItemRarity(rarity?: string): Item["rarity"] {
-    switch ((rarity || "").toLowerCase()) {
-        case "salvaged":
-        case "reinforced":
-        case "pre-ash":
-        case "specialized":
-        case "relic":
-        case "ashmarked":
-            return rarity.toLowerCase() as Item["rarity"];
-        default:
-            return "salvaged";
-    }
-}
-
-function normalizeSkillCategory(category?: string): Skill["category"] {
-    switch ((category || "").toLowerCase()) {
-        case "occupation":
-        case "unique":
-        case "equipment":
-            return category.toLowerCase() as Skill["category"];
-        default:
-            return "base";
-    }
-}
-
-function createQuestTrait(name: string): Trait {
-    return {
-        id: `quest-trait-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-        name,
-        description: `Quest-acquired trait: ${name}`,
-        cost: 0,
-        type: "neutral",
-    };
-}
-
-function createQuestItem(template: { name: string; category: string; rarity: string; description: string }): Item {
-    return {
-        id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: template.name,
-        category: normalizeItemCategory(template.category),
-        rarity: normalizeItemRarity(template.rarity),
-        description: template.description || "Recovered during a quest.",
-        cost: 0,
-        effects: [],
-    };
-}
-
-function createQuestSkill(template: { name: string; description: string; category: string }): Skill {
-    return {
-        id: `skill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: template.name,
-        description: template.description || "Learned during a quest.",
-        category: normalizeSkillCategory(template.category),
-        apCost: 1,
-        minRange: 0,
-        maxRange: 1,
-        areaType: "single",
-        areaSize: 0,
-        targetType: "self",
-        cooldown: 0,
-        effectType: "support",
-        effects: [],
-    };
 }
 
 function buildEcologyOptions(bundle: EcologyBundle | null): EcologyOption[] {
@@ -236,6 +137,16 @@ function buildQuestNotices(response: QuestEngineResponse): string[] {
         notices.unshift(materializationNotice);
     }
     return notices;
+}
+
+function isQuestRunJob(job?: Pick<JobListItem, "kind"> | null): boolean {
+    return job?.kind === "quests.generate-run.v2" || job?.kind === "quests.advance-run.v2";
+}
+
+function toLegacyQuestKind(job?: Pick<JobListItem, "kind"> | null): "generate-run" | "advance-run" | null {
+    if (job?.kind === "quests.generate-run.v2") return "generate-run";
+    if (job?.kind === "quests.advance-run.v2") return "advance-run";
+    return null;
 }
 
 function escapeRegex(input: string): string {
@@ -303,7 +214,6 @@ export function QuestPage() {
     const [builderCharacters, setBuilderCharacters] = useState<Character[]>([]);
     const [factions, setFactions] = useState<Faction[]>([]);
     const [locations, setLocations] = useState<Area[]>([]);
-    const [historyCharacters, setHistoryCharacters] = useState<HistoryCharacterRecord[]>([]);
     const [gmContext, setGmContext] = useState<any | null>(null);
     const [ecologyBundle, setEcologyBundle] = useState<EcologyBundle | null>(null);
     const [questArchive, setQuestArchive] = useState<QuestRunSummary[]>([]);
@@ -320,6 +230,9 @@ export function QuestPage() {
     const [activeChain, setActiveChain] = useState<QuestChainRecord | null>(null);
     const [glossaryEntries, setGlossaryEntries] = useState<Record<string, QuestGlossaryEntry>>({});
     const [currentIllustration, setCurrentIllustration] = useState<QuestIllustrationRecord | null>(null);
+    const [activeQuestJobId, setActiveQuestJobId] = useState<string | null>(null);
+    const [activeBriefJobId, setActiveBriefJobId] = useState<string | null>(null);
+    const [pendingQuestAction, setPendingQuestAction] = useState<"generate" | "advance" | null>(null);
     const [generatingPortraitIds, setGeneratingPortraitIds] = useState<string[]>([]);
     const [selectedPartyCharacterId, setSelectedPartyCharacterId] = useState<string | null>(null);
     const [isPartyModalOpen, setIsPartyModalOpen] = useState(false);
@@ -330,7 +243,30 @@ export function QuestPage() {
 
     const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
+    const { jobs, getJobDetail } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
+    const processedQuestJobIdRef = useRef<string | null>(null);
+    const processedBriefJobIdRef = useRef<string | null>(null);
+    const restoredJobIdRef = useRef<string | null>(null);
     const selectedWorld = history.find((item) => item.id === activeWorldId) ?? null;
+    const questJob = useMemo(
+        () => (activeQuestJobId ? jobs.find((job) => job.jobId === activeQuestJobId) ?? null : null),
+        [activeQuestJobId, jobs],
+    );
+    const briefJob = useMemo(
+        () => (activeBriefJobId ? jobs.find((job) => job.jobId === activeBriefJobId) ?? null : null),
+        [activeBriefJobId, jobs],
+    );
+    const currentIllustrationJob = useMemo(() => {
+        const illustrationId = activeRun?.currentNode?.illustrationId;
+        if (!illustrationId) return null;
+        return jobs.find((job) => (
+            job.kind === "quests.generate-illustration"
+            && job.metadata
+            && typeof job.metadata.illustrationId === "string"
+            && job.metadata.illustrationId === illustrationId
+        )) ?? null;
+    }, [activeRun?.currentNode?.illustrationId, jobs]);
 
     const partyCharacters = useMemo(
         () => builderCharacters.filter((character) => selectedPartyIds.includes(character.id)),
@@ -407,13 +343,15 @@ export function QuestPage() {
             setQuestArchive([]);
             setFactions([]);
             setLocations([]);
-            setHistoryCharacters([]);
             setGmContext(null);
             setEcologyBundle(null);
             setSelectedPartyIds([]);
             setActiveChain(null);
             setGlossaryEntries({});
             setCurrentIllustration(null);
+            setActiveQuestJobId(null);
+            setActiveBriefJobId(null);
+            setPendingQuestAction(null);
             return;
         }
 
@@ -422,10 +360,9 @@ export function QuestPage() {
             setIsLoadingWorldData(true);
             try {
                 await refreshBuilderCharacters();
-                const [nextFactions, nextLocations, nextHistoryCharacters, nextGmContext, nextEcology, archive, nextChain] = await Promise.all([
+                const [nextFactions, nextLocations, nextGmContext, nextEcology, archive, nextChain] = await Promise.all([
                     fetchJson<Faction[]>(`${API_BASE}/planet/factions/${activeWorldId}`).catch(() => []),
                     fetchJson<Area[]>(`${API_BASE}/planet/locations/${activeWorldId}`).catch(() => []),
-                    fetchJson<HistoryCharacterRecord[]>(`${API_BASE}/planet/characters/${activeWorldId}`).catch(() => []),
                     fetchJson<any>(`${API_BASE}/planet/gm-context/${activeWorldId}`).catch(() => null),
                     fetchJson<EcologyBundle>(`${API_BASE}/planet/ecology-data/${activeWorldId}`).catch(() => null),
                     refreshArchive(activeWorldId).catch(() => []),
@@ -434,7 +371,6 @@ export function QuestPage() {
                 if (cancelled) return;
                 setFactions(Array.isArray(nextFactions) ? nextFactions : []);
                 setLocations(Array.isArray(nextLocations) ? nextLocations : []);
-                setHistoryCharacters(Array.isArray(nextHistoryCharacters) ? nextHistoryCharacters : []);
                 setGmContext(nextGmContext);
                 setEcologyBundle(nextEcology);
                 setActiveChain(nextChain);
@@ -488,112 +424,177 @@ export function QuestPage() {
             setCurrentIllustration(null);
             return;
         }
-        let cancelled = false;
-        let intervalId: number | undefined;
-        async function syncIllustration() {
-            const illustration = await loadIllustration(activeRun.worldId, activeRun.currentNode?.illustrationId);
-            if (cancelled || !illustration) return;
-            if (illustration.status === "queued" || illustration.status === "generating") {
-                intervalId = window.setTimeout(syncIllustration, 2500);
-            }
-        }
-        void syncIllustration();
-        return () => {
-            cancelled = true;
-            if (intervalId) window.clearTimeout(intervalId);
-        };
+        void loadIllustration(activeRun.worldId, activeRun.currentNode?.illustrationId);
     }, [activeRun?.currentNode?.illustrationId, activeRun?.worldId, loadIllustration]);
 
-    const applyPartyUpdates = useCallback(async (updates: PartyUpdate[]) => {
-        if (!updates.length) return;
-        await refreshBuilderCharacters();
-        const existingTraits = GameRegistry.getAllTraits();
-        const existingSkills = GameRegistry.getAllSkills();
-        const allCharacters = GameRegistry.getAllCharacters();
+    useEffect(() => {
+        if (!activeRun?.worldId || !activeRun.currentNode?.illustrationId || !currentIllustrationJob) {
+            return;
+        }
+        if (currentIllustrationJob.status === "completed" || currentIllustrationJob.status === "failed") {
+            void loadIllustration(activeRun.worldId, activeRun.currentNode.illustrationId);
+        }
+    }, [
+        activeRun?.currentNode?.illustrationId,
+        activeRun?.worldId,
+        currentIllustrationJob?.jobId,
+        currentIllustrationJob?.status,
+        currentIllustrationJob?.updatedAt,
+        loadIllustration,
+    ]);
 
-        for (const update of updates) {
-            const current = GameRegistry.getCharacter(update.characterId);
-            if (!current) continue;
-            const nextCharacter: Character = {
-                ...current,
-                stats: { ...current.stats },
-                traits: [...current.traits],
-                inventory: [...(current.inventory || [])],
-                skills: [...(current.skills || [])],
-                relationships: [...(current.relationships || [])],
-            };
-
-            for (const statChange of update.statChanges || []) {
-                if (statChange.target === "hp") {
-                    nextCharacter.hp = Math.max(0, Math.min(nextCharacter.maxHp, nextCharacter.hp + statChange.value));
-                } else if (statChange.target === "maxHp") {
-                    nextCharacter.maxHp = Math.max(1, nextCharacter.maxHp + statChange.value);
-                    nextCharacter.hp = Math.min(nextCharacter.maxHp, nextCharacter.hp);
-                } else if (statChange.target in nextCharacter.stats) {
-                    const key = statChange.target as keyof Character["stats"];
-                    nextCharacter.stats[key] = Math.max(0, nextCharacter.stats[key] + statChange.value);
-                }
-            }
-
-            for (const traitName of update.removeTraitNames || []) {
-                nextCharacter.traits = nextCharacter.traits.filter((trait) => trait.name.toLowerCase() !== traitName.toLowerCase());
-            }
-            for (const traitName of update.addTraitNames || []) {
-                if (nextCharacter.traits.some((trait) => trait.name.toLowerCase() === traitName.toLowerCase())) continue;
-                const existingTrait = existingTraits.find((trait) => trait.name.toLowerCase() === traitName.toLowerCase());
-                nextCharacter.traits.push(existingTrait || createQuestTrait(traitName));
-            }
-
-            for (const itemTemplate of update.addItems || []) {
-                const item = createQuestItem(itemTemplate);
-                nextCharacter.inventory.push(item);
-                await fetchJson(`${API_BASE}/data/items`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(item),
-                }).catch((error) => console.warn("Failed to persist quest item", error));
-            }
-
-            for (const skillTemplate of update.addSkills || []) {
-                const existingSkill = existingSkills.find((skill) => skill.name.toLowerCase() === skillTemplate.name.toLowerCase());
-                const skill = existingSkill || createQuestSkill(skillTemplate);
-                if (!nextCharacter.skills?.some((entry) => entry.name.toLowerCase() === skill.name.toLowerCase())) {
-                    nextCharacter.skills = [...(nextCharacter.skills || []), skill];
-                }
-                if (!existingSkill) {
-                    await fetchJson(`${API_BASE}/data/skills`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(skill),
-                    }).catch((error) => console.warn("Failed to persist quest skill", error));
-                }
-            }
-
-            for (const relationshipChange of update.relationshipChanges || []) {
-                const target = allCharacters.find((character) => character.worldId === activeWorldId && character.name.toLowerCase() === relationshipChange.characterName.toLowerCase());
-                if (!target) continue;
-                const existing = nextCharacter.relationships?.find((relationship) => relationship.targetId === target.id);
-                if (existing) {
-                    existing.type = relationshipChange.change >= 0 ? "ally" : "rival";
-                    existing.note = update.summary;
-                } else {
-                    nextCharacter.relationships = [...(nextCharacter.relationships || []), {
-                        targetId: target.id,
-                        type: relationshipChange.change >= 0 ? "ally" : "rival",
-                        note: update.summary,
-                    }];
-                }
-            }
-
-            await fetchJson(`${API_BASE}/data/characters`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(nextCharacter),
-            });
+    useEffect(() => {
+        if (!questJob || !isQuestRunJob(questJob) || !pendingQuestAction) {
+            return;
+        }
+        if (processedQuestJobIdRef.current === `${questJob.jobId}:${questJob.updatedAt}`) {
+            return;
+        }
+        if (questJob.status === "queued" || questJob.status === "running") {
+            return;
         }
 
-        await refreshBuilderCharacters();
-    }, [activeWorldId, refreshBuilderCharacters]);
+        processedQuestJobIdRef.current = `${questJob.jobId}:${questJob.updatedAt}`;
+        const response = (questJob.metadata?.result || (questJob as JobDetail).result || {}) as QuestEngineResponse;
+        if (questJob.status !== "completed") {
+            setNotices([questJob.error || (pendingQuestAction === "generate" ? "Quest generation failed." : "Failed to advance quest.")]);
+            setIsGenerating(false);
+            setIsAdvancing(false);
+            setPendingQuestAction(null);
+            return;
+        }
+
+        const finalize = async () => {
+            if (pendingQuestAction === "generate") {
+                await refreshBuilderCharacters();
+                if (activeWorldId) {
+                    await refreshArchive(activeWorldId);
+                    await refreshChains(activeWorldId, response.run?.chainId);
+                }
+                if (response.run) {
+                    setActiveRun(response.run);
+                    setSelectedArchiveRun(response.run);
+                }
+                setNotices(buildQuestNotices(response));
+                setActiveTab("run");
+                setSearchParams({ tab: "run" });
+                setIsGenerating(false);
+            } else {
+                if (activeRun?.worldId) {
+                    await refreshArchive(activeRun.worldId);
+                    await refreshChains(activeRun.worldId, response.run?.chainId);
+                }
+                await refreshBuilderCharacters();
+                if (response.run) {
+                    setActiveRun(response.run);
+                    setSelectedArchiveRun(response.run);
+                }
+                setFreeformAction("");
+                setNotices(buildQuestNotices(response));
+                setIsAdvancing(false);
+            }
+            setPendingQuestAction(null);
+        };
+
+        void finalize();
+    }, [
+        activeRun?.worldId,
+        activeWorldId,
+        pendingQuestAction,
+        questJob,
+        refreshArchive,
+        refreshBuilderCharacters,
+        refreshChains,
+        setSearchParams,
+    ]);
+
+    useEffect(() => {
+        if (!briefJob || briefJob.status === "queued" || briefJob.status === "running") {
+            return;
+        }
+        const processedKey = `${briefJob.jobId}:${briefJob.updatedAt}`;
+        if (processedBriefJobIdRef.current === processedKey) {
+            return;
+        }
+        processedBriefJobIdRef.current = processedKey;
+
+        const finalize = async () => {
+            if (briefJob.status !== "completed") {
+                setNotices((previous) => [briefJob.error || "Failed to generate quest brief.", ...previous]);
+                setIsGeneratingBriefSeed(false);
+                return;
+            }
+
+            const detail = await getJobDetail(briefJob.jobId);
+            const text = String((detail?.result as { text?: string } | undefined)?.text || "").trim();
+            const nextBrief = parseGeneratedQuestBrief(text);
+            if (!nextBrief) {
+                setNotices((previous) => ["Quest brief generation returned invalid content", ...previous]);
+                setIsGeneratingBriefSeed(false);
+                return;
+            }
+            setQuestSeed((previous) => ({
+                ...previous,
+                premise: nextBrief.premise || previous.premise,
+                objective: nextBrief.objective || previous.objective,
+                stakes: nextBrief.stakes || previous.stakes,
+            }));
+            setNotices((previous) => ["Generated premise, objective, and stakes.", ...previous]);
+            setIsGeneratingBriefSeed(false);
+        };
+
+        void finalize();
+    }, [briefJob, getJobDetail]);
+
+    useEffect(() => {
+        return () => {
+            processedQuestJobIdRef.current = null;
+        };
+    }, []);
+
+    useEffect(() => {
+        const restoreJobId = searchParams.get("restoreJob");
+        if (!restoreJobId || restoredJobIdRef.current === restoreJobId) {
+            return;
+        }
+        restoredJobIdRef.current = restoreJobId;
+        const restore = async () => {
+            const detail = await getJobDetail(restoreJobId);
+            const metadata = detail?.metadata as Record<string, unknown> | undefined;
+            const restoreSpec = metadata?.restore as { search?: Record<string, unknown>; payload?: Record<string, unknown> } | undefined;
+            const payload = restoreSpec?.payload || {};
+            if (typeof payload.worldId === "string") {
+                setActiveWorldId(payload.worldId);
+            }
+            const nextTab = typeof restoreSpec?.search?.tab === "string" ? restoreSpec.search.tab : "seed";
+            setActiveTab(nextTab as QuestTab);
+            setSearchParams({ tab: String(nextTab) }, { replace: true });
+            if (payload.questSeed && typeof payload.questSeed === "object") {
+                setQuestSeed((previous) => ({ ...previous, ...(payload.questSeed as Partial<QuestSeedConfig>) }));
+            }
+            if (Array.isArray(payload.selectedPartyIds)) {
+                setSelectedPartyIds(payload.selectedPartyIds.filter((value): value is string => typeof value === "string"));
+            }
+            if (typeof payload.runId === "string" && typeof payload.worldId === "string") {
+                const run = await loadRunDetail(payload.worldId, payload.runId).catch(() => null);
+                if (run) {
+                    setActiveRun(run);
+                    setSelectedArchiveRun(run);
+                    const historicalRunUpdatedAt = typeof metadata?.runUpdatedAt === "number" ? metadata.runUpdatedAt : null;
+                    if (historicalRunUpdatedAt && run.updatedAt !== historicalRunUpdatedAt) {
+                        setNotices((previous) => [
+                            "This redo payload was created for an older state of this run. Review before advancing again.",
+                            ...previous,
+                        ]);
+                    }
+                }
+            }
+            if (typeof payload.freeformAction === "string") {
+                setFreeformAction(payload.freeformAction);
+            }
+        };
+        void restore();
+    }, [getJobDetail, loadRunDetail, searchParams, setActiveWorldId, setSearchParams]);
 
     const persistCharacters = useCallback(async (characters: Character[]) => {
         if (!characters.length) return;
@@ -648,65 +649,61 @@ export function QuestPage() {
         }
     }, [builderCharacters, generatingPortraitIds, persistCharacters]);
 
-    const buildQuestPayload = useCallback(() => ({
-        worldId: activeWorldId,
-        seed: questSeed,
-        party: partyCharacters,
-        gmContext,
-        factions,
-        locations,
-        ecology: {
-            options: ecologyOptions,
-            updatedAt: ecologyBundle?.updatedAt,
-            biomeCatalog: (ecologyBundle?.biomes || []).map((entry) => ({ id: entry.id, optionId: `biome:${entry.id}`, name: entry.name })),
-            faunaCatalog: (ecologyBundle?.fauna || []).map((entry) => ({
-                id: entry.id,
-                optionId: `fauna:${entry.id}`,
-                name: entry.name,
-                biomeIds: entry.biomeIds,
-                dangerLevel: entry.dangerLevel,
-                temperament: entry.behaviorProfile.temperament,
-                sizeClass: entry.bodyProfile.sizeClass,
-                skillIds: entry.skillIds,
-            })),
-        },
-        historyCharacters,
-    }), [activeWorldId, ecologyBundle?.updatedAt, ecologyOptions, factions, gmContext, historyCharacters, locations, partyCharacters, questSeed]);
-
     const selectedFactionAnchors = factions.filter((faction) => questSeed.factionAnchorIds.includes(faction.id));
     const selectedLocationAnchors = locations.filter((location) => questSeed.locationAnchorIds.includes(location.id));
     const selectedEcologyAnchors = ecologyOptions.filter((option) => questSeed.ecologyAnchorIds.includes(option.id));
 
     const handleGenerateQuest = useCallback(async () => {
-        if (!activeWorldId || !gmContext || partyCharacters.length === 0) return;
+        if (!activeWorldId || !gmContext || selectedPartyIds.length === 0) return;
         setIsGenerating(true);
         setNotices([]);
+        setPendingQuestAction("generate");
         try {
-            const response = await fetchJson<QuestEngineResponse>(`${API_BASE}/quests/generate-run`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(buildQuestPayload()),
+            const accepted = await launchTrackedJob<QuestJobAcceptedResponse, Record<string, unknown>>({
+                url: `${API_BASE}/quests/generate-run`,
+                request: {
+                    worldId: activeWorldId,
+                    seed: questSeed,
+                    partyCharacterIds: selectedPartyIds,
+                },
+                optimisticJob: {
+                    kind: "quests.generate-run.v2",
+                    title: "Generate Quest Run",
+                    tool: "quests",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId: activeWorldId,
+                    metadata: {
+                        questTitle: questSeed.premise || null,
+                    },
+                },
+                restore: {
+                    route: "/quests",
+                    search: { tab: "seed" },
+                    payload: {
+                        worldId: activeWorldId,
+                        questSeed,
+                        selectedPartyIds,
+                    },
+                },
             });
-            await saveRun(response.run);
-            await refreshBuilderCharacters();
-            await refreshArchive(activeWorldId);
-            await refreshChains(activeWorldId, response.run.chainId);
-            setActiveRun(response.run);
-            setSelectedArchiveRun(response.run);
-            setNotices(buildQuestNotices(response));
-            setActiveTab("run");
-            setSearchParams({ tab: "run" });
+            setActiveQuestJobId(accepted.jobId);
+            processedQuestJobIdRef.current = null;
         } catch (error) {
             console.error("Failed to generate quest run", error);
             setNotices([error instanceof Error ? error.message : "Failed to generate quest run."]);
-        } finally {
+            setPendingQuestAction(null);
             setIsGenerating(false);
+            setActiveQuestJobId(null);
+        } finally {
         }
-    }, [activeWorldId, buildQuestPayload, gmContext, partyCharacters.length, refreshArchive, refreshBuilderCharacters, refreshChains, saveRun, setSearchParams]);
+    }, [activeWorldId, gmContext, launchTrackedJob, questSeed, selectedPartyIds]);
 
     const handleGenerateQuestBrief = useCallback(async () => {
         if (!selectedWorld || !gmContext || isGeneratingBriefSeed) return;
         setIsGeneratingBriefSeed(true);
+        setActiveBriefJobId(null);
+        processedBriefJobIdRef.current = null;
         try {
             const prompt = [
                 "You are generating a quest seed for Ashtrail.",
@@ -728,42 +725,50 @@ export function QuestPage() {
                 questSeed.notes?.trim() ? `Extra notes: ${questSeed.notes.trim()}` : "",
             ].filter(Boolean).join("\n");
 
-            const response = await fetch("/api/text/generate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt }),
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: "/api/text/generate",
+                request: { prompt },
+                optimisticJob: {
+                    kind: "quests.generate-brief",
+                    title: "Generate Quest Brief",
+                    tool: "quests",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId: selectedWorld.id,
+                    metadata: {
+                        questTitle: questSeed.premise || null,
+                    },
+                },
+                restore: {
+                    route: "/quests",
+                    search: { tab: "seed" },
+                    payload: {
+                        worldId: selectedWorld.id,
+                        questSeed,
+                        selectedPartyIds,
+                    },
+                },
             });
-            if (!response.ok) {
-                throw new Error("Failed to generate quest brief");
-            }
-            const data = await response.json();
-            const text = String(data?.text || data?.result || "").trim();
-            const nextBrief = parseGeneratedQuestBrief(text);
-            if (!nextBrief) {
-                throw new Error("Quest brief generation returned invalid content");
-            }
-            setQuestSeed((previous) => ({
-                ...previous,
-                premise: nextBrief.premise || previous.premise,
-                objective: nextBrief.objective || previous.objective,
-                stakes: nextBrief.stakes || previous.stakes,
-            }));
-            setNotices((previous) => ["Generated premise, objective, and stakes.", ...previous]);
+            setActiveBriefJobId(accepted.jobId);
         } catch (error) {
             console.error("Failed to generate quest brief", error);
             setNotices((previous) => [error instanceof Error ? error.message : "Failed to generate quest brief.", ...previous]);
-        } finally {
             setIsGeneratingBriefSeed(false);
+        } finally {
         }
     }, [
         gmContext,
         isGeneratingBriefSeed,
+        launchTrackedJob,
         partyCharacters,
         questSeed.difficulty,
         questSeed.notes,
         questSeed.openness,
+        questSeed.premise,
         questSeed.runLength,
         questSeed.tone,
+        questSeed,
+        selectedPartyIds,
         selectedEcologyAnchors,
         selectedFactionAnchors,
         selectedLocationAnchors,
@@ -774,57 +779,54 @@ export function QuestPage() {
         if (!activeRun || !gmContext) return;
         setIsAdvancing(true);
         setNotices([]);
+        setPendingQuestAction("advance");
         try {
-            const response = await fetchJson<QuestEngineResponse>(`${API_BASE}/quests/advance`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    run: activeRun,
-                    party: activeRunParty,
-                    gmContext,
-                    factions,
-                    locations,
-                    ecology: {
-                        options: ecologyOptions,
-                        updatedAt: ecologyBundle?.updatedAt,
-                        biomeCatalog: (ecologyBundle?.biomes || []).map((entry) => ({ id: entry.id, optionId: `biome:${entry.id}`, name: entry.name })),
-                        faunaCatalog: (ecologyBundle?.fauna || []).map((entry) => ({
-                            id: entry.id,
-                            optionId: `fauna:${entry.id}`,
-                            name: entry.name,
-                            biomeIds: entry.biomeIds,
-                            dangerLevel: entry.dangerLevel,
-                            temperament: entry.behaviorProfile.temperament,
-                            sizeClass: entry.bodyProfile.sizeClass,
-                            skillIds: entry.skillIds,
-                        })),
-                    },
-                    historyCharacters,
+            const accepted = await launchTrackedJob<QuestJobAcceptedResponse, Record<string, unknown>>({
+                url: `${API_BASE}/quests/advance`,
+                request: {
+                    worldId: activeRun.worldId,
+                    runId: activeRun.id,
                     chosenAction: choice || undefined,
                     freeformAction: freeform || undefined,
                     combatResolution,
-                }),
+                },
+                optimisticJob: {
+                    kind: "quests.advance-run.v2",
+                    title: "Advance Quest Run",
+                    tool: "quests",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId: activeRun.worldId,
+                    runId: activeRun.id,
+                    metadata: {
+                        questTitle: activeRun.title,
+                        nodeIndex: activeRun.nodeCount,
+                        nodeCount: activeRun.maxNodeCount,
+                    },
+                },
+                restore: {
+                    route: "/quests",
+                    search: { tab: "run" },
+                    payload: {
+                        worldId: activeRun.worldId,
+                        runId: activeRun.id,
+                        chosenAction: choice || null,
+                        freeformAction: freeform || "",
+                        combatResolution: combatResolution || null,
+                    },
+                },
             });
-            if (response.restoredCharacters?.length) {
-                await persistCharacters(response.restoredCharacters);
-            }
-            if (response.partyUpdates?.length) {
-                await applyPartyUpdates(response.partyUpdates);
-            }
-            await saveRun(response.run);
-            await refreshArchive(activeRun.worldId);
-            await refreshChains(activeRun.worldId, response.run.chainId);
-            setActiveRun(response.run);
-            setSelectedArchiveRun(response.run);
-            setFreeformAction("");
-            setNotices(buildQuestNotices(response));
+            setActiveQuestJobId(accepted.jobId);
+            processedQuestJobIdRef.current = null;
         } catch (error) {
             console.error("Failed to advance quest", error);
             setNotices([error instanceof Error ? error.message : "Failed to advance quest."]);
-        } finally {
+            setPendingQuestAction(null);
             setIsAdvancing(false);
+            setActiveQuestJobId(null);
+        } finally {
         }
-    }, [activeRun, activeRunParty, applyPartyUpdates, ecologyBundle?.updatedAt, ecologyOptions, factions, gmContext, historyCharacters, locations, persistCharacters, refreshArchive, refreshChains, saveRun]);
+    }, [activeRun, gmContext, launchTrackedJob]);
 
     const handleDeleteRun = useCallback(async (summary: QuestRunSummary) => {
         await fetch(`${API_BASE}/planet/quests/${summary.worldId}/${summary.id}`, { method: "DELETE" });
@@ -877,10 +879,12 @@ export function QuestPage() {
             if (!termRef) return <span key={`${part}-${index}`}>{part}</span>;
             const glossaryEntry = glossaryEntries[termRef.slug];
             return (
-                <span key={`${termRef.slug}-${index}`} className="group relative inline-flex" onMouseEnter={() => { void ensureGlossaryEntry(termRef); }}>
-                    <span className="cursor-help rounded px-1 py-0.5 text-amber-200 underline decoration-dotted underline-offset-4">{part}</span>
+                <span key={`${termRef.slug}-${index}`} className="group relative inline-flex">
+                    <button type="button" onClick={() => { void ensureGlossaryEntry(termRef); }} className="cursor-help rounded px-1 py-0.5 text-amber-200 underline decoration-dotted underline-offset-4">
+                        {part}
+                    </button>
                     <span className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-72 rounded-xl border border-amber-500/20 bg-[#081018] px-3 py-3 text-xs leading-relaxed text-amber-50 shadow-2xl group-hover:block">
-                        {glossaryEntry?.flavorText || "Compiling local flavor text..."}
+                        {glossaryEntry?.flavorText || "Click the term to load glossary text."}
                     </span>
                 </span>
             );
@@ -1258,7 +1262,7 @@ export function QuestPage() {
         }
         if (activeRunLogTab === "GLOSSARY") {
             return currentTermRefs.length > 0 ? (
-                <div className="space-y-3">{currentTermRefs.map((termRef) => { const entry = glossaryEntries[termRef.slug]; return <button key={termRef.slug} type="button" onMouseEnter={() => { void ensureGlossaryEntry(termRef); }} className="block w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-left"><div className="text-xs font-bold uppercase tracking-widest text-white">{termRef.term}</div><div className="mt-3 text-sm leading-relaxed text-gray-400">{entry?.flavorText || "Compiling local flavor text..."}</div></button>; })}</div>
+                <div className="space-y-3">{currentTermRefs.map((termRef) => { const entry = glossaryEntries[termRef.slug]; return <button key={termRef.slug} type="button" onClick={() => { void ensureGlossaryEntry(termRef); }} className="block w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-left"><div className="text-xs font-bold uppercase tracking-widest text-white">{termRef.term}</div><div className="mt-3 text-sm leading-relaxed text-gray-400">{entry?.flavorText || "Click to load glossary text."}</div></button>; })}</div>
             ) : <div className="text-sm text-gray-500">No glossary terms are active on this node.</div>;
         }
         if (activeRunLogTab === "ARC") {
@@ -1290,12 +1294,13 @@ export function QuestPage() {
         <div className="h-screen overflow-hidden bg-[#070b12] text-gray-300 font-sans flex flex-col">
             <div className="fixed top-16 left-0 right-0 z-30 flex h-12 items-center justify-between gap-4 border-b border-white/5 bg-[#030508]/60 px-6 shadow-2xl backdrop-blur-md">
                 <div className="flex min-w-0 items-center gap-4"><div className="flex h-6 w-6 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/20 text-[10px] font-bold text-amber-300">🧭</div><h1 className="text-[10px] font-black uppercase tracking-[0.3em] text-white">QUESTS</h1><div className="w-[280px] scale-90"><TabBar tabs={["seed", "run", "archive"]} activeTab={activeTab} onTabChange={(tab) => { const nextTab = tab as QuestTab; setActiveTab(nextTab); setSearchParams({ tab: nextTab }); }} /></div></div>
-                <div className="flex flex-1 items-center justify-center">{activeTab === "seed" ? <QuestWorkflowBar steps={QUEST_SEED_STEPS} activeStep={seedStep} onStepChange={(step) => setSeedStep(step as QuestSeedStep)} /> : activeTab === "run" ? <div className="rounded-full border border-white/5 bg-[#1e1e1e]/40 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-gray-300">{activeRun?.title || "No Active Run"}{activeRun && <span className="ml-3 text-orange-300">Node {activeRun.nodeCount}/{activeRun.maxNodeCount}</span>}</div> : <div className="rounded-full border border-white/5 bg-[#1e1e1e]/40 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-gray-300">Archive • {questArchive.length} runs</div>}</div>
+                <div className="flex flex-1 items-center justify-center">{activeTab === "seed" ? <QuestWorkflowBar steps={QUEST_SEED_STEPS} activeStep={seedStep} onStepChange={(step) => setSeedStep(step as QuestSeedStep)} /> : activeTab === "run" ? <div className="rounded-full border border-white/5 bg-[#1e1e1e]/40 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-gray-300">{activeRun?.title || "No Active Run"}{activeRun && <span className="ml-3 text-orange-300">Node {activeRun.nodeCount}/{activeRun.maxNodeCount}</span>}{questJob && (questJob.status === "queued" || questJob.status === "running") && <span className="ml-3 text-cyan-300">{questJob.currentStage} • {Math.round(questJob.progress)}%</span>}</div> : <div className="rounded-full border border-white/5 bg-[#1e1e1e]/40 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-gray-300">Archive • {questArchive.length} runs</div>}</div>
                 <div className="flex w-[320px] items-center justify-end gap-3"><span className="truncate text-[10px] font-bold uppercase tracking-widest text-gray-500">{selectedWorld.name || selectedWorld.prompt || "Unknown World"}</span><button onClick={() => setShowGalleryModal(true)} className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-300 transition-colors hover:bg-amber-500/20">Pick World</button></div>
             </div>
 
             <div className="flex-1 overflow-hidden px-6 pb-6 pt-28">
                 <div className="mx-auto flex h-full max-w-7xl flex-col gap-4 overflow-hidden">
+                    {questJob && (questJob.status === "queued" || questJob.status === "running") && <div className="shrink-0 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-xs text-cyan-100">{toLegacyQuestKind(questJob) === "generate-run" ? "Quest generation" : "Quest advance"} • {questJob.currentStage} • {Math.round(questJob.progress)}%</div>}
                     {notices.length > 0 && <div className="shrink-0 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">{notices.map((notice) => <div key={notice}>{notice}</div>)}</div>}
                     {!hasCanonicalWorldPrompt && <div className="shrink-0 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4"><div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-red-300">Canonical World Prompt Required</div><div className="text-sm text-red-100">Quests use the Game Master narrative world prompt, not the graphical world-generation seed prompt. Write it manually or generate it from canon on the Game Master page before generating quests.</div><div className="mt-3"><Link to="/game-master?tab=directives" className="text-[10px] font-bold uppercase tracking-widest text-red-200 hover:text-white">Open Game Master Directives</Link></div></div>}
 

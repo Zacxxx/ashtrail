@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, getDefaultTalentPointsForLevel, isOccupationLinkedTrait, resolveOccupationTree } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, getDefaultTalentPointsForLevel, isOccupationLinkedTrait, resolveOccupationTree, sanitizeSkillLoadout } from "@ashtrail/core";
 import { TabBar, Modal } from "@ashtrail/ui";
 import { Background, ConnectionLineType, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge as RFEdge, type Node as RFNode } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -786,7 +786,7 @@ export function CharacterBuilderPage() {
         credits: normalizeCharacterCredits(credits),
         inventory,
         skills: (() => {
-            if (isNPC) return selectedSkills;
+            if (isNPC) return sanitizeSkillLoadout(selectedSkills);
             const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
             const merged = [...selectedSkills];
             baseSkills.forEach(bs => {
@@ -794,7 +794,7 @@ export function CharacterBuilderPage() {
                     merged.push(bs);
                 }
             });
-            return merged;
+            return sanitizeSkillLoadout(merged);
         })(),
         equipped: equippedItems,
         title: characterTitle,
@@ -919,13 +919,13 @@ export function CharacterBuilderPage() {
             const skills = GameRegistry.getAllSkills();
             const baseSkills = skills.filter(s => s.category === "base");
 
-            // Enrich all characters with base skills immediately and filter out legacy slash
+            // Enrich all characters with base skills and canonicalize legacy aliases.
             const enriched = rawCharacters.map(c => ({
                 ...c,
-                skills: [
-                    ...(c.skills || []).filter(s => s.id !== 'slash'),
-                    ...baseSkills.filter(bs => !(c.skills || []).some(ms => ms.id === bs.id && ms.id !== 'slash'))
-                ]
+                skills: sanitizeSkillLoadout([
+                    ...(c.skills || []),
+                    ...baseSkills,
+                ]),
             }));
 
             setSavedCharacters(enriched);
@@ -1016,9 +1016,9 @@ export function CharacterBuilderPage() {
     const toggleSkill = (skill: Skill) => {
         const isSelected = selectedSkills.find(s => s.id === skill.id);
         if (isSelected) {
-            setSelectedSkills(p => p.filter(s => s.id !== skill.id));
+            setSelectedSkills(p => sanitizeSkillLoadout(p.filter(s => s.id !== skill.id)));
         } else {
-            setSelectedSkills(p => [...p, skill]);
+            setSelectedSkills(p => sanitizeSkillLoadout([...p, skill]));
         }
     };
 
@@ -1179,17 +1179,12 @@ export function CharacterBuilderPage() {
             }
             return invItem;
         }));
-        setSelectedSkills(prev => {
+        setSelectedSkills(() => {
             const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
-            const loadedSkills = (char.skills || []).filter(s => s.id !== 'slash');
-            // Merge char skills with base skills, avoiding duplicates
-            const merged = [...loadedSkills];
-            baseSkills.forEach(bs => {
-                if (!merged.some(ms => ms.id === bs.id)) {
-                    merged.push(bs);
-                }
-            });
-            return merged;
+            return sanitizeSkillLoadout([
+                ...(char.skills || []),
+                ...baseSkills,
+            ]);
         });
         setCredits(normalizeCharacterCredits(char.credits));
         if (char.equipped) {
@@ -1264,7 +1259,7 @@ export function CharacterBuilderPage() {
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
         });
-        setSelectedSkills(GameRegistry.getAllSkills().filter(s => s.category === "base"));
+        setSelectedSkills(sanitizeSkillLoadout(GameRegistry.getAllSkills().filter(s => s.category === "base")));
         setActiveTab("IDENTITY");
         // Also reset inventory to fresh mock data
         const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
@@ -1563,15 +1558,10 @@ export function CharacterBuilderPage() {
                                                 // If switching to Player, auto-equip base skills
                                                 if (!nextIsNPC) {
                                                     const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
-                                                    setSelectedSkills(prev => {
-                                                        const merged = [...prev];
-                                                        baseSkills.forEach(bs => {
-                                                            if (!merged.some(ms => ms.id === bs.id)) {
-                                                                merged.push(bs);
-                                                            }
-                                                        });
-                                                        return merged;
-                                                    });
+                                                    setSelectedSkills(prev => sanitizeSkillLoadout([
+                                                        ...prev,
+                                                        ...baseSkills,
+                                                    ]));
                                                 }
                                             }}
                                             className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg border transition-all ${isNPC

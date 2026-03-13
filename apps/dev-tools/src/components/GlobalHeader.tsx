@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
+import { JobsDropdown } from "../jobs/JobsDropdown";
+import { useJobs } from "../jobs/useJobs";
 import { WorldPickerModal } from "./WorldPickerModal";
 
 export function GlobalHeader() {
@@ -9,9 +11,22 @@ export function GlobalHeader() {
     const { history } = useGenerationHistory();
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     const location = useLocation();
+    const jobsRef = useRef<HTMLDivElement | null>(null);
+    const { activeCount, isPanelOpen, setPanelOpen } = useJobs();
 
     const selectedWorld = history.find(h => h.id === activeWorldId);
     const isHub = location.pathname === "/";
+
+    useEffect(() => {
+        function handlePointerDown(event: MouseEvent) {
+            if (!jobsRef.current?.contains(event.target as Node)) {
+                setPanelOpen(false);
+            }
+        }
+        if (!isPanelOpen) return;
+        document.addEventListener("mousedown", handlePointerDown);
+        return () => document.removeEventListener("mousedown", handlePointerDown);
+    }, [isPanelOpen, setPanelOpen]);
 
     return (
         <>
@@ -43,6 +58,27 @@ export function GlobalHeader() {
                             </span>
                         </div>
                     )}
+
+                    <div ref={jobsRef} className="relative">
+                        <button
+                            type="button"
+                            onClick={() => setPanelOpen(!isPanelOpen)}
+                            className={`relative flex h-9 w-9 items-center justify-center rounded-full border transition-all shadow-lg ${activeCount > 0 ? "border-cyan-500/40 bg-cyan-500/15 text-cyan-200" : "bg-[#1e1e1e]/60 border-white/5 text-gray-400 hover:text-white hover:bg-white/5"}`}
+                            title="Job Center"
+                        >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <rect x="7" y="7" width="10" height="10" rx="2" strokeWidth={2} />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 10.5h4v3h-4zM12 3v2M8 3v2M16 3v2M12 19v2M8 19v2M16 19v2M3 12h2M3 8h2M3 16h2M19 12h2M19 8h2M19 16h2" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10 13.5h4M12 10.5v3" />
+                            </svg>
+                            {activeCount > 0 && (
+                                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-black text-black">
+                                    {activeCount}
+                                </span>
+                            )}
+                        </button>
+                        {isPanelOpen && <JobsDropdown />}
+                    </div>
 
                     {location.pathname !== "/worldgen" && (
                         <button

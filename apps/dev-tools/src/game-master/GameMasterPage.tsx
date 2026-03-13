@@ -9,6 +9,8 @@ import type {
 } from "../types/lore";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
+import { useJobs } from "../jobs/useJobs";
+import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import { WorldPickerModal } from "../components/WorldPickerModal";
 
 type GameMasterTab = "context" | "directives" | "integrations";
@@ -86,6 +88,8 @@ function sourceLabel(key: string) {
 }
 
 export function GameMasterPage() {
+    const { waitForJob } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
     const { history } = useGenerationHistory();
     const { activeWorldId } = useActiveWorld();
     const [searchParams, setSearchParams] = useSearchParams();
@@ -265,14 +269,32 @@ export function GameMasterPage() {
                 gmContext.promptBlock,
             ].join("\n");
 
-            const response = await fetch("/api/text/generate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt }),
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: "/api/text/generate",
+                request: { prompt },
+                optimisticJob: {
+                    kind: "gm.world-prompt-generate",
+                    title: "Generate World Prompt",
+                    tool: "game-master",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId: selectedWorld.id,
+                },
+                restore: {
+                    route: "/game-master",
+                    search: { tab: "directives" },
+                    payload: {
+                        worldId: selectedWorld.id,
+                    },
+                },
+                metadata: {
+                    worldId: selectedWorld.id,
+                    worldName: selectedWorldName,
+                },
             });
-            if (!response.ok) throw new Error("Failed to generate world prompt");
-            const data = await response.json();
-            const text = (data?.text || data?.result || "").trim();
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") throw new Error(detail.error || "Failed to generate world prompt");
+            const text = String((detail.result as { text?: string } | undefined)?.text || "").trim();
             if (!text) throw new Error("World prompt generation returned empty text");
             updateDirective("worldPrompt", text);
         } catch (error) {

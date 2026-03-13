@@ -6,16 +6,18 @@ mod cell_analyzer;
 mod cms;
 mod combat_engine;
 mod ecology;
+mod exploration_jobs;
 mod gemini;
 mod generator;
 mod hierarchy;
+mod jobs;
 mod locations;
 mod quest_ai;
 mod worldgen_pipeline;
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
@@ -27,6 +29,7 @@ use generator::{
     GenerateTerrainResponse,
 };
 use hierarchy::{generate_full_planet_hierarchy, HierarchyGenerateRequest, PlanetManifest};
+use jobs::{now_ms, JobOutputRef, JobRecord, JobRouteRef, JobStatus};
 use serde::Deserialize;
 use serde::Serialize;
 use std::{
@@ -48,6 +51,7 @@ use worldgen_core::graph::ProvinceAdjacency;
 struct AppState {
     jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
     quest_runtime: quest_ai::QuestRuntime,
+    exploration_runtime: exploration_jobs::ExplorationGenerationRuntime,
     planets_dir: PathBuf,
     planet_root: PathBuf,
     icons_dir: PathBuf,
@@ -77,26 +81,6 @@ struct SupabaseStorageConfig {
     prefix: String,
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum JobStatus {
-    Queued,
-    Running,
-    Completed,
-    Cancelled,
-    Failed,
-}
-
-#[derive(Clone)]
-struct JobRecord {
-    status: JobStatus,
-    progress: f32,
-    current_stage: String,
-    result: Option<GenerateTerrainResponse>,
-    error: Option<String>,
-    cancel_requested: bool,
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StartJobResponse {
@@ -110,8 +94,97 @@ struct JobStatusResponse {
     status: JobStatus,
     progress: f32,
     current_stage: String,
-    result: Option<GenerateTerrainResponse>,
+    result: Option<serde_json::Value>,
     error: Option<String>,
+    kind: String,
+    title: String,
+    tool: String,
+    world_id: Option<String>,
+    run_id: Option<String>,
+    parent_job_id: Option<String>,
+    metadata: Option<serde_json::Value>,
+    output_refs: Vec<JobOutputRef>,
+    created_at: u64,
+    updated_at: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JobSummaryResponse {
+    jobs: Vec<JobListItem>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HumanityReadinessResponse {
+    ready: bool,
+    blockers: Vec<String>,
+    main_lore_chars: usize,
+    min_main_lore_chars: usize,
+    has_main_lore: bool,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HumanityAdoptionRequest {
+    #[serde(default = "locations::default_scope_mode")]
+    scope_mode: locations::LocationGenerationScopeMode,
+    #[serde(default)]
+    scope_targets: Vec<locations::LocationScopeTarget>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JobListItem {
+    job_id: String,
+    kind: String,
+    title: String,
+    tool: String,
+    status: JobStatus,
+    progress: f32,
+    current_stage: String,
+    world_id: Option<String>,
+    run_id: Option<String>,
+    parent_job_id: Option<String>,
+    metadata: Option<serde_json::Value>,
+    output_refs: Vec<JobOutputRef>,
+    error: Option<String>,
+    created_at: u64,
+    updated_at: u64,
+}
+
+pub(crate) fn make_job_record(
+    kind: &str,
+    title: &str,
+    tool: &str,
+    stage: &str,
+    world_id: Option<String>,
+    run_id: Option<String>,
+) -> JobRecord {
+    let mut job = JobRecord::new(kind, title, tool);
+    job.world_id = world_id;
+    job.run_id = run_id;
+    job.current_stage = stage.to_string();
+    job
+}
+
+pub(crate) fn parse_tracked_job_meta(headers: &HeaderMap) -> Option<TrackedJobMeta> {
+    let encoded = headers.get("x-ashtrail-job-meta")?.to_str().ok()?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(encoded)
+        .ok()?;
+    serde_json::from_slice::<TrackedJobMeta>(&decoded).ok()
+}
+
+pub(crate) fn build_text_output_ref(label: &str, text: &str) -> JobOutputRef {
+    JobOutputRef {
+        id: "text-output".to_string(),
+        label: label.to_string(),
+        kind: "text".to_string(),
+        href: None,
+        route: None,
+        preview_text: Some(text.chars().take(220).collect()),
+    }
 }
 
 #[derive(Serialize)]
@@ -144,6 +217,21 @@ struct PlanetHybridRequest {
 #[serde(rename_all = "camelCase")]
 struct GenerateTextRequest {
     prompt: String,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TrackedJobMeta {
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    tool: Option<String>,
+    #[serde(default)]
+    restore: Option<serde_json::Value>,
+    #[serde(default)]
+    metadata: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -590,10 +678,12 @@ async fn main() {
         .ok()
         .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
         .unwrap_or(true);
+    let jobs = Arc::new(Mutex::new(HashMap::new()));
 
     let state = AppState {
-        jobs: Arc::new(Mutex::new(HashMap::new())),
-        quest_runtime: quest_ai::QuestRuntime::from_env(quest_v2_enabled),
+        jobs: jobs.clone(),
+        quest_runtime: quest_ai::QuestRuntime::from_env(quest_v2_enabled, jobs.clone()),
+        exploration_runtime: exploration_jobs::ExplorationGenerationRuntime::from_env(true, jobs),
         planets_dir,
         planet_root: PathBuf::from("generated/planet"), // For the hierarchical generator
         icons_dir: icons_dir.clone(),
@@ -619,7 +709,20 @@ async fn main() {
             "/api/terrain/jobs/{job_id}",
             get(get_job_status).delete(cancel_job),
         )
+        .route("/api/jobs", get(list_jobs))
         .route("/api/jobs/{job_id}", get(get_job_status).delete(cancel_job))
+        .route(
+            "/api/exploration/generate-location",
+            post(exploration_jobs::start_generate_location_job),
+        )
+        .route(
+            "/api/exploration/generate-block-pack",
+            post(exploration_jobs::start_generate_block_pack_job),
+        )
+        .route(
+            "/api/exploration/generate-asset-kit",
+            post(exploration_jobs::start_generate_asset_kit_job),
+        )
         .route("/api/planet/preview", post(start_preview_job))
         .route("/api/planet/preview/{job_id}", get(get_job_status))
         .route("/api/planet/hybrid", post(start_hybrid_job))
@@ -738,12 +841,24 @@ async fn main() {
         )
         .route("/api/planet/areas/{id}", get(get_areas))
         .route(
+            "/api/planet/locations/{world_id}/{location_id}/exploration-manifest",
+            get(exploration_jobs::get_exploration_manifest),
+        )
+        .route(
             "/api/planet/location-generation/{id}",
             get(get_location_generation),
         )
         .route(
+            "/api/planet/humanity-readiness/{id}",
+            get(get_humanity_readiness),
+        )
+        .route(
             "/api/planet/locations/{id}/generate",
             post(generate_locations_job),
+        )
+        .route(
+            "/api/planet/locations/{id}/adopt-humanity-managed",
+            post(adopt_humanity_managed_locations),
         )
         .route(
             "/api/planet/locations/{id}",
@@ -1007,14 +1122,14 @@ async fn start_generate_job(
 
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: "Queued".to_string(),
-                result: None,
-                error: None,
-                cancel_requested: false,
-            },
+            make_job_record(
+                "worldgen.terrain.generate",
+                "Generate Terrain",
+                "worldgen",
+                "Queued",
+                None,
+                None,
+            ),
         );
     }
 
@@ -1044,7 +1159,7 @@ async fn start_generate_job(
                         job.status = JobStatus::Completed;
                         job.progress = 100.0;
                         job.current_stage = "Completed (cache hit)".to_string();
-                        job.result = Some(cached);
+                        job.result = serde_json::to_value(cached).ok();
                         job.error = None;
                     }
                 }
@@ -1092,14 +1207,14 @@ async fn start_preview_job(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: "Queued".to_string(),
-                result: None,
-                error: None,
-                cancel_requested: false,
-            },
+            make_job_record(
+                "worldgen.preview.generate",
+                "Generate Planet Preview",
+                "worldgen",
+                "Queued",
+                None,
+                None,
+            ),
         );
     }
 
@@ -1129,7 +1244,7 @@ async fn start_preview_job(
                         job.status = JobStatus::Completed;
                         job.progress = 100.0;
                         job.current_stage = "Completed (cache hit)".to_string();
-                        job.result = Some(cached);
+                        job.result = serde_json::to_value(cached).ok();
                         job.error = None;
                     }
                 }
@@ -1241,7 +1356,7 @@ fn run_generation_job(
                     job.status = JobStatus::Completed;
                     job.progress = 100.0;
                     job.current_stage = "Completed".to_string();
-                    job.result = Some(response);
+                    job.result = serde_json::to_value(response).ok();
                     job.error = None;
                 }
             }
@@ -1301,14 +1416,14 @@ async fn start_hybrid_job(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: "Requesting Gemini Image...".to_string(),
-                result: None,
-                error: None,
-                cancel_requested: false,
-            },
+            make_job_record(
+                "worldgen.hybrid.generate",
+                "Generate Hybrid Planet",
+                "worldgen",
+                "Requesting Gemini Image...",
+                Some(job_id.clone()),
+                None,
+            ),
         );
     }
 
@@ -1557,7 +1672,7 @@ async fn run_hybrid_generation_job(
                     job.status = JobStatus::Completed;
                     job.progress = 100.0;
                     job.current_stage = "Completed".to_string();
-                    job.result = Some(lightweight_response);
+                    job.result = serde_json::to_value(lightweight_response).ok();
                     job.error = None;
                 }
             }
@@ -1613,9 +1728,54 @@ async fn get_job_status(
         current_stage: job.current_stage.clone(),
         result: job.result.clone(),
         error: job.error.clone(),
+        kind: job.kind.clone(),
+        title: job.title.clone(),
+        tool: job.tool.clone(),
+        world_id: job.world_id.clone(),
+        run_id: job.run_id.clone(),
+        parent_job_id: job.parent_job_id.clone(),
+        metadata: job.metadata.clone(),
+        output_refs: job.output_refs.clone(),
+        created_at: job.created_at,
+        updated_at: job.updated_at,
     };
 
     Ok(Json(response))
+}
+
+async fn list_jobs(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let jobs = state.jobs.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "job store lock poisoned".to_string(),
+        )
+    })?;
+
+    let mut items = jobs
+        .iter()
+        .map(|(job_id, job)| JobListItem {
+            job_id: job_id.clone(),
+            kind: job.kind.clone(),
+            title: job.title.clone(),
+            tool: job.tool.clone(),
+            status: job.status.clone(),
+            progress: job.progress,
+            current_stage: job.current_stage.clone(),
+            world_id: job.world_id.clone(),
+            run_id: job.run_id.clone(),
+            parent_job_id: job.parent_job_id.clone(),
+            metadata: job.metadata.clone(),
+            output_refs: job.output_refs.clone(),
+            error: job.error.clone(),
+            created_at: job.created_at,
+            updated_at: job.updated_at,
+        })
+        .collect::<Vec<_>>();
+
+    items.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    Ok(Json(JobSummaryResponse { jobs: items }))
 }
 
 async fn cancel_job(
@@ -1636,6 +1796,7 @@ async fn cancel_job(
     job.cancel_requested = true;
     if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
         job.current_stage = "Cancellation requested".to_string();
+        job.updated_at = now_ms();
     }
 
     info!(job_id = %job_id, "job cancellation requested");
@@ -1644,8 +1805,9 @@ async fn cancel_job(
 
 async fn generate_full_planet(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<HierarchyGenerateRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
     info!(
         root_cols = request.root_cols,
         root_rows = request.root_rows,
@@ -1653,6 +1815,117 @@ async fn generate_full_planet(
         max_nodes = request.max_nodes,
         "planet hierarchy generation requested"
     );
+
+    if let Some(meta) = parse_tracked_job_meta(&headers) {
+        let job_id = Uuid::new_v4().to_string();
+        {
+            let mut jobs = state.jobs.lock().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "job store lock poisoned".to_string(),
+                )
+            })?;
+            let mut job = make_job_record(
+                meta.kind.as_deref().unwrap_or("planet.generate-full"),
+                meta.title.as_deref().unwrap_or("Generate Hierarchy World"),
+                meta.tool.as_deref().unwrap_or("worldgen"),
+                "Queued",
+                None,
+                None,
+            );
+            if meta.restore.is_some() || meta.metadata.is_some() {
+                let mut metadata = serde_json::Map::new();
+                if let Some(restore) = meta.restore {
+                    metadata.insert("restore".to_string(), restore);
+                }
+                if let Some(extra) = meta.metadata {
+                    metadata.insert("metadata".to_string(), extra);
+                }
+                job.metadata = Some(serde_json::Value::Object(metadata));
+            }
+            jobs.insert(job_id.clone(), job);
+        }
+
+        let jobs = state.jobs.clone();
+        let planets_dir = state.planets_dir.clone();
+        let planet_root = state.planet_root.clone();
+        let request_for_task = request.clone();
+        let spawned_job_id = job_id.clone();
+        tokio::spawn(async move {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.status = JobStatus::Running;
+                    job.progress = 10.0;
+                    job.current_stage = "Generating hierarchy world".to_string();
+                    job.updated_at = now_ms();
+                }
+            }
+
+            let manifest_result = tokio::task::spawn_blocking(move || {
+                generate_full_planet_hierarchy(request_for_task, &planets_dir, &planet_root)
+            })
+            .await;
+
+            match manifest_result {
+                Ok(Ok(manifest)) => {
+                    let run_path = format!("generated/planet/{}/manifest.json", manifest.run_key);
+                    if let Ok(mut map) = jobs.lock() {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
+                            job.status = JobStatus::Completed;
+                            job.progress = 100.0;
+                            job.current_stage = "Completed".to_string();
+                            job.result = Some(serde_json::json!({
+                                "manifest": manifest,
+                                "runPath": run_path,
+                            }));
+                            job.output_refs = vec![
+                                JobOutputRef {
+                                    id: "worldgen-route".to_string(),
+                                    label: "Open Worldgen".to_string(),
+                                    kind: "route".to_string(),
+                                    href: None,
+                                    route: Some(jobs::JobRouteRef {
+                                        path: "/worldgen".to_string(),
+                                        search: None,
+                                    }),
+                                    preview_text: None,
+                                },
+                                build_text_output_ref(
+                                    "Generation Summary",
+                                    &format!("Run {} • {} nodes", manifest.run_key, manifest.total_nodes),
+                                ),
+                            ];
+                            job.updated_at = now_ms();
+                        }
+                    }
+                }
+                Ok(Err(message)) => {
+                    if let Ok(mut map) = jobs.lock() {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
+                            job.status = JobStatus::Failed;
+                            job.progress = 100.0;
+                            job.current_stage = "Failed".to_string();
+                            job.error = Some(message);
+                            job.updated_at = now_ms();
+                        }
+                    }
+                }
+                Err(error) => {
+                    if let Ok(mut map) = jobs.lock() {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
+                            job.status = JobStatus::Failed;
+                            job.progress = 100.0;
+                            job.current_stage = "Failed".to_string();
+                            job.error = Some(format!("planet generation task join error: {error}"));
+                            job.updated_at = now_ms();
+                        }
+                    }
+                }
+            }
+        });
+
+        return Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })).into_response());
+    }
 
     let planets_dir = state.planets_dir.clone();
     let planet_root = state.planet_root.clone();
@@ -1673,7 +1946,7 @@ async fn generate_full_planet(
     let run_path = format!("generated/planet/{}/manifest.json", manifest.run_key);
     info!(run_path = %run_path, total_nodes = manifest.total_nodes, "planet hierarchy generation completed");
 
-    Ok(Json(GeneratePlanetResponse { manifest, run_path }))
+    Ok(Json(GeneratePlanetResponse { manifest, run_path }).into_response())
 }
 
 /// List saved planet cache files.
@@ -1758,10 +2031,85 @@ async fn load_saved_planet(
 }
 
 async fn generate_text_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<GenerateTextRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    if let Some(meta) = parse_tracked_job_meta(&headers) {
+        let job_id = Uuid::new_v4().to_string();
+        {
+            let mut jobs = state.jobs.lock().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "job store lock poisoned".to_string(),
+                )
+            })?;
+            let mut job = make_job_record(
+                meta.kind.as_deref().unwrap_or("text.generate"),
+                meta.title.as_deref().unwrap_or("Generate Text"),
+                meta.tool.as_deref().unwrap_or("text"),
+                "Queued",
+                None,
+                None,
+            );
+            if meta.restore.is_some() || meta.metadata.is_some() {
+                let mut metadata = serde_json::Map::new();
+                if let Some(restore) = meta.restore {
+                    metadata.insert("restore".to_string(), restore);
+                }
+                if let Some(extra) = meta.metadata {
+                    metadata.insert("metadata".to_string(), extra);
+                }
+                job.metadata = Some(serde_json::Value::Object(metadata));
+            }
+            jobs.insert(job_id.clone(), job);
+        }
+
+        let jobs = state.jobs.clone();
+        let prompt = request.prompt.clone();
+        let spawned_job_id = job_id.clone();
+        tokio::spawn(async move {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.status = JobStatus::Running;
+                    job.progress = 15.0;
+                    job.current_stage = "Generating text".to_string();
+                    job.updated_at = now_ms();
+                }
+            }
+
+            match gemini::generate_text(&prompt).await {
+                Ok(text) => {
+                    if let Ok(mut map) = jobs.lock() {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
+                            job.status = JobStatus::Completed;
+                            job.progress = 100.0;
+                            job.current_stage = "Completed".to_string();
+                            job.result = Some(serde_json::json!({ "text": text.clone() }));
+                            job.output_refs = vec![build_text_output_ref("Generated Text", &text)];
+                            job.updated_at = now_ms();
+                        }
+                    }
+                }
+                Err((_code, msg)) => {
+                    if let Ok(mut map) = jobs.lock() {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
+                            job.status = JobStatus::Failed;
+                            job.progress = 100.0;
+                            job.current_stage = "Failed".to_string();
+                            job.error = Some(msg);
+                            job.updated_at = now_ms();
+                        }
+                    }
+                }
+            }
+        });
+
+        return Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })).into_response());
+    }
+
     match gemini::generate_text(&request.prompt).await {
-        Ok(text) => Ok((StatusCode::OK, Json(serde_json::json!({ "text": text })))),
+        Ok(text) => Ok((StatusCode::OK, Json(serde_json::json!({ "text": text }))).into_response()),
         Err((code, msg)) => Err((code, msg)),
     }
 }
@@ -3177,14 +3525,14 @@ async fn generate_locations_job(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: "Preparing location simulation...".to_string(),
-                result: None,
-                error: None,
-                cancel_requested: false,
-            },
+            make_job_record(
+                "worldgen.locations.generate",
+                "Generate Locations",
+                "worldgen",
+                "Preparing location simulation...",
+                Some(world_id.clone()),
+                None,
+            ),
         );
     }
 
@@ -3964,14 +4312,14 @@ async fn start_upscale_job(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: "Queued for Upscaling".to_string(),
-                result: None,
-                error: None,
-                cancel_requested: false,
-            },
+            make_job_record(
+                "worldgen.upscale.generate",
+                "Upscale World Texture",
+                "worldgen",
+                "Queued for Upscaling",
+                Some(request.history_id.clone()),
+                None,
+            ),
         );
     }
 
@@ -4168,14 +4516,15 @@ async fn run_upscale_job(
             job.status = JobStatus::Completed;
             job.progress = 100.0;
             job.current_stage = "Completed".to_string();
-            job.result = Some(GenerateTerrainResponse {
+            job.result = serde_json::to_value(GenerateTerrainResponse {
                 cols: 8192,
                 rows: 4096,
                 cell_data: Vec::new(),
                 cell_colors: Vec::new(),
                 texture_url: Some(new_texture_url.clone()),
                 heightmap_url: heightmap_url.clone(), // preserve upscaled heightmap if exists
-            });
+            })
+            .ok();
             job.error = None;
         }
     }
@@ -4188,6 +4537,7 @@ async fn start_ecology_job(
     Json(request): Json<PlanetImageEditRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let job_id = Uuid::new_v4().to_string();
+    let request_key = format!("ecology-{}", Uuid::new_v4());
     {
         let mut jobs = state.jobs.lock().map_err(|_| {
             (
@@ -4197,20 +4547,19 @@ async fn start_ecology_job(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: "Requesting Gemini Ecology Layer...".to_string(),
-                result: None,
-                error: None,
-                cancel_requested: false,
-            },
+            make_job_record(
+                "worldgen.ecology.paint",
+                "Generate Ecology Layer",
+                "worldgen",
+                "Requesting Gemini Ecology Layer...",
+                Some(request_key.clone()),
+                None,
+            ),
         );
     }
     let jobs = state.jobs.clone();
     let planets_dir = state.planets_dir.clone();
     let spawned_job_id = job_id.clone();
-    let request_key = format!("ecology-{}", Uuid::new_v4());
     tokio::task::spawn(async move {
         run_image_edit_job(
             spawned_job_id,
@@ -4231,6 +4580,7 @@ async fn start_humanity_job(
     Json(request): Json<PlanetImageEditRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let job_id = Uuid::new_v4().to_string();
+    let request_key = format!("humanity-{}", Uuid::new_v4());
     {
         let mut jobs = state.jobs.lock().map_err(|_| {
             (
@@ -4240,20 +4590,19 @@ async fn start_humanity_job(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: "Requesting Gemini Humanity Layer...".to_string(),
-                result: None,
-                error: None,
-                cancel_requested: false,
-            },
+            make_job_record(
+                "worldgen.humanity.paint",
+                "Generate Humanity Layer",
+                "worldgen",
+                "Requesting Gemini Humanity Layer...",
+                Some(request_key.clone()),
+                None,
+            ),
         );
     }
     let jobs = state.jobs.clone();
     let planets_dir = state.planets_dir.clone();
     let spawned_job_id = job_id.clone();
-    let request_key = format!("humanity-{}", Uuid::new_v4());
     tokio::task::spawn(async move {
         run_image_edit_job(
             spawned_job_id,
@@ -4360,7 +4709,7 @@ async fn run_image_edit_job(
             job.status = JobStatus::Completed;
             job.progress = 100.0;
             job.current_stage = "Completed".to_string();
-            job.result = Some(response);
+            job.result = serde_json::to_value(response).ok();
             job.error = None;
         }
     }
@@ -4391,14 +4740,14 @@ async fn start_cells_job(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: "Reading base map...".to_string(),
-                result: None,
-                error: None,
-                cancel_requested: false,
-            },
+            make_job_record(
+                "worldgen.cells.generate",
+                "Generate Planet Cells",
+                "worldgen",
+                "Reading base map...",
+                Some(history_id.clone()),
+                None,
+            ),
         );
     }
 
@@ -4565,14 +4914,15 @@ async fn run_cells_job(
                     job.progress = 100.0;
                     job.current_stage = "Completed".to_string();
                     // Provide a lightweight result — the full data is on disk
-                    job.result = Some(GenerateTerrainResponse {
+                    job.result = serde_json::to_value(GenerateTerrainResponse {
                         cols: analysis.cols,
                         rows: analysis.rows,
                         cell_data: Vec::new(),
                         cell_colors: Vec::new(),
                         texture_url: Some(format!("/api/planets/{}/textures/base.jpg", history_id)),
                         heightmap_url: None, // Cells analysis doesn't generate heightmap
-                    });
+                    })
+                    .ok();
                 }
             }
         }

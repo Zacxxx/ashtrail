@@ -598,13 +598,15 @@ async fn start_bulk_isolation_job(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: format!("Queued for {} Isolation", entity_type.to_uppercase()),
-                result: None,
-                error: None,
-                cancel_requested: false,
+            {
+                let mut job = JobRecord::new(
+                    "worldgen.isolation.bulk",
+                    "Bulk Isolate Regions",
+                    "worldgen",
+                );
+                job.world_id = Some(planet_id.clone());
+                job.current_stage = format!("Queued for {} Isolation", entity_type.to_uppercase());
+                job
             },
         );
     }
@@ -816,13 +818,15 @@ pub async fn start_upscaled_province_refine(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: format!("Queued for {} Refinement", entity_type.to_uppercase()),
-                result: None,
-                error: None,
-                cancel_requested: false,
+            {
+                let mut job = JobRecord::new(
+                    "worldgen.refine.upscaled",
+                    "Generate Upscaled Province",
+                    "worldgen",
+                );
+                job.world_id = Some(planet_id.clone());
+                job.current_stage = format!("Queued for {} Refinement", entity_type.to_uppercase());
+                job
             },
         );
     }
@@ -1019,13 +1023,16 @@ pub async fn run_pipeline_stage(
         let mut jobs = state.jobs.lock().unwrap();
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Running,
-                progress: 0.0,
-                current_stage: stage_name.clone(),
-                result: None,
-                error: None,
-                cancel_requested: false,
+            {
+                let mut job = JobRecord::new(
+                    &format!("worldgen.pipeline.{stage_name}"),
+                    &format!("Run Pipeline Stage: {stage_name}"),
+                    "worldgen",
+                );
+                job.world_id = Some(planet_id.clone());
+                job.status = JobStatus::Running;
+                job.current_stage = stage_name.clone();
+                job
             },
         );
     }

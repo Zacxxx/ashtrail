@@ -1,7 +1,15 @@
 use crate::gemini;
-use axum::{http::StatusCode, Json};
+use crate::jobs::{now_ms, JobStatus};
+use crate::{build_text_output_ref, make_job_record, parse_tracked_job_meta, AppState};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::sync::{Arc, Mutex};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,9 +37,63 @@ pub struct GenerateCharacterResponse {
     pub raw_json: String,
 }
 
-pub async fn generate_character_handler(
-    Json(req): Json<GenerateCharacterRequest>,
-) -> Result<Json<GenerateCharacterResponse>, (StatusCode, String)> {
+fn finish_tracked_character_job(
+    jobs: &Arc<Mutex<std::collections::HashMap<String, crate::jobs::JobRecord>>>,
+    job_id: &str,
+    result: Value,
+    output_label: &str,
+    summary: &str,
+) {
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(job_id) {
+            job.status = JobStatus::Completed;
+            job.progress = 100.0;
+            job.current_stage = "Completed".to_string();
+            job.result = Some(result);
+            job.output_refs = vec![build_text_output_ref(output_label, summary)];
+            job.updated_at = now_ms();
+        }
+    }
+}
+
+fn fail_tracked_character_job(
+    jobs: &Arc<Mutex<std::collections::HashMap<String, crate::jobs::JobRecord>>>,
+    job_id: &str,
+    message: String,
+) {
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(job_id) {
+            job.status = JobStatus::Failed;
+            job.progress = 100.0;
+            job.current_stage = "Failed".to_string();
+            job.error = Some(message);
+            job.updated_at = now_ms();
+        }
+    }
+}
+
+fn extract_character_preview(raw_json: &str) -> String {
+    serde_json::from_str::<Value>(raw_json)
+        .ok()
+        .and_then(|value| value.as_array().cloned())
+        .map(|entries| {
+            let names = entries
+                .iter()
+                .filter_map(|entry| entry.get("name").and_then(Value::as_str))
+                .take(3)
+                .collect::<Vec<_>>();
+            if names.is_empty() {
+                format!("Generated {} characters.", entries.len())
+            } else {
+                format!("Generated {} characters: {}", entries.len(), names.join(", "))
+            }
+        })
+        .unwrap_or_else(|| raw_json.chars().take(220).collect())
+}
+
+async fn execute_generate_characters(
+    req: GenerateCharacterRequest,
+) -> Result<GenerateCharacterResponse, (StatusCode, String)> {
     let mut prompt = String::new();
     prompt.push_str(&format!("You are an expert game designer creating {} unique characters for a dark fantasy post-apocalyptic roleplaying game.\n", req.count));
     prompt.push_str("Each character must be returned in a JSON array of objects. ");
@@ -99,7 +161,6 @@ Keep 'history' and 'backstory' detailed and flavorful.
         )
     })?;
 
-    // Optionally cleanup markdown fences
     let mut clean_text = text.trim().to_string();
     if clean_text.starts_with("```json") {
         clean_text = clean_text.trim_start_matches("```json").to_string();
@@ -109,11 +170,68 @@ Keep 'history' and 'backstory' detailed and flavorful.
     if clean_text.ends_with("```") {
         clean_text = clean_text.trim_end_matches("```").to_string();
     }
-    let clean_text = clean_text.trim().to_string();
+    Ok(GenerateCharacterResponse {
+        raw_json: clean_text.trim().to_string(),
+    })
+}
 
-    Ok(Json(GenerateCharacterResponse {
-        raw_json: clean_text,
-    }))
+pub async fn generate_character_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<GenerateCharacterRequest>,
+) -> Result<Response, (StatusCode, String)> {
+    if let Some(meta) = parse_tracked_job_meta(&headers) {
+        let job_id = uuid::Uuid::new_v4().to_string();
+        {
+            let mut jobs = state.jobs.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()))?;
+            let mut job = make_job_record(
+                meta.kind.as_deref().unwrap_or("characters.generate"),
+                meta.title.as_deref().unwrap_or("Generate Characters"),
+                meta.tool.as_deref().unwrap_or("character-builder"),
+                "Queued",
+                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(Value::as_str).map(str::to_string),
+                None,
+            );
+            if meta.restore.is_some() || meta.metadata.is_some() {
+                let mut metadata = serde_json::Map::new();
+                if let Some(restore) = meta.restore {
+                    metadata.insert("restore".to_string(), restore);
+                }
+                if let Some(extra) = meta.metadata {
+                    metadata.insert("metadata".to_string(), extra);
+                }
+                job.metadata = Some(Value::Object(metadata));
+            }
+            jobs.insert(job_id.clone(), job);
+        }
+        let jobs = state.jobs.clone();
+        let spawned_job_id = job_id.clone();
+        tokio::spawn(async move {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.status = JobStatus::Running;
+                    job.progress = 25.0;
+                    job.current_stage = "Generating characters".to_string();
+                    job.updated_at = now_ms();
+                }
+            }
+            match execute_generate_characters(req).await {
+                Ok(response) => {
+                    let preview = extract_character_preview(&response.raw_json);
+                    finish_tracked_character_job(
+                        &jobs,
+                        &spawned_job_id,
+                        json!({ "rawJson": response.raw_json }),
+                        "Generated Characters",
+                        &preview,
+                    );
+                }
+                Err((_status, message)) => fail_tracked_character_job(&jobs, &spawned_job_id, message),
+            }
+        });
+        return Ok((StatusCode::ACCEPTED, Json(json!({ "jobId": job_id }))).into_response());
+    }
+    Ok(Json(execute_generate_characters(req).await?).into_response())
 }
 
 #[derive(Deserialize)]
@@ -142,12 +260,12 @@ pub struct GenerateStoryResponse {
     pub story: String,
 }
 
-pub async fn generate_story_handler(
-    Json(req): Json<GenerateStoryRequest>,
-) -> Result<Json<GenerateStoryResponse>, (StatusCode, String)> {
+async fn execute_generate_story(
+    req: GenerateStoryRequest,
+) -> Result<GenerateStoryResponse, (StatusCode, String)> {
     let mut prompt = String::new();
     prompt.push_str("ASHTRAIL HISTORIAN PROTOCOL: You are the narrator of a dark, gritty sci-fi/fantasy post-apocalyptic world.\n");
-    prompt.push_str(&format!("Generate a detailed, evocative 5-paragraph character story for: {}, Age: {}, Gender: {}, current Occupation: {}.\n\n", 
+    prompt.push_str(&format!("Generate a detailed, evocative 5-paragraph character story for: {}, Age: {}, Gender: {}, current Occupation: {}.\n\n",
         req.name, req.age, req.gender, req.occupation));
 
     if !req.draft.is_empty() {
@@ -202,7 +320,63 @@ pub async fn generate_story_handler(
         )
     })?;
 
-    Ok(Json(GenerateStoryResponse {
+    Ok(GenerateStoryResponse {
         story: text.trim().to_string(),
-    }))
+    })
+}
+
+pub async fn generate_story_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<GenerateStoryRequest>,
+) -> Result<Response, (StatusCode, String)> {
+    if let Some(meta) = parse_tracked_job_meta(&headers) {
+        let job_id = uuid::Uuid::new_v4().to_string();
+        {
+            let mut jobs = state.jobs.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()))?;
+            let mut job = make_job_record(
+                meta.kind.as_deref().unwrap_or("characters.story"),
+                meta.title.as_deref().unwrap_or("Generate Character Story"),
+                meta.tool.as_deref().unwrap_or("character-builder"),
+                "Queued",
+                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(Value::as_str).map(str::to_string),
+                None,
+            );
+            if meta.restore.is_some() || meta.metadata.is_some() {
+                let mut metadata = serde_json::Map::new();
+                if let Some(restore) = meta.restore {
+                    metadata.insert("restore".to_string(), restore);
+                }
+                if let Some(extra) = meta.metadata {
+                    metadata.insert("metadata".to_string(), extra);
+                }
+                job.metadata = Some(Value::Object(metadata));
+            }
+            jobs.insert(job_id.clone(), job);
+        }
+        let jobs = state.jobs.clone();
+        let spawned_job_id = job_id.clone();
+        tokio::spawn(async move {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.status = JobStatus::Running;
+                    job.progress = 25.0;
+                    job.current_stage = "Generating story".to_string();
+                    job.updated_at = now_ms();
+                }
+            }
+            match execute_generate_story(req).await {
+                Ok(response) => finish_tracked_character_job(
+                    &jobs,
+                    &spawned_job_id,
+                    json!({ "story": response.story }),
+                    "Character Story",
+                    &response.story,
+                ),
+                Err((_status, message)) => fail_tracked_character_job(&jobs, &spawned_job_id, message),
+            }
+        });
+        return Ok((StatusCode::ACCEPTED, Json(json!({ "jobId": job_id }))).into_response());
+    }
+    Ok(Json(execute_generate_story(req).await?).into_response())
 }

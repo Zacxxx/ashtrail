@@ -133,7 +133,7 @@ export function GameplayEnginePage() {
                 )}
 
                 {/* Center Canvas Wrapper */}
-                <div className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ${activeStep !== "CHARACTER" && activeStep !== "COMBAT" && activeStep !== "SKILLS" && activeStep !== "RULES" ? "justify-center items-center" : ""}`}>
+                <div className={`flex-1 min-h-0 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ${activeStep === "EVENTS" ? "justify-center items-center" : ""}`}>
                     {activeStep === "CHARACTER" && (
                         <div className="w-full h-full flex items-center justify-center relative">
                             {activeDetailTab === "traits" && (
@@ -181,7 +181,7 @@ export function GameplayEnginePage() {
                     )}
 
                     {activeStep === "EXPLORATION" && (
-                        <div className="w-full h-full">
+                        <div className="w-full h-full min-h-0 overflow-hidden">
                             <ExplorationView />
                         </div>
                     )}

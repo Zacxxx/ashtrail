@@ -83,6 +83,46 @@ function mergeUniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+const LEGACY_SKILL_ID_ALIASES: Record<string, string> = {
+  slash: 'use-weapon',
+};
+
+const COMBAT_SKILL_PRIORITY: Record<string, number> = {
+  'use-weapon': 0,
+  'first-aid': 1,
+};
+
+export function canonicalizeSkillId(skillId: string): string {
+  return LEGACY_SKILL_ID_ALIASES[skillId] || skillId;
+}
+
+export function sanitizeSkill(skill: Skill): Skill {
+  const canonicalId = canonicalizeSkillId(skill.id);
+  if (canonicalId === skill.id) {
+    return skill;
+  }
+
+  return ALL_SKILLS.find((entry) => entry.id === canonicalId) || { ...skill, id: canonicalId };
+}
+
+export function prioritizeCombatSkills(skills: Skill[]): Skill[] {
+  return skills
+    .map((skill, index) => ({ skill, index }))
+    .sort((left, right) => {
+      const leftPriority = COMBAT_SKILL_PRIORITY[left.skill.id] ?? Number.MAX_SAFE_INTEGER;
+      const rightPriority = COMBAT_SKILL_PRIORITY[right.skill.id] ?? Number.MAX_SAFE_INTEGER;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+      return left.index - right.index;
+    })
+    .map(({ skill }) => skill);
+}
+
+export function sanitizeSkillLoadout(skills: Skill[]): Skill[] {
+  return prioritizeCombatSkills(mergeUniqueById(skills.map(sanitizeSkill)));
+}
+
 function mergeUniqueTraitGrants(items: ResolvedTraitGrant[]): ResolvedTraitGrant[] {
   const seen = new Set<string>();
   return items.filter((item) => {
@@ -333,10 +373,10 @@ export function resolveCharacterSkills(character: Pick<Character, 'skills' | 'oc
     progression: character.progression,
   });
   const grantedSkills = traitState.grantedSkillIds
-    .map((id) => ALL_SKILLS.find((skill) => skill.id === id))
+    .map((id) => ALL_SKILLS.find((skill) => skill.id === canonicalizeSkillId(id)))
     .filter((skill): skill is Skill => Boolean(skill));
 
-  return mergeUniqueById([...persistedSkills, ...grantedSkills]);
+  return sanitizeSkillLoadout([...persistedSkills, ...grantedSkills]);
 }
 
 export function resolveCrewMemberTraits(traitIds: string[]): Trait[] {
