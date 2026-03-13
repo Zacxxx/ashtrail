@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Modal, Slider } from "@ashtrail/ui";
-import type { BiomeEntry, ClimateProfile } from "./types";
+import type { BiomeEntry } from "./types";
 
 export type EcologyBulkGeneratorKind = "flora" | "fauna";
 
@@ -8,7 +8,6 @@ export interface EcologyBulkGeneratorRequest {
     prompt: string;
     count: number;
     biomeIds: string[];
-    climateProfileIds: string[];
     includeIllustrations: boolean;
     illustrationStylePrompt: string;
 }
@@ -17,7 +16,6 @@ interface EcologyBulkGeneratorModalProps {
     open: boolean;
     kind: EcologyBulkGeneratorKind;
     biomes: BiomeEntry[];
-    climates: ClimateProfile[];
     isGenerating: boolean;
     stage: string;
     error: string | null;
@@ -33,7 +31,6 @@ export function EcologyBulkGeneratorModal({
     open,
     kind,
     biomes,
-    climates,
     isGenerating,
     stage,
     error,
@@ -43,7 +40,6 @@ export function EcologyBulkGeneratorModal({
     const [prompt, setPrompt] = useState("");
     const [count, setCount] = useState(3);
     const [selectedBiomeIds, setSelectedBiomeIds] = useState<string[]>([]);
-    const [selectedClimateIds, setSelectedClimateIds] = useState<string[]>([]);
     const [includeIllustrations, setIncludeIllustrations] = useState(true);
     const [illustrationStylePrompt, setIllustrationStylePrompt] = useState("");
 
@@ -52,7 +48,6 @@ export function EcologyBulkGeneratorModal({
         setPrompt("");
         setCount(3);
         setSelectedBiomeIds([]);
-        setSelectedClimateIds([]);
         setIncludeIllustrations(true);
         setIllustrationStylePrompt("");
     }, [open, kind]);
@@ -130,31 +125,6 @@ export function EcologyBulkGeneratorModal({
                             </div>
                         </div>
 
-                        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                            <div className="flex items-center justify-between mb-3">
-                                <h3 className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">Climate Anchors</h3>
-                                <span className="text-[10px] text-gray-500 font-mono">{selectedClimateIds.length} selected</span>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {climates.map((climate) => {
-                                    const selected = selectedClimateIds.includes(climate.id);
-                                    return (
-                                        <button
-                                            key={climate.id}
-                                            type="button"
-                                            onClick={() => setSelectedClimateIds((current) => toggleString(current, climate.id))}
-                                            className={`rounded-full border px-3 py-1.5 text-[10px] font-bold tracking-widest transition-all ${
-                                                selected
-                                                    ? "border-sky-500/50 bg-sky-500/15 text-sky-300"
-                                                    : "border-white/10 bg-[#0a0f14] text-gray-400 hover:border-white/20"
-                                            }`}
-                                        >
-                                            {climate.name}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
                     </div>
 
                     <div className="space-y-5">
@@ -187,7 +157,7 @@ export function EcologyBulkGeneratorModal({
                             <p className="text-[9px] font-bold tracking-widest text-gray-500 uppercase">Output Notes</p>
                             <ul className="mt-2 space-y-2 text-[10px] text-gray-400">
                                 <li>Generated entries are saved as drafts in the ecology bundle.</li>
-                                <li>Biome and climate anchors are optional but improve consistency.</li>
+                                <li>Biome anchors are optional but improve consistency.</li>
                                 <li>Illustrations use the existing asset batch system, so they appear through the same ecology asset links as manual generation.</li>
                             </ul>
                         </div>
@@ -213,7 +183,6 @@ export function EcologyBulkGeneratorModal({
                             prompt: prompt.trim(),
                             count,
                             biomeIds: selectedBiomeIds,
-                            climateProfileIds: selectedClimateIds,
                             includeIllustrations,
                             illustrationStylePrompt: illustrationStylePrompt.trim(),
                         })

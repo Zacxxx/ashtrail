@@ -150,7 +150,14 @@ export function GameplayEnginePage() {
                                     occupation={selectedOccupation}
                                     onSave={async () => {
                                         await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+                                        setCustomTraits(GameRegistry.getAllTraits());
                                         setCustomOccupations(GameRegistry.getAllOccupations());
+                                    }}
+                                    onOpenTrait={(traitId) => {
+                                        const trait = GameRegistry.getTrait(traitId);
+                                        if (!trait) return;
+                                        setSelectedTrait(trait);
+                                        setActiveDetailTab("traits");
                                     }}
                                 />
                             )}

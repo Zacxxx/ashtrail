@@ -20,19 +20,6 @@ export interface EcologyBaseline {
     approvedAt?: string;
 }
 
-export interface ClimateProfile {
-    id: string;
-    status: EntryStatus;
-    name: string;
-    classification: string;
-    temperatureSummary: string;
-    precipitationSummary: string;
-    seasonality: string;
-    agricultureNotes: string;
-    provinceIds: number[];
-    approvedAt?: string;
-}
-
 export type FloraCategory = "tree" | "shrub" | "grass" | "crop" | "fungus" | "aquatic" | "alien_other";
 export type FloraEdibility = "none" | "limited" | "common";
 export type EcologyStatSource = "backfilled" | "generated" | "manual";
@@ -89,9 +76,7 @@ export interface FloraEntry {
     adaptations: string[];
     edibility: FloraEdibility;
     agricultureValue: number;
-    climateProfileIds: string[];
     biomeIds: string[];
-    provinceIds: number[];
     vegetationAssetBatchIds: string[];
     illustrationAssetBatchIds: string[];
     illustrationAssets: AssetImageRef[];
@@ -124,9 +109,7 @@ export interface FaunaEntry {
     adaptations: string[];
     domesticationPotential: number;
     dangerLevel: number;
-    climateProfileIds: string[];
     biomeIds: string[];
-    provinceIds: number[];
     earthAnalog: string;
     ancestralStock: string;
     evolutionaryPressures: string[];
@@ -182,24 +165,6 @@ export interface FaunaBehaviorProfile {
     perception: number;
     stealth: number;
     trainability: number;
-}
-
-export interface ProvinceEcologyRecord {
-    provinceId: number;
-    duchyId: number;
-    kingdomId: number;
-    status: EcologyStatus;
-    sourceIsolatedImageUrl: string;
-    description: string;
-    climateProfileIds: string[];
-    floraIds: string[];
-    faunaIds: string[];
-    biomeArchetypeId?: string;
-    ecologicalPotential: number;
-    agriculturePotential: number;
-    consistencyNotes: string[];
-    generatedAt?: string;
-    approvedAt?: string;
 }
 
 export interface EnvironmentalEnvelope {
@@ -316,13 +281,11 @@ export interface EcologyBundle {
     worldId: string;
     updatedAt: string;
     baselines: EcologyBaseline[];
-    climates: ClimateProfile[];
     flora: FloraEntry[];
     fauna: FaunaEntry[];
     biomes: BiomeEntry[];
     archetypes: BiomeRegistry;
     biomeModelSettings: BiomeModelSettings;
-    provinces: ProvinceEcologyRecord[];
 }
 
 export interface RefreshDerivedStatsResponse {

@@ -5,10 +5,17 @@
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Skill } from '@ashtrail/core';
 import type { TacticalEntity, CombatPhase, CombatLogMessage } from '@ashtrail/core';
+import { Modal } from '@ashtrail/ui';
 import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, getAoECells, getReachableCells, getAttackableCells, findPath } from './tacticalGrid';
 import type { PlayerAction } from './useCombatWebSocket';
 import type { DamagePreview } from '@ashtrail/core';
 import { GameRulesManager } from '../rules/useGameRules';
+
+export interface TacticalArenaUtilityAction {
+    label: string;
+    onClick: () => void;
+    tone?: 'neutral' | 'primary' | 'danger';
+}
 
 interface TacticalArenaProps {
     grid: Grid;
@@ -28,6 +35,8 @@ interface TacticalArenaProps {
     selectedSkill: Skill | null;
     battlemapUrl?: string | null;
     getDamagePreview: (attacker: TacticalEntity, target: TacticalEntity, skill: Skill) => DamagePreview | null;
+    variant?: 'gameplay' | 'quest';
+    utilityActions?: TacticalArenaUtilityAction[];
 }
 
 export function TacticalArena({
@@ -36,7 +45,9 @@ export function TacticalArena({
     onCellClick, onEndTurn, onSelectSkill, activeEntity, meleeAttackCost,
     selectedSkill,
     battlemapUrl,
-    getDamagePreview
+    getDamagePreview,
+    variant = 'gameplay',
+    utilityActions = [],
 }: TacticalArenaProps) {
     const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -65,6 +76,8 @@ export function TacticalArena({
     const [isHotbarUnlocked, setIsHotbarUnlocked] = useState(false);
     const [skillOrders, setSkillOrders] = useState<Record<string, (Skill | null)[]>>({});
     const [hoveredDragSlot, setHoveredDragSlot] = useState<number | null>(null);
+    const [showTimelineModal, setShowTimelineModal] = useState(false);
+    const [showCombatLogModal, setShowCombatLogModal] = useState(false);
 
     const currentSkills = useMemo(() => {
         if (!activeEntity) return Array.from({ length: 20 }, () => null);
@@ -164,32 +177,92 @@ export function TacticalArena({
         return newGrid;
     }, [grid, activeEntity, phase, isPlayerTurn, playerAction, selectedSkill, hoveredCell]);
 
+    const compactTurnOrder = useMemo(
+        () => turnOrder.slice(0, variant === 'quest' ? 4 : 6).map((id) => entities.get(id)).filter((entity): entity is TacticalEntity => Boolean(entity)),
+        [entities, turnOrder, variant],
+    );
+
+    const utilityToneClass: Record<NonNullable<TacticalArenaUtilityAction['tone']>, string> = {
+        neutral: 'border-white/10 bg-white/5 text-gray-200 hover:bg-white/10',
+        primary: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20',
+        danger: 'border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20',
+    };
+
     return (
-        <div className="w-full h-full flex flex-col gap-0 overflow-hidden">
+        <>
+        <div className="w-full h-full flex flex-col gap-0 overflow-hidden bg-[#04070d]">
             {/* Top Bar: Turn info + Phase */}
-            <div className="shrink-0 flex items-center justify-between px-4 py-2 bg-black/60 border-b border-white/5">
-                <div className="flex items-center gap-4">
+            <div className="shrink-0 flex items-center justify-between gap-4 px-4 py-2 bg-black/70 border-b border-white/5">
+                <div className="flex items-center gap-4 min-w-0">
                     <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Turn {turnNumber}</span>
                     {phase === 'victory' && <span className="text-xs font-black text-green-400 uppercase tracking-widest animate-pulse">🏆 VICTORY</span>}
                     {phase === 'defeat' && <span className="text-xs font-black text-red-400 uppercase tracking-widest animate-pulse">💀 DEFEAT</span>}
-                </div>
-                {activeEntity && phase === 'combat' && (
-                    <div className="flex items-center gap-6">
-                        <div className="flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${activeEntity.isPlayer ? 'bg-blue-500' : 'bg-red-500'}`} />
-                            <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest">{activeEntity.name}</span>
-                            {!isPlayerTurn && <span className="text-[9px] text-gray-500 italic">(AI thinking...)</span>}
-                        </div>
-                        <div className="flex gap-3 text-xs font-mono">
-                            <span className="text-blue-400">AP: {activeEntity.ap}/{activeEntity.maxAp}</span>
-                            <span className="text-green-400">MP: {activeEntity.mp}/{activeEntity.maxMp}</span>
-                            <span className="text-red-400">HP: {activeEntity.hp}/{activeEntity.maxHp}</span>
-                        </div>
+                    <div className="hidden lg:flex items-center gap-2 min-w-0">
+                        {compactTurnOrder.map((entity) => {
+                            const isDead = entity.hp <= 0;
+                            const isActiveTurn = entity.id === activeEntityId;
+                            return (
+                                <div
+                                    key={entity.id}
+                                    className={`flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-widest ${isDead
+                                        ? 'border-white/5 bg-white/5 text-gray-600 line-through'
+                                        : isActiveTurn
+                                            ? 'border-orange-500/40 bg-orange-500/15 text-orange-300'
+                                            : 'border-white/10 bg-white/5 text-gray-300'
+                                    }`}
+                                >
+                                    <span className={`h-2 w-2 rounded-full ${entity.isPlayer ? 'bg-blue-400' : 'bg-red-400'}`} />
+                                    <span className="max-w-[72px] truncate">{entity.name}</span>
+                                    {!isDead && <span className="font-mono text-[9px] text-gray-500">{entity.hp}</span>}
+                                </div>
+                            );
+                        })}
                     </div>
-                )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                    <button
+                        type="button"
+                        onClick={() => setShowTimelineModal(true)}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-200 transition-colors hover:bg-white/10"
+                    >
+                        Timeline
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setShowCombatLogModal(true)}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-200 transition-colors hover:bg-white/10"
+                    >
+                        Log
+                    </button>
+                    {utilityActions.map((action) => (
+                        <button
+                            key={action.label}
+                            type="button"
+                            onClick={action.onClick}
+                            className={`rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${utilityToneClass[action.tone || 'neutral']}`}
+                        >
+                            {action.label}
+                        </button>
+                    ))}
+                </div>
             </div>
 
-            {/* Main Content: Arena + Timeline */}
+            {activeEntity && phase === 'combat' && (
+                <div className="shrink-0 flex items-center justify-between gap-4 px-4 py-2 border-b border-white/5 bg-[linear-gradient(90deg,rgba(14,20,28,0.95),rgba(4,7,13,0.85))]">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-2 h-2 rounded-full ${activeEntity.isPlayer ? 'bg-blue-500' : 'bg-red-500'}`} />
+                        <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest truncate">{activeEntity.name}</span>
+                        {!isPlayerTurn && <span className="text-[9px] text-gray-500 italic">(AI thinking...)</span>}
+                    </div>
+                    <div className="flex gap-3 text-xs font-mono">
+                        <span className="text-blue-400">AP: {activeEntity.ap}/{activeEntity.maxAp}</span>
+                        <span className="text-green-400">MP: {activeEntity.mp}/{activeEntity.maxMp}</span>
+                        <span className="text-red-400">HP: {activeEntity.hp}/{activeEntity.maxHp}</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Main Content: Arena */}
             <div className="flex-1 flex overflow-hidden">
                 {/* Isometric Grid */}
                 <div className="flex-1 relative overflow-hidden bg-[#0a0e14]">
@@ -272,44 +345,12 @@ export function TacticalArena({
                         ))}
                     </div>
                 </div>
-
-                {/* Turn Order Timeline & Actions Panel */}
-                <div className="w-[320px] shrink-0 bg-black/80 border-l border-white/5 flex flex-col overflow-hidden">
-                    <div className="px-3 py-2 border-b border-white/10">
-                        <h3 className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Timeline</h3>
-                    </div>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-                        {turnOrder.map((id) => {
-                            const entity = entities.get(id);
-                            if (!entity) return null;
-                            const isDead = entity.hp <= 0;
-                            const isActive = id === activeEntityId;
-                            return (
-                                <div
-                                    key={id}
-                                    className={`flex items-center gap-2 px-2 py-1.5 rounded transition-all text-xs ${isDead ? 'opacity-30 line-through' :
-                                        isActive ? 'bg-orange-500/20 border border-orange-500/50' :
-                                            'border border-transparent hover:bg-white/5'
-                                        }`}
-                                >
-                                    <div className={`w-2 h-2 rounded-full shrink-0 ${entity.isPlayer ? 'bg-blue-500' : 'bg-red-500'}`} />
-                                    <span className={`font-bold truncate ${isActive ? 'text-orange-400' : 'text-gray-400'}`}>
-                                        {entity.name}
-                                    </span>
-                                    {!isDead && (
-                                        <span className="ml-auto text-[9px] font-mono text-gray-600">{entity.hp}</span>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
             </div>
 
-            {/* Bottom Panel: Skills + Actions + Log */}
-            <div className="h-[200px] shrink-0 flex gap-0 border-t border-white/5">
+            {/* Bottom Panel: Skills + Actions */}
+            <div className={`shrink-0 flex gap-0 border-t border-white/5 ${variant === 'quest' ? 'h-[188px]' : 'h-[200px]'}`}>
                 {/* Actions / Spell Bar HUD (Dofus Style) */}
-                <div className="flex-1 p-0 bg-black/90 flex flex-col justify-end items-center relative overflow-visible bg-[radial-gradient(ellipse_at_bottom,_var(--tw-gradient-stops))] from-slate-900 via-black to-black border-r border-white/5">
+                <div className="flex-1 p-0 bg-black/90 flex flex-col justify-end items-center relative overflow-visible bg-[radial-gradient(ellipse_at_bottom,_var(--tw-gradient-stops))] from-slate-900 via-black to-black">
                     {/* Targeting Cancel Bar */}
                     {playerAction === 'targeting_skill' && selectedSkill && (
                         <div className="absolute top-0 left-0 w-full bg-orange-500/20 text-orange-400 text-xs py-1.5 text-center font-bold tracking-widest border-b border-orange-500/50 flex justify-center items-center gap-4 z-10 shadow-lg">
@@ -350,7 +391,7 @@ export function TacticalArena({
                                 <div className="relative group/hotbar">
                                     <button
                                         onClick={() => setIsHotbarUnlocked(!isHotbarUnlocked)}
-                                        className={`absolute -left-3 -top-3 w-6 h-6 rounded-full border-2 flex items-center justify-center text-[10px] z-[60] transition-all shadow-lg ${isHotbarUnlocked
+                                        className={`absolute -left-3 -top-3 w-6 h-6 rounded-full border-2 flex items-center justify-center text-[10px] z-10 transition-all shadow-lg ${isHotbarUnlocked
                                             ? 'bg-orange-500 border-orange-300 text-black animate-pulse'
                                             : 'bg-gray-700 border-gray-500 text-gray-400 hover:bg-gray-600 hover:text-white'}`}
                                         title={isHotbarUnlocked ? "Lock Hotbar" : "Unlock Hotbar"}
@@ -578,25 +619,58 @@ export function TacticalArena({
                         </div>
                     )}
                 </div>
-
-                {/* Combat Log */}
-                <div className="w-[320px] shrink-0 p-3 bg-black/80 flex flex-col overflow-hidden font-mono text-xs border-l border-white/10">
-                    <h3 className="text-[9px] font-black uppercase text-gray-500 tracking-widest border-b border-white/10 pb-1 mb-1 shrink-0">Combat Log</h3>
-                    <div className="flex-1 overflow-y-auto space-y-0.5 pr-2 custom-scrollbar">
-                        {logs.map(log => (
-                            <div key={log.id} className={`py-0.5 ${log.type === 'system' ? 'text-teal-400 font-bold' :
-                                log.type === 'damage' ? 'text-red-400' :
-                                    log.type === 'heal' ? 'text-green-400' : 'text-gray-400'
-                                }`}>
-                                <span className="text-gray-600 mr-1.5">»</span>
-                                {log.message}
-                            </div>
-                        ))}
-                        <div ref={logEndRef} />
-                    </div>
-                </div>
             </div>
         </div>
+        <Modal open={showTimelineModal} onClose={() => setShowTimelineModal(false)} title="COMBAT - TIMELINE" maxWidth="max-w-2xl">
+            <div className="h-full bg-[#05080c] p-4">
+                <div className="h-full overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                    {turnOrder.map((id) => {
+                        const entity = entities.get(id);
+                        if (!entity) return null;
+                        const isDead = entity.hp <= 0;
+                        const isActiveTurn = id === activeEntityId;
+                        return (
+                            <div
+                                key={id}
+                                className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-sm ${isDead
+                                    ? 'border-white/5 bg-white/5 text-gray-600 line-through'
+                                    : isActiveTurn
+                                        ? 'border-orange-500/40 bg-orange-500/10 text-orange-100'
+                                        : 'border-white/10 bg-black/20 text-gray-300'
+                                }`}
+                            >
+                                <span className={`h-2.5 w-2.5 rounded-full ${entity.isPlayer ? 'bg-blue-400' : 'bg-red-400'}`} />
+                                <span className="font-bold uppercase tracking-widest">{entity.name}</span>
+                                <span className="ml-auto font-mono text-xs text-gray-500">
+                                    HP {entity.hp}/{entity.maxHp}
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </Modal>
+        <Modal open={showCombatLogModal} onClose={() => setShowCombatLogModal(false)} title="COMBAT - LOG" maxWidth="max-w-3xl">
+            <div className="h-full bg-[#05080c] p-4 font-mono text-xs">
+                <div className="h-full overflow-y-auto custom-scrollbar space-y-1 pr-2">
+                    {logs.map((log) => (
+                        <div key={log.id} className={`rounded-lg border px-3 py-2 ${log.type === 'system'
+                            ? 'border-teal-500/20 bg-teal-500/10 text-teal-100'
+                            : log.type === 'damage'
+                                ? 'border-red-500/20 bg-red-500/10 text-red-100'
+                                : log.type === 'heal'
+                                    ? 'border-green-500/20 bg-green-500/10 text-green-100'
+                                    : 'border-white/10 bg-black/20 text-gray-300'
+                        }`}>
+                            <span className="text-gray-500 mr-2">»</span>
+                            {log.message}
+                        </div>
+                    ))}
+                    <div ref={logEndRef} />
+                </div>
+            </div>
+        </Modal>
+        </>
     );
 }
 

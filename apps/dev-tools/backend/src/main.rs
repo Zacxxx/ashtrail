@@ -1,6 +1,7 @@
 mod ai_characters;
 mod ai_events;
 mod ai_quests;
+mod asset_packs;
 mod cell_analyzer;
 mod cms;
 mod combat_engine;
@@ -8,8 +9,8 @@ mod ecology;
 mod gemini;
 mod generator;
 mod hierarchy;
+mod locations;
 mod worldgen_pipeline;
-mod asset_packs;
 
 use axum::{
     extract::{Path, Query, State},
@@ -314,7 +315,7 @@ struct TextureBatchRequest {
     base64_image: Option<String>,
     batch_name: Option<String>,
     temperature: Option<f32>,
-    category: String,             // "battle_assets", "character", "item", "world_assets", "game_assets"
+    category: String, // "battle_assets", "character", "item", "world_assets", "game_assets"
     sub_category: Option<String>, // "ground", "obstacle"
     game_asset: Option<GameAssetInfo>,
 }
@@ -611,6 +612,7 @@ async fn main() {
             "/api/terrain/jobs/{job_id}",
             get(get_job_status).delete(cancel_job),
         )
+        .route("/api/jobs/{job_id}", get(get_job_status).delete(cancel_job))
         .route("/api/planet/preview", post(start_preview_job))
         .route("/api/planet/preview/{job_id}", get(get_job_status))
         .route("/api/planet/hybrid", post(start_hybrid_job))
@@ -675,10 +677,6 @@ async fn main() {
             post(ecology::generate_duchy_baseline),
         )
         .route(
-            "/api/planet/ecology-data/{world_id}/generate/province/{province_id}",
-            post(ecology::generate_province_record),
-        )
-        .route(
             "/api/planet/ecology-data/{world_id}/generate/biome/{biome_id}",
             post(ecology::generate_biome_description),
         )
@@ -722,6 +720,15 @@ async fn main() {
         .route(
             "/api/planet/factions/{id}",
             get(get_factions).post(save_factions),
+        )
+        .route("/api/planet/areas/{id}", get(get_areas))
+        .route(
+            "/api/planet/location-generation/{id}",
+            get(get_location_generation),
+        )
+        .route(
+            "/api/planet/locations/{id}/generate",
+            post(generate_locations_job),
         )
         .route(
             "/api/planet/locations/{id}",
@@ -807,10 +814,7 @@ async fn main() {
         .route("/api/textures/export", post(export_textures_registry))
         .route("/api/sprites/generate-batch", post(generate_sprite_batch))
         .route("/api/sprites/batches", get(list_sprite_batches))
-        .route(
-            "/api/sprites/batches/{batch_id}",
-            get(get_sprite_batch),
-        )
+        .route("/api/sprites/batches/{batch_id}", get(get_sprite_batch))
         .route(
             "/api/sprites/batches/{batch_id}/rename",
             axum::routing::put(rename_sprite_batch),
@@ -2295,7 +2299,10 @@ fn normalize_gm_ambience_value(
     legacy_ambience_directive: Option<&str>,
     default_legacy_ambience_directive: &str,
 ) -> serde_json::Value {
-    let input = input.and_then(|value| value.as_object()).cloned().unwrap_or_default();
+    let input = input
+        .and_then(|value| value.as_object())
+        .cloned()
+        .unwrap_or_default();
     let defaults = defaults.as_object().cloned().unwrap_or_default();
 
     let default_notes = defaults
@@ -2468,7 +2475,11 @@ fn normalize_gm_settings_value(value: serde_json::Value, world_id: &str) -> serd
         input
             .get("ambienceDirective")
             .and_then(|value| value.as_str())
-            .or_else(|| normalized.get("ambienceDirective").and_then(|value| value.as_str())),
+            .or_else(|| {
+                normalized
+                    .get("ambienceDirective")
+                    .and_then(|value| value.as_str())
+            }),
         &default_legacy_ambience_directive,
     );
     normalized.insert("ambience".to_string(), normalized_ambience);
@@ -2782,16 +2793,32 @@ async fn get_gm_context(
         })
         .collect::<Vec<_>>()
         .join("\n\n");
-    let factions_enabled = context_sources.get("factions").and_then(|v| v.as_bool()).unwrap_or(false);
-    let locations_enabled = context_sources.get("locations").and_then(|v| v.as_bool()).unwrap_or(false);
-    let characters_enabled = context_sources.get("characters").and_then(|v| v.as_bool()).unwrap_or(false);
-    let regions_enabled = context_sources.get("regions").and_then(|v| v.as_bool()).unwrap_or(false);
-    let temporality_enabled = context_sources.get("temporality").and_then(|v| v.as_bool()).unwrap_or(false);
+    let factions_enabled = context_sources
+        .get("factions")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let locations_enabled = context_sources
+        .get("locations")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let characters_enabled = context_sources
+        .get("characters")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let regions_enabled = context_sources
+        .get("regions")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let temporality_enabled = context_sources
+        .get("temporality")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let factions_preview = summarize_named_records(&factions, "lore", 3);
     let locations_preview = summarize_named_records(&locations, "lore", 3);
     let characters_preview = summarize_named_records(&characters, "lore", 3);
     let regions_preview = summarize_named_records(&regions, "lore", 3);
-    let temporality_preview = serde_json::to_string_pretty(&temporality).unwrap_or_else(|_| "Unavailable".to_string());
+    let temporality_preview =
+        serde_json::to_string_pretty(&temporality).unwrap_or_else(|_| "Unavailable".to_string());
     let lore_enabled = context_sources
         .get("mainLore")
         .and_then(|value| value.as_bool())
@@ -3080,13 +3107,22 @@ async fn save_factions(
 }
 
 async fn get_locations(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
-    let file_path = state.planets_dir.join(&id).join("locations.json");
-    if let Ok(data) = std::fs::read_to_string(&file_path) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
-            return (StatusCode::OK, Json(json)).into_response();
-        }
-    }
-    (StatusCode::OK, Json(serde_json::json!([]))).into_response()
+    let locations = locations::read_locations(&state.planets_dir, &id);
+    (StatusCode::OK, Json(serde_json::json!(locations))).into_response()
+}
+
+async fn get_areas(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
+    get_locations(State(state), Path(id)).await
+}
+
+async fn get_location_generation(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let metadata = locations::read_generation_metadata(&state.planets_dir, &id)
+        .map(|value| serde_json::json!(value))
+        .unwrap_or(serde_json::Value::Null);
+    (StatusCode::OK, Json(metadata)).into_response()
 }
 
 async fn save_locations(
@@ -3103,13 +3139,119 @@ async fn save_locations(
             .into_response();
     }
 
-    let file_path = planet_dir.join("locations.json");
-    match std::fs::write(
-        &file_path,
-        serde_json::to_string_pretty(&locations).unwrap_or_default(),
-    ) {
-        Ok(_) => StatusCode::OK.into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    let normalized = locations::normalize_locations_value(locations);
+    match locations::write_locations(&state.planets_dir, &id, &normalized) {
+        Ok(saved) => (StatusCode::OK, Json(serde_json::json!(saved))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
+}
+
+async fn generate_locations_job(
+    State(state): State<AppState>,
+    Path(world_id): Path<String>,
+    Json(request): Json<locations::LocationGenerationRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let job_id = Uuid::new_v4().to_string();
+
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        jobs.insert(
+            job_id.clone(),
+            JobRecord {
+                status: JobStatus::Queued,
+                progress: 0.0,
+                current_stage: "Preparing location simulation...".to_string(),
+                result: None,
+                error: None,
+                cancel_requested: false,
+            },
+        );
+    }
+
+    let jobs = state.jobs.clone();
+    let planets_dir = state.planets_dir.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::task::spawn(async move {
+        set_location_job_state(
+            &jobs,
+            &spawned_job_id,
+            JobStatus::Running,
+            5.0,
+            "Loading worldgen and ecology inputs...",
+            None,
+        );
+
+        match locations::simulate_locations(&planets_dir, &world_id, &request).await {
+            Ok(output) => {
+                set_location_job_state(
+                    &jobs,
+                    &spawned_job_id,
+                    JobStatus::Running,
+                    92.0,
+                    "Persisting generated locations...",
+                    None,
+                );
+                let write_locations = locations::write_locations(&planets_dir, &world_id, &output.locations);
+                let write_metadata =
+                    locations::write_generation_metadata(&planets_dir, &world_id, &output.metadata);
+                match (write_locations, write_metadata) {
+                    (Ok(_), Ok(_)) => set_location_job_state(
+                        &jobs,
+                        &spawned_job_id,
+                        JobStatus::Completed,
+                        100.0,
+                        "Completed",
+                        None,
+                    ),
+                    (Err(error), _) | (_, Err(error)) => set_location_job_state(
+                        &jobs,
+                        &spawned_job_id,
+                        JobStatus::Failed,
+                        100.0,
+                        "Failed to persist generated locations",
+                        Some(error),
+                    ),
+                }
+            }
+            Err(error) => {
+                set_location_job_state(
+                    &jobs,
+                    &spawned_job_id,
+                    JobStatus::Failed,
+                    100.0,
+                    "Location simulation failed",
+                    Some(error),
+                );
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+fn set_location_job_state(
+    jobs: &Arc<Mutex<HashMap<String, JobRecord>>>,
+    job_id: &str,
+    status: JobStatus,
+    progress: f32,
+    current_stage: &str,
+    error: Option<String>,
+) {
+    if let Ok(mut map) = jobs.lock() {
+        if let Some(job) = map.get_mut(job_id) {
+            job.status = status;
+            job.progress = progress;
+            job.current_stage = current_stage.to_string();
+            job.error = error;
+            if !matches!(job.status, JobStatus::Completed) {
+                job.result = None;
+            }
+        }
     }
 }
 
@@ -5050,7 +5192,10 @@ fn clean_sprite_png(image_bytes: &[u8]) -> Result<Vec<u8>, String> {
 
     let mut output = Vec::new();
     image::DynamicImage::ImageRgba8(square)
-        .write_to(&mut std::io::Cursor::new(&mut output), image::ImageFormat::Png)
+        .write_to(
+            &mut std::io::Cursor::new(&mut output),
+            image::ImageFormat::Png,
+        )
         .map_err(|e| format!("PNG encode error: {e}"))?;
     Ok(output)
 }
@@ -5183,8 +5328,7 @@ async fn generate_sprite_batch(
                 )
                 .await
                 .map_err(|(code, msg)| (code, msg))?;
-                clean_sprite_png(&edited)
-                    .map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, msg))?
+                clean_sprite_png(&edited).map_err(|msg| (StatusCode::INTERNAL_SERVER_ERROR, msg))?
             };
 
             let filename = format!("{:03}_{}.png", index, direction);
@@ -5310,7 +5454,10 @@ async fn list_sprite_batches(
                     .map_err(|e| format!("read manifest: {e}"))?;
                 let manifest: SpriteBatchManifest =
                     serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
-                let thumbnail_url = manifest.sprites.first().map(|sprite| sprite.preview_url.clone());
+                let thumbnail_url = manifest
+                    .sprites
+                    .first()
+                    .map(|sprite| sprite.preview_url.clone());
                 result.push(SpriteBatchSummary {
                     batch_id: manifest.batch_id,
                     batch_name: manifest.batch_name,
@@ -5396,7 +5543,11 @@ async fn update_texture_metadata(
         )
     })?;
 
-    if let Some(texture) = manifest.textures.iter_mut().find(|t| t.filename == filename) {
+    if let Some(texture) = manifest
+        .textures
+        .iter_mut()
+        .find(|t| t.filename == filename)
+    {
         texture.metadata = request.metadata;
 
         let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
@@ -5416,7 +5567,10 @@ async fn update_texture_metadata(
         info!(batch_id = %batch_id, filename = %filename, "texture metadata updated");
         Ok(StatusCode::OK)
     } else {
-        Err((StatusCode::NOT_FOUND, "Texture not found in batch".to_string()))
+        Err((
+            StatusCode::NOT_FOUND,
+            "Texture not found in batch".to_string(),
+        ))
     }
 }
 
@@ -5897,9 +6051,10 @@ async fn rename_sprite_batch(
         manifest.batch_id = new_batch_id.clone();
 
         for sprite in &mut manifest.sprites {
-            sprite.preview_url = sprite
-                .preview_url
-                .replace(&format!("/api/sprites/{batch_id}/"), &format!("/api/sprites/{new_batch_id}/"));
+            sprite.preview_url = sprite.preview_url.replace(
+                &format!("/api/sprites/{batch_id}/"),
+                &format!("/api/sprites/{new_batch_id}/"),
+            );
             if let Some(url) = sprite.illustration_url.as_mut() {
                 *url = url.replace(
                     &format!("/api/sprites/{batch_id}/"),

@@ -149,17 +149,27 @@ pub async fn generate_story_handler(
     prompt.push_str("ASHTRAIL HISTORIAN PROTOCOL: You are the narrator of a dark, gritty sci-fi/fantasy post-apocalyptic world.\n");
     prompt.push_str(&format!("Generate a detailed, evocative 5-paragraph character story for: {}, Age: {}, Gender: {}, current Occupation: {}.\n\n", 
         req.name, req.age, req.gender, req.occupation));
-        
+
     if !req.draft.is_empty() {
-        prompt.push_str(&format!("User's provided backstory draft / context:\n{}\n\n", req.draft));
+        prompt.push_str(&format!(
+            "User's provided backstory draft / context:\n{}\n\n",
+            req.draft
+        ));
     }
-    
+
     if let Some(rels) = &req.relationships {
         if !rels.is_empty() {
             prompt.push_str("SOCIAL TIES & RELATIONSHIPS:\n");
             for r in rels {
-                let player_tag = if r.is_player { " [MAIN PROTAGONIST / PLAYER CHARACTER]" } else { "" };
-                prompt.push_str(&format!("- {}: {} {}\n", r.target_name, r.rel_type, player_tag));
+                let player_tag = if r.is_player {
+                    " [MAIN PROTAGONIST / PLAYER CHARACTER]"
+                } else {
+                    ""
+                };
+                prompt.push_str(&format!(
+                    "- {}: {} {}\n",
+                    r.target_name, r.rel_type, player_tag
+                ));
             }
             prompt.push_str("\nRELATIONSHIP DIRECTIVE:\n");
             prompt.push_str("Characters marked as [MAIN PROTAGONIST / PLAYER CHARACTER] are CRITICAL. You MUST weave them into the narrative as active partners, rivals, or anchors. Their destiny is intertwined with the subject. Avoid generic 'lone wolf' tropes if these bonds exist; focus on shared survival or deep-rooted history.\n\n");
@@ -168,7 +178,10 @@ pub async fn generate_story_handler(
 
     if let Some(lore) = &req.world_lore {
         if !lore.is_empty() {
-            prompt.push_str(&format!("Current World Context (Synchronize with this era):\n{}\n\n", lore));
+            prompt.push_str(&format!(
+                "Current World Context (Synchronize with this era):\n{}\n\n",
+                lore
+            ));
         }
     }
 
@@ -178,12 +191,15 @@ pub async fn generate_story_handler(
     prompt.push_str("3. SURVIE: The immediate struggle to survive the resource wars and the descent into the deep vaults or the shadows of the ruins.\n");
     prompt.push_str("4. ADAPTATION: The long years of hardening inside the structural shells or the wastes. How they became what they are now.\n");
     prompt.push_str("5. ÉTAT ACTUEL: Their current standing in the City-States or the Ash-Trail. Why they are starting their journey today as a survivor.\n\n");
-    
+
     prompt.push_str("TONE: Objective but dramatic, emphasizing consequences and power dynamics. Avoid moralizing; focus on survival math.\n");
     prompt.push_str("Return ONLY the story text. No markdown blocks, no titles, just formatting with double newlines between paragraphs.");
 
     let text = gemini::generate_text(&prompt).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Gemini API error: {:?}", e))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Gemini API error: {:?}", e),
+        )
     })?;
 
     Ok(Json(GenerateStoryResponse {

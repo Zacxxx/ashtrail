@@ -8,8 +8,8 @@ use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
 use image::io::Reader as ImageReader;
 use image::{DynamicImage, GenericImageView, ImageFormat};
-use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
@@ -2190,7 +2190,10 @@ fn run_single_stage(
                 &out_dir.join("biome_confidence.png"),
             )?;
             write_json_pretty(&out_dir.join("biome_report.json"), &analysis.report)?;
-            write_json_pretty(&out_dir.join("biome_palette.json"), &biome::biome_palette(&registry))?;
+            write_json_pretty(
+                &out_dir.join("biome_palette.json"),
+                &biome::biome_palette(&registry),
+            )?;
             write_json_pretty(&out_dir.join("biome_vision_priors.json"), &vision_analysis)
         }
 
@@ -2206,8 +2209,9 @@ fn run_single_stage(
                 .unwrap_or_else(|_| crate::ecology::empty_bundle(planet_id));
             let registry = bundle.archetypes;
 
-            let suit =
-                suitability::compute_suitability(&hf, &mask, &river, &biomes, &registry, w, h, progress);
+            let suit = suitability::compute_suitability(
+                &hf, &mask, &river, &biomes, &registry, w, h, progress,
+            );
             export::write_f32_binary(&suit, &out_dir.join("suitability.bin"))
         }
 
@@ -2279,8 +2283,9 @@ fn run_single_stage(
             let (w, h) = get_dimensions(&out_dir.join("landmask.png"))?;
             let labels = load_id_texture(&out_dir.join("province_id.png"), w, h)?;
             let biomes = load_mask_u8(&out_dir.join("biome.png"), w, h)?;
-            let biome_confidence = load_optional_mask_u8(&out_dir.join("biome_confidence.png"), w, h)?
-                .unwrap_or_else(|| vec![255; (w * h) as usize]);
+            let biome_confidence =
+                load_optional_mask_u8(&out_dir.join("biome_confidence.png"), w, h)?
+                    .unwrap_or_else(|| vec![255; (w * h) as usize]);
             let seeds = load_seeds_json(&out_dir.join("seeds.json"))?;
             let adj_json = std::fs::read_to_string(out_dir.join("adjacency.json"))
                 .map_err(|e| format!("Failed to read adjacency.json: {}", e))?;
@@ -2330,7 +2335,10 @@ fn run_single_stage(
                 .map_err(|e| format!("Failed to serialize continents.json: {e}"))?;
             std::fs::write(out_dir.join("continents.json"), continents_json)
                 .map_err(|e| format!("Failed to write continents.json: {e}"))?;
-            enrich_biome_report_with_provinces(&out_dir.join("biome_report.json"), &province_summaries)?;
+            enrich_biome_report_with_provinces(
+                &out_dir.join("biome_report.json"),
+                &province_summaries,
+            )?;
             export::write_provinces_json(&provinces, &out_dir.join("provinces.json"))?;
             export::write_duchies_json(&duchies, &out_dir.join("duchies.json"))?;
             export::write_kingdoms_json(&kingdoms, &out_dir.join("kingdoms.json"))
@@ -2490,7 +2498,8 @@ fn load_optional_mask_u8(
 }
 
 fn image_hash(path: &std::path::Path) -> Result<String, String> {
-    let bytes = fs::read(path).map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
+    let bytes =
+        fs::read(path).map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     Ok(format!("{:x}", hasher.finalize()))
@@ -2504,7 +2513,8 @@ fn load_or_initialize_biome_vision_priors(
     let hash = image_hash(base_path)?;
     let priors_path = out_dir.join("biome_vision_priors.json");
     if priors_path.exists() {
-        let mut analysis = load_json_file::<BiomeVisionAnalysis>(&priors_path, "biome_vision_priors.json")?;
+        let mut analysis =
+            load_json_file::<BiomeVisionAnalysis>(&priors_path, "biome_vision_priors.json")?;
         if analysis.source_image_hash == hash
             && analysis.analysis_version == settings.analysis_version
             && analysis.model_id == settings.vision_model_id
@@ -2567,7 +2577,10 @@ fn enrich_province_biome_records(
             continue;
         };
 
-        let mut sorted = counts.iter().map(|(idx, count)| (*idx, *count)).collect::<Vec<_>>();
+        let mut sorted = counts
+            .iter()
+            .map(|(idx, count)| (*idx, *count))
+            .collect::<Vec<_>>();
         sorted.sort_by(|left, right| right.1.cmp(&left.1));
         let (primary_idx, _) = sorted[0];
         let total_pixels = pixel_counts.get(&province.id).copied().unwrap_or(0).max(1);
@@ -2657,7 +2670,8 @@ async fn build_or_refresh_biome_vision_priors(
     let hash = image_hash(base_path)?;
     let priors_path = out_dir.join("biome_vision_priors.json");
     if !force_refresh && priors_path.exists() {
-        let analysis = load_json_file::<BiomeVisionAnalysis>(&priors_path, "biome_vision_priors.json")?;
+        let analysis =
+            load_json_file::<BiomeVisionAnalysis>(&priors_path, "biome_vision_priors.json")?;
         if analysis.source_image_hash == hash
             && analysis.analysis_version == settings.analysis_version
             && analysis.model_id == settings.vision_model_id
@@ -2790,7 +2804,8 @@ fn rasterize_vision_cells(
 ) -> Vec<BiomeVisionCellPrior> {
     let grid_width = width.div_ceil(cell_size);
     let grid_height = height.div_ceil(cell_size);
-    let mut accumulators = vec![HashMap::<String, (f32, f32, u32)>::new(); (grid_width * grid_height) as usize];
+    let mut accumulators =
+        vec![HashMap::<String, (f32, f32, u32)>::new(); (grid_width * grid_height) as usize];
 
     for tile in tiles {
         let start_x = tile.x / cell_size;
@@ -2818,11 +2833,13 @@ fn rasterize_vision_cells(
             let index = (cell_y * grid_width + cell_x) as usize;
             let mut candidates = accumulators[index]
                 .iter()
-                .map(|(biome_id, (coverage_sum, confidence_sum, count))| BiomeVisionCandidate {
-                    biome_id: biome_id.clone(),
-                    coverage: (coverage_sum / *count as f32).clamp(0.0, 1.0),
-                    confidence: (confidence_sum / *count as f32).clamp(0.0, 1.0),
-                })
+                .map(
+                    |(biome_id, (coverage_sum, confidence_sum, count))| BiomeVisionCandidate {
+                        biome_id: biome_id.clone(),
+                        coverage: (coverage_sum / *count as f32).clamp(0.0, 1.0),
+                        confidence: (confidence_sum / *count as f32).clamp(0.0, 1.0),
+                    },
+                )
                 .collect::<Vec<_>>();
             candidates.sort_by(|left, right| {
                 let right_score = right.coverage * right.confidence;

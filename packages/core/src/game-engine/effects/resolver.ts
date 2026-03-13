@@ -42,10 +42,19 @@ export interface ResolvedEffectState {
   modifiers: Record<string, ResolvedModifier>;
   matchedEffects: GameplayEffect[];
   traits: Trait[];
+  resolvedTraitGrants: ResolvedTraitGrant[];
   talentTree?: TalentTree;
   unlockedNodes: TalentNode[];
   grantedTraitIds: string[];
   grantedSkillIds: string[];
+}
+
+export interface ResolvedTraitGrant {
+  trait: Trait;
+  sourceKind: 'trait' | 'occupation-base' | 'occupation-node' | 'legacy-occupation' | 'legacy-node';
+  providerId: string;
+  providerName: string;
+  isSynthetic?: boolean;
 }
 
 function createModifier(): ResolvedModifier {
@@ -68,6 +77,49 @@ function mergeUniqueById<T extends { id: string }>(items: T[]): T[] {
     seen.add(item.id);
     return true;
   });
+}
+
+function mergeUniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function mergeUniqueTraitGrants(items: ResolvedTraitGrant[]): ResolvedTraitGrant[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.trait.id}:${item.sourceKind}:${item.providerId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function createSyntheticTrait(config: {
+  id: string;
+  name: string;
+  description: string;
+  effects?: GameplayEffect[];
+  grantsSkillIds?: string[];
+  occupationId?: string;
+  talentNodeId?: string;
+}): Trait {
+  return {
+    id: config.id,
+    name: config.name,
+    description: config.description,
+    cost: 0,
+    type: 'neutral',
+    effects: config.effects,
+    grantsSkillIds: config.grantsSkillIds,
+    source: {
+      kind: 'temporary',
+      occupationId: config.occupationId,
+      talentNodeId: config.talentNodeId,
+    },
+  };
+}
+
+function resolveSkillIdsFromTraits(traits: Trait[]): string[] {
+  return mergeUniqueStrings(traits.flatMap((trait) => trait.grantsSkillIds || []));
 }
 
 function matchesCondition(effect: GameplayEffect, context: EffectResolutionContext): boolean {
@@ -123,26 +175,123 @@ export function resolveOccupationTree(occupationId?: string, unlockedTalentNodeI
 
   const unlockedSet = new Set(unlockedTalentNodeIds);
   const unlockedNodes = tree.nodes.filter((node) => unlockedSet.has(node.id));
-  const grantedTraitIds = unlockedNodes.flatMap((node) => node.grantsTraitIds || []);
-  const grantedSkillIds = unlockedNodes.flatMap((node) => node.grantsSkillIds || []);
+  const grantedTraitIds = mergeUniqueStrings(unlockedNodes.flatMap((node) => node.grantsTraitIds || []));
+  const grantedTraits = grantedTraitIds
+    .map((id) => getTraitByIdOrName(id))
+    .filter((trait): trait is Trait => Boolean(trait));
+  const grantedSkillIds = mergeUniqueStrings([
+    ...unlockedNodes.flatMap((node) => node.grantsSkillIds || []),
+    ...resolveSkillIdsFromTraits(grantedTraits),
+  ]);
 
   return { tree, unlockedNodes, grantedTraitIds, grantedSkillIds };
 }
 
-export function resolveCharacterEffects(source: EffectSource, context: EffectResolutionContext = {}): ResolvedEffectState {
+export function resolveCharacterTraitGrants(source: EffectSource): {
+  traits: Trait[];
+  resolvedTraitGrants: ResolvedTraitGrant[];
+  talentTree?: TalentTree;
+  unlockedNodes: TalentNode[];
+  grantedTraitIds: string[];
+  grantedSkillIds: string[];
+} {
   const occupationId = source.progression?.treeOccupationId || source.occupation?.id;
   const treeState = resolveOccupationTree(occupationId, source.progression?.unlockedTalentNodeIds || []);
-  const baseTraits = source.traits || [];
-  const grantedTraits = treeState.grantedTraitIds
+  const resolvedTraitGrants: ResolvedTraitGrant[] = [];
+
+  (source.traits || []).forEach((trait) => {
+    resolvedTraitGrants.push({
+      trait,
+      sourceKind: 'trait',
+      providerId: trait.id,
+      providerName: trait.name,
+    });
+  });
+
+  const occupationGrantedTraits = (source.occupation?.grantsTraitIds || [])
     .map((id) => getTraitByIdOrName(id))
     .filter((trait): trait is Trait => Boolean(trait));
-  const resolvedTraits = mergeUniqueById([...baseTraits, ...grantedTraits]);
+  occupationGrantedTraits.forEach((trait) => {
+    resolvedTraitGrants.push({
+      trait,
+      sourceKind: 'occupation-base',
+      providerId: source.occupation?.id || trait.id,
+      providerName: source.occupation?.name || trait.name,
+    });
+  });
+
+  if (!source.occupation?.grantsTraitIds?.length && source.occupation?.effects?.length) {
+    resolvedTraitGrants.push({
+      trait: createSyntheticTrait({
+        id: `legacy-${source.occupation.id}-baseline`,
+        name: `${source.occupation.name} Baseline`,
+        description: `Legacy occupation effects for ${source.occupation.name}.`,
+        effects: source.occupation.effects,
+        occupationId: source.occupation.id,
+      }),
+      sourceKind: 'legacy-occupation',
+      providerId: source.occupation.id,
+      providerName: source.occupation.name,
+      isSynthetic: true,
+    });
+  }
+
+  treeState.unlockedNodes.forEach((node) => {
+    const nodeGrantedTraits = (node.grantsTraitIds || [])
+      .map((id) => getTraitByIdOrName(id))
+      .filter((trait): trait is Trait => Boolean(trait));
+    nodeGrantedTraits.forEach((trait) => {
+      resolvedTraitGrants.push({
+        trait,
+        sourceKind: 'occupation-node',
+        providerId: node.id,
+        providerName: node.name,
+      });
+    });
+
+    const hasLegacyNodePayload = Boolean(node.effects?.length || node.grantsSkillIds?.length);
+    if (!node.grantsTraitIds?.length && hasLegacyNodePayload) {
+      resolvedTraitGrants.push({
+        trait: createSyntheticTrait({
+          id: `legacy-${occupationId || 'occupation'}-${node.id}`,
+          name: node.name,
+          description: node.description,
+          effects: node.effects,
+          grantsSkillIds: node.grantsSkillIds,
+          occupationId,
+          talentNodeId: node.id,
+        }),
+        sourceKind: 'legacy-node',
+        providerId: node.id,
+        providerName: node.name,
+        isSynthetic: true,
+      });
+    }
+  });
+
+  const uniqueTraitGrants = mergeUniqueTraitGrants(resolvedTraitGrants);
+  const traits = mergeUniqueById(uniqueTraitGrants.map((grant) => grant.trait));
+  const grantedSkillIds = mergeUniqueStrings([
+    treeState.grantedSkillIds,
+    resolveSkillIdsFromTraits(traits),
+  ].flat());
+
+  return {
+    traits,
+    resolvedTraitGrants: uniqueTraitGrants,
+    talentTree: treeState.tree,
+    unlockedNodes: treeState.unlockedNodes,
+    grantedTraitIds: treeState.grantedTraitIds,
+    grantedSkillIds,
+  };
+}
+
+export function resolveCharacterEffects(source: EffectSource, context: EffectResolutionContext = {}): ResolvedEffectState {
+  const traitState = resolveCharacterTraitGrants(source);
 
   const matchedEffects: GameplayEffect[] = [];
 
-  resolvedTraits.forEach((trait) => collectPassiveEffects(trait.effects, context, matchedEffects));
-  collectPassiveEffects(source.occupation?.effects, context, matchedEffects);
-  treeState.unlockedNodes.forEach((node) => collectPassiveEffects(node.effects, context, matchedEffects));
+  traitState.traits.forEach((trait) => collectPassiveEffects(trait.effects, context, matchedEffects));
 
   Object.values(source.equipped || {}).forEach((item) => {
     if (!item) return;
@@ -167,21 +316,23 @@ export function resolveCharacterEffects(source: EffectSource, context: EffectRes
   return {
     modifiers,
     matchedEffects,
-    traits: resolvedTraits,
-    talentTree: treeState.tree,
-    unlockedNodes: treeState.unlockedNodes,
-    grantedTraitIds: treeState.grantedTraitIds,
-    grantedSkillIds: treeState.grantedSkillIds,
+    traits: traitState.traits,
+    resolvedTraitGrants: traitState.resolvedTraitGrants,
+    talentTree: traitState.talentTree,
+    unlockedNodes: traitState.unlockedNodes,
+    grantedTraitIds: traitState.grantedTraitIds,
+    grantedSkillIds: traitState.grantedSkillIds,
   };
 }
 
-export function resolveCharacterSkills(character: Pick<Character, 'skills' | 'occupation' | 'progression'>): Skill[] {
+export function resolveCharacterSkills(character: Pick<Character, 'skills' | 'occupation' | 'progression' | 'traits'>): Skill[] {
   const persistedSkills = character.skills || [];
-  const treeState = resolveOccupationTree(
-    character.progression?.treeOccupationId || character.occupation?.id,
-    character.progression?.unlockedTalentNodeIds || [],
-  );
-  const grantedSkills = treeState.grantedSkillIds
+  const traitState = resolveCharacterTraitGrants({
+    traits: character.traits,
+    occupation: character.occupation,
+    progression: character.progression,
+  });
+  const grantedSkills = traitState.grantedSkillIds
     .map((id) => ALL_SKILLS.find((skill) => skill.id === id))
     .filter((skill): skill is Skill => Boolean(skill));
 

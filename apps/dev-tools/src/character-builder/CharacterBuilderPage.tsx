@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, getDefaultTalentPointsForLevel, resolveOccupationTree } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, getDefaultTalentPointsForLevel, isOccupationLinkedTrait, resolveOccupationTree } from "@ashtrail/core";
 import { TabBar, Modal } from "@ashtrail/ui";
 import { Background, ConnectionLineType, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge as RFEdge, type Node as RFNode } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -786,7 +786,7 @@ export function CharacterBuilderPage() {
         };
     }, [activeTab]);
 
-    const allTraits = GameRegistry.getAllTraits().filter(t => !t.id.startsWith("age-"));
+    const allTraits = GameRegistry.getAllTraits().filter(t => !t.id.startsWith("age-") && !isOccupationLinkedTrait(t));
     const allOccupations = GameRegistry.getAllOccupations();
 
     const filteredTraits = useMemo(() => {
@@ -970,7 +970,7 @@ export function CharacterBuilderPage() {
             if (char.parents.mother) loadedRels.push({ targetId: char.parents.mother, type: 'mother' });
         }
         setRelationships(loadedRels);
-        setSelectedTraits(char.traits || []);
+        setSelectedTraits((char.traits || []).filter((trait) => !isOccupationLinkedTrait(trait)));
         setStats(char.stats);
         setAttributeUpgrades({ ...ZERO_STATS });
         setIsRedispatching(false);
@@ -2093,6 +2093,9 @@ export function CharacterBuilderPage() {
                                             <span className="text-xs font-mono text-gray-400">Points: <span className={traitPoints >= 0 ? "text-green-400" : "text-red-400"}>{traitPoints}</span></span>
                                             <input value={traitSearch} onChange={e => setTraitSearch(e.target.value)} placeholder="Search..." className="bg-black/50 border border-white/10 text-white px-3 py-1.5 rounded-lg text-xs outline-none w-48" />
                                         </div>
+                                    </div>
+                                    <div className="rounded-lg border border-indigo-500/10 bg-indigo-500/5 px-3 py-2 text-[10px] text-indigo-100/80">
+                                        Occupation-linked traits are excluded here. Unlock those from the occupation selection and talent tree instead.
                                     </div>
 
                                     {/* Selected Traits */}

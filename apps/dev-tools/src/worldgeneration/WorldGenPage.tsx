@@ -20,6 +20,7 @@ import { CellTooltip } from "./CellTooltip";
 import { WorkflowBar } from "./WorkflowBar";
 import { ProgressOverlay } from "./ProgressOverlay";
 import { HistoryGallery } from "./HistoryGallery";
+import type { LocationGenerationMetadata, WorldLocation } from "../history/locationTypes";
 
 export function WorldGenPage() {
     // ── Core UI State ──
@@ -93,6 +94,9 @@ export function WorldGenPage() {
     const [humPrompt, setHumPrompt] = useState<string>("Develop advanced medieval city-states connected by dusty trade routes and surrounded by sprawling farmlands.");
     const [humSettlements, setHumSettlements] = useState<number>(0.6);
     const [humTech, setHumTech] = useState<number>(0.4);
+    const [humanityLocations, setHumanityLocations] = useState<WorldLocation[]>([]);
+    const [locationGenerationMeta, setLocationGenerationMeta] = useState<LocationGenerationMetadata | null>(null);
+    const [selectedHumanityLocationId, setSelectedHumanityLocationId] = useState<string | null>(null);
 
     // ── Interaction State ──
     const [hoveredCell, setHoveredCell] = useState<TerrainCell | null>(null);
@@ -122,9 +126,63 @@ export function WorldGenPage() {
         prompt, config, aiResolution, aiTemperature, continents,
         ecoPrompt, ecoVegetation, ecoFauna,
         humPrompt, humSettlements, humTech,
+        activeWorldId,
         globeWorld, saveToHistory, setGlobeWorld, setContinents, setActiveWorldId,
-        saveCellSubTiles: () => { } // Stub — old cell pipeline deprecated
+        saveCellSubTiles: () => { }, // Stub — old cell pipeline deprecated
+        onHumanityGenerated: async () => {
+            if (!activeWorldId) return;
+            const [locationsRes, metaRes] = await Promise.all([
+                fetch(`http://127.0.0.1:8787/api/planet/locations/${activeWorldId}`),
+                fetch(`http://127.0.0.1:8787/api/planet/location-generation/${activeWorldId}`),
+            ]);
+            const [locationsData, metaData] = await Promise.all([
+                locationsRes.ok ? locationsRes.json() : [],
+                metaRes.ok ? metaRes.json() : null,
+            ]);
+            const nextLocations = Array.isArray(locationsData) ? locationsData : [];
+            setHumanityLocations(nextLocations);
+            setLocationGenerationMeta(metaData && typeof metaData === "object" ? metaData : null);
+            setSelectedHumanityLocationId((prev) => prev && nextLocations.some((entry) => entry.id === prev) ? prev : nextLocations[0]?.id || null);
+        },
     });
+
+    useEffect(() => {
+        if (!activeWorldId) {
+            setHumanityLocations([]);
+            setLocationGenerationMeta(null);
+            setSelectedHumanityLocationId(null);
+            return;
+        }
+        let cancelled = false;
+        async function loadHumanityData() {
+            try {
+                const [locationsRes, metaRes] = await Promise.all([
+                    fetch(`http://127.0.0.1:8787/api/planet/locations/${activeWorldId}`),
+                    fetch(`http://127.0.0.1:8787/api/planet/location-generation/${activeWorldId}`),
+                ]);
+                const [locationsData, metaData] = await Promise.all([
+                    locationsRes.ok ? locationsRes.json() : [],
+                    metaRes.ok ? metaRes.json() : null,
+                ]);
+                if (cancelled) return;
+                const nextLocations = Array.isArray(locationsData) ? locationsData : [];
+                setHumanityLocations(nextLocations);
+                setLocationGenerationMeta(metaData && typeof metaData === "object" ? metaData : null);
+                setSelectedHumanityLocationId((prev) => prev && nextLocations.some((entry) => entry.id === prev) ? prev : nextLocations[0]?.id || null);
+            } catch (error) {
+                console.error("Failed to load generated locations", error);
+                if (!cancelled) {
+                    setHumanityLocations([]);
+                    setLocationGenerationMeta(null);
+                    setSelectedHumanityLocationId(null);
+                }
+            }
+        }
+        loadHumanityData();
+        return () => {
+            cancelled = true;
+        };
+    }, [activeWorldId]);
 
     // ── Cell Handlers ──
     const handleCellHover = useCallback((cell: TerrainCell | null) => setHoveredCell(cell), []);
@@ -314,6 +372,10 @@ export function WorldGenPage() {
                             humTech={humTech} setHumTech={setHumTech}
                             generateHumanity={generateHumanity} genProgress={genProgress} globeWorld={globeWorld}
                             regions={[]}
+                            locations={humanityLocations}
+                            metadata={locationGenerationMeta}
+                            selectedLocationId={selectedHumanityLocationId}
+                            onSelectLocation={setSelectedHumanityLocationId}
                         />
                     )}
                 </aside>
@@ -345,6 +407,9 @@ export function WorldGenPage() {
                         isMaxView={isMaxView}
                         setIsMaxView={setIsMaxView}
                         activeHistoryId={activeWorldId}
+                        humanityLocations={humanityLocations}
+                        selectedHumanityLocationId={selectedHumanityLocationId}
+                        onSelectHumanityLocation={setSelectedHumanityLocationId}
                     />
                 </div>
 

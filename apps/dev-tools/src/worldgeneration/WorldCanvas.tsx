@@ -5,6 +5,7 @@ import { PlanetMap2D, type MapTransform } from "../components/PlanetMap2D";
 import type { TerrainCell } from "../modules/geo/types";
 import type { PlanetWorld, ViewMode, WorkflowStep, GeographyTool, RegionType, GeoRegion } from "./types";
 import { ProvinceMapView } from "./ProvinceMapView";
+import type { WorldLocation } from "../history/locationTypes";
 
 interface GeographyHook {
     regions: GeoRegion[];
@@ -40,6 +41,9 @@ interface WorldCanvasProps {
     isMaxView?: boolean;
     setIsMaxView?: (v: boolean) => void;
     activeHistoryId?: string | null;
+    humanityLocations?: WorldLocation[];
+    selectedHumanityLocationId?: string | null;
+    onSelectHumanityLocation?: (id: string | null) => void;
 }
 
 export function WorldCanvas({
@@ -66,8 +70,36 @@ export function WorldCanvas({
     isMaxView = false,
     setIsMaxView,
     activeHistoryId,
+    humanityLocations = [],
+    selectedHumanityLocationId = null,
+    onSelectHumanityLocation,
 }: WorldCanvasProps) {
     const [mapTransform, setMapTransform] = useState<MapTransform>({ x: 0, y: 0, scale: 1 });
+
+    const categoryColor = (category: WorldLocation["category"]) => {
+        switch (category) {
+            case "settlement": return "#f97316";
+            case "infrastructure": return "#0ea5e9";
+            case "resource": return "#eab308";
+            case "military": return "#ef4444";
+            case "religious": return "#a855f7";
+            case "ruin": return "#94a3b8";
+            case "wild": return "#22c55e";
+            case "hazard": return "#f43f5e";
+            case "landmark": return "#14b8a6";
+            default: return "#e5e7eb";
+        }
+    };
+
+    const locationMarkers = humanityLocations.map((location) => ({
+        id: location.id,
+        x: location.x,
+        y: location.y,
+        size: 9 + Math.round(Math.max(0, location.importance) / 10),
+        color: categoryColor(location.category),
+        label: `${location.name} • ${location.type} • ${location.provinceName}`,
+        selected: location.id === selectedHumanityLocationId,
+    }));
 
     // Helper block to keep JSX clean
     const render2DMap = () => {
@@ -104,6 +136,8 @@ export function WorldCanvas({
                     showHexGrid={showHexGrid}
                     onCellHover={onCellHover}
                     onCellClick={onCellClick}
+                    locationMarkers={locationMarkers}
+                    onLocationMarkerClick={(id) => onSelectHumanityLocation?.(id)}
                 />
             </div>
         );

@@ -4,7 +4,6 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -21,7 +20,7 @@ use crate::combat_engine::{
     rules::load_rules_from_file,
     types::{BaseStats, GridPos, Skill, TacticalEntity},
 };
-use crate::{gemini, worldgen_pipeline, AppState, JobRecord, JobStatus};
+use crate::{gemini, AppState, JobRecord, JobStatus};
 
 const ECOLOGY_STATS_VERSION: &str = "v1";
 
@@ -33,8 +32,6 @@ pub struct EcologyBundle {
     #[serde(default)]
     pub baselines: Vec<EcologyBaseline>,
     #[serde(default)]
-    pub climates: Vec<ClimateProfile>,
-    #[serde(default)]
     pub flora: Vec<FloraEntry>,
     #[serde(default)]
     pub fauna: Vec<FaunaEntry>,
@@ -44,8 +41,6 @@ pub struct EcologyBundle {
     pub archetypes: worldgen_core::BiomeRegistry,
     #[serde(default)]
     pub biome_model_settings: worldgen_core::BiomeModelSettings,
-    #[serde(default)]
-    pub provinces: Vec<ProvinceEcologyRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -106,23 +101,6 @@ pub struct EcologyBaseline {
     pub consistency_rules: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generated_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approved_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ClimateProfile {
-    pub id: String,
-    pub status: EntryStatus,
-    pub name: String,
-    pub classification: String,
-    pub temperature_summary: String,
-    pub precipitation_summary: String,
-    pub seasonality: String,
-    pub agriculture_notes: String,
-    #[serde(default)]
-    pub province_ids: Vec<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_at: Option<String>,
 }
@@ -323,11 +301,7 @@ pub struct FloraEntry {
     pub edibility: FloraEdibility,
     pub agriculture_value: i32,
     #[serde(default)]
-    pub climate_profile_ids: Vec<String>,
-    #[serde(default)]
     pub biome_ids: Vec<String>,
-    #[serde(default)]
-    pub province_ids: Vec<u32>,
     #[serde(default)]
     pub vegetation_asset_batch_ids: Vec<String>,
     #[serde(default)]
@@ -363,11 +337,7 @@ pub struct FaunaEntry {
     pub domestication_potential: i32,
     pub danger_level: i32,
     #[serde(default)]
-    pub climate_profile_ids: Vec<String>,
-    #[serde(default)]
     pub biome_ids: Vec<String>,
-    #[serde(default)]
-    pub province_ids: Vec<u32>,
     pub earth_analog: String,
     pub ancestral_stock: String,
     #[serde(default)]
@@ -396,33 +366,6 @@ pub struct FaunaEntry {
     pub stats_source: EcologyStatSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exploration_sprite: Option<DirectionalSpriteBinding>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approved_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ProvinceEcologyRecord {
-    pub province_id: u32,
-    pub duchy_id: u32,
-    pub kingdom_id: u32,
-    pub status: EcologyStatus,
-    pub source_isolated_image_url: String,
-    pub description: String,
-    #[serde(default)]
-    pub climate_profile_ids: Vec<String>,
-    #[serde(default)]
-    pub flora_ids: Vec<String>,
-    #[serde(default)]
-    pub fauna_ids: Vec<String>,
-    #[serde(default)]
-    pub biome_archetype_id: Option<String>,
-    pub ecological_potential: i32,
-    pub agriculture_potential: i32,
-    #[serde(default)]
-    pub consistency_notes: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub generated_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_at: Option<String>,
 }
@@ -493,28 +436,6 @@ pub enum FaunaCategory {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ProvinceGenerationResponse {
-    description: String,
-    ecological_potential: i32,
-    agriculture_potential: i32,
-    #[serde(default)]
-    consistency_notes: Vec<String>,
-    #[serde(default)]
-    reuse_climate_profile_ids: Vec<String>,
-    #[serde(default)]
-    new_climate_profiles: Vec<ClimateDraft>,
-    #[serde(default)]
-    reuse_flora_ids: Vec<String>,
-    #[serde(default)]
-    new_flora: Vec<FloraDraft>,
-    #[serde(default)]
-    reuse_fauna_ids: Vec<String>,
-    #[serde(default)]
-    new_fauna: Vec<FaunaDraft>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct BaselineDraft {
     summary: String,
     #[serde(default)]
@@ -531,17 +452,6 @@ struct BaselineDraft {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ClimateDraft {
-    name: String,
-    classification: String,
-    temperature_summary: String,
-    precipitation_summary: String,
-    seasonality: String,
-    agriculture_notes: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct FloraDraft {
     name: String,
     category: FloraCategory,
@@ -552,8 +462,6 @@ struct FloraDraft {
     adaptations: Vec<String>,
     edibility: FloraEdibility,
     agriculture_value: i32,
-    #[serde(default)]
-    climate_profile_ids: Vec<String>,
     #[serde(default)]
     body_profile: Option<FloraBodyProfile>,
     #[serde(default)]
@@ -574,8 +482,6 @@ struct FaunaDraft {
     adaptations: Vec<String>,
     domestication_potential: i32,
     danger_level: i32,
-    #[serde(default)]
-    climate_profile_ids: Vec<String>,
     earth_analog: String,
     ancestral_stock: String,
     #[serde(default)]
@@ -588,24 +494,6 @@ struct FaunaDraft {
     body_profile: Option<FaunaBodyProfile>,
     #[serde(default)]
     behavior_profile: Option<FaunaBehaviorProfile>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CellFeaturesFile {
-    cells: Vec<CellFeatureRecord>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CellFeatureRecord {
-    primary_region: Option<u32>,
-    primary_region_type: Option<String>,
-    vegetation_index: Option<f64>,
-    aridity_index: Option<f64>,
-    is_water: Option<bool>,
-    is_coastal: Option<bool>,
-    terrain_class: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -621,8 +509,6 @@ pub struct BulkEcologyGenerationRequest {
     pub count: u32,
     #[serde(default)]
     pub biome_ids: Vec<String>,
-    #[serde(default)]
-    pub climate_profile_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -718,8 +604,12 @@ pub async fn sync_biomes_handler(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let mut bundle = load_ecology_bundle(&state.planets_dir, &world_id)
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err))?;
-    let hierarchy = load_hierarchy(&state.planets_dir, &world_id)
-        .map_err(|err| (StatusCode::NOT_FOUND, format!("World hierarchy not found: {}", err)))?;
+    let hierarchy = load_hierarchy(&state.planets_dir, &world_id).map_err(|err| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("World hierarchy not found: {}", err),
+        )
+    })?;
 
     let report = load_biome_report(&state.planets_dir, &world_id);
     sync_biomes_with_hierarchy(&hierarchy, &mut bundle, report.as_ref());
@@ -754,13 +644,6 @@ pub async fn generate_duchy_baseline(
     Path((world_id, duchy_id)): Path<(String, u32)>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     spawn_ecology_job(state, world_id, EcologyJobKind::DuchyBaseline { duchy_id }).await
-}
-
-pub async fn generate_province_record(
-    State(state): State<AppState>,
-    Path((world_id, province_id)): Path<(String, u32)>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    spawn_ecology_job(state, world_id, EcologyJobKind::Province { province_id }).await
 }
 
 pub async fn generate_biome_description(
@@ -810,7 +693,6 @@ enum EcologyJobKind {
     WorldBaseline,
     KingdomBaseline { kingdom_id: u32 },
     DuchyBaseline { duchy_id: u32 },
-    Province { province_id: u32 },
     Biome { biome_id: String },
 }
 
@@ -842,18 +724,9 @@ async fn spawn_ecology_job(
 
     let jobs = state.jobs.clone();
     let planets_dir = state.planets_dir.clone();
-    let isolated_dir = state.isolated_dir.clone();
     let spawned_job_id = job_id.clone();
     tokio::spawn(async move {
-        run_ecology_job(
-            spawned_job_id,
-            jobs,
-            planets_dir,
-            isolated_dir,
-            world_id,
-            job_kind,
-        )
-        .await;
+        run_ecology_job(spawned_job_id, jobs, planets_dir, world_id, job_kind).await;
     });
 
     Ok((StatusCode::ACCEPTED, Json(EcologyJobAccepted { job_id })))
@@ -863,7 +736,6 @@ async fn run_ecology_job(
     job_id: String,
     jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
     planets_dir: PathBuf,
-    isolated_dir: PathBuf,
     world_id: String,
     job_kind: EcologyJobKind,
 ) {
@@ -909,17 +781,6 @@ async fn run_ecology_job(
             );
             generate_duchy_baseline_impl(&planets_dir, &world_id, duchy_id).await
         }
-        EcologyJobKind::Province { province_id } => {
-            update_job(
-                &jobs,
-                &job_id,
-                JobStatus::Running,
-                20.0,
-                &format!("Generating province ecology {}", province_id),
-                None,
-            );
-            generate_province_record_impl(&planets_dir, &isolated_dir, &world_id, province_id).await
-        }
         EcologyJobKind::Biome { biome_id } => {
             update_job(
                 &jobs,
@@ -942,14 +803,7 @@ async fn run_ecology_job(
             "Completed",
             None,
         ),
-        Err(err) => update_job(
-            &jobs,
-            &job_id,
-            JobStatus::Failed,
-            95.0,
-            "Failed",
-            Some(err),
-        ),
+        Err(err) => update_job(&jobs, &job_id, JobStatus::Failed, 95.0, "Failed", Some(err)),
     }
 }
 
@@ -1105,174 +959,6 @@ async fn generate_duchy_baseline_impl(
     save_ecology_bundle(planets_dir, world_id, &bundle)
 }
 
-async fn generate_province_record_impl(
-    planets_dir: &FsPath,
-    isolated_dir: &FsPath,
-    world_id: &str,
-    province_id: u32,
-) -> Result<(), String> {
-    let hierarchy = load_hierarchy(planets_dir, world_id)?;
-    let province = hierarchy
-        .provinces
-        .iter()
-        .find(|entry| entry.id == province_id)
-        .cloned()
-        .ok_or_else(|| format!("Province {} not found", province_id))?;
-    let duchy = hierarchy
-        .duchies
-        .iter()
-        .find(|entry| entry.id == province.duchy_id)
-        .cloned()
-        .ok_or_else(|| format!("Duchy {} not found", province.duchy_id))?;
-    let kingdom = hierarchy
-        .kingdoms
-        .iter()
-        .find(|entry| entry.id == province.kingdom_id)
-        .cloned()
-        .ok_or_else(|| format!("Kingdom {} not found", province.kingdom_id))?;
-
-    let filename = worldgen_pipeline::ensure_isolated_province_asset(
-        planets_dir,
-        isolated_dir,
-        world_id,
-        province_id,
-    )?;
-    let image_path = isolated_dir.join(world_id).join(&filename);
-    let image_base64 = general_purpose::STANDARD.encode(
-        fs::read(&image_path).map_err(|e| format!("Failed to read isolated image: {}", e))?,
-    );
-
-    let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
-    if let Some(existing) = bundle
-        .provinces
-        .iter()
-        .find(|entry| entry.province_id == province_id)
-    {
-        if existing.status == EcologyStatus::Approved {
-            return Err(
-                "Approved province ecology cannot be overwritten automatically.".to_string(),
-            );
-        }
-    }
-
-    // Auto-sync biomes before generating province to ensure we have a biome ID to link
-    let report = load_biome_report(planets_dir, world_id);
-    sync_biomes_with_hierarchy(&hierarchy, &mut bundle, report.as_ref());
-
-    let duchy_baseline = get_approved_baseline(
-        &bundle.baselines,
-        BaselineScope::Duchy,
-        &BaselineEntityId::Numeric(duchy.id),
-    )?;
-    let kingdom_baseline = get_approved_baseline(
-        &bundle.baselines,
-        BaselineScope::Kingdom,
-        &BaselineEntityId::Numeric(kingdom.id),
-    )?;
-
-    let metrics = load_cell_metrics(planets_dir, world_id, province_id).unwrap_or_default();
-
-    let biome_id = if let Some(existing) = &province.biome_primary_id {
-        existing.clone()
-    } else {
-        biome_id_from_index(&bundle.archetypes, province.biome_primary)?
-    };
-
-    let prompt = build_province_prompt(
-        &province,
-        &duchy,
-        &kingdom,
-        duchy_baseline,
-        kingdom_baseline,
-        &bundle,
-        &metrics,
-    );
-    let response: ProvinceGenerationResponse = generate_structured_text_with_inline_image(
-        "province ecology",
-        &prompt,
-        &image_base64,
-        "image/png",
-        "{\"description\":\"...\",\"ecologicalPotential\":0,\"agriculturePotential\":0,\"consistencyNotes\":[\"...\"],\"reuseClimateProfileIds\":[\"...\"],\"newClimateProfiles\":[{\"name\":\"...\",\"classification\":\"...\",\"temperatureSummary\":\"...\",\"precipitationSummary\":\"...\",\"seasonality\":\"...\",\"agricultureNotes\":\"...\"}],\"reuseFloraIds\":[\"...\"],\"newFlora\":[{\"name\":\"...\",\"category\":\"tree|shrub|grass|crop|fungus|aquatic|alien_other\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"edibility\":\"none|limited|common\",\"agricultureValue\":0,\"climateProfileIds\":[\"...\"],\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"spreadMeters\":1,\"rootDepthMeters\":1,\"biomassKg\":1,\"lifespanYears\":1,\"growthRate\":50},\"resourceProfile\":{\"rarity\":0,\"yieldPerHarvest\":0,\"regrowthDays\":1,\"harvestDifficulty\":0,\"nutritionValue\":0,\"medicinalValue\":0,\"fuelValue\":0,\"structuralValue\":0,\"concealmentValue\":0},\"hazardProfile\":{\"toxicity\":0,\"irritation\":0,\"thorniness\":0,\"flammability\":0,\"resilience\":0}}],\"reuseFaunaIds\":[\"...\"],\"newFauna\":[{\"name\":\"...\",\"category\":\"herbivore|predator|omnivore|scavenger|avian|aquatic|beast_of_burden|companion|alien_other\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"domesticationPotential\":0,\"dangerLevel\":0,\"climateProfileIds\":[\"...\"],\"earthAnalog\":\"...\",\"ancestralStock\":\"...\",\"evolutionaryPressures\":[\"...\"],\"mutationSummary\":\"...\",\"divergenceSummary\":\"...\",\"combatProfile\":{\"level\":1,\"strength\":10,\"agility\":10,\"intelligence\":5,\"wisdom\":5,\"endurance\":10,\"charisma\":5,\"critChance\":0.1,\"resistance\":0.1,\"socialBonus\":0.0,\"baseEvasion\":5,\"baseDefense\":2,\"baseHpBonus\":4,\"baseApBonus\":0,\"baseMpBonus\":0},\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"lengthMeters\":1,\"weightKg\":1,\"locomotion\":\"walker\",\"naturalWeapon\":\"bite\",\"armorClass\":\"furred\"},\"behaviorProfile\":{\"temperament\":\"docile\",\"activityCycle\":\"diurnal\",\"packSizeMin\":1,\"packSizeMax\":4,\"perception\":50,\"stealth\":20,\"trainability\":20}}]}",
-    )
-    .await?;
-
-    validate_generation_reuse(&bundle, &response)?;
-
-    let mut climate_ids = response.reuse_climate_profile_ids.clone();
-    let mut flora_ids = response.reuse_flora_ids.clone();
-    let mut fauna_ids = response.reuse_fauna_ids.clone();
-
-    for draft in response.new_climate_profiles {
-        let id = format!("climate-{}", Uuid::new_v4());
-        bundle.climates.push(ClimateProfile {
-            id: id.clone(),
-            status: EntryStatus::Draft,
-            name: draft.name,
-            classification: draft.classification,
-            temperature_summary: draft.temperature_summary,
-            precipitation_summary: draft.precipitation_summary,
-            seasonality: draft.seasonality,
-            agriculture_notes: draft.agriculture_notes,
-            province_ids: vec![province_id],
-            approved_at: None,
-        });
-        climate_ids.push(id);
-    }
-
-    for draft in response.new_flora {
-        let mut entry = flora_entry_from_draft(draft, std::slice::from_ref(&biome_id));
-        entry.province_ids = vec![province_id];
-        let id = entry.id.clone();
-        bundle.flora.push(entry);
-        flora_ids.push(id);
-    }
-
-    for draft in response.new_fauna {
-        let mut entry = fauna_entry_from_draft(draft, std::slice::from_ref(&biome_id));
-        entry.province_ids = vec![province_id];
-        let id = entry.id.clone();
-        bundle.fauna.push(entry);
-        fauna_ids.push(id);
-    }
-
-    link_existing_entries(
-        &mut bundle,
-        province_id,
-        &climate_ids,
-        &flora_ids,
-        &fauna_ids,
-    );
-    let province_record = ProvinceEcologyRecord {
-        province_id,
-        duchy_id: duchy.id,
-        kingdom_id: kingdom.id,
-        status: EcologyStatus::Draft,
-        source_isolated_image_url: format!("/api/isolated-assets/{}/{}", world_id, filename),
-        description: response.description,
-        climate_profile_ids: dedupe_ids(climate_ids),
-        flora_ids: dedupe_ids(flora_ids),
-        fauna_ids: dedupe_ids(fauna_ids),
-        biome_archetype_id: Some(biome_id.clone()),
-        ecological_potential: response.ecological_potential.clamp(0, 100),
-        agriculture_potential: response.agriculture_potential.clamp(0, 100),
-        consistency_notes: response.consistency_notes,
-        generated_at: Some(Utc::now().to_rfc3339()),
-        approved_at: None,
-    };
-    upsert_province_record(&mut bundle.provinces, province_record);
-    
-    // Link biome to this province
-    if let Some(biome) = bundle.biomes.iter_mut().find(|b| b.id == biome_id) {
-        if !biome.province_ids.contains(&province_id) {
-            biome.province_ids.push(province_id);
-        }
-        biome.province_count = biome.province_ids.len() as u32;
-    }
-
-    validate_bundle_references(&bundle)?;
-    save_ecology_bundle(planets_dir, world_id, &bundle)
-}
-
 async fn generate_biome_description_impl(
     planets_dir: &FsPath,
     world_id: &str,
@@ -1280,13 +966,17 @@ async fn generate_biome_description_impl(
 ) -> Result<(), String> {
     let hierarchy = load_hierarchy(planets_dir, world_id)?;
     let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
-    
+
     let report = load_biome_report(planets_dir, world_id);
     sync_biomes_with_hierarchy(&hierarchy, &mut bundle, report.as_ref());
-    
-    let biome = bundle.biomes.iter().find(|b| b.id == biome_id)
-        .ok_or_else(|| format!("Biome {} not found", biome_id))?.clone();
-        
+
+    let biome = bundle
+        .biomes
+        .iter()
+        .find(|b| b.id == biome_id)
+        .ok_or_else(|| format!("Biome {} not found", biome_id))?
+        .clone();
+
     let world_baseline = get_approved_baseline(
         &bundle.baselines,
         BaselineScope::World,
@@ -1300,7 +990,7 @@ async fn generate_biome_description_impl(
         "{\"name\":\"...\",\"description\":\"...\",\"typicalFloraIds\":[\"...\"],\"typicalFaunaIds\":[\"...\"]}",
     )
     .await?;
-    
+
     if let Some(target) = bundle.biomes.iter_mut().find(|b| b.id == biome_id) {
         target.name = draft.name;
         target.description = draft.description;
@@ -1308,7 +998,7 @@ async fn generate_biome_description_impl(
         target.typical_fauna_ids = draft.typical_fauna_ids;
         target.status = EntryStatus::Draft;
     }
-    
+
     save_ecology_bundle(planets_dir, world_id, &bundle)
 }
 
@@ -1329,25 +1019,18 @@ async fn generate_flora_batch_impl(
         sync_biomes_with_hierarchy(hierarchy, &mut bundle, report.as_ref());
     }
 
-    let climate_ids = resolve_requested_climate_ids(&bundle, &request.climate_profile_ids);
     let biome_ids = resolve_requested_biome_ids(&bundle, &request.biome_ids);
-    let generation_prompt =
-        build_flora_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids, &climate_ids);
+    let generation_prompt = build_flora_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
     let draft_response: FloraBatchDraftResponse = generate_structured_text(
         "flora batch",
         &generation_prompt,
-        "{\"entries\":[{\"name\":\"...\",\"category\":\"tree\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"edibility\":\"none\",\"agricultureValue\":0,\"climateProfileIds\":[\"climate-...\"],\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"spreadMeters\":1,\"rootDepthMeters\":1,\"biomassKg\":1,\"lifespanYears\":1,\"growthRate\":50},\"resourceProfile\":{\"rarity\":0,\"yieldPerHarvest\":0,\"regrowthDays\":1,\"harvestDifficulty\":0,\"nutritionValue\":0,\"medicinalValue\":0,\"fuelValue\":0,\"structuralValue\":0,\"concealmentValue\":0},\"hazardProfile\":{\"toxicity\":0,\"irritation\":0,\"thorniness\":0,\"flammability\":0,\"resilience\":0}}]}",
+        "{\"entries\":[{\"name\":\"...\",\"category\":\"tree\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"edibility\":\"none\",\"agricultureValue\":0,\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"spreadMeters\":1,\"rootDepthMeters\":1,\"biomassKg\":1,\"lifespanYears\":1,\"growthRate\":50},\"resourceProfile\":{\"rarity\":0,\"yieldPerHarvest\":0,\"regrowthDays\":1,\"harvestDifficulty\":0,\"nutritionValue\":0,\"medicinalValue\":0,\"fuelValue\":0,\"structuralValue\":0,\"concealmentValue\":0},\"hazardProfile\":{\"toxicity\":0,\"irritation\":0,\"thorniness\":0,\"flammability\":0,\"resilience\":0}}]}",
     )
     .await?;
 
-    let allowed_climate_ids: HashSet<&str> = if climate_ids.is_empty() {
-        bundle.climates.iter().map(|entry| entry.id.as_str()).collect()
-    } else {
-        climate_ids.iter().map(String::as_str).collect()
-    };
     let mut created_entries = Vec::new();
     for draft in draft_response.entries.into_iter().take(requested_count) {
-        let draft = sanitize_flora_draft(draft, &allowed_climate_ids);
+        let draft = sanitize_flora_draft(draft);
         if draft.name.is_empty() || draft.description.is_empty() {
             continue;
         }
@@ -1382,25 +1065,18 @@ async fn generate_fauna_batch_impl(
         sync_biomes_with_hierarchy(hierarchy, &mut bundle, report.as_ref());
     }
 
-    let climate_ids = resolve_requested_climate_ids(&bundle, &request.climate_profile_ids);
     let biome_ids = resolve_requested_biome_ids(&bundle, &request.biome_ids);
-    let generation_prompt =
-        build_fauna_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids, &climate_ids);
+    let generation_prompt = build_fauna_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
     let draft_response: FaunaBatchDraftResponse = generate_structured_text(
         "fauna batch",
         &generation_prompt,
-        "{\"entries\":[{\"name\":\"...\",\"category\":\"herbivore\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"domesticationPotential\":0,\"dangerLevel\":0,\"climateProfileIds\":[\"climate-...\"],\"earthAnalog\":\"...\",\"ancestralStock\":\"...\",\"evolutionaryPressures\":[\"...\"],\"mutationSummary\":\"...\",\"divergenceSummary\":\"...\",\"combatProfile\":{\"level\":1,\"strength\":10,\"agility\":10,\"intelligence\":5,\"wisdom\":5,\"endurance\":10,\"charisma\":5,\"critChance\":0.1,\"resistance\":0.1,\"socialBonus\":0.0,\"baseEvasion\":5,\"baseDefense\":2,\"baseHpBonus\":4,\"baseApBonus\":0,\"baseMpBonus\":0},\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"lengthMeters\":1,\"weightKg\":1,\"locomotion\":\"walker\",\"naturalWeapon\":\"bite\",\"armorClass\":\"furred\"},\"behaviorProfile\":{\"temperament\":\"docile\",\"activityCycle\":\"diurnal\",\"packSizeMin\":1,\"packSizeMax\":4,\"perception\":50,\"stealth\":20,\"trainability\":20}}]}",
+        "{\"entries\":[{\"name\":\"...\",\"category\":\"herbivore\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"domesticationPotential\":0,\"dangerLevel\":0,\"earthAnalog\":\"...\",\"ancestralStock\":\"...\",\"evolutionaryPressures\":[\"...\"],\"mutationSummary\":\"...\",\"divergenceSummary\":\"...\",\"combatProfile\":{\"level\":1,\"strength\":10,\"agility\":10,\"intelligence\":5,\"wisdom\":5,\"endurance\":10,\"charisma\":5,\"critChance\":0.1,\"resistance\":0.1,\"socialBonus\":0.0,\"baseEvasion\":5,\"baseDefense\":2,\"baseHpBonus\":4,\"baseApBonus\":0,\"baseMpBonus\":0},\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"lengthMeters\":1,\"weightKg\":1,\"locomotion\":\"walker\",\"naturalWeapon\":\"bite\",\"armorClass\":\"furred\"},\"behaviorProfile\":{\"temperament\":\"docile\",\"activityCycle\":\"diurnal\",\"packSizeMin\":1,\"packSizeMax\":4,\"perception\":50,\"stealth\":20,\"trainability\":20}}]}",
     )
     .await?;
 
-    let allowed_climate_ids: HashSet<&str> = if climate_ids.is_empty() {
-        bundle.climates.iter().map(|entry| entry.id.as_str()).collect()
-    } else {
-        climate_ids.iter().map(String::as_str).collect()
-    };
     let mut created_entries = Vec::new();
     for draft in draft_response.entries.into_iter().take(requested_count) {
-        let draft = sanitize_fauna_draft(draft, &allowed_climate_ids);
+        let draft = sanitize_fauna_draft(draft);
         if draft.name.is_empty() || draft.description.is_empty() {
             continue;
         }
@@ -1429,7 +1105,11 @@ struct BiomeDraft {
     typical_fauna_ids: Vec<String>,
 }
 
-fn build_biome_prompt(biome: &BiomeEntry, world_baseline: &EcologyBaseline, bundle: &EcologyBundle) -> String {
+fn build_biome_prompt(
+    biome: &BiomeEntry,
+    world_baseline: &EcologyBaseline,
+    bundle: &EcologyBundle,
+) -> String {
     let approved_flora = bundle
         .flora
         .iter()
@@ -1441,12 +1121,7 @@ fn build_biome_prompt(biome: &BiomeEntry, world_baseline: &EcologyBaseline, bund
         .fauna
         .iter()
         .filter(|entry| entry.status == EntryStatus::Approved)
-        .map(|entry| {
-            format!(
-                "{}: {} [{:?}]",
-                entry.id, entry.name, entry.category
-            )
-        })
+        .map(|entry| format!("{}: {} [{:?}]", entry.id, entry.name, entry.category))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -1468,19 +1143,12 @@ fn build_biome_prompt(biome: &BiomeEntry, world_baseline: &EcologyBaseline, bund
     )
 }
 
-fn resolve_requested_climate_ids(bundle: &EcologyBundle, requested_ids: &[String]) -> Vec<String> {
-    let valid_ids: HashSet<&str> = bundle.climates.iter().map(|entry| entry.id.as_str()).collect();
-    dedupe_ids(
-        requested_ids
-            .iter()
-            .filter(|id| valid_ids.contains(id.as_str()))
-            .cloned()
-            .collect(),
-    )
-}
-
 fn resolve_requested_biome_ids(bundle: &EcologyBundle, requested_ids: &[String]) -> Vec<String> {
-    let valid_ids: HashSet<&str> = bundle.biomes.iter().map(|entry| entry.id.as_str()).collect();
+    let valid_ids: HashSet<&str> = bundle
+        .biomes
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
     dedupe_ids(
         requested_ids
             .iter()
@@ -1570,7 +1238,16 @@ fn fauna_profiles_need_backfill(entry: &FaunaEntry) -> bool {
 }
 
 fn infer_flora_size_class(category: &FloraCategory, text: &str) -> FloraSizeClass {
-    if contains_any(text, &["colossal", "massive", "towering", "world-tree", "ancient grove"]) {
+    if contains_any(
+        text,
+        &[
+            "colossal",
+            "massive",
+            "towering",
+            "world-tree",
+            "ancient grove",
+        ],
+    ) {
         FloraSizeClass::Massive
     } else if contains_any(text, &["tall", "canopy", "broad", "dense stand", "giant"]) {
         FloraSizeClass::Large
@@ -1635,7 +1312,10 @@ fn derive_flora_stats(entry: &FloraEntry) -> DerivedFloraStats {
         }
     }
 
-    if contains_any(&text, &["fast-growing", "rapid", "seasonal bloom", "regenerates"]) {
+    if contains_any(
+        &text,
+        &["fast-growing", "rapid", "seasonal bloom", "regenerates"],
+    ) {
         growth_rate += 12;
     }
     if contains_any(&text, &["slow-growing", "ancient", "old-growth"]) {
@@ -1675,7 +1355,11 @@ fn derive_flora_stats(entry: &FloraEntry) -> DerivedFloraStats {
             FloraCategory::Tree => 90,
             FloraCategory::AlienOther => 36,
         } - entry.agriculture_value / 8
-            + if contains_any(&text, &["slow-growing", "rare"]) { 15 } else { 0 },
+            + if contains_any(&text, &["slow-growing", "rare"]) {
+                15
+            } else {
+                0
+            },
         1,
         3650,
     );
@@ -1699,7 +1383,10 @@ fn derive_flora_stats(entry: &FloraEntry) -> DerivedFloraStats {
         100,
     );
     let medicinal_value = clamp_i32(
-        if contains_any(&text, &["medicinal", "healing", "restorative", "resin", "tonic"]) {
+        if contains_any(
+            &text,
+            &["medicinal", "healing", "restorative", "resin", "tonic"],
+        ) {
             65
         } else if matches!(entry.category, FloraCategory::Fungus) {
             48
@@ -1718,7 +1405,11 @@ fn derive_flora_stats(entry: &FloraEntry) -> DerivedFloraStats {
             FloraCategory::Fungus => 8,
             FloraCategory::Aquatic => 4,
             FloraCategory::AlienOther => 28,
-        } + if contains_any(&text, &["oily", "resinous", "dry"]) { 14 } else { 0 },
+        } + if contains_any(&text, &["oily", "resinous", "dry"]) {
+            14
+        } else {
+            0
+        },
         0,
         100,
     );
@@ -1737,7 +1428,10 @@ fn derive_flora_stats(entry: &FloraEntry) -> DerivedFloraStats {
     );
     let concealment_value = clamp_i32(
         10 + flora_size_rank(&size_class) * 18
-            + if contains_any(&text, &["dense", "thicket", "canopy", "broadleaf", "matted"]) {
+            + if contains_any(
+                &text,
+                &["dense", "thicket", "canopy", "broadleaf", "matted"],
+            ) {
                 16
             } else {
                 0
@@ -1746,7 +1440,10 @@ fn derive_flora_stats(entry: &FloraEntry) -> DerivedFloraStats {
         100,
     );
     let toxicity = clamp_i32(
-        if contains_any(&text, &["toxic", "poison", "venom", "caustic", "hallucinogenic"]) {
+        if contains_any(
+            &text,
+            &["toxic", "poison", "venom", "caustic", "hallucinogenic"],
+        ) {
             72
         } else {
             8
@@ -1781,7 +1478,11 @@ fn derive_flora_stats(entry: &FloraEntry) -> DerivedFloraStats {
             FloraCategory::Crop => 46,
             FloraCategory::Shrub => 40,
             FloraCategory::AlienOther => 28,
-        } + if contains_any(&text, &["dry", "resin", "oil", "kindling"]) { 18 } else { 0 },
+        } + if contains_any(&text, &["dry", "resin", "oil", "kindling"]) {
+            18
+        } else {
+            0
+        },
         0,
         100,
     );
@@ -1835,9 +1536,22 @@ fn derive_flora_stats(entry: &FloraEntry) -> DerivedFloraStats {
 }
 
 fn infer_fauna_size_class(category: &FaunaCategory, text: &str) -> FaunaSizeClass {
-    if contains_any(text, &["colossal", "mammoth", "leviathan", "titan", "gigantic", "towering"]) {
+    if contains_any(
+        text,
+        &[
+            "colossal",
+            "mammoth",
+            "leviathan",
+            "titan",
+            "gigantic",
+            "towering",
+        ],
+    ) {
         FaunaSizeClass::Huge
-    } else if contains_any(text, &["large", "bear", "horse", "ox", "camel", "crocodile", "bull"]) {
+    } else if contains_any(
+        text,
+        &["large", "bear", "horse", "ox", "camel", "crocodile", "bull"],
+    ) {
         FaunaSizeClass::Large
     } else if contains_any(text, &["tiny", "small", "rodent", "fox", "lizard", "cat"]) {
         FaunaSizeClass::Small
@@ -1857,20 +1571,28 @@ fn infer_fauna_locomotion(category: &FaunaCategory, text: &str) -> FaunaLocomoti
         FaunaLocomotion::Swimmer
     } else if contains_any(text, &["amphib", "marsh", "bog"]) {
         FaunaLocomotion::Amphibious
-    } else if contains_any(text, &["wing", "glide", "soar", "fly"]) || matches!(category, FaunaCategory::Avian) {
+    } else if contains_any(text, &["wing", "glide", "soar", "fly"])
+        || matches!(category, FaunaCategory::Avian)
+    {
         FaunaLocomotion::Flier
     } else if contains_any(text, &["slither", "coil", "serpent"]) {
         FaunaLocomotion::Slitherer
     } else if contains_any(text, &["climb", "arboreal", "perch"]) {
         FaunaLocomotion::Climber
-    } else if matches!(category, FaunaCategory::Predator) || contains_any(text, &["swift", "runner", "fleet"]) {
+    } else if matches!(category, FaunaCategory::Predator)
+        || contains_any(text, &["swift", "runner", "fleet"])
+    {
         FaunaLocomotion::Runner
     } else {
         FaunaLocomotion::Walker
     }
 }
 
-fn infer_fauna_weapon(category: &FaunaCategory, text: &str, size_class: &FaunaSizeClass) -> FaunaNaturalWeapon {
+fn infer_fauna_weapon(
+    category: &FaunaCategory,
+    text: &str,
+    size_class: &FaunaSizeClass,
+) -> FaunaNaturalWeapon {
     if contains_any(text, &["venom", "poison", "toxin", "stinger"]) {
         FaunaNaturalWeapon::Venom
     } else if contains_any(text, &["constrict", "coil", "squeeze"]) {
@@ -1887,10 +1609,17 @@ fn infer_fauna_weapon(category: &FaunaCategory, text: &str, size_class: &FaunaSi
         FaunaNaturalWeapon::Tail
     } else if contains_any(text, &["spine", "quill"]) {
         FaunaNaturalWeapon::Spines
-    } else if contains_any(text, &["bite", "fang", "jaw"]) || matches!(category, FaunaCategory::Predator | FaunaCategory::Omnivore | FaunaCategory::Scavenger) {
+    } else if contains_any(text, &["bite", "fang", "jaw"])
+        || matches!(
+            category,
+            FaunaCategory::Predator | FaunaCategory::Omnivore | FaunaCategory::Scavenger
+        )
+    {
         FaunaNaturalWeapon::Bite
-    } else if matches!(category, FaunaCategory::Herbivore | FaunaCategory::BeastOfBurden)
-        && fauna_size_rank(size_class) >= 3
+    } else if matches!(
+        category,
+        FaunaCategory::Herbivore | FaunaCategory::BeastOfBurden
+    ) && fauna_size_rank(size_class) >= 3
     {
         FaunaNaturalWeapon::Hoof
     } else {
@@ -1907,7 +1636,12 @@ fn infer_fauna_armor(category: &FaunaCategory, text: &str) -> FaunaArmorClass {
         FaunaArmorClass::Scaled
     } else if contains_any(text, &["stone", "rock"]) {
         FaunaArmorClass::Rocky
-    } else if contains_any(text, &["fur", "wool", "hide", "mane"]) || matches!(category, FaunaCategory::Herbivore | FaunaCategory::BeastOfBurden | FaunaCategory::Predator) {
+    } else if contains_any(text, &["fur", "wool", "hide", "mane"])
+        || matches!(
+            category,
+            FaunaCategory::Herbivore | FaunaCategory::BeastOfBurden | FaunaCategory::Predator
+        )
+    {
         FaunaArmorClass::Furred
     } else {
         FaunaArmorClass::Soft
@@ -1942,8 +1676,10 @@ fn assign_fauna_skill_ids_from_profiles(entry: &FaunaEntry) -> Vec<String> {
     if matches!(entry.body_profile.locomotion, FaunaLocomotion::Burrower) {
         skills.push("animal-burrow-dash".to_string());
     }
-    if matches!(entry.body_profile.locomotion, FaunaLocomotion::Swimmer | FaunaLocomotion::Amphibious)
-        || matches!(entry.category, FaunaCategory::Aquatic)
+    if matches!(
+        entry.body_profile.locomotion,
+        FaunaLocomotion::Swimmer | FaunaLocomotion::Amphibious
+    ) || matches!(entry.category, FaunaCategory::Aquatic)
     {
         skills.push("animal-water-lunge".to_string());
     }
@@ -2003,10 +1739,19 @@ fn derive_fauna_stats(entry: &FaunaEntry) -> DerivedFaunaStats {
     agility += danger / 25;
     endurance += danger / 30;
     charisma += domestication / 25 - 1;
-    if matches!(natural_weapon, FaunaNaturalWeapon::Claw | FaunaNaturalWeapon::Horn | FaunaNaturalWeapon::Bite) {
+    if matches!(
+        natural_weapon,
+        FaunaNaturalWeapon::Claw | FaunaNaturalWeapon::Horn | FaunaNaturalWeapon::Bite
+    ) {
         strength += 1;
     }
-    if matches!(armor_class, FaunaArmorClass::Scaled | FaunaArmorClass::Shelled | FaunaArmorClass::Plated | FaunaArmorClass::Rocky) {
+    if matches!(
+        armor_class,
+        FaunaArmorClass::Scaled
+            | FaunaArmorClass::Shelled
+            | FaunaArmorClass::Plated
+            | FaunaArmorClass::Rocky
+    ) {
         endurance += 2;
     }
     if contains_any(&text, &["cunning", "clever", "tool", "social"]) {
@@ -2051,7 +1796,10 @@ fn derive_fauna_stats(entry: &FaunaEntry) -> DerivedFaunaStats {
     };
     let perception = clamp_i32(
         32 + danger / 2
-            + if contains_any(&text, &["keen", "alert", "tracking", "scent", "echolocation"]) {
+            + if contains_any(
+                &text,
+                &["keen", "alert", "tracking", "scent", "echolocation"],
+            ) {
                 18
             } else {
                 0
@@ -2060,7 +1808,10 @@ fn derive_fauna_stats(entry: &FaunaEntry) -> DerivedFaunaStats {
         100,
     );
     let stealth = clamp_i32(
-        18 + if matches!(locomotion, FaunaLocomotion::Flier | FaunaLocomotion::Runner | FaunaLocomotion::Slitherer) {
+        18 + if matches!(
+            locomotion,
+            FaunaLocomotion::Flier | FaunaLocomotion::Runner | FaunaLocomotion::Slitherer
+        ) {
             12
         } else {
             0
@@ -2081,8 +1832,16 @@ fn derive_fauna_stats(entry: &FaunaEntry) -> DerivedFaunaStats {
         FaunaSizeClass::Large => (1.9, 2.9, 340.0),
         FaunaSizeClass::Huge => (3.6, 6.0, 1800.0),
     };
-    let crit_chance = clamp_f64(0.04 + danger as f64 * 0.0024 + agility as f64 * 0.004, 0.0, 0.35);
-    let resistance = clamp_f64(0.02 + wisdom as f64 * 0.018 + size_rank as f64 * 0.03, 0.0, 0.5);
+    let crit_chance = clamp_f64(
+        0.04 + danger as f64 * 0.0024 + agility as f64 * 0.004,
+        0.0,
+        0.35,
+    );
+    let resistance = clamp_f64(
+        0.02 + wisdom as f64 * 0.018 + size_rank as f64 * 0.03,
+        0.0,
+        0.5,
+    );
     let social_bonus = clamp_f64(
         (charisma as f64 - 8.0) * 0.025 + domestication as f64 / 250.0 - danger as f64 / 500.0,
         -0.25,
@@ -2094,7 +1853,9 @@ fn derive_fauna_stats(entry: &FaunaEntry) -> DerivedFaunaStats {
                 FaunaLocomotion::Flier => 4,
                 FaunaLocomotion::Runner => 3,
                 FaunaLocomotion::Climber | FaunaLocomotion::Slitherer => 2,
-                FaunaLocomotion::Burrower | FaunaLocomotion::Swimmer | FaunaLocomotion::Amphibious => 1,
+                FaunaLocomotion::Burrower
+                | FaunaLocomotion::Swimmer
+                | FaunaLocomotion::Amphibious => 1,
                 FaunaLocomotion::Walker => 0,
             },
         0,
@@ -2116,7 +1877,14 @@ fn derive_fauna_stats(entry: &FaunaEntry) -> DerivedFaunaStats {
     let base_hp_bonus = clamp_i32(size_rank * 4 + danger / 10, 0, 32);
     let base_ap_bonus = clamp_i32(
         if agility >= 14 { 1 } else { 0 }
-            + if matches!(entry.category, FaunaCategory::Predator | FaunaCategory::Avian) { 1 } else { 0 },
+            + if matches!(
+                entry.category,
+                FaunaCategory::Predator | FaunaCategory::Avian
+            ) {
+                1
+            } else {
+                0
+            },
         0,
         4,
     );
@@ -2178,9 +1946,7 @@ fn derive_fauna_stats(entry: &FaunaEntry) -> DerivedFaunaStats {
         adaptations: entry.adaptations.clone(),
         domestication_potential: entry.domestication_potential,
         danger_level: entry.danger_level,
-        climate_profile_ids: entry.climate_profile_ids.clone(),
         biome_ids: entry.biome_ids.clone(),
-        province_ids: entry.province_ids.clone(),
         earth_analog: entry.earth_analog.clone(),
         ancestral_stock: entry.ancestral_stock.clone(),
         evolutionary_pressures: entry.evolutionary_pressures.clone(),
@@ -2206,19 +1972,26 @@ fn derive_fauna_stats(entry: &FaunaEntry) -> DerivedFaunaStats {
 fn sanitize_flora_profiles(entry: &mut FloraEntry) {
     entry.body_profile.height_meters = clamp_f64(entry.body_profile.height_meters, 0.1, 200.0);
     entry.body_profile.spread_meters = clamp_f64(entry.body_profile.spread_meters, 0.1, 200.0);
-    entry.body_profile.root_depth_meters = clamp_f64(entry.body_profile.root_depth_meters, 0.05, 60.0);
+    entry.body_profile.root_depth_meters =
+        clamp_f64(entry.body_profile.root_depth_meters, 0.05, 60.0);
     entry.body_profile.biomass_kg = clamp_f64(entry.body_profile.biomass_kg, 0.1, 500000.0);
     entry.body_profile.lifespan_years = clamp_f64(entry.body_profile.lifespan_years, 0.5, 5000.0);
     entry.body_profile.growth_rate = clamp_i32(entry.body_profile.growth_rate, 0, 100);
     entry.resource_profile.rarity = clamp_i32(entry.resource_profile.rarity, 0, 100);
-    entry.resource_profile.yield_per_harvest = clamp_i32(entry.resource_profile.yield_per_harvest, 0, 100);
+    entry.resource_profile.yield_per_harvest =
+        clamp_i32(entry.resource_profile.yield_per_harvest, 0, 100);
     entry.resource_profile.regrowth_days = clamp_i32(entry.resource_profile.regrowth_days, 1, 3650);
-    entry.resource_profile.harvest_difficulty = clamp_i32(entry.resource_profile.harvest_difficulty, 0, 100);
-    entry.resource_profile.nutrition_value = clamp_i32(entry.resource_profile.nutrition_value, 0, 100);
-    entry.resource_profile.medicinal_value = clamp_i32(entry.resource_profile.medicinal_value, 0, 100);
+    entry.resource_profile.harvest_difficulty =
+        clamp_i32(entry.resource_profile.harvest_difficulty, 0, 100);
+    entry.resource_profile.nutrition_value =
+        clamp_i32(entry.resource_profile.nutrition_value, 0, 100);
+    entry.resource_profile.medicinal_value =
+        clamp_i32(entry.resource_profile.medicinal_value, 0, 100);
     entry.resource_profile.fuel_value = clamp_i32(entry.resource_profile.fuel_value, 0, 100);
-    entry.resource_profile.structural_value = clamp_i32(entry.resource_profile.structural_value, 0, 100);
-    entry.resource_profile.concealment_value = clamp_i32(entry.resource_profile.concealment_value, 0, 100);
+    entry.resource_profile.structural_value =
+        clamp_i32(entry.resource_profile.structural_value, 0, 100);
+    entry.resource_profile.concealment_value =
+        clamp_i32(entry.resource_profile.concealment_value, 0, 100);
     entry.hazard_profile.toxicity = clamp_i32(entry.hazard_profile.toxicity, 0, 100);
     entry.hazard_profile.irritation = clamp_i32(entry.hazard_profile.irritation, 0, 100);
     entry.hazard_profile.thorniness = clamp_i32(entry.hazard_profile.thorniness, 0, 100);
@@ -2246,14 +2019,22 @@ fn sanitize_fauna_profiles(entry: &mut FaunaEntry) {
     entry.body_profile.length_meters = clamp_f64(entry.body_profile.length_meters, 0.1, 40.0);
     entry.body_profile.weight_kg = clamp_f64(entry.body_profile.weight_kg, 0.1, 100000.0);
     entry.behavior_profile.pack_size_min = clamp_i32(entry.behavior_profile.pack_size_min, 1, 500);
-    entry.behavior_profile.pack_size_max = clamp_i32(entry.behavior_profile.pack_size_max, entry.behavior_profile.pack_size_min, 500);
+    entry.behavior_profile.pack_size_max = clamp_i32(
+        entry.behavior_profile.pack_size_max,
+        entry.behavior_profile.pack_size_min,
+        500,
+    );
     entry.behavior_profile.perception = clamp_i32(entry.behavior_profile.perception, 0, 100);
     entry.behavior_profile.stealth = clamp_i32(entry.behavior_profile.stealth, 0, 100);
     entry.behavior_profile.trainability = clamp_i32(entry.behavior_profile.trainability, 0, 100);
     entry.skill_ids = dedupe_preserve_order(&entry.skill_ids);
 }
 
-fn apply_derived_flora_stats(entry: &mut FloraEntry, derived: DerivedFloraStats, source: EcologyStatSource) {
+fn apply_derived_flora_stats(
+    entry: &mut FloraEntry,
+    derived: DerivedFloraStats,
+    source: EcologyStatSource,
+) {
     entry.body_profile = derived.body_profile;
     entry.resource_profile = derived.resource_profile;
     entry.hazard_profile = derived.hazard_profile;
@@ -2262,7 +2043,11 @@ fn apply_derived_flora_stats(entry: &mut FloraEntry, derived: DerivedFloraStats,
     sanitize_flora_profiles(entry);
 }
 
-fn apply_derived_fauna_stats(entry: &mut FaunaEntry, derived: DerivedFaunaStats, source: EcologyStatSource) {
+fn apply_derived_fauna_stats(
+    entry: &mut FaunaEntry,
+    derived: DerivedFaunaStats,
+    source: EcologyStatSource,
+) {
     entry.combat_profile = derived.combat_profile;
     entry.body_profile = derived.body_profile;
     entry.behavior_profile = derived.behavior_profile;
@@ -2316,7 +2101,7 @@ fn refresh_bundle_derived_stats(bundle: &mut EcologyBundle) -> RefreshDerivedSta
     }
 }
 
-fn sanitize_flora_draft(mut draft: FloraDraft, allowed_climate_ids: &HashSet<&str>) -> FloraDraft {
+fn sanitize_flora_draft(mut draft: FloraDraft) -> FloraDraft {
     draft.name = draft.name.trim().to_string();
     draft.description = draft.description.trim().to_string();
     draft.agriculture_value = draft.agriculture_value.clamp(0, 100);
@@ -2334,13 +2119,6 @@ fn sanitize_flora_draft(mut draft: FloraDraft, allowed_climate_ids: &HashSet<&st
             .into_iter()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
-            .collect(),
-    );
-    draft.climate_profile_ids = dedupe_ids(
-        draft
-            .climate_profile_ids
-            .into_iter()
-            .filter(|id| allowed_climate_ids.is_empty() || allowed_climate_ids.contains(id.as_str()))
             .collect(),
     );
     if let Some(mut profile) = draft.body_profile.take() {
@@ -2375,7 +2153,7 @@ fn sanitize_flora_draft(mut draft: FloraDraft, allowed_climate_ids: &HashSet<&st
     draft
 }
 
-fn sanitize_fauna_draft(mut draft: FaunaDraft, allowed_climate_ids: &HashSet<&str>) -> FaunaDraft {
+fn sanitize_fauna_draft(mut draft: FaunaDraft) -> FaunaDraft {
     draft.name = draft.name.trim().to_string();
     draft.description = draft.description.trim().to_string();
     draft.earth_analog = draft.earth_analog.trim().to_string();
@@ -2406,13 +2184,6 @@ fn sanitize_fauna_draft(mut draft: FaunaDraft, allowed_climate_ids: &HashSet<&st
             .into_iter()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
-            .collect(),
-    );
-    draft.climate_profile_ids = dedupe_ids(
-        draft
-            .climate_profile_ids
-            .into_iter()
-            .filter(|id| allowed_climate_ids.is_empty() || allowed_climate_ids.contains(id.as_str()))
             .collect(),
     );
     if let Some(mut profile) = draft.combat_profile.take() {
@@ -2461,9 +2232,7 @@ fn flora_entry_from_draft(draft: FloraDraft, biome_ids: &[String]) -> FloraEntry
         adaptations: draft.adaptations,
         edibility: draft.edibility,
         agriculture_value: draft.agriculture_value,
-        climate_profile_ids: draft.climate_profile_ids,
         biome_ids: biome_ids.to_vec(),
-        province_ids: Vec::new(),
         vegetation_asset_batch_ids: Vec::new(),
         illustration_asset_batch_ids: Vec::new(),
         illustration_assets: Vec::new(),
@@ -2494,9 +2263,7 @@ fn fauna_entry_from_draft(draft: FaunaDraft, biome_ids: &[String]) -> FaunaEntry
         adaptations: draft.adaptations,
         domestication_potential: draft.domestication_potential,
         danger_level: draft.danger_level,
-        climate_profile_ids: draft.climate_profile_ids,
         biome_ids: biome_ids.to_vec(),
-        province_ids: Vec::new(),
         earth_analog: draft.earth_analog,
         ancestral_stock: draft.ancestral_stock,
         evolutionary_pressures: draft.evolutionary_pressures,
@@ -2530,7 +2297,6 @@ fn build_flora_batch_prompt(
     user_prompt: &str,
     count: usize,
     biome_ids: &[String],
-    climate_ids: &[String],
 ) -> String {
     let world_baseline = bundle
         .baselines
@@ -2538,16 +2304,6 @@ fn build_flora_batch_prompt(
         .find(|entry| entry.scope == BaselineScope::World)
         .map(|entry| entry.summary.as_str())
         .unwrap_or("No world baseline approved yet.");
-    let climate_block = if bundle.climates.is_empty() {
-        "No climate profiles exist yet.".to_string()
-    } else {
-        bundle
-            .climates
-            .iter()
-            .map(|entry| format!("- {}: {} [{}]", entry.id, entry.name, entry.classification))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
     let biome_block = if bundle.biomes.is_empty() {
         "No biome coverage entries exist yet.".to_string()
     } else {
@@ -2567,27 +2323,20 @@ fn build_flora_batch_prompt(
     let biome_anchor_text = if biome_ids.is_empty() {
         "No specific biome ids were selected.".to_string()
     } else {
-        format!("Target biome ids for these entries: {}", biome_ids.join(", "))
-    };
-    let climate_anchor_text = if climate_ids.is_empty() {
-        "No specific climate ids were selected; if you use climateProfileIds, choose from the available list.".to_string()
-    } else {
         format!(
-            "Target climate ids for these entries: {}. Only use ids from this set in climateProfileIds.",
-            climate_ids.join(", ")
+            "Target biome ids for these entries: {}",
+            biome_ids.join(", ")
         )
     };
 
     format!(
         "You are generating canonical flora entries for a science-minded fantasy worldbuilding archive.\n\
 Return ONLY strict JSON matching this schema:\n\
-{{\"entries\":[{{\"name\":\"...\",\"category\":\"tree\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"edibility\":\"none\",\"agricultureValue\":0,\"climateProfileIds\":[\"climate-...\"],\"bodyProfile\":{{\"sizeClass\":\"medium\",\"heightMeters\":1,\"spreadMeters\":1,\"rootDepthMeters\":1,\"biomassKg\":1,\"lifespanYears\":1,\"growthRate\":50}},\"resourceProfile\":{{\"rarity\":0,\"yieldPerHarvest\":0,\"regrowthDays\":1,\"harvestDifficulty\":0,\"nutritionValue\":0,\"medicinalValue\":0,\"fuelValue\":0,\"structuralValue\":0,\"concealmentValue\":0}},\"hazardProfile\":{{\"toxicity\":0,\"irritation\":0,\"thorniness\":0,\"flammability\":0,\"resilience\":0}}}}]}}\n\
+{{\"entries\":[{{\"name\":\"...\",\"category\":\"tree\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"edibility\":\"none\",\"agricultureValue\":0,\"bodyProfile\":{{\"sizeClass\":\"medium\",\"heightMeters\":1,\"spreadMeters\":1,\"rootDepthMeters\":1,\"biomassKg\":1,\"lifespanYears\":1,\"growthRate\":50}},\"resourceProfile\":{{\"rarity\":0,\"yieldPerHarvest\":0,\"regrowthDays\":1,\"harvestDifficulty\":0,\"nutritionValue\":0,\"medicinalValue\":0,\"fuelValue\":0,\"structuralValue\":0,\"concealmentValue\":0}},\"hazardProfile\":{{\"toxicity\":0,\"irritation\":0,\"thorniness\":0,\"flammability\":0,\"resilience\":0}}}}]}}\n\
 Generate exactly {} flora entries.\n\
 User creative direction:\n{}\n\
 World baseline summary:\n{}\n\
 {}\n\
-{}\n\
-Available climate profiles:\n{}\n\
 Available biome entries:\n{}\n\
 Existing flora names to avoid:\n{}\n\
 Rules:\n\
@@ -2596,14 +2345,11 @@ Rules:\n\
 - agricultureValue must be an integer from 0 to 100.\n\
 - bodyProfile, resourceProfile, and hazardProfile are required for every entry.\n\
 - Keep entries distinct from each other.\n\
-- climateProfileIds may be empty, but if present they must come from the available climate profile ids.\n\
 - Do not include markdown or commentary.\n",
         count,
         user_prompt,
         world_baseline,
         biome_anchor_text,
-        climate_anchor_text,
-        climate_block,
         biome_block,
         if existing_names.is_empty() { "None".to_string() } else { existing_names }
     )
@@ -2614,7 +2360,6 @@ fn build_fauna_batch_prompt(
     user_prompt: &str,
     count: usize,
     biome_ids: &[String],
-    climate_ids: &[String],
 ) -> String {
     let world_baseline = bundle
         .baselines
@@ -2622,16 +2367,6 @@ fn build_fauna_batch_prompt(
         .find(|entry| entry.scope == BaselineScope::World)
         .map(|entry| entry.summary.as_str())
         .unwrap_or("No world baseline approved yet.");
-    let climate_block = if bundle.climates.is_empty() {
-        "No climate profiles exist yet.".to_string()
-    } else {
-        bundle
-            .climates
-            .iter()
-            .map(|entry| format!("- {}: {} [{}]", entry.id, entry.name, entry.classification))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
     let biome_block = if bundle.biomes.is_empty() {
         "No biome coverage entries exist yet.".to_string()
     } else {
@@ -2651,27 +2386,20 @@ fn build_fauna_batch_prompt(
     let biome_anchor_text = if biome_ids.is_empty() {
         "No specific biome ids were selected.".to_string()
     } else {
-        format!("Target biome ids for these entries: {}", biome_ids.join(", "))
-    };
-    let climate_anchor_text = if climate_ids.is_empty() {
-        "No specific climate ids were selected; if you use climateProfileIds, choose from the available list.".to_string()
-    } else {
         format!(
-            "Target climate ids for these entries: {}. Only use ids from this set in climateProfileIds.",
-            climate_ids.join(", ")
+            "Target biome ids for these entries: {}",
+            biome_ids.join(", ")
         )
     };
 
     format!(
         "You are generating canonical fauna entries for a science-minded fantasy worldbuilding archive.\n\
 Return ONLY strict JSON matching this schema:\n\
-{{\"entries\":[{{\"name\":\"...\",\"category\":\"herbivore\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"domesticationPotential\":0,\"dangerLevel\":0,\"climateProfileIds\":[\"climate-...\"],\"earthAnalog\":\"...\",\"ancestralStock\":\"...\",\"evolutionaryPressures\":[\"...\"],\"mutationSummary\":\"...\",\"divergenceSummary\":\"...\",\"combatProfile\":{{\"level\":1,\"strength\":10,\"agility\":10,\"intelligence\":5,\"wisdom\":5,\"endurance\":10,\"charisma\":5,\"critChance\":0.1,\"resistance\":0.1,\"socialBonus\":0.0,\"baseEvasion\":5,\"baseDefense\":2,\"baseHpBonus\":4,\"baseApBonus\":0,\"baseMpBonus\":0}},\"bodyProfile\":{{\"sizeClass\":\"medium\",\"heightMeters\":1,\"lengthMeters\":1,\"weightKg\":1,\"locomotion\":\"walker\",\"naturalWeapon\":\"bite\",\"armorClass\":\"furred\"}},\"behaviorProfile\":{{\"temperament\":\"docile\",\"activityCycle\":\"diurnal\",\"packSizeMin\":1,\"packSizeMax\":4,\"perception\":50,\"stealth\":20,\"trainability\":20}}}}]}}\n\
+{{\"entries\":[{{\"name\":\"...\",\"category\":\"herbivore\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"domesticationPotential\":0,\"dangerLevel\":0,\"earthAnalog\":\"...\",\"ancestralStock\":\"...\",\"evolutionaryPressures\":[\"...\"],\"mutationSummary\":\"...\",\"divergenceSummary\":\"...\",\"combatProfile\":{{\"level\":1,\"strength\":10,\"agility\":10,\"intelligence\":5,\"wisdom\":5,\"endurance\":10,\"charisma\":5,\"critChance\":0.1,\"resistance\":0.1,\"socialBonus\":0.0,\"baseEvasion\":5,\"baseDefense\":2,\"baseHpBonus\":4,\"baseApBonus\":0,\"baseMpBonus\":0}},\"bodyProfile\":{{\"sizeClass\":\"medium\",\"heightMeters\":1,\"lengthMeters\":1,\"weightKg\":1,\"locomotion\":\"walker\",\"naturalWeapon\":\"bite\",\"armorClass\":\"furred\"}},\"behaviorProfile\":{{\"temperament\":\"docile\",\"activityCycle\":\"diurnal\",\"packSizeMin\":1,\"packSizeMax\":4,\"perception\":50,\"stealth\":20,\"trainability\":20}}}}]}}\n\
 Generate exactly {} fauna entries.\n\
 User creative direction:\n{}\n\
 World baseline summary:\n{}\n\
 {}\n\
-{}\n\
-Available climate profiles:\n{}\n\
 Available biome entries:\n{}\n\
 Existing fauna names to avoid:\n{}\n\
 Rules:\n\
@@ -2679,7 +2407,6 @@ Rules:\n\
 - domesticationPotential and dangerLevel must be integers from 0 to 100.\n\
 - combatProfile, bodyProfile, and behaviorProfile are required for every entry.\n\
 - Keep entries distinct from each other.\n\
-- climateProfileIds may be empty, but if present they must come from the available climate profile ids.\n\
 - earthAnalog should be short and concrete.\n\
 - Do not invent custom skill definitions. The server assigns canonical animal skill ids.\n\
 - Do not include markdown or commentary.\n",
@@ -2687,8 +2414,6 @@ Rules:\n\
         user_prompt,
         world_baseline,
         biome_anchor_text,
-        climate_anchor_text,
-        climate_block,
         biome_block,
         if existing_names.is_empty() { "None".to_string() } else { existing_names }
     )
@@ -2784,7 +2509,10 @@ fn sync_biomes_with_hierarchy(
     bundle.biomes = next;
 }
 
-pub(crate) fn load_ecology_bundle(planets_dir: &FsPath, world_id: &str) -> Result<EcologyBundle, String> {
+pub(crate) fn load_ecology_bundle(
+    planets_dir: &FsPath,
+    world_id: &str,
+) -> Result<EcologyBundle, String> {
     let ecology_dir = ecology_dir(planets_dir, world_id);
     if !ecology_dir.exists() {
         return Ok(empty_bundle(world_id));
@@ -2809,11 +2537,9 @@ pub(crate) fn load_ecology_bundle(planets_dir: &FsPath, world_id: &str) -> Resul
 
     let mut bundle = empty_bundle(world_id);
     bundle.baselines = read_optional_json(ecology_dir.join("baselines.json"))?;
-    bundle.climates = read_optional_json(ecology_dir.join("climates.json"))?;
     bundle.flora = read_optional_json(ecology_dir.join("flora.json"))?;
     bundle.fauna = read_optional_json(ecology_dir.join("fauna.json"))?;
     bundle.biomes = read_optional_json(ecology_dir.join("biomes.json"))?;
-    bundle.provinces = read_optional_json(ecology_dir.join("provinces.json"))?;
     migrate_bundle_biome_ids(&mut bundle)?;
     normalize_loaded_bundle(&mut bundle);
     Ok(bundle)
@@ -2834,11 +2560,9 @@ fn save_ecology_bundle(
 
     write_json_file(ecology_dir.join("bundle.json"), &normalized)?;
     write_json_file(ecology_dir.join("baselines.json"), &normalized.baselines)?;
-    write_json_file(ecology_dir.join("climates.json"), &normalized.climates)?;
     write_json_file(ecology_dir.join("flora.json"), &normalized.flora)?;
     write_json_file(ecology_dir.join("fauna.json"), &normalized.fauna)?;
     write_json_file(ecology_dir.join("biomes.json"), &normalized.biomes)?;
-    write_json_file(ecology_dir.join("provinces.json"), &normalized.provinces)?;
     Ok(())
 }
 
@@ -2851,13 +2575,11 @@ pub(crate) fn empty_bundle(world_id: &str) -> EcologyBundle {
         world_id: world_id.to_string(),
         updated_at: Utc::now().to_rfc3339(),
         baselines: Vec::new(),
-        climates: Vec::new(),
         flora: Vec::new(),
         fauna: Vec::new(),
         biomes: Vec::new(),
         archetypes: worldgen_core::BiomeRegistry::default_registry(),
         biome_model_settings: worldgen_core::BiomeModelSettings::default(),
-        provinces: Vec::new(),
     }
 }
 
@@ -2914,7 +2636,12 @@ fn biome_id_from_index(
         .archetypes
         .get(biome_index as usize)
         .map(|entry| entry.id.clone())
-        .ok_or_else(|| format!("Biome index {} is out of range for current registry", biome_index))
+        .ok_or_else(|| {
+            format!(
+                "Biome index {} is out of range for current registry",
+                biome_index
+            )
+        })
 }
 
 fn migrate_legacy_biome_id(
@@ -3054,91 +2781,6 @@ Provinces:\n{}\n",
     )
 }
 
-#[derive(Default)]
-struct ProvinceCellMetrics {
-    dominant_terrain_classes: Vec<String>,
-    avg_vegetation_index: Option<f64>,
-    avg_aridity_index: Option<f64>,
-    water_share: Option<f64>,
-    coastal_share: Option<f64>,
-}
-
-fn build_province_prompt(
-    province: &ProvinceRecord,
-    duchy: &DuchyRecord,
-    kingdom: &KingdomRecord,
-    duchy_baseline: &EcologyBaseline,
-    kingdom_baseline: &EcologyBaseline,
-    bundle: &EcologyBundle,
-    metrics: &ProvinceCellMetrics,
-) -> String {
-    let approved_climates = bundle
-        .climates
-        .iter()
-        .filter(|entry| entry.status == EntryStatus::Approved)
-        .map(|entry| format!("{}: {} [{}]", entry.id, entry.name, entry.classification))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let approved_flora = bundle
-        .flora
-        .iter()
-        .filter(|entry| entry.status == EntryStatus::Approved)
-        .map(|entry| format!("{}: {} [{:?}]", entry.id, entry.name, entry.category))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let approved_fauna = bundle
-        .fauna
-        .iter()
-        .filter(|entry| entry.status == EntryStatus::Approved)
-        .map(|entry| {
-            format!(
-                "{}: {} [{:?}] Earth analog {}",
-                entry.id, entry.name, entry.category, entry.earth_analog
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    format!(
-        "You are generating one province ecology dossier from an isolated province image and parent ecology baselines.\n\
-Return ONLY strict JSON with this shape:\n\
-{{\"description\":\"...\",\"ecologicalPotential\":0,\"agriculturePotential\":0,\"consistencyNotes\":[\"...\"],\"reuseClimateProfileIds\":[\"...\"],\"newClimateProfiles\":[{{\"name\":\"...\",\"classification\":\"...\",\"temperatureSummary\":\"...\",\"precipitationSummary\":\"...\",\"seasonality\":\"...\",\"agricultureNotes\":\"...\"}}],\"reuseFloraIds\":[\"...\"],\"newFlora\":[{{\"name\":\"...\",\"category\":\"tree|shrub|grass|crop|fungus|aquatic|alien_other\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"edibility\":\"none|limited|common\",\"agricultureValue\":0,\"climateProfileIds\":[\"existing or newly created climate ids only if justified\" ],\"bodyProfile\":{{\"sizeClass\":\"medium\",\"heightMeters\":1,\"spreadMeters\":1,\"rootDepthMeters\":1,\"biomassKg\":1,\"lifespanYears\":1,\"growthRate\":50}},\"resourceProfile\":{{\"rarity\":0,\"yieldPerHarvest\":0,\"regrowthDays\":1,\"harvestDifficulty\":0,\"nutritionValue\":0,\"medicinalValue\":0,\"fuelValue\":0,\"structuralValue\":0,\"concealmentValue\":0}},\"hazardProfile\":{{\"toxicity\":0,\"irritation\":0,\"thorniness\":0,\"flammability\":0,\"resilience\":0}}}}],\"reuseFaunaIds\":[\"...\"],\"newFauna\":[{{\"name\":\"...\",\"category\":\"herbivore|predator|omnivore|scavenger|avian|aquatic|beast_of_burden|companion|alien_other\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"domesticationPotential\":0,\"dangerLevel\":0,\"climateProfileIds\":[\"...\"],\"earthAnalog\":\"...\",\"ancestralStock\":\"...\",\"evolutionaryPressures\":[\"...\"],\"mutationSummary\":\"...\",\"divergenceSummary\":\"...\",\"combatProfile\":{{\"level\":1,\"strength\":10,\"agility\":10,\"intelligence\":5,\"wisdom\":5,\"endurance\":10,\"charisma\":5,\"critChance\":0.1,\"resistance\":0.1,\"socialBonus\":0.0,\"baseEvasion\":5,\"baseDefense\":2,\"baseHpBonus\":4,\"baseApBonus\":0,\"baseMpBonus\":0}},\"bodyProfile\":{{\"sizeClass\":\"medium\",\"heightMeters\":1,\"lengthMeters\":1,\"weightKg\":1,\"locomotion\":\"walker\",\"naturalWeapon\":\"bite\",\"armorClass\":\"furred\"}},\"behaviorProfile\":{{\"temperament\":\"docile\",\"activityCycle\":\"diurnal\",\"packSizeMin\":1,\"packSizeMax\":4,\"perception\":50,\"stealth\":20,\"trainability\":20}}}}]}}\n\
-Rules:\n\
-- Prefer reuse of approved existing entries when possible.\n\
-- New fauna must include full convergent-evolution lineage fields.\n\
-- New flora and fauna must include their full stat profile blocks.\n\
-- Keep the province coherent with the duchy and kingdom baselines.\n\
-- Scores must be integers from 0 to 100.\n\
-- Do not invent custom skill definitions; fauna skills are assigned server-side.\n\
-Province metadata: name={}, area={}, biomePrimary={}, duchy={}, kingdom={}\n\
-Duchy baseline summary: {}\n\
-Duchy flora directives: {:?}\n\
-Kingdom baseline summary: {}\n\
-Kingdom fauna directives: {:?}\n\
-Optional cell metrics: terrain={:?}, avgVegetation={:?}, avgAridity={:?}, waterShare={:?}, coastalShare={:?}\n\
-Approved climates:\n{}\n\
-Approved flora:\n{}\n\
-Approved fauna:\n{}\n",
-        province.name,
-        province.area,
-        province.biome_primary,
-        duchy.name,
-        kingdom.name,
-        duchy_baseline.summary,
-        duchy_baseline.flora_directives,
-        kingdom_baseline.summary,
-        kingdom_baseline.fauna_directives,
-        metrics.dominant_terrain_classes,
-        metrics.avg_vegetation_index,
-        metrics.avg_aridity_index,
-        metrics.water_share,
-        metrics.coastal_share,
-        approved_climates,
-        approved_flora,
-        approved_fauna
-    )
-}
-
 fn parse_json_payload<T: for<'de> Deserialize<'de>>(raw: &str) -> Result<T, String> {
     let trimmed = raw.trim().trim_matches('`').trim();
     if let Ok(parsed) = serde_json::from_str::<T>(trimmed) {
@@ -3176,19 +2818,6 @@ async fn generate_structured_text<T: for<'de> Deserialize<'de>>(
     parse_or_repair_structured_text(label, schema_hint, &raw).await
 }
 
-async fn generate_structured_text_with_inline_image<T: for<'de> Deserialize<'de>>(
-    label: &str,
-    prompt: &str,
-    image_base64: &str,
-    mime_type: &str,
-    schema_hint: &str,
-) -> Result<T, String> {
-    let raw = gemini::generate_text_with_inline_image(prompt, image_base64, mime_type)
-        .await
-        .map_err(|(_, err)| err)?;
-    parse_or_repair_structured_text(label, schema_hint, &raw).await
-}
-
 async fn parse_or_repair_structured_text<T: for<'de> Deserialize<'de>>(
     label: &str,
     schema_hint: &str,
@@ -3208,8 +2837,7 @@ async fn parse_or_repair_structured_text<T: for<'de> Deserialize<'de>>(
 Do not add markdown fences, commentary, or explanations.\n\
 Required schema:\n{}\n\
 Content to repair:\n{}\n",
-                schema_hint,
-                raw
+                schema_hint, raw
             );
             let repaired = gemini::generate_text(&repair_prompt)
                 .await
@@ -3272,17 +2900,6 @@ fn upsert_world_baseline(baselines: &mut Vec<EcologyBaseline>, baseline: Ecology
     }
 }
 
-fn upsert_province_record(records: &mut Vec<ProvinceEcologyRecord>, record: ProvinceEcologyRecord) {
-    if let Some(index) = records
-        .iter()
-        .position(|entry| entry.province_id == record.province_id)
-    {
-        records[index] = record;
-    } else {
-        records.push(record);
-    }
-}
-
 fn dedupe_ids(ids: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     ids.into_iter()
@@ -3290,168 +2907,53 @@ fn dedupe_ids(ids: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn link_existing_entries(
-    bundle: &mut EcologyBundle,
-    province_id: u32,
-    climate_ids: &[String],
-    flora_ids: &[String],
-    fauna_ids: &[String],
-) {
-    for entry in &mut bundle.climates {
-        if climate_ids.contains(&entry.id) && !entry.province_ids.contains(&province_id) {
-            entry.province_ids.push(province_id);
-        }
-    }
-    for entry in &mut bundle.flora {
-        if flora_ids.contains(&entry.id) && !entry.province_ids.contains(&province_id) {
-            entry.province_ids.push(province_id);
-        }
-    }
-    for entry in &mut bundle.fauna {
-        if fauna_ids.contains(&entry.id) && !entry.province_ids.contains(&province_id) {
-            entry.province_ids.push(province_id);
-        }
-    }
-}
-
-fn validate_generation_reuse(
-    bundle: &EcologyBundle,
-    response: &ProvinceGenerationResponse,
-) -> Result<(), String> {
-    let approved_climates: HashSet<&str> = bundle
-        .climates
-        .iter()
-        .filter(|entry| entry.status == EntryStatus::Approved)
-        .map(|entry| entry.id.as_str())
-        .collect();
-    let approved_flora: HashSet<&str> = bundle
-        .flora
-        .iter()
-        .filter(|entry| entry.status == EntryStatus::Approved)
-        .map(|entry| entry.id.as_str())
-        .collect();
-    let approved_fauna: HashSet<&str> = bundle
-        .fauna
-        .iter()
-        .filter(|entry| entry.status == EntryStatus::Approved)
-        .map(|entry| entry.id.as_str())
-        .collect();
-
-    for climate_id in &response.reuse_climate_profile_ids {
-        if !approved_climates.contains(climate_id.as_str()) {
-            return Err(format!(
-                "Unknown approved climate reference: {}",
-                climate_id
-            ));
-        }
-    }
-    for flora_id in &response.reuse_flora_ids {
-        if !approved_flora.contains(flora_id.as_str()) {
-            return Err(format!("Unknown approved flora reference: {}", flora_id));
-        }
-    }
-    for fauna_id in &response.reuse_fauna_ids {
-        if !approved_fauna.contains(fauna_id.as_str()) {
-            return Err(format!("Unknown approved fauna reference: {}", fauna_id));
-        }
-    }
-    Ok(())
-}
-
 fn validate_bundle_references(bundle: &EcologyBundle) -> Result<(), String> {
-    let climate_ids: HashSet<&str> = bundle
-        .climates
-        .iter()
-        .map(|entry| entry.id.as_str())
-        .collect();
-    let flora_ids: HashSet<&str> = bundle.flora.iter().map(|entry| entry.id.as_str()).collect();
-    let fauna_ids: HashSet<&str> = bundle.fauna.iter().map(|entry| entry.id.as_str()).collect();
     let skill_ids = load_skill_registry()?
         .into_keys()
         .collect::<HashSet<String>>();
-    let _biome_ids: HashSet<&str> = bundle
-        .biomes
-        .iter()
-        .map(|entry| entry.id.as_str())
-        .collect();
 
     for flora in &bundle.flora {
-        for climate_id in &flora.climate_profile_ids {
-            if !climate_ids.contains(climate_id.as_str()) {
-                return Err(format!(
-                    "Flora {} references missing climate {}",
-                    flora.id, climate_id
-                ));
-            }
-        }
         for biome_id in &flora.biome_ids {
             if !bundle.biomes.iter().any(|entry| &entry.id == biome_id) {
-                return Err(format!("Flora {} references missing biome {}", flora.id, biome_id));
+                return Err(format!(
+                    "Flora {} references missing biome {}",
+                    flora.id, biome_id
+                ));
             }
         }
         if flora.stats_version.trim().is_empty() {
             return Err(format!("Flora {} is missing statsVersion", flora.id));
         }
         if flora_profiles_need_backfill(flora) {
-            return Err(format!("Flora {} is missing required stat profiles", flora.id));
+            return Err(format!(
+                "Flora {} is missing required stat profiles",
+                flora.id
+            ));
         }
     }
     for fauna in &bundle.fauna {
-        for climate_id in &fauna.climate_profile_ids {
-            if !climate_ids.contains(climate_id.as_str()) {
-                return Err(format!(
-                    "Fauna {} references missing climate {}",
-                    fauna.id, climate_id
-                ));
-            }
-        }
         for biome_id in &fauna.biome_ids {
             if !bundle.biomes.iter().any(|entry| &entry.id == biome_id) {
-                return Err(format!("Fauna {} references missing biome {}", fauna.id, biome_id));
+                return Err(format!(
+                    "Fauna {} references missing biome {}",
+                    fauna.id, biome_id
+                ));
             }
         }
         if fauna.stats_version.trim().is_empty() {
             return Err(format!("Fauna {} is missing statsVersion", fauna.id));
         }
         if fauna_profiles_need_backfill(fauna) {
-            return Err(format!("Fauna {} is missing required stat profiles", fauna.id));
+            return Err(format!(
+                "Fauna {} is missing required stat profiles",
+                fauna.id
+            ));
         }
         for skill_id in &fauna.skill_ids {
             if !skill_ids.contains(skill_id) {
-                return Err(format!("Fauna {} references unknown skill {}", fauna.id, skill_id));
-            }
-        }
-    }
-    for province in &bundle.provinces {
-        for climate_id in &province.climate_profile_ids {
-            if !climate_ids.contains(climate_id.as_str()) {
                 return Err(format!(
-                    "Province {} references missing climate {}",
-                    province.province_id, climate_id
-                ));
-            }
-        }
-        for flora_id in &province.flora_ids {
-            if !flora_ids.contains(flora_id.as_str()) {
-                return Err(format!(
-                    "Province {} references missing flora {}",
-                    province.province_id, flora_id
-                ));
-            }
-        }
-        for fauna_id in &province.fauna_ids {
-            if !fauna_ids.contains(fauna_id.as_str()) {
-                return Err(format!(
-                    "Province {} references missing fauna {}",
-                    province.province_id, fauna_id
-                ));
-            }
-        }
-        if let Some(biome_id) = &province.biome_archetype_id {
-            if !bundle.biomes.iter().any(|entry| &entry.id == biome_id) {
-                return Err(format!(
-                    "Province {} references missing biome {}",
-                    province.province_id, biome_id
+                    "Fauna {} references unknown skill {}",
+                    fauna.id, skill_id
                 ));
             }
         }
@@ -3464,11 +2966,9 @@ fn normalize_bundle_for_save(existing: &EcologyBundle, incoming: &mut EcologyBun
     normalize_loaded_bundle(incoming);
     incoming.updated_at = Utc::now().to_rfc3339();
     normalize_baselines_for_save(&existing.baselines, &mut incoming.baselines);
-    normalize_entry_status_for_save(&existing.climates, &mut incoming.climates);
     normalize_entry_status_for_save(&existing.flora, &mut incoming.flora);
     normalize_entry_status_for_save(&existing.fauna, &mut incoming.fauna);
     normalize_entry_status_for_save(&existing.biomes, &mut incoming.biomes);
-    normalize_provinces_for_save(&existing.provinces, &mut incoming.provinces);
 }
 
 fn normalize_loaded_bundle(bundle: &mut EcologyBundle) {
@@ -3481,9 +2981,6 @@ fn normalize_loaded_bundle(bundle: &mut EcologyBundle) {
 
     for flora in &mut bundle.flora {
         sort_and_dedupe_strings(&mut flora.biome_ids);
-        sort_and_dedupe_strings(&mut flora.climate_profile_ids);
-        flora.province_ids.sort_unstable();
-        flora.province_ids.dedup();
         sort_and_dedupe_strings(&mut flora.vegetation_asset_batch_ids);
         sort_and_dedupe_strings(&mut flora.illustration_asset_batch_ids);
         sort_and_dedupe_asset_refs(&mut flora.illustration_assets);
@@ -3499,9 +2996,6 @@ fn normalize_loaded_bundle(bundle: &mut EcologyBundle) {
     }
     for fauna in &mut bundle.fauna {
         sort_and_dedupe_strings(&mut fauna.biome_ids);
-        sort_and_dedupe_strings(&mut fauna.climate_profile_ids);
-        fauna.province_ids.sort_unstable();
-        fauna.province_ids.dedup();
         sort_and_dedupe_strings(&mut fauna.illustration_asset_batch_ids);
         sort_and_dedupe_asset_refs(&mut fauna.illustration_assets);
         if fauna_profiles_need_backfill(fauna) {
@@ -3550,11 +3044,6 @@ fn migrate_bundle_biome_ids(bundle: &mut EcologyBundle) -> Result<(), String> {
         biome.archetype_id = biome.id.clone();
         if biome.biome_type.parse::<usize>().is_ok() || biome.biome_type.starts_with("biome-") {
             biome.biome_type = biome.id.clone();
-        }
-    }
-    for province in &mut bundle.provinces {
-        if let Some(biome_id) = province.biome_archetype_id.as_mut() {
-            *biome_id = migrate_legacy_biome_id(&bundle.archetypes, biome_id)?;
         }
     }
     Ok(())
@@ -3656,12 +3145,13 @@ fn sort_and_dedupe_asset_refs(values: &mut Vec<AssetImageRef>) {
             .cmp(&right.batch_id)
             .then(left.filename.cmp(&right.filename))
     });
-    values.dedup_by(|left, right| left.batch_id == right.batch_id && left.filename == right.filename);
+    values
+        .dedup_by(|left, right| left.batch_id == right.batch_id && left.filename == right.filename);
 }
 
 fn load_skill_registry() -> Result<HashMap<String, Skill>, String> {
-    let current_dir = std::env::current_dir()
-        .map_err(|err| format!("Failed to read current dir: {}", err))?;
+    let current_dir =
+        std::env::current_dir().map_err(|err| format!("Failed to read current dir: {}", err))?;
     let candidate_paths = [
         current_dir.join("../../packages/core/src/data/skills.json"),
         current_dir.join("../../../packages/core/src/data/skills.json"),
@@ -3672,11 +3162,14 @@ fn load_skill_registry() -> Result<HashMap<String, Skill>, String> {
         .find(|path| path.exists())
         .cloned()
         .ok_or_else(|| "Failed to locate skills.json".to_string())?;
-    let raw = fs::read_to_string(&path)
-        .map_err(|err| format!("Failed to read skills.json: {}", err))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|err| format!("Failed to read skills.json: {}", err))?;
     let skills: Vec<Skill> = serde_json::from_str(&raw)
         .map_err(|err| format!("Failed to parse skills.json: {}", err))?;
-    Ok(skills.into_iter().map(|skill| (skill.id.clone(), skill)).collect())
+    Ok(skills
+        .into_iter()
+        .map(|skill| (skill.id.clone(), skill))
+        .collect())
 }
 
 pub fn fauna_to_tactical_entity(
@@ -3699,7 +3192,8 @@ pub fn fauna_to_tactical_entity(
     let agi_scale = 2.5_f64;
     let endu_scale = 3.5_f64;
     let derived_defense = (agi_scale * ((base_stats.agility.max(0) as f64) + 1.0).ln()
-        + endu_scale * ((base_stats.endurance.max(0) as f64) + 1.0).ln()) as i32
+        + endu_scale * ((base_stats.endurance.max(0) as f64) + 1.0).ln())
+        as i32
         + base_stats.defense;
     let max_hp = 1.max(
         entry.combat_profile.endurance * rules.core.hp_per_endurance
@@ -3715,7 +3209,10 @@ pub fn fauna_to_tactical_entity(
     let mut skills = Vec::new();
     for skill_id in &entry.skill_ids {
         let Some(skill) = skill_registry.get(skill_id) else {
-            return Err(format!("Fauna {} references unknown skill {}", entry.id, skill_id));
+            return Err(format!(
+                "Fauna {} references unknown skill {}",
+                entry.id, skill_id
+            ));
         };
         skills.push(skill.clone());
     }
@@ -3774,21 +3271,6 @@ trait IdentifiedEntry {
     fn status(&self) -> &EntryStatus;
     fn status_mut(&mut self) -> &mut EntryStatus;
     fn approved_at_mut(&mut self) -> &mut Option<String>;
-}
-
-impl IdentifiedEntry for ClimateProfile {
-    fn id(&self) -> &str {
-        &self.id
-    }
-    fn status(&self) -> &EntryStatus {
-        &self.status
-    }
-    fn status_mut(&mut self) -> &mut EntryStatus {
-        &mut self.status
-    }
-    fn approved_at_mut(&mut self) -> &mut Option<String> {
-        &mut self.approved_at
-    }
 }
 
 impl IdentifiedEntry for FloraEntry {
@@ -3856,96 +3338,10 @@ where
     }
 }
 
-fn normalize_provinces_for_save(
-    existing: &[ProvinceEcologyRecord],
-    incoming: &mut [ProvinceEcologyRecord],
-) {
-    for entry in incoming {
-        if entry.status == EcologyStatus::Approved && entry.approved_at.is_none() {
-            entry.approved_at = Some(Utc::now().to_rfc3339());
-        }
-        if let Some(previous) = existing
-            .iter()
-            .find(|candidate| candidate.province_id == entry.province_id)
-        {
-            if previous.status == EcologyStatus::Approved && previous != entry {
-                entry.status = EcologyStatus::Draft;
-                entry.approved_at = None;
-            }
-        }
-    }
-}
-
-fn load_cell_metrics(
-    planets_dir: &FsPath,
-    world_id: &str,
-    province_id: u32,
-) -> Result<ProvinceCellMetrics, String> {
-    let path = planets_dir.join(world_id).join("cell_features.json");
-    if !path.exists() {
-        return Ok(ProvinceCellMetrics::default());
-    }
-    let payload: CellFeaturesFile = read_typed_json(path)?;
-    let matching: Vec<&CellFeatureRecord> = payload
-        .cells
-        .iter()
-        .filter(|cell| {
-            cell.primary_region == Some(province_id)
-                && cell.primary_region_type.as_deref() == Some("province")
-        })
-        .collect();
-    if matching.is_empty() {
-        return Ok(ProvinceCellMetrics::default());
-    }
-
-    let mut terrain_counts: HashMap<String, usize> = HashMap::new();
-    let mut vegetation_total = 0.0;
-    let mut vegetation_count = 0usize;
-    let mut aridity_total = 0.0;
-    let mut aridity_count = 0usize;
-    let mut water_count = 0usize;
-    let mut coastal_count = 0usize;
-
-    for cell in &matching {
-        if let Some(class_name) = &cell.terrain_class {
-            *terrain_counts.entry(class_name.clone()).or_default() += 1;
-        }
-        if let Some(value) = cell.vegetation_index {
-            vegetation_total += value;
-            vegetation_count += 1;
-        }
-        if let Some(value) = cell.aridity_index {
-            aridity_total += value;
-            aridity_count += 1;
-        }
-        if cell.is_water.unwrap_or(false) {
-            water_count += 1;
-        }
-        if cell.is_coastal.unwrap_or(false) {
-            coastal_count += 1;
-        }
-    }
-
-    let mut dominant_terrain_classes = terrain_counts.into_iter().collect::<Vec<_>>();
-    dominant_terrain_classes.sort_by(|a, b| b.1.cmp(&a.1));
-
-    Ok(ProvinceCellMetrics {
-        dominant_terrain_classes: dominant_terrain_classes
-            .into_iter()
-            .take(3)
-            .map(|entry| entry.0)
-            .collect(),
-        avg_vegetation_index: (vegetation_count > 0)
-            .then_some(vegetation_total / vegetation_count as f64),
-        avg_aridity_index: (aridity_count > 0).then_some(aridity_total / aridity_count as f64),
-        water_share: Some(water_count as f64 / matching.len() as f64),
-        coastal_share: Some(coastal_count as f64 / matching.len() as f64),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::worldgen_pipeline;
     use image::{Rgb, RgbImage};
 
     fn test_bundle(world_id: &str) -> EcologyBundle {
@@ -3953,13 +3349,11 @@ mod tests {
             world_id: world_id.to_string(),
             updated_at: Utc::now().to_rfc3339(),
             baselines: Vec::new(),
-            climates: Vec::new(),
             flora: Vec::new(),
             fauna: Vec::new(),
             biomes: Vec::new(),
             archetypes: worldgen_core::BiomeRegistry::default_registry(),
             biome_model_settings: worldgen_core::BiomeModelSettings::default(),
-            provinces: Vec::new(),
         }
     }
 
@@ -4002,9 +3396,7 @@ mod tests {
             adaptations: Vec::new(),
             edibility: FloraEdibility::None,
             agriculture_value: 10,
-            climate_profile_ids: Vec::new(),
             biome_ids: Vec::new(),
-            province_ids: Vec::new(),
             vegetation_asset_batch_ids: Vec::new(),
             illustration_asset_batch_ids: Vec::new(),
             illustration_assets: Vec::new(),
@@ -4031,9 +3423,7 @@ mod tests {
             adaptations: Vec::new(),
             domestication_potential: 25,
             danger_level: 25,
-            climate_profile_ids: Vec::new(),
             biome_ids: Vec::new(),
-            province_ids: Vec::new(),
             earth_analog: String::new(),
             ancestral_stock: String::new(),
             evolutionary_pressures: Vec::new(),
@@ -4078,140 +3468,14 @@ mod tests {
     }
 
     #[test]
-    fn validation_rejects_unknown_province_reference() {
-        let mut bundle = test_bundle("world");
-        bundle.provinces = vec![ProvinceEcologyRecord {
-            province_id: 1,
-            duchy_id: 1,
-            kingdom_id: 1,
-            status: EcologyStatus::Draft,
-            source_isolated_image_url: "/img".to_string(),
-            description: "draft".to_string(),
-            climate_profile_ids: vec!["climate-1".to_string()],
-            flora_ids: Vec::new(),
-            fauna_ids: Vec::new(),
-            biome_archetype_id: None,
-            ecological_potential: 50,
-            agriculture_potential: 40,
-            consistency_notes: Vec::new(),
-            generated_at: None,
-            approved_at: None,
-        }];
-        let err = validate_bundle_references(&bundle).expect_err("missing climate should fail");
-        assert!(err.contains("missing climate"));
-    }
-
-    #[test]
-    fn generation_reuse_rejects_nonapproved_ids() {
-        let mut bundle = test_bundle("world");
-        bundle.climates = vec![ClimateProfile {
-                id: "climate-a".to_string(),
-                status: EntryStatus::Draft,
-                name: "draft climate".to_string(),
-                classification: "dry".to_string(),
-                temperature_summary: String::new(),
-                precipitation_summary: String::new(),
-                seasonality: String::new(),
-                agriculture_notes: String::new(),
-                province_ids: Vec::new(),
-                approved_at: None,
-            }];
-        let response = ProvinceGenerationResponse {
-            description: "desc".to_string(),
-            ecological_potential: 50,
-            agriculture_potential: 40,
-            consistency_notes: Vec::new(),
-            reuse_climate_profile_ids: vec!["climate-a".to_string()],
-            new_climate_profiles: Vec::new(),
-            reuse_flora_ids: Vec::new(),
-            new_flora: Vec::new(),
-            reuse_fauna_ids: Vec::new(),
-            new_fauna: Vec::new(),
-        };
-        let err = validate_generation_reuse(&bundle, &response).expect_err("draft id should fail");
-        assert!(err.contains("Unknown approved climate reference"));
-    }
-
-    #[test]
-    fn province_reference_merge_keeps_reused_and_new_entries() {
-        let mut bundle = test_bundle("world");
-        bundle.climates = vec![ClimateProfile {
-                id: "climate-ok".to_string(),
-                status: EntryStatus::Approved,
-                name: "Temperate".to_string(),
-                classification: "temperate".to_string(),
-                temperature_summary: String::new(),
-                precipitation_summary: String::new(),
-                seasonality: String::new(),
-                agriculture_notes: String::new(),
-                province_ids: Vec::new(),
-                approved_at: Some(Utc::now().to_rfc3339()),
-            }];
-        let mut flora = test_flora_entry("flora-ok", "Tree", FloraCategory::Tree);
-        flora.status = EntryStatus::Approved;
-        flora.climate_profile_ids = vec!["climate-ok".to_string()];
-        flora.approved_at = Some(Utc::now().to_rfc3339());
-        bundle.flora = vec![flora];
-        let mut fauna = test_fauna_entry("fauna-ok", "Grazer", FaunaCategory::Herbivore);
-        fauna.status = EntryStatus::Approved;
-        fauna.domestication_potential = 50;
-        fauna.danger_level = 10;
-        fauna.climate_profile_ids = vec!["climate-ok".to_string()];
-        fauna.earth_analog = "goat".to_string();
-        fauna.ancestral_stock = "ungulate".to_string();
-        fauna.approved_at = Some(Utc::now().to_rfc3339());
-        bundle.fauna = vec![fauna];
-        let new_climate = ClimateProfile {
-            id: "climate-new".to_string(),
-            status: EntryStatus::Draft,
-            name: "Wet".to_string(),
-            classification: "humid".to_string(),
-            temperature_summary: String::new(),
-            precipitation_summary: String::new(),
-            seasonality: String::new(),
-            agriculture_notes: String::new(),
-            province_ids: vec![7],
-            approved_at: None,
-        };
-        bundle.climates.push(new_climate);
-        link_existing_entries(
-            &mut bundle,
-            7,
-            &["climate-ok".to_string(), "climate-new".to_string()],
-            &["flora-ok".to_string()],
-            &["fauna-ok".to_string()],
-        );
-        assert!(bundle
-            .climates
-            .iter()
-            .find(|entry| entry.id == "climate-ok")
-            .unwrap()
-            .province_ids
-            .contains(&7));
-        assert!(bundle
-            .flora
-            .iter()
-            .find(|entry| entry.id == "flora-ok")
-            .unwrap()
-            .province_ids
-            .contains(&7));
-        assert!(bundle
-            .fauna
-            .iter()
-            .find(|entry| entry.id == "fauna-ok")
-            .unwrap()
-            .province_ids
-            .contains(&7));
-    }
-
-    #[test]
     fn migrate_bundle_biome_ids_maps_legacy_biome_refs_to_archetype_ids() {
         let mut bundle = test_bundle("world");
         let expected_id = bundle.archetypes.archetypes[2].id.clone();
         let mut legacy_flora = test_flora_entry("flora-1", "Legacy Flora", FloraCategory::Tree);
         legacy_flora.biome_ids = vec!["biome-2".to_string()];
         bundle.flora.push(legacy_flora);
-        let mut legacy_fauna = test_fauna_entry("fauna-1", "Legacy Fauna", FaunaCategory::Herbivore);
+        let mut legacy_fauna =
+            test_fauna_entry("fauna-1", "Legacy Fauna", FaunaCategory::Herbivore);
         legacy_fauna.biome_ids = vec!["biome-2".to_string()];
         bundle.fauna.push(legacy_fauna);
         bundle.biomes.push(BiomeEntry {
@@ -4230,23 +3494,6 @@ mod tests {
             top_candidate_ids: Vec::new(),
             approved_at: None,
         });
-        bundle.provinces.push(ProvinceEcologyRecord {
-            province_id: 1,
-            duchy_id: 1,
-            kingdom_id: 1,
-            status: EcologyStatus::Draft,
-            source_isolated_image_url: String::new(),
-            description: String::new(),
-            climate_profile_ids: Vec::new(),
-            flora_ids: Vec::new(),
-            fauna_ids: Vec::new(),
-            biome_archetype_id: Some("biome-2".to_string()),
-            ecological_potential: 0,
-            agriculture_potential: 0,
-            consistency_notes: Vec::new(),
-            generated_at: None,
-            approved_at: None,
-        });
 
         migrate_bundle_biome_ids(&mut bundle).expect("legacy biome ids should migrate");
 
@@ -4255,10 +3502,6 @@ mod tests {
         assert_eq!(bundle.biomes[0].id, expected_id);
         assert_eq!(bundle.biomes[0].archetype_id, bundle.biomes[0].id);
         assert_eq!(bundle.biomes[0].biome_type, bundle.biomes[0].id);
-        assert_eq!(
-            bundle.provinces[0].biome_archetype_id.as_deref(),
-            Some(bundle.biomes[0].id.as_str())
-        );
     }
 
     #[test]
@@ -4355,7 +3598,10 @@ mod tests {
         assert_eq!(bundle.biomes[1].province_count, 1);
         assert_eq!(bundle.biomes[1].pixel_share, 0.6);
         assert_eq!(bundle.biomes[1].avg_confidence, 0.82);
-        assert_eq!(bundle.biomes[1].top_candidate_ids, vec![bundle.biomes[0].id.clone()]);
+        assert_eq!(
+            bundle.biomes[1].top_candidate_ids,
+            vec![bundle.biomes[0].id.clone()]
+        );
     }
 
     #[test]

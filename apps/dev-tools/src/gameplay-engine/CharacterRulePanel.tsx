@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Trait, Occupation, Character, Item } from "@ashtrail/core";
+import React, { useMemo, useState } from "react";
+import { Trait, Occupation, Character, Item, getTraitSourceLabel, isOccupationLinkedTrait } from "@ashtrail/core";
 import { TabBar } from "@ashtrail/ui";
 
 export type RuleTab = "traits" | "occupations" | "characters" | "items";
@@ -26,6 +26,8 @@ interface CharacterRulePanelProps {
 }
 
 export function CharacterRulePanel({ traits, setTraits, occupations, setOccupations, characters, setCharacters, items, setItems, selectedTrait, setSelectedTrait, selectedOccupation, setSelectedOccupation, selectedCharacter, setSelectedCharacter, selectedItem, setSelectedItem, activeTab, setActiveTab }: CharacterRulePanelProps) {
+    const [traitSearch, setTraitSearch] = useState("");
+    const [traitFilter, setTraitFilter] = useState<"all" | "standard" | "occupation">("all");
 
     // Stub handlers for adding new traits
     const handleAddMockTrait = () => {
@@ -39,6 +41,26 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
         };
         setTraits(prev => [newTrait, ...prev]);
     };
+
+    const visibleTraits = useMemo(() => {
+        const query = traitSearch.trim().toLowerCase();
+        return traits.filter((trait) => {
+            const matchesQuery = !query
+                || trait.name.toLowerCase().includes(query)
+                || trait.description.toLowerCase().includes(query)
+                || trait.id.toLowerCase().includes(query);
+            if (!matchesQuery) return false;
+
+            if (traitFilter === "occupation") return isOccupationLinkedTrait(trait);
+            if (traitFilter === "standard") return !isOccupationLinkedTrait(trait);
+            return true;
+        });
+    }, [traitFilter, traitSearch, traits]);
+
+    const occupationTraitCount = useMemo(
+        () => traits.filter((trait) => isOccupationLinkedTrait(trait)).length,
+        [traits],
+    );
 
     return (
         <div className="flex flex-col gap-4 h-full">
@@ -66,9 +88,45 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                             >
                                 + Create New Trait
                             </button>
+                            <div className="rounded-xl border border-white/5 bg-black/30 p-3 space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <input
+                                        value={traitSearch}
+                                        onChange={(e) => setTraitSearch(e.target.value)}
+                                        placeholder="Search traits, ids, descriptions..."
+                                        className="flex-1 rounded-lg border border-white/10 bg-black/50 px-3 py-2 text-xs text-white outline-none transition-all"
+                                    />
+                                    <span className="text-[9px] font-mono text-gray-500">
+                                        {occupationTraitCount} occupation-linked
+                                    </span>
+                                </div>
+                                <div className="flex gap-2">
+                                    {([
+                                        { id: "all", label: "All Traits" },
+                                        { id: "standard", label: "Standard Only" },
+                                        { id: "occupation", label: "Occupation Only" },
+                                    ] as const).map((option) => (
+                                        <button
+                                            key={option.id}
+                                            onClick={() => setTraitFilter(option.id)}
+                                            className={`rounded-lg border px-3 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${traitFilter === option.id
+                                                ? "border-orange-500/30 bg-orange-500/15 text-orange-200"
+                                                : "border-white/10 bg-black/30 text-gray-400 hover:border-white/20 hover:text-gray-200"
+                                                }`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            {visibleTraits.length === 0 && (
+                                <div className="rounded-xl border border-dashed border-white/5 bg-black/20 p-4 text-[10px] font-mono uppercase text-gray-500">
+                                    No traits match the current search and source filter.
+                                </div>
+                            )}
                             <div className="space-y-6 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
                                 {(['positive', 'negative', 'neutral'] as const).map(type => {
-                                    const typeTraits = traits.filter(t => t.type === type);
+                                    const typeTraits = visibleTraits.filter(t => t.type === type);
                                     if (typeTraits.length === 0) return null;
                                     return (
                                         <div key={type} className="space-y-3">
@@ -91,18 +149,32 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                                                             : 'bg-black/40 border-white/5 hover:border-white/20'
                                                             }`}
                                                     >
-                                                        <div className="flex justify-between items-center w-full">
-                                                            <div className="flex items-center gap-2">
+                                                        <div className="flex justify-between items-start gap-3 w-full">
+                                                            <div className="flex items-start gap-2">
                                                                 {t.icon?.startsWith("/api/icons/") ? (
                                                                     <img src={t.icon} alt="" className="w-5 h-5 rounded object-cover border border-white/10" />
                                                                 ) : (
                                                                     <span className="text-sm">{t.icon || "🧬"}</span>
                                                                 )}
-                                                                <span className={`text-[11px] font-bold uppercase ${t.type === 'positive' ? 'text-blue-400' : t.type === 'negative' ? 'text-red-400' : 'text-gray-400'}`}>{t.name}</span>
+                                                                <div className="space-y-1">
+                                                                    <span className={`block text-[11px] font-bold uppercase ${t.type === 'positive' ? 'text-blue-400' : t.type === 'negative' ? 'text-red-400' : 'text-gray-400'}`}>{t.name}</span>
+                                                                    <div className="flex flex-wrap gap-1">
+                                                                        <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest ${isOccupationLinkedTrait(t)
+                                                                            ? "border-teal-500/20 bg-teal-500/10 text-teal-200"
+                                                                            : "border-white/10 bg-white/5 text-gray-400"
+                                                                            }`}>
+                                                                            {isOccupationLinkedTrait(t) ? "Occupation-linked" : "Standard"}
+                                                                        </span>
+                                                                        <span className="rounded-full border border-white/10 bg-black/20 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-gray-500">
+                                                                            {getTraitSourceLabel(t)}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                             <span className="text-[9px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300 font-mono">Cost: {t.cost}</span>
                                                         </div>
                                                         <p className="text-[10px] text-gray-500 leading-snug line-clamp-2 mt-1">{t.description}</p>
+                                                        <div className="text-[9px] font-mono text-gray-600">{t.id}</div>
                                                     </button>
                                                 ))}
                                             </div>
@@ -123,6 +195,7 @@ export function CharacterRulePanel({ traits, setTraits, occupations, setOccupati
                                         category: "FIELD",
                                         description: "",
                                         shortDescription: "",
+                                        grantsTraitIds: [],
                                         perks: [],
                                     };
                                     setOccupations(prev => [newOcc, ...prev]);

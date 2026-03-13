@@ -4,7 +4,7 @@ import { Button } from "@ashtrail/ui";
 import { AiGenerateModal } from "./AiGenerateModal";
 
 import { type HistoryTab } from "./HistoryPage";
-import { type Area } from "./LocationsTab";
+import { type Area } from "./locationTypes";
 import { type Faction } from "./FactionsTab";
 
 interface CharactersTabProps {
@@ -44,7 +44,7 @@ export function CharactersTab({ selectedWorld, setActiveTab }: CharactersTabProp
         setIsLoading(true);
         Promise.all([
             fetch(`http://localhost:8787/api/planet/characters/${selectedWorld.id}`).then(res => res.json()),
-            fetch(`http://localhost:8787/api/planet/areas/${selectedWorld.id}`).then(res => res.json()),
+            fetch(`http://localhost:8787/api/planet/locations/${selectedWorld.id}`).then(res => res.json()),
             fetch(`http://localhost:8787/api/planet/factions/${selectedWorld.id}`).then(res => res.json())
         ])
             .then(([charsData, areasData, factionsData]) => {

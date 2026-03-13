@@ -101,10 +101,7 @@ async fn list_packs(State(state): State<AppState>) -> impl IntoResponse {
     (StatusCode::OK, Json(packs))
 }
 
-async fn get_pack(
-    State(state): State<AppState>,
-    Path(pack_id): Path<String>,
-) -> impl IntoResponse {
+async fn get_pack(State(state): State<AppState>, Path(pack_id): Path<String>) -> impl IntoResponse {
     let path = state.packs_dir.join(format!("{}.json", pack_id));
     if !path.exists() {
         return (StatusCode::NOT_FOUND, "Pack not found".to_string()).into_response();

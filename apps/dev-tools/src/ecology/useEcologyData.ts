@@ -4,14 +4,12 @@ import type {
     BaselineScope,
     BiomeEntry,
     BiomeReport,
-    ClimateProfile,
     EcologyBaseline,
     EcologyBundle,
     EcologyJobState,
     EcologyStatus,
     FaunaEntry,
     FloraEntry,
-    ProvinceEcologyRecord,
     RefreshDerivedStatsResponse,
     WorldgenRegion,
 } from "./types";
@@ -22,7 +20,6 @@ interface BulkEcologyGenerationRequest {
     prompt: string;
     count: number;
     biomeIds: string[];
-    climateProfileIds: string[];
 }
 
 function defaultFloraBodyProfile() {
@@ -117,7 +114,6 @@ function emptyBundle(worldId: string): EcologyBundle {
         worldId,
         updatedAt: new Date().toISOString(),
         baselines: [],
-        climates: [],
         flora: [],
         fauna: [],
         biomes: [],
@@ -132,7 +128,6 @@ function emptyBundle(worldId: string): EcologyBundle {
             visionTileSize: 1024,
             analysisVersion: "v1",
         },
-        provinces: [],
     };
 }
 
@@ -371,51 +366,6 @@ export function useEcologyData(worldId: string | null) {
         [pollJob],
     );
 
-    const updateProvince = useCallback(
-        async (record: ProvinceEcologyRecord) => {
-            if (!bundle) return null;
-            const next = structuredClone(bundle) as EcologyBundle;
-            const index = next.provinces.findIndex((entry) => entry.provinceId === record.provinceId);
-            const incoming = record.status === "approved" ? markEntryDraft(record) : record;
-            if (index >= 0) next.provinces[index] = incoming;
-            else next.provinces.push(incoming);
-            return saveBundle(next);
-        },
-        [bundle, saveBundle],
-    );
-
-    const updateClimate = useCallback(
-        async (entry: ClimateProfile) => {
-            if (!bundle) return null;
-            const next = structuredClone(bundle) as EcologyBundle;
-            const index = next.climates.findIndex((candidate) => candidate.id === entry.id);
-            const normalized = entry.status === "approved" ? markEntryDraft(entry) : entry;
-            if (index >= 0) next.climates[index] = normalized;
-            else next.climates.push(normalized);
-            return saveBundle(next);
-        },
-        [bundle, saveBundle],
-    );
-
-    const createClimate = useCallback(async () => {
-        if (!bundle) return null;
-        const next = structuredClone(bundle) as EcologyBundle;
-        const id = createDraftId("climate");
-        next.climates.unshift({
-            id,
-            status: "draft",
-            name: "New Climate",
-            classification: "temperate",
-            temperatureSummary: "",
-            precipitationSummary: "",
-            seasonality: "",
-            agricultureNotes: "",
-            provinceIds: [],
-        });
-        const saved = await saveBundle(next);
-        return saved ? id : null;
-    }, [bundle, saveBundle]);
-
     const updateFlora = useCallback(
         async (entry: FloraEntry) => {
             if (!bundle) return null;
@@ -443,9 +393,7 @@ export function useEcologyData(worldId: string | null) {
             adaptations: [],
             edibility: "none",
             agricultureValue: 0,
-            climateProfileIds: [],
             biomeIds: [],
-            provinceIds: [],
             vegetationAssetBatchIds: [],
             illustrationAssetBatchIds: [],
             illustrationAssets: [],
@@ -467,10 +415,6 @@ export function useEcologyData(worldId: string | null) {
             next.biomes = next.biomes.map((entry) => ({
                 ...entry,
                 typicalFloraIds: entry.typicalFloraIds.filter((floraId) => floraId !== id),
-            }));
-            next.provinces = next.provinces.map((entry) => ({
-                ...entry,
-                floraIds: entry.floraIds.filter((floraId) => floraId !== id),
             }));
             return saveBundle(next);
         },
@@ -504,9 +448,7 @@ export function useEcologyData(worldId: string | null) {
             adaptations: [],
             domesticationPotential: 0,
             dangerLevel: 0,
-            climateProfileIds: [],
             biomeIds: [],
-            provinceIds: [],
             earthAnalog: "",
             ancestralStock: "",
             evolutionaryPressures: [],
@@ -533,10 +475,6 @@ export function useEcologyData(worldId: string | null) {
             next.biomes = next.biomes.map((entry) => ({
                 ...entry,
                 typicalFaunaIds: entry.typicalFaunaIds.filter((faunaId) => faunaId !== id),
-            }));
-            next.provinces = next.provinces.map((entry) => ({
-                ...entry,
-                faunaIds: entry.faunaIds.filter((faunaId) => faunaId !== id),
             }));
             return saveBundle(next);
         },
@@ -741,7 +679,7 @@ export function useEcologyData(worldId: string | null) {
     );
 
     const approveEntryById = useCallback(
-        async (kind: "climates" | "flora" | "fauna" | "biomes", id: string) => {
+        async (kind: "flora" | "fauna" | "biomes", id: string) => {
             if (!bundle) return null;
             const next = structuredClone(bundle) as EcologyBundle;
             const targetList = next[kind];
@@ -754,33 +692,10 @@ export function useEcologyData(worldId: string | null) {
         [bundle, saveBundle],
     );
 
-    const approveProvince = useCallback(
-        async (provinceId: number) => {
-            if (!bundle) return null;
-            const next = structuredClone(bundle) as EcologyBundle;
-            const province = next.provinces.find((entry) => entry.provinceId === provinceId);
-            if (!province) return null;
-            province.status = "approved";
-            province.approvedAt = new Date().toISOString();
-            next.climates = next.climates.map((entry) =>
-                province.climateProfileIds.includes(entry.id) ? markEntryApproved(entry) : entry,
-            );
-            next.flora = next.flora.map((entry) =>
-                province.floraIds.includes(entry.id) ? markEntryApproved(entry) : entry,
-            );
-            next.fauna = next.fauna.map((entry) =>
-                province.faunaIds.includes(entry.id) ? markEntryApproved(entry) : entry,
-            );
-            return saveBundle(next);
-        },
-        [bundle, saveBundle],
-    );
-
     const regionsByType = useMemo(
         () => ({
             kingdoms: regions.filter((entry) => entry.type === "Kingdom"),
             duchies: regions.filter((entry) => entry.type === "Duchy"),
-            provinces: regions.filter((entry) => entry.type === "Province"),
         }),
         [regions],
     );
@@ -789,10 +704,8 @@ export function useEcologyData(worldId: string | null) {
         if (!bundle) return null;
         const next = structuredClone(bundle) as EcologyBundle;
         next.biomes = [];
-        // Clear references in flora/fauna/provinces
         next.flora = next.flora.map(f => ({ ...f, biomeIds: [] }));
         next.fauna = next.fauna.map(f => ({ ...f, biomeIds: [] }));
-        next.provinces = next.provinces.map(p => ({ ...p, biomeArchetypeId: undefined }));
         return saveBundle(next);
     }, [bundle, saveBundle]);
 
@@ -816,9 +729,6 @@ export function useEcologyData(worldId: string | null) {
         jobState,
         reload,
         saveBundle,
-        updateProvince,
-        updateClimate,
-        createClimate,
         updateFlora,
         createFlora,
         deleteFlora,
@@ -832,7 +742,6 @@ export function useEcologyData(worldId: string | null) {
         attachFaunaIllustrationBatch,
         updateBaseline,
         approveBaseline,
-        approveProvince,
         approveEntryById,
         updateBiome,
         clearBiomes,
@@ -846,8 +755,6 @@ export function useEcologyData(worldId: string | null) {
             worldId ? startGeneration(`/api/planet/ecology-data/${worldId}/generate/kingdom/${kingdomId}`) : Promise.resolve(),
         generateDuchyBaseline: (duchyId: number) =>
             worldId ? startGeneration(`/api/planet/ecology-data/${worldId}/generate/duchy/${duchyId}`) : Promise.resolve(),
-        generateProvince: (provinceId: number) =>
-            worldId ? startGeneration(`/api/planet/ecology-data/${worldId}/generate/province/${provinceId}`) : Promise.resolve(),
         generateBiomeDescription: (biomeId: string) =>
             worldId ? startGeneration(`/api/planet/ecology-data/${worldId}/generate/biome/${biomeId}`) : Promise.resolve(),
     };

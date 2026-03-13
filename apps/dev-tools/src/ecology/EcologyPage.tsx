@@ -4,15 +4,12 @@ import { Modal, TabBar } from "@ashtrail/ui";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import { useActiveWorld } from "../hooks/useActiveWorld";
-import { EcologyHierarchyList } from "./EcologyHierarchyList";
 import { useEcologyData } from "./useEcologyData";
 import { EcologyBulkGeneratorModal, type EcologyBulkGeneratorRequest } from "./EcologyBulkGeneratorModal";
 import type {
     ActivityCycle,
     AssetImageRef,
-    ClimateProfile,
     EcologyBaseline,
-    EcologyStatus,
     FaunaArmorClass,
     FaunaEntry,
     FaunaLocomotion,
@@ -22,12 +19,11 @@ import type {
     FloraEntry,
     FloraSizeClass,
     BiomeEntry,
-    ProvinceEcologyRecord,
     BiomeArchetype,
 } from "./types";
 import { BiomeArchetypeEditor } from "./BiomeArchetypeEditor";
 
-type EcologyTab = "provinces" | "flora" | "fauna" | "climates" | "biomes" | "baselines";
+type EcologyTab = "flora" | "fauna" | "biomes" | "baselines";
 const API_BASE = "http://127.0.0.1:8787";
 
 function linesToArray(text: string) {
@@ -80,15 +76,13 @@ export function EcologyPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const requestedTab = searchParams.get("tab");
     const initialTab: EcologyTab =
-        requestedTab === "flora" || requestedTab === "fauna" || requestedTab === "climates" || requestedTab === "biomes" || requestedTab === "baselines"
+        requestedTab === "flora" || requestedTab === "fauna" || requestedTab === "biomes" || requestedTab === "baselines"
             ? requestedTab
-            : "provinces";
+            : "flora";
     const [activeTab, setActiveTab] = useState<EcologyTab>(initialTab);
     const [showGalleryModal, setShowGalleryModal] = useState(false);
-    const [selectedProvinceId, setSelectedProvinceId] = useState<number | null>(null);
     const [selectedFloraId, setSelectedFloraId] = useState<string | null>(null);
     const [selectedFaunaId, setSelectedFaunaId] = useState<string | null>(null);
-    const [selectedClimateId, setSelectedClimateId] = useState<string | null>(null);
     const [selectedBiomeId, setSelectedBiomeId] = useState<string | null>(null);
     const [selectedArchetypeId, setSelectedArchetypeId] = useState<string | null>(null);
     const [biomeSubTab, setBiomeSubTab] = useState<"instances" | "archetypes">("instances");
@@ -99,7 +93,6 @@ export function EcologyPage() {
     const [bulkGenerationRunning, setBulkGenerationRunning] = useState(false);
     const [floraSearch, setFloraSearch] = useState("");
     const [faunaSearch, setFaunaSearch] = useState("");
-    const [climateSearch, setClimateSearch] = useState("");
     const [biomeSearch, setBiomeSearch] = useState("");
     const [archetypeSearch, setArchetypeSearch] = useState("");
     const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
@@ -119,28 +112,15 @@ export function EcologyPage() {
         } else if (tab === "biomes") {
             setActiveTab("biomes");
             if (requestedId) setSelectedBiomeId(requestedId);
-        } else if (tab === "climates") {
-            setActiveTab("climates");
-            if (requestedId) setSelectedClimateId(requestedId);
         }
     }, [searchParams]);
 
     useEffect(() => {
-        if (!selectedProvinceId) {
-            const firstProvince = ecology.regionsByType.provinces?.[0];
-            if (firstProvince?.rawId !== undefined) {
-                setSelectedProvinceId(firstProvince.rawId);
-            }
-        }
-    }, [ecology.regionsByType.provinces, selectedProvinceId]);
-
-    useEffect(() => {
         if (!selectedFloraId && ecology.bundle?.flora?.[0]) setSelectedFloraId(ecology.bundle.flora[0].id);
         if (!selectedFaunaId && ecology.bundle?.fauna?.[0]) setSelectedFaunaId(ecology.bundle.fauna[0].id);
-        if (!selectedClimateId && ecology.bundle?.climates?.[0]) setSelectedClimateId(ecology.bundle.climates[0].id);
         if (!selectedBiomeId && ecology.bundle?.biomes?.[0]) setSelectedBiomeId(ecology.bundle.biomes[0].id);
         if (!selectedArchetypeId && ecology.bundle?.archetypes?.archetypes?.[0]) setSelectedArchetypeId(ecology.bundle.archetypes.archetypes[0].id);
-    }, [ecology.bundle, selectedClimateId, selectedFaunaId, selectedFloraId, selectedBiomeId, selectedArchetypeId]);
+    }, [ecology.bundle, selectedFaunaId, selectedFloraId, selectedBiomeId, selectedArchetypeId]);
 
     useEffect(() => {
         const next = new URLSearchParams(searchParams);
@@ -148,43 +128,16 @@ export function EcologyPage() {
         if (activeTab === "flora" && selectedFloraId) next.set("id", selectedFloraId);
         else if (activeTab === "fauna" && selectedFaunaId) next.set("id", selectedFaunaId);
         else if (activeTab === "biomes" && selectedBiomeId) next.set("id", selectedBiomeId);
-        else if (activeTab === "climates" && selectedClimateId) next.set("id", selectedClimateId);
         else next.delete("id");
         const current = searchParams.toString();
         const updated = next.toString();
         if (current !== updated) {
             setSearchParams(next, { replace: true });
         }
-    }, [activeTab, searchParams, selectedBiomeId, selectedClimateId, selectedFaunaId, selectedFloraId, setSearchParams]);
-
-    const selectedProvinceRegion = useMemo(
-        () => ecology.regionsByType.provinces.find((entry) => entry.rawId === selectedProvinceId) ?? null,
-        [ecology.regionsByType.provinces, selectedProvinceId],
-    );
-    const selectedProvinceRecord = useMemo(() => {
-        if (!selectedProvinceRegion?.rawId) return null;
-        return (
-            ecology.bundle?.provinces?.find((entry) => entry.provinceId === selectedProvinceRegion.rawId) ?? {
-                provinceId: selectedProvinceRegion.rawId,
-                duchyId: selectedProvinceRegion.duchyId ?? 0,
-                kingdomId: selectedProvinceRegion.kingdomId ?? 0,
-                status: "missing" as EcologyStatus,
-                sourceIsolatedImageUrl: "",
-                description: "",
-                climateProfileIds: [],
-                floraIds: [],
-                faunaIds: [],
-                biomeArchetypeId: selectedProvinceRegion.biomePrimaryId ?? undefined,
-                ecologicalPotential: 0,
-                agriculturePotential: 0,
-                consistencyNotes: [],
-            }
-        );
-    }, [ecology.bundle?.provinces, selectedProvinceRegion]);
+    }, [activeTab, searchParams, selectedBiomeId, selectedFaunaId, selectedFloraId, setSearchParams]);
 
     const selectedFlora = ecology.bundle?.flora?.find((entry) => entry.id === selectedFloraId) ?? null;
     const selectedFauna = ecology.bundle?.fauna?.find((entry) => entry.id === selectedFaunaId) ?? null;
-    const selectedClimate = ecology.bundle?.climates?.find((entry) => entry.id === selectedClimateId) ?? null;
     const selectedBiome = ecology.bundle?.biomes?.find((entry) => entry.id === selectedBiomeId) ?? null;
     const selectedArchetype = ecology.bundle?.archetypes?.archetypes?.find((a) => a.id === selectedArchetypeId) ?? null;
 
@@ -193,9 +146,6 @@ export function EcologyPage() {
     );
     const filteredFauna = (ecology.bundle?.fauna ?? []).filter((entry) =>
         entry.name.toLowerCase().includes(faunaSearch.toLowerCase()),
-    );
-    const filteredClimates = (ecology.bundle?.climates ?? []).filter((entry) =>
-        entry.name.toLowerCase().includes(climateSearch.toLowerCase()),
     );
     const filteredBiomes = (ecology.bundle?.biomes ?? []).filter((entry) =>
         entry.name.toLowerCase().includes(biomeSearch.toLowerCase()),
@@ -266,11 +216,6 @@ export function EcologyPage() {
             return "world";
         }
         return `${scope} • ${String(entityId)} • ${displayName}`;
-    };
-
-    const updateProvinceField = async <K extends keyof ProvinceEcologyRecord>(key: K, value: ProvinceEcologyRecord[K]) => {
-        if (!selectedProvinceRecord) return;
-        await ecology.updateProvince({ ...selectedProvinceRecord, [key]: value });
     };
 
     const resetBulkGenerationFeedback = () => {
@@ -445,7 +390,7 @@ export function EcologyPage() {
 
                 <div className="h-8 flex-1 max-w-xl scale-90">
                     <TabBar
-                        tabs={["provinces", "flora", "fauna", "climates", "biomes", "baselines"]}
+                        tabs={["flora", "fauna", "biomes", "baselines"]}
                         activeTab={activeTab}
                         onTabChange={(tab) => setActiveTab(tab as EcologyTab)}
                     />
@@ -462,109 +407,6 @@ export function EcologyPage() {
                 </div>
                 {ecology.jobState.jobId && <span className="text-cyan-300 font-mono">{ecology.jobState.progress.toFixed(0)}%</span>}
             </div>
-
-            {activeTab === "provinces" && selectedProvinceRecord && (
-                <div className="flex-1 min-h-0 grid grid-cols-[420px_1fr] gap-4">
-                    <div className="overflow-y-auto rounded-2xl border border-white/10 bg-[#121820]/95 p-4">
-                        <EcologyHierarchyList
-                            regions={ecology.regions}
-                            bundle={ecology.bundle!}
-                            selectedProvinceId={selectedProvinceId}
-                            onSelectProvince={setSelectedProvinceId}
-                            onGenerateProvince={ecology.generateProvince}
-                            disableActions={ecology.jobState.status === "running" || ecology.jobState.status === "queued"}
-                            canGenerateProvince={(province) =>
-                                ecology.baselineLookup.get("world:world")?.status === "approved"
-                                && (province.kingdomId ? ecology.baselineLookup.get(`kingdom:${province.kingdomId}`)?.status === "approved" : false)
-                                && (province.duchyId ? ecology.baselineLookup.get(`duchy:${province.duchyId}`)?.status === "approved" : false)
-                            }
-                        />
-                    </div>
-
-                    <div className="overflow-y-auto rounded-2xl border border-white/10 bg-[#121820]/95 p-6">
-                        <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
-                            <div>
-                                <h2 className="text-lg font-bold tracking-widest text-gray-100 uppercase">{selectedProvinceRegion?.name}</h2>
-                                <p className="text-[10px] tracking-widest text-gray-500 uppercase">Province dossier and canon review</p>
-                            </div>
-                            <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => ecology.generateProvince(selectedProvinceRecord.provinceId)}
-                                    disabled={ecology.jobState.status === "running" || ecology.jobState.status === "queued"}
-                                    className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:opacity-40"
-                                >
-                                    GENERATE DRAFT
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => ecology.approveProvince(selectedProvinceRecord.provinceId)}
-                                    className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-2 text-[10px] font-bold tracking-widest text-green-300 transition-all hover:bg-green-500/20"
-                                >
-                                    APPROVE
-                                </button>
-                            </div>
-                        </div>
-
-                        {selectedProvinceRecord.sourceIsolatedImageUrl ? (
-                            <div className="mb-5 overflow-hidden rounded-xl border border-white/10 bg-black/30">
-                                <img
-                                    src={`http://127.0.0.1:8787${selectedProvinceRecord.sourceIsolatedImageUrl}`}
-                                    alt={selectedProvinceRegion?.name}
-                                    className="h-56 w-full object-contain bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.08),_transparent_60%)]"
-                                />
-                            </div>
-                        ) : (
-                            <div className="mb-5 rounded-xl border border-dashed border-white/10 p-6 text-center text-[11px] text-gray-500">
-                                Isolated province preview appears after the first draft generation.
-                            </div>
-                        )}
-
-                        <div className="grid grid-cols-2 gap-3 mb-5">
-                            <label className="flex flex-col gap-2">
-                                <span className="text-[10px] font-bold tracking-widest text-gray-500 uppercase">Ecological Potential</span>
-                                <input
-                                    type="number"
-                                    min={0}
-                                    max={100}
-                                    value={selectedProvinceRecord.ecologicalPotential}
-                                    onChange={(e) => void updateProvinceField("ecologicalPotential", Number(e.target.value))}
-                                    className="rounded-lg border border-white/10 bg-[#0a0f14] px-3 py-2 text-sm text-gray-200"
-                                />
-                            </label>
-                            <label className="flex flex-col gap-2">
-                                <span className="text-[10px] font-bold tracking-widest text-gray-500 uppercase">Agriculture Potential</span>
-                                <input
-                                    type="number"
-                                    min={0}
-                                    max={100}
-                                    value={selectedProvinceRecord.agriculturePotential}
-                                    onChange={(e) => void updateProvinceField("agriculturePotential", Number(e.target.value))}
-                                    className="rounded-lg border border-white/10 bg-[#0a0f14] px-3 py-2 text-sm text-gray-200"
-                                />
-                            </label>
-                        </div>
-
-                        <label className="mb-5 flex flex-col gap-2">
-                            <span className="text-[10px] font-bold tracking-widest text-gray-500 uppercase">Ecological Description</span>
-                            <textarea
-                                value={selectedProvinceRecord.description}
-                                onChange={(e) => void updateProvinceField("description", e.target.value)}
-                                className="min-h-[180px] rounded-xl border border-white/10 bg-[#0a0f14] p-4 text-sm text-gray-200"
-                            />
-                        </label>
-
-                        <label className="flex flex-col gap-2">
-                            <span className="text-[10px] font-bold tracking-widest text-gray-500 uppercase">Consistency Notes</span>
-                            <textarea
-                                value={arrayToLines(selectedProvinceRecord.consistencyNotes)}
-                                onChange={(e) => void updateProvinceField("consistencyNotes", linesToArray(e.target.value))}
-                                className="min-h-[120px] rounded-xl border border-white/10 bg-[#0a0f14] p-4 text-sm text-gray-200"
-                            />
-                        </label>
-                    </div>
-                </div>
-            )}
 
             {activeTab === "flora" && (
                 <LibraryTab
@@ -610,7 +452,6 @@ export function EcologyPage() {
                         <FloraEditor
                             item={selectedFlora}
                             biomes={ecology.bundle?.biomes ?? []}
-                            climates={ecology.bundle?.climates ?? []}
                             worldId={activeWorldId}
                             onSave={(entry) => void ecology.updateFlora(entry)}
                             onApprove={() => void ecology.approveEntryById("flora", selectedFlora.id)}
@@ -668,7 +509,6 @@ export function EcologyPage() {
                         <FaunaEditor
                             item={selectedFauna}
                             biomes={ecology.bundle?.biomes ?? []}
-                            climates={ecology.bundle?.climates ?? []}
                             faunaEntries={ecology.bundle?.fauna ?? []}
                             worldId={activeWorldId}
                             onSave={(entry) => void ecology.updateFauna(entry)}
@@ -680,37 +520,6 @@ export function EcologyPage() {
                         const remaining = filteredFauna.filter((entry) => entry.id !== item.id);
                         setSelectedFaunaId(remaining[0]?.id ?? null);
                     }}
-                />
-            )}
-
-            {activeTab === "climates" && (
-                <LibraryTab
-                    title="Climate Library"
-                    actions={
-                        <button
-                            type="button"
-                            onClick={async () => {
-                                const id = await ecology.createClimate();
-                                if (id) setSelectedClimateId(id);
-                            }}
-                            className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20"
-                        >
-                            NEW CLIMATE
-                        </button>
-                    }
-                    search={climateSearch}
-                    setSearch={setClimateSearch}
-                    items={filteredClimates}
-                    selectedId={selectedClimateId}
-                    setSelectedId={setSelectedClimateId}
-                    renderLabel={(item) => `${item.name} • ${item.classification}`}
-                    editor={selectedClimate && (
-                        <ClimateEditor
-                            item={selectedClimate}
-                            onSave={(entry) => void ecology.updateClimate(entry)}
-                            onApprove={() => void ecology.approveEntryById("climates", selectedClimate.id)}
-                        />
-                    )}
                 />
             )}
 
@@ -735,7 +544,7 @@ export function EcologyPage() {
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => {
-                                        if (window.confirm("Are you sure you want to SYNC biomes from the world map? This will re-add biomes defined in worldgen and associate them with provinces.")) {
+                                        if (window.confirm("Are you sure you want to SYNC biomes from the world map? This will rebuild the biome coverage set from current worldgen outputs.")) {
                                             void ecology.syncBiomesWithMap();
                                         }
                                     }}
@@ -908,7 +717,6 @@ export function EcologyPage() {
                 open={floraGeneratorOpen}
                 kind="flora"
                 biomes={ecology.bundle?.biomes ?? []}
-                climates={ecology.bundle?.climates ?? []}
                 isGenerating={bulkGenerationRunning}
                 stage={floraGeneratorOpen ? bulkGenerationStage : ""}
                 error={floraGeneratorOpen ? bulkGenerationError : null}
@@ -923,7 +731,6 @@ export function EcologyPage() {
                 open={faunaGeneratorOpen}
                 kind="fauna"
                 biomes={ecology.bundle?.biomes ?? []}
-                climates={ecology.bundle?.climates ?? []}
                 isGenerating={bulkGenerationRunning}
                 stage={faunaGeneratorOpen ? bulkGenerationStage : ""}
                 error={faunaGeneratorOpen ? bulkGenerationError : null}
@@ -1026,39 +833,15 @@ function LibraryTab<T extends { id: string }>({
     );
 }
 
-function ClimateEditor({
-    item,
-    onSave,
-    onApprove,
-}: {
-    item: ClimateProfile;
-    onSave: (entry: ClimateProfile) => void;
-    onApprove: () => void;
-}) {
-    return (
-        <div className="space-y-4">
-            <EditorHeader title={item.name} status={item.status} onApprove={onApprove} />
-            <TextInput label="Name" value={item.name} onChange={(value) => onSave({ ...item, name: value })} />
-            <TextInput label="Classification" value={item.classification} onChange={(value) => onSave({ ...item, classification: value })} />
-            <TextArea label="Temperature" value={item.temperatureSummary} onChange={(value) => onSave({ ...item, temperatureSummary: value })} />
-            <TextArea label="Precipitation" value={item.precipitationSummary} onChange={(value) => onSave({ ...item, precipitationSummary: value })} />
-            <TextArea label="Seasonality" value={item.seasonality} onChange={(value) => onSave({ ...item, seasonality: value })} />
-            <TextArea label="Agriculture Notes" value={item.agricultureNotes} onChange={(value) => onSave({ ...item, agricultureNotes: value })} />
-        </div>
-    );
-}
-
 function FloraEditor({
     item,
     biomes,
-    climates,
     worldId,
     onSave,
     onApprove,
 }: {
     item: FloraEntry;
     biomes: BiomeEntry[];
-    climates: ClimateProfile[];
     worldId: string | null;
     onSave: (entry: FloraEntry) => void;
     onApprove: () => void;
@@ -1106,12 +889,6 @@ function FloraEditor({
                                 onChange={(value) => onSave({ ...item, agricultureValue: value })}
                             />
                         </div>
-                        <ClimateSelector
-                            title="Climate Profiles"
-                            climates={climates}
-                            selectedIds={item.climateProfileIds}
-                            onToggle={(climateId) => onSave({ ...item, climateProfileIds: toggleString(item.climateProfileIds, climateId) })}
-                        />
                         <BiomeSelector
                             title="Biome Attribution"
                             biomes={biomes}
@@ -1213,7 +990,6 @@ function FloraEditor({
 function FaunaEditor({
     item,
     biomes,
-    climates,
     faunaEntries,
     worldId,
     onSave,
@@ -1221,7 +997,6 @@ function FaunaEditor({
 }: {
     item: FaunaEntry;
     biomes: BiomeEntry[];
-    climates: ClimateProfile[];
     faunaEntries: FaunaEntry[];
     worldId: string | null;
     onSave: (entry: FaunaEntry) => void;
@@ -1278,12 +1053,6 @@ function FaunaEditor({
                                 onChange={(value) => onSave({ ...item, dangerLevel: value })}
                             />
                         </div>
-                        <ClimateSelector
-                            title="Climate Profiles"
-                            climates={climates}
-                            selectedIds={item.climateProfileIds}
-                            onToggle={(climateId) => onSave({ ...item, climateProfileIds: toggleString(item.climateProfileIds, climateId) })}
-                        />
                         <BiomeSelector
                             title="Biome Attribution"
                             biomes={biomes}
@@ -1547,17 +1316,6 @@ function BiomeEditor({
                     ))}
                 </div>
             </div>
-
-            <div className="mt-8 border-t border-white/10 pt-6">
-                <h3 className="mb-4 text-xs font-bold tracking-widest text-gray-400 uppercase">Provinces with this Biome</h3>
-                <div className="grid grid-cols-2 gap-2">
-                    {item.provinceIds?.map(pid => (
-                        <div key={pid} className="rounded-lg bg-black/30 border border-white/5 p-2 text-[10px] text-gray-300">
-                            ID: #{pid}
-                        </div>
-                    ))}
-                </div>
-            </div>
         </div>
     );
 }
@@ -1594,43 +1352,6 @@ function BiomeSelector({
                                 }`}
                         >
                             {biome.name}
-                        </button>
-                    );
-                })}
-            </div>
-        </div>
-    );
-}
-
-function ClimateSelector({
-    title,
-    climates,
-    selectedIds,
-    onToggle,
-}: {
-    title: string;
-    climates: ClimateProfile[];
-    selectedIds: string[];
-    onToggle: (id: string) => void;
-}) {
-    return (
-        <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-            <h3 className="mb-3 text-[10px] font-bold tracking-widest text-gray-400 uppercase">{title}</h3>
-            <div className="flex flex-wrap gap-2">
-                {climates.map((climate) => {
-                    const selected = selectedIds.includes(climate.id);
-                    return (
-                        <button
-                            key={climate.id}
-                            type="button"
-                            onClick={() => onToggle(climate.id)}
-                            className={`rounded-full border px-3 py-1.5 text-[10px] font-bold tracking-widest transition-all ${
-                                selected
-                                    ? "border-sky-500/50 bg-sky-500/15 text-sky-300"
-                                    : "border-white/10 bg-[#0a0f14] text-gray-400 hover:border-white/20"
-                            }`}
-                        >
-                            {climate.name}
                         </button>
                     );
                 })}

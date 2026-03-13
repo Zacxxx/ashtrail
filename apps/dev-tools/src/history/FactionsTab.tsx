@@ -4,7 +4,7 @@ import { Button, Card } from "@ashtrail/ui";
 import { AiGenerateModal } from "./AiGenerateModal";
 
 import { type HistoryTab } from "./HistoryPage";
-import { type Area } from "./LocationsTab";
+import { type Area } from "./locationTypes";
 
 interface FactionsTabProps {
     selectedWorld: GenerationHistoryItem | null;
@@ -43,7 +43,7 @@ export function FactionsTab({ selectedWorld, setActiveTab }: FactionsTabProps) {
         setIsLoading(true);
         Promise.all([
             fetch(`http://localhost:8787/api/planet/factions/${selectedWorld.id}`).then(res => res.json()),
-            fetch(`http://localhost:8787/api/planet/areas/${selectedWorld.id}`).then(res => res.json())
+            fetch(`http://localhost:8787/api/planet/locations/${selectedWorld.id}`).then(res => res.json())
         ])
             .then(([factionsData, areasData]) => {
                 setFactions(Array.isArray(factionsData) ? factionsData : []);

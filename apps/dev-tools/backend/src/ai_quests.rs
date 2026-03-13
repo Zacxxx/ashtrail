@@ -10,6 +10,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -102,7 +103,8 @@ pub async fn generate_quest_run_handler(
     let mut warnings = Vec::new();
     let run_id = format!("quest-{}", Uuid::new_v4());
     let timestamp = now_ms();
-    let mut chain = load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
+    let mut chain =
+        load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
     let max_node_count = run_length_to_node_count(
         payload
             .seed
@@ -117,13 +119,14 @@ pub async fn generate_quest_run_handler(
         &payload.ecology,
     );
 
-    let generated = match parse_json_with_retry(&build_generate_prompt(&payload, Some(&chain))).await {
-        Ok(value) => value,
-        Err(err) => {
-            warnings.push(err);
-            fallback_generation_payload(&payload)
-        }
-    };
+    let generated =
+        match parse_json_with_retry(&build_generate_prompt(&payload, Some(&chain))).await {
+            Ok(value) => value,
+            Err(err) => {
+                warnings.push(err);
+                fallback_generation_payload(&payload)
+            }
+        };
 
     let arc = normalize_arc(&generated, &payload.seed);
     let mut current_node = normalize_node(
@@ -134,13 +137,15 @@ pub async fn generate_quest_run_handler(
         &selected_influences,
     );
 
-    let (materialized_characters, npc_entries, enemy_ids, npc_warnings) = materialize_node_characters(
-        &run_id,
-        &payload.world_id,
-        &current_node,
-        &payload.history_characters,
-        &payload.seed,
-    )?;
+    let (materialized_characters, npc_entries, enemy_ids, npc_warnings) =
+        materialize_node_characters(
+            &run_id,
+            &payload.world_id,
+            &current_node,
+            &payload.history_characters,
+            &payload.seed,
+            &payload.ecology,
+        )?;
     warnings.extend(npc_warnings);
     if let Some(node_obj) = current_node.as_object_mut() {
         node_obj.insert("npcs".to_string(), Value::Array(npc_entries));
@@ -205,7 +210,13 @@ pub async fn generate_quest_run_handler(
     let world_consequences = build_world_consequences(
         &run_id,
         &current_node,
-        &Value::Array(introduced_npc_ids.iter().cloned().map(Value::String).collect()),
+        &Value::Array(
+            introduced_npc_ids
+                .iter()
+                .cloned()
+                .map(Value::String)
+                .collect(),
+        ),
         &Vec::<Value>::new(),
         &Vec::<Value>::new(),
     );
@@ -249,16 +260,23 @@ pub async fn generate_quest_run_handler(
     let retry_snapshot_id = create_retry_snapshot(
         &state.planets_dir,
         &payload.world_id,
-        run.get("id").and_then(Value::as_str).unwrap_or("unknown-run"),
+        run.get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown-run"),
         &payload.party,
         &run,
     )?;
     if let Some(run_obj) = run.as_object_mut() {
-        run_obj.insert("retrySnapshotId".to_string(), Value::String(retry_snapshot_id.clone()));
+        run_obj.insert(
+            "retrySnapshotId".to_string(),
+            Value::String(retry_snapshot_id.clone()),
+        );
     }
     update_chain_with_active_run(
         &mut chain,
-        run.get("id").and_then(Value::as_str).unwrap_or("unknown-run"),
+        run.get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown-run"),
         &introduced_npc_ids,
         extract_referenced_faction_ids(&current_node),
     );
@@ -279,14 +297,14 @@ pub async fn advance_quest_handler(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let mut warnings = Vec::new();
     let current_run = payload.run.clone();
-    let world_id = current_run
-        .get("worldId")
-        .and_then(Value::as_str)
-        .ok_or((StatusCode::BAD_REQUEST, "Quest run is missing worldId".to_string()))?;
-    let run_id = current_run
-        .get("id")
-        .and_then(Value::as_str)
-        .ok_or((StatusCode::BAD_REQUEST, "Quest run is missing id".to_string()))?;
+    let world_id = current_run.get("worldId").and_then(Value::as_str).ok_or((
+        StatusCode::BAD_REQUEST,
+        "Quest run is missing worldId".to_string(),
+    ))?;
+    let run_id = current_run.get("id").and_then(Value::as_str).ok_or((
+        StatusCode::BAD_REQUEST,
+        "Quest run is missing id".to_string(),
+    ))?;
     let next_index = current_run
         .get("nodeCount")
         .and_then(Value::as_u64)
@@ -301,8 +319,14 @@ pub async fn advance_quest_handler(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let mut chain = load_chain_for_run(&state.planets_dir, world_id, &current_run)
-        .unwrap_or_else(|| load_or_create_active_chain(&state.planets_dir, world_id, current_run.get("seed").unwrap_or(&Value::Null)));
+    let mut chain =
+        load_chain_for_run(&state.planets_dir, world_id, &current_run).unwrap_or_else(|| {
+            load_or_create_active_chain(
+                &state.planets_dir,
+                world_id,
+                current_run.get("seed").unwrap_or(&Value::Null),
+            )
+        });
 
     let generated = match parse_json_with_retry(&build_advance_prompt(&payload)).await {
         Ok(value) => value,
@@ -402,6 +426,7 @@ pub async fn advance_quest_handler(
             &next_node,
             &payload.history_characters,
             current_run.get("seed").unwrap_or(&Value::Null),
+            &payload.ecology,
         )?;
         materialized_characters = characters;
         warnings.extend(npc_warnings);
@@ -532,7 +557,9 @@ pub async fn advance_quest_handler(
     };
 
     let introduced_npc_ids = merge_string_ids(
-        current_run.get("introducedNpcIds").and_then(Value::as_array),
+        current_run
+            .get("introducedNpcIds")
+            .and_then(Value::as_array),
         next_node.get("npcs").and_then(Value::as_array),
         "id",
     );
@@ -546,14 +573,23 @@ pub async fn advance_quest_handler(
         .and_then(Value::as_str)
         .map(str::to_string)
     {
-        if !key_beat_ids.iter().any(|item| item.as_str() == Some(illustration_id.as_str())) {
+        if !key_beat_ids
+            .iter()
+            .any(|item| item.as_str() == Some(illustration_id.as_str()))
+        {
             key_beat_ids.push(Value::String(illustration_id));
         }
     }
     let world_consequences = build_world_consequences(
         run_id,
         &next_node,
-        &Value::Array(introduced_npc_ids.iter().cloned().map(Value::String).collect()),
+        &Value::Array(
+            introduced_npc_ids
+                .iter()
+                .cloned()
+                .map(Value::String)
+                .collect(),
+        ),
         &effect_summaries,
         &new_flags,
     );
@@ -580,7 +616,10 @@ pub async fn advance_quest_handler(
                 run_obj.insert("updatedAt".to_string(), Value::Number(timestamp.into()));
                 run_obj.insert("status".to_string(), Value::String("active".to_string()));
                 run_obj.insert("completedAt".to_string(), Value::Null);
-                run_obj.insert("lastOutcomeText".to_string(), Value::String(last_outcome_text.to_string()));
+                run_obj.insert(
+                    "lastOutcomeText".to_string(),
+                    Value::String(last_outcome_text.to_string()),
+                );
             }
             warnings.push(format!(
                 "Quest failure reset the run to its opening state. {}",
@@ -738,7 +777,9 @@ pub async fn delete_quest_run(
     let path = quest_dir(&state.planets_dir, &world_id).join(format!("{run_id}.json"));
     match fs::remove_file(path) {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => StatusCode::NO_CONTENT.into_response(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     }
 }
@@ -831,13 +872,18 @@ pub async fn get_quest_illustration(
     State(state): State<AppState>,
     Path((world_id, illustration_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let path = illustration_record_dir(&state.planets_dir, &world_id).join(format!("{illustration_id}.json"));
+    let path = illustration_record_dir(&state.planets_dir, &world_id)
+        .join(format!("{illustration_id}.json"));
     match fs::read_to_string(path) {
         Ok(raw) => match serde_json::from_str::<Value>(&raw) {
             Ok(value) => (StatusCode::OK, Json(value)).into_response(),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
         },
-        Err(_) => (StatusCode::NOT_FOUND, "Quest illustration not found".to_string()).into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            "Quest illustration not found".to_string(),
+        )
+            .into_response(),
     }
 }
 
@@ -845,15 +891,15 @@ pub async fn get_quest_illustration_image(
     State(state): State<AppState>,
     Path((world_id, illustration_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let path = illustration_image_dir(&state.planets_dir, &world_id).join(format!("{illustration_id}.png"));
+    let path = illustration_image_dir(&state.planets_dir, &world_id)
+        .join(format!("{illustration_id}.png"));
     match fs::read(path) {
-        Ok(bytes) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "image/png")],
-            bytes,
+        Ok(bytes) => (StatusCode::OK, [(header::CONTENT_TYPE, "image/png")], bytes).into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            "Quest illustration image not found".to_string(),
         )
             .into_response(),
-        Err(_) => (StatusCode::NOT_FOUND, "Quest illustration image not found".to_string()).into_response(),
     }
 }
 
@@ -870,13 +916,18 @@ pub async fn generate_character_portrait_handler(
                 use base64::Engine as _;
                 base64::engine::general_purpose::STANDARD.encode(bytes)
             };
-            (StatusCode::OK, Json(json!({ "dataUrl": format!("data:image/png;base64,{encoded}") }))).into_response()
+            (
+                StatusCode::OK,
+                Json(json!({ "dataUrl": format!("data:image/png;base64,{encoded}") })),
+            )
+                .into_response()
         }
         Err((code, message)) => (code, message).into_response(),
     }
 }
 
 fn build_generate_prompt(payload: &GenerateQuestRunRequest, chain: Option<&Value>) -> String {
+    let context_fauna_candidates = context_fauna_summary(&payload.ecology, &payload.seed, None);
     format!(
         "You are the Ashtrail Quest Architect.\n\
 Create a world-scoped, choice-based roguelike quest run.\n\
@@ -894,6 +945,8 @@ Locations:\n{}\n\
 \n\
 Ecology Summary:\n{}\n\
 \n\
+Context Fauna Candidates:\n{}\n\
+\n\
 History Characters:\n{}\n\
 \n\
 Quest Chain State:\n{}\n\
@@ -905,6 +958,8 @@ Rules:\n\
 - The first node must have exactly 4 meaningful player choices unless it is a discussion node.\n\
 - Any node can introduce new quest NPCs; include 1-3 concrete NPCs whenever other actors are present.\n\
 - If the first node naturally implies combat, include hostile NPCs in npcs and exact matching pendingCombat.enemyNpcNames.\n\
+- When ecology context includes biome-linked fauna, prefer exact fauna names from that ecology data for wilderness encounters.\n\
+- If Context Fauna Candidates is not empty and the encounter is a wilderness or biome-driven threat, use only exact fauna names from that candidate list for pendingCombat.enemyNpcNames. Do not invent alternate animal names.\n\
 - Use kind \"discussion\" for lightweight conversations that should be answered with a typed reply instead of a large choice grid.\n\
 - NPCs should reference history characters when appropriate.\n\
 \n\
@@ -917,12 +972,18 @@ Schema:\n\
         pretty(&payload.factions),
         pretty(&payload.locations),
         pretty(&payload.ecology),
+        context_fauna_candidates,
         pretty(&payload.history_characters),
         pretty(chain.unwrap_or(&Value::Null)),
     )
 }
 
 fn build_advance_prompt(payload: &AdvanceQuestRequest) -> String {
+    let context_fauna_candidates = context_fauna_summary(
+        &payload.ecology,
+        payload.run.get("seed").unwrap_or(&Value::Null),
+        payload.run.get("currentNode"),
+    );
     let current_action = payload
         .chosen_action
         .clone()
@@ -950,6 +1011,8 @@ Locations:\n{}\n\
 \n\
 Ecology Summary:\n{}\n\
 \n\
+Context Fauna Candidates:\n{}\n\
+\n\
 History Characters:\n{}\n\
 \n\
 Player Action:\n{}\n\
@@ -963,6 +1026,8 @@ Rules:\n\
 - Use kind \"discussion\" for lightweight social exchanges that should be answered via a typed reply.\n\
 - Introduce new quest NPCs whenever the next beat needs fresh actors, witnesses, rivals, or enemies.\n\
 - Combat nodes must include hostile NPCs in npcs and exact matching pendingCombat.enemyNpcNames.\n\
+- When ecology context includes biome-linked fauna, prefer exact fauna names from that ecology data for wilderness encounters.\n\
+- If Context Fauna Candidates is not empty and the encounter is a wilderness or biome-driven threat, use only exact fauna names from that candidate list for pendingCombat.enemyNpcNames. Do not invent alternate animal names.\n\
 - Use current history characters for NPCs when appropriate.\n\
 \n\
 Return raw JSON only. No markdown fences.\n\
@@ -974,6 +1039,7 @@ Schema:\n\
         pretty(&payload.factions),
         pretty(&payload.locations),
         pretty(&payload.ecology),
+        context_fauna_candidates,
         pretty(&payload.history_characters),
         current_action,
     )
@@ -1005,7 +1071,8 @@ async fn parse_text_with_retry(prompt: &str) -> Result<String, String> {
         return Ok(cleaned.to_string());
     }
 
-    let retry_prompt = format!("{prompt}\n\nThe previous answer was empty. Reply with plain text only.");
+    let retry_prompt =
+        format!("{prompt}\n\nThe previous answer was empty. Reply with plain text only.");
     let second = generate_text(&retry_prompt)
         .await
         .map_err(|err| format!("Quest text retry failed: {:?}", err))?;
@@ -1154,10 +1221,18 @@ fn normalize_arc(generated: &Value, seed: &Value) -> Value {
         ]
     });
     let recurring_tensions = take_string_array(arc.get("recurringTensions"), 3, || {
-        vec!["Scarcity".to_string(), "Loyalty".to_string(), "Violence".to_string()]
+        vec![
+            "Scarcity".to_string(),
+            "Loyalty".to_string(),
+            "Violence".to_string(),
+        ]
     });
     let likely_npc_roles = take_string_array(arc.get("likelyNpcRoles"), 3, || {
-        vec!["Witness".to_string(), "Broker".to_string(), "Hunter".to_string()]
+        vec![
+            "Witness".to_string(),
+            "Broker".to_string(),
+            "Hunter".to_string(),
+        ]
     });
     let ending_tracks = arc
         .get("endingTracks")
@@ -1317,7 +1392,8 @@ fn fallback_ending_node(index: u64, act: u64, text: &str, ending_id: &str) -> Va
 }
 
 fn party_ids(party: &Value) -> Vec<String> {
-    party.as_array()
+    party
+        .as_array()
         .map(|entries| {
             entries
                 .iter()
@@ -1371,10 +1447,11 @@ fn collect_selected_influences(
 
     for faction_id in faction_ids {
         if let Some(id) = faction_id.as_str() {
-            if let Some(faction) = factions
-                .as_array()
-                .and_then(|items| items.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(id)))
-            {
+            if let Some(faction) = factions.as_array().and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item.get("id").and_then(Value::as_str) == Some(id))
+            }) {
                 influences.push(json!({
                     "kind": "faction",
                     "id": id,
@@ -1386,10 +1463,11 @@ fn collect_selected_influences(
 
     for location_id in location_ids {
         if let Some(id) = location_id.as_str() {
-            if let Some(location) = locations
-                .as_array()
-                .and_then(|items| items.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(id)))
-            {
+            if let Some(location) = locations.as_array().and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item.get("id").and_then(Value::as_str) == Some(id))
+            }) {
                 influences.push(json!({
                     "kind": "location",
                     "id": id,
@@ -1401,10 +1479,15 @@ fn collect_selected_influences(
 
     for ecology_id in ecology_ids {
         if let Some(id) = ecology_id.as_str() {
-            if let Some(option) = ecology
-                .get("options")
-                .and_then(Value::as_array)
-                .and_then(|items| items.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(id)))
+            if let Some(option) =
+                ecology
+                    .get("options")
+                    .and_then(Value::as_array)
+                    .and_then(|items| {
+                        items
+                            .iter()
+                            .find(|item| item.get("id").and_then(Value::as_str) == Some(id))
+                    })
             {
                 influences.push(json!({
                     "kind": "ecology",
@@ -1418,12 +1501,149 @@ fn collect_selected_influences(
     influences
 }
 
+fn selected_ecology_context_ids(seed: &Value, node: &Value) -> Vec<String> {
+    let mut ids = seed
+        .get("ecologyAnchorIds")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|value| value.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    ids.extend(
+        node.get("contextRefs")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|entry| entry.get("kind").and_then(Value::as_str) == Some("ecology"))
+            .filter_map(|entry| entry.get("id").and_then(Value::as_str).map(str::to_string)),
+    );
+    ids
+}
+
+fn context_fauna_candidates<'a>(ecology: &'a Value, selected_ids: &[String]) -> Vec<&'a Value> {
+    let explicit_fauna_ids = selected_ids
+        .iter()
+        .filter_map(|id| id.strip_prefix("fauna:").map(str::to_string))
+        .collect::<HashSet<_>>();
+    let biome_ids = selected_ids
+        .iter()
+        .filter_map(|id| id.strip_prefix("biome:").map(str::to_string))
+        .collect::<HashSet<_>>();
+
+    ecology
+        .get("faunaCatalog")
+        .and_then(Value::as_array)
+        .map(|catalog| {
+            catalog
+                .iter()
+                .filter(|entry| {
+                    let fauna_id = entry.get("id").and_then(Value::as_str).unwrap_or("");
+                    if explicit_fauna_ids.contains(fauna_id) {
+                        return true;
+                    }
+                    if biome_ids.is_empty() {
+                        return explicit_fauna_ids.is_empty();
+                    }
+                    entry
+                        .get("biomeIds")
+                        .and_then(Value::as_array)
+                        .map(|items| {
+                            items.iter().any(|item| {
+                                item.as_str()
+                                    .map(|biome_id| biome_ids.contains(biome_id))
+                                    .unwrap_or(false)
+                            })
+                        })
+                        .unwrap_or(false)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn context_fauna_summary(ecology: &Value, seed: &Value, node: Option<&Value>) -> String {
+    let selected_ids = if let Some(node) = node {
+        selected_ecology_context_ids(seed, node)
+    } else {
+        seed.get("ecologyAnchorIds")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|value| value.as_str().map(str::to_string))
+            .collect::<Vec<_>>()
+    };
+    let candidates = context_fauna_candidates(ecology, &selected_ids);
+    if candidates.is_empty() {
+        return "none".to_string();
+    }
+
+    candidates
+        .into_iter()
+        .map(|entry| {
+            let name = entry.get("name").and_then(Value::as_str).unwrap_or("Unknown Fauna");
+            let size = entry
+                .get("sizeClass")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown-size");
+            let temperament = entry
+                .get("temperament")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            let danger_level = entry
+                .get("dangerLevel")
+                .and_then(Value::as_u64)
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "?".to_string());
+            let biome_list = entry
+                .get("biomeIds")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items.iter()
+                        .filter_map(|item| item.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "unscoped".to_string());
+            format!(
+                "- {name} | size={size} | temperament={temperament} | danger={danger_level} | biomes={biome_list}"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn find_matching_biome_fauna<'a>(
+    ecology: &'a Value,
+    seed: &Value,
+    node: &Value,
+    enemy_name: &str,
+) -> Option<&'a Value> {
+    let selected_ids = selected_ecology_context_ids(seed, node);
+    let normalized_name = enemy_name.trim().to_lowercase();
+    context_fauna_candidates(ecology, &selected_ids)
+        .into_iter()
+        .find(|entry| {
+            let Some(entry_name) = entry.get("name").and_then(Value::as_str) else {
+                return false;
+            };
+            if entry_name.trim().to_lowercase() != normalized_name {
+                return false;
+            }
+            true
+        })
+}
+
 fn materialize_node_characters(
     run_id: &str,
     world_id: &str,
     node: &Value,
     history_characters: &Value,
     seed: &Value,
+    ecology: &Value,
 ) -> Result<(Vec<Value>, Vec<Value>, Vec<Value>, Vec<String>), (StatusCode, String)> {
     let mut warnings = Vec::new();
     let mut materialized = Vec::new();
@@ -1444,10 +1664,7 @@ fn materialize_node_characters(
         .collect::<Vec<_>>();
 
     let existing_characters = load_existing_builder_characters();
-    let history_list = history_characters
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let history_list = history_characters.as_array().cloned().unwrap_or_default();
     let difficulty = seed
         .get("difficulty")
         .and_then(Value::as_str)
@@ -1491,6 +1708,37 @@ fn materialize_node_characters(
             .and_then(Value::as_str)
             .unwrap_or("Unknown Figure")
             .to_string();
+        let is_named_enemy = combat_enemy_names
+            .iter()
+            .any(|name| name == &npc_name.to_lowercase());
+        let is_hostile = npc
+            .get("isHostile")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || is_named_enemy;
+        if is_hostile {
+            if let Some(fauna_entry) = find_matching_biome_fauna(ecology, seed, node, &npc_name) {
+                let fauna_id = fauna_entry
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown-fauna");
+                let fauna_name = fauna_entry
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&npc_name);
+                let combat_id = format!("fauna:{fauna_id}");
+                enemy_ids.push(Value::String(combat_id.clone()));
+                npc_entries.push(json!({
+                    "id": combat_id,
+                    "name": fauna_name,
+                    "role": npc.get("role").and_then(Value::as_str).unwrap_or("Fauna"),
+                    "isHostile": true,
+                    "sourceType": "ecology",
+                    "sourceId": format!("fauna:{fauna_id}"),
+                }));
+                continue;
+            }
+        }
         let hinted_source_id = npc
             .get("sourceHistoryCharacterId")
             .and_then(Value::as_str)
@@ -1512,17 +1760,17 @@ fn materialize_node_characters(
                 })
             });
 
-        let existing = find_reusable_npc(&existing_characters, world_id, hinted_source_id.as_deref(), &npc_name);
+        let existing = find_reusable_npc(
+            &existing_characters,
+            world_id,
+            hinted_source_id.as_deref(),
+            &npc_name,
+        );
         let character_value = if let Some(existing_character) = existing {
             existing_character.clone()
         } else {
-            let generated = build_materialized_character(
-                run_id,
-                world_id,
-                &npc,
-                matched_history,
-                difficulty,
-            );
+            let generated =
+                build_materialized_character(run_id, world_id, &npc, matched_history, difficulty);
             persist_builder_character(&generated)
                 .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
             materialized.push(generated.clone());
@@ -1534,12 +1782,6 @@ fn materialize_node_characters(
             .and_then(Value::as_str)
             .unwrap_or("unknown-npc")
             .to_string();
-        let is_named_enemy = combat_enemy_names.iter().any(|name| name == &npc_name.to_lowercase());
-        let is_hostile = npc
-            .get("isHostile")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-            || is_named_enemy;
         if is_hostile {
             enemy_ids.push(Value::String(character_id.clone()));
         }
@@ -1591,7 +1833,9 @@ fn build_materialized_character(
     let affiliation = npc_hint
         .get("faction")
         .and_then(Value::as_str)
-        .or_else(|| history_character.and_then(|entry| entry.get("affiliation").and_then(Value::as_str)))
+        .or_else(|| {
+            history_character.and_then(|entry| entry.get("affiliation").and_then(Value::as_str))
+        })
         .unwrap_or("");
     let (base_stat, level) = match difficulty {
         "low" => (3, 1),
@@ -1599,7 +1843,16 @@ fn build_materialized_character(
         "deadly" => (8, 6),
         _ => (4, 2),
     };
-    let endurance = base_stat + if npc_hint.get("isHostile").and_then(Value::as_bool).unwrap_or(false) { 1 } else { 0 };
+    let endurance = base_stat
+        + if npc_hint
+            .get("isHostile")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            1
+        } else {
+            0
+        };
     let hp = 10 + endurance * 5;
     json!({
         "id": format!("char-{}", Uuid::new_v4()),
@@ -1665,7 +1918,10 @@ fn find_reusable_npc<'a>(
 ) -> Option<&'a Value> {
     existing_characters.iter().find(|character| {
         character.get("worldId").and_then(Value::as_str) == Some(world_id)
-            && character.get("isNPC").and_then(Value::as_bool).unwrap_or(false)
+            && character
+                .get("isNPC")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
             && (source_id
                 .and_then(|id| {
                     character
@@ -1691,7 +1947,10 @@ fn persist_builder_character(character: &Value) -> Result<(), std::io::Error> {
         .and_then(Value::as_str)
         .unwrap_or("unknown");
     let path = dir.join(format!("{id}.json"));
-    fs::write(path, serde_json::to_string_pretty(character).unwrap_or_else(|_| "{}".to_string()))
+    fs::write(
+        path,
+        serde_json::to_string_pretty(character).unwrap_or_else(|_| "{}".to_string()),
+    )
 }
 
 fn builder_characters_dir() -> PathBuf {
@@ -1701,7 +1960,11 @@ fn builder_characters_dir() -> PathBuf {
         .join("characters")
 }
 
-fn normalize_party_updates(raw_updates: Option<&Value>, party: &Value, effect_summaries: Vec<Value>) -> Vec<Value> {
+fn normalize_party_updates(
+    raw_updates: Option<&Value>,
+    party: &Value,
+    effect_summaries: Vec<Value>,
+) -> Vec<Value> {
     let party_entries = party.as_array().cloned().unwrap_or_default();
     let mut updates = Vec::new();
     for update in raw_updates
@@ -1744,7 +2007,13 @@ fn normalize_party_updates(raw_updates: Option<&Value>, party: &Value, effect_su
     updates
 }
 
-fn log_entry(kind: &str, title: &str, text: &str, effects: Vec<String>, node_id: Option<String>) -> Value {
+fn log_entry(
+    kind: &str,
+    title: &str,
+    text: &str,
+    effects: Vec<String>,
+    node_id: Option<String>,
+) -> Value {
     json!({
         "id": format!("qlog-{}", Uuid::new_v4()),
         "timestamp": now_ms(),
@@ -1859,12 +2128,19 @@ fn load_or_create_active_chain(planets_dir: &PathBuf, world_id: &str, seed: &Val
     })
 }
 
-fn persist_chain(planets_dir: &PathBuf, world_id: &str, chain: &Value) -> Result<(), std::io::Error> {
+fn persist_chain(
+    planets_dir: &PathBuf,
+    world_id: &str,
+    chain: &Value,
+) -> Result<(), std::io::Error> {
     let dir = chain_dir(planets_dir, world_id);
     fs::create_dir_all(&dir)?;
     let id = chain.get("id").and_then(Value::as_str).unwrap_or("unknown");
     let path = dir.join(format!("{id}.json"));
-    fs::write(path, serde_json::to_string_pretty(chain).unwrap_or_else(|_| "{}".to_string()))
+    fs::write(
+        path,
+        serde_json::to_string_pretty(chain).unwrap_or_else(|_| "{}".to_string()),
+    )
 }
 
 fn update_chain_with_active_run(
@@ -1905,7 +2181,11 @@ fn update_chain_on_completion(
     }
 }
 
-fn merge_unique_string_field(target: &mut serde_json::Map<String, Value>, field: &str, values: &[String]) {
+fn merge_unique_string_field(
+    target: &mut serde_json::Map<String, Value>,
+    field: &str,
+    values: &[String],
+) {
     let mut merged = target
         .get(field)
         .and_then(Value::as_array)
@@ -1925,7 +2205,11 @@ fn merge_unique_string_field(target: &mut serde_json::Map<String, Value>, field:
     );
 }
 
-fn append_unique_string_value(target: &mut serde_json::Map<String, Value>, field: &str, value: &str) {
+fn append_unique_string_value(
+    target: &mut serde_json::Map<String, Value>,
+    field: &str,
+    value: &str,
+) {
     let mut merged = target
         .get(field)
         .and_then(Value::as_array)
@@ -1952,8 +2236,7 @@ fn create_retry_snapshot(
 ) -> Result<String, (StatusCode, String)> {
     let snapshot_id = format!("qsnap-{}", Uuid::new_v4());
     let dir = snapshot_dir(planets_dir, world_id);
-    fs::create_dir_all(&dir)
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    fs::create_dir_all(&dir).map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
     let path = dir.join(format!("{snapshot_id}.json"));
     let snapshot = json!({
         "id": snapshot_id,
@@ -2034,7 +2317,11 @@ fn build_world_consequences(
     consequences
 }
 
-fn merge_string_ids(existing: Option<&Vec<Value>>, incoming: Option<&Vec<Value>>, field: &str) -> Vec<String> {
+fn merge_string_ids(
+    existing: Option<&Vec<Value>>,
+    incoming: Option<&Vec<Value>>,
+    field: &str,
+) -> Vec<String> {
     let mut merged = existing
         .cloned()
         .unwrap_or_default()
@@ -2080,25 +2367,29 @@ fn attach_node_metadata(
     };
     let illustration_id = if should_generate_illustration(node) {
         Some(queue_quest_illustration(
-            state,
-            world_id,
-            run_id,
-            run_title,
-            node,
-            gm_context,
+            state, world_id, run_id, run_title, node, gm_context,
         )?)
     } else {
         None
     };
     if let Some(obj) = node.as_object_mut() {
         obj.insert("termRefs".to_string(), Value::Array(term_refs));
-        obj.insert("layoutHint".to_string(), Value::String(layout_hint.to_string()));
+        obj.insert(
+            "layoutHint".to_string(),
+            Value::String(layout_hint.to_string()),
+        );
         if let Some(id) = illustration_id.clone() {
             obj.insert("illustrationId".to_string(), Value::String(id));
-            obj.insert("illustrationStatus".to_string(), Value::String("queued".to_string()));
+            obj.insert(
+                "illustrationStatus".to_string(),
+                Value::String("queued".to_string()),
+            );
         } else {
             obj.insert("illustrationId".to_string(), Value::Null);
-            obj.insert("illustrationStatus".to_string(), Value::String("idle".to_string()));
+            obj.insert(
+                "illustrationStatus".to_string(),
+                Value::String("idle".to_string()),
+            );
         }
     }
     Ok(illustration_id)
@@ -2238,9 +2529,7 @@ fn queue_quest_illustration(
                         obj.insert("updatedAt".to_string(), Value::Number(now_ms().into()));
                         obj.insert(
                             "error".to_string(),
-                            error_message
-                                .map(Value::String)
-                                .unwrap_or(Value::Null),
+                            error_message.map(Value::String).unwrap_or(Value::Null),
                         );
                     }
                     let _ = fs::write(
@@ -2259,7 +2548,10 @@ fn queue_quest_illustration(
                 if fs::write(image_path, bytes).is_ok() {
                     update_record("ready", None);
                 } else {
-                    update_record("failed", Some("Failed to save generated illustration.".to_string()));
+                    update_record(
+                        "failed",
+                        Some("Failed to save generated illustration.".to_string()),
+                    );
                 }
             }
             Err((_, message)) => update_record("failed", Some(message)),
@@ -2276,8 +2568,14 @@ fn build_quest_illustration_prompt(run_title: &str, node: &Value, gm_context: &V
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("A hostile ash-choked world.");
     let node_kind = node.get("kind").and_then(Value::as_str).unwrap_or("scene");
-    let node_title = node.get("title").and_then(Value::as_str).unwrap_or("Quest Node");
-    let node_text = node.get("text").and_then(Value::as_str).unwrap_or("The quest advances.");
+    let node_title = node
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("Quest Node");
+    let node_text = node
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("The quest advances.");
     format!(
         "Create a cinematic, grounded post-apocalyptic quest illustration. World canon: {world_prompt}. Quest: {run_title}. Node type: {node_kind}. Scene title: {node_title}. Scene beat: {node_text}. Focus on strong environmental storytelling, readable silhouettes, dramatic light, and no text overlay."
     )
@@ -2323,12 +2621,22 @@ fn load_all_glossary_entries(planets_dir: &PathBuf, world_id: &str) -> Vec<Value
     entries
 }
 
-fn persist_glossary_entry(planets_dir: &PathBuf, world_id: &str, entry: &Value) -> Result<(), std::io::Error> {
+fn persist_glossary_entry(
+    planets_dir: &PathBuf,
+    world_id: &str,
+    entry: &Value,
+) -> Result<(), std::io::Error> {
     let dir = glossary_dir(planets_dir, world_id);
     fs::create_dir_all(&dir)?;
-    let slug = entry.get("slug").and_then(Value::as_str).unwrap_or("unknown-term");
+    let slug = entry
+        .get("slug")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown-term");
     let path = dir.join(format!("{slug}.json"));
-    fs::write(path, serde_json::to_string_pretty(entry).unwrap_or_else(|_| "{}".to_string()))
+    fs::write(
+        path,
+        serde_json::to_string_pretty(entry).unwrap_or_else(|_| "{}".to_string()),
+    )
 }
 
 async fn load_or_generate_glossary_entry(
@@ -2372,7 +2680,12 @@ fn read_world_prompt(planets_dir: &PathBuf, world_id: &str) -> String {
     fs::read_to_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .and_then(|value| value.get("worldPrompt").and_then(Value::as_str).map(str::to_string))
+        .and_then(|value| {
+            value
+                .get("worldPrompt")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "A dangerous ash-swept frontier.".to_string())
 }
@@ -2413,4 +2726,115 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_fauna_candidates_filters_by_selected_biome() {
+        let ecology = json!({
+            "faunaCatalog": [
+                {
+                    "id": "fauna-ash-stalker",
+                    "name": "Ash Stalker",
+                    "biomeIds": ["ashlands"],
+                    "dangerLevel": 88,
+                    "temperament": "apex",
+                    "sizeClass": "large"
+                },
+                {
+                    "id": "fauna-river-heron",
+                    "name": "River Heron",
+                    "biomeIds": ["salt_marsh"],
+                    "dangerLevel": 18,
+                    "temperament": "skittish",
+                    "sizeClass": "medium"
+                }
+            ]
+        });
+
+        let candidates = context_fauna_candidates(&ecology, &[String::from("biome:ashlands")]);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].get("name").and_then(Value::as_str),
+            Some("Ash Stalker")
+        );
+    }
+
+    #[test]
+    fn find_matching_biome_fauna_uses_ecology_context() {
+        let ecology = json!({
+            "faunaCatalog": [
+                {
+                    "id": "fauna-ash-stalker",
+                    "name": "Ash Stalker",
+                    "biomeIds": ["ashlands"],
+                    "dangerLevel": 88,
+                    "temperament": "apex",
+                    "sizeClass": "large"
+                },
+                {
+                    "id": "fauna-river-heron",
+                    "name": "River Heron",
+                    "biomeIds": ["salt_marsh"],
+                    "dangerLevel": 18,
+                    "temperament": "skittish",
+                    "sizeClass": "medium"
+                }
+            ]
+        });
+        let seed = json!({
+            "ecologyAnchorIds": ["biome:ashlands"]
+        });
+        let node = json!({
+            "contextRefs": [
+                {"kind": "ecology", "id": "biome:ashlands", "label": "Ashlands"}
+            ]
+        });
+
+        let ash_match = find_matching_biome_fauna(&ecology, &seed, &node, "Ash Stalker");
+        assert_eq!(
+            ash_match
+                .and_then(|entry| entry.get("id"))
+                .and_then(Value::as_str),
+            Some("fauna-ash-stalker")
+        );
+
+        let marsh_match = find_matching_biome_fauna(&ecology, &seed, &node, "River Heron");
+        assert!(marsh_match.is_none());
+    }
+
+    #[test]
+    fn build_generate_prompt_includes_context_fauna_candidates() {
+        let payload = GenerateQuestRunRequest {
+            world_id: "world-1".to_string(),
+            seed: json!({
+                "ecologyAnchorIds": ["biome:ashlands"]
+            }),
+            party: json!([]),
+            gm_context: Value::Null,
+            factions: Value::Null,
+            locations: Value::Null,
+            ecology: json!({
+                "faunaCatalog": [
+                    {
+                        "id": "fauna-ash-stalker",
+                        "name": "Ash Stalker",
+                        "biomeIds": ["ashlands"],
+                        "dangerLevel": 88,
+                        "temperament": "apex",
+                        "sizeClass": "large"
+                    }
+                ]
+            }),
+            history_characters: Value::Null,
+        };
+
+        let prompt = build_generate_prompt(&payload, None);
+        assert!(prompt.contains("Context Fauna Candidates"));
+        assert!(prompt.contains("Ash Stalker"));
+        assert!(prompt.contains("Do not invent alternate animal names"));
+    }
 }

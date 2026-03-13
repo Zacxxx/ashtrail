@@ -1,4 +1,5 @@
-import { TalentTree, Trait, Occupation } from '../../types';
+import { ALL_SKILLS } from '../../content';
+import { Occupation, Skill, TalentTree, Trait } from '../../types';
 import { isSupportedEffectTarget } from './catalog';
 
 export interface GameplayContentIssue {
@@ -59,8 +60,11 @@ export function validateGameplayContent(
   traits: Trait[],
   occupations: Occupation[],
   talentTrees: TalentTree[],
+  skills: Skill[] = ALL_SKILLS,
 ): GameplayContentValidationReport {
   const issues: GameplayContentIssue[] = [];
+  const traitIds = new Set(traits.map((trait) => trait.id));
+  const skillIds = new Set(skills.map((skill) => skill.id));
 
   detectDuplicates(traits.map((trait) => trait.id), 'traits', issues);
   detectDuplicates(occupations.map((occupation) => occupation.id), 'occupations', issues);
@@ -68,34 +72,75 @@ export function validateGameplayContent(
 
   traits.forEach((trait) => {
     const hasMechanicalEffect = (trait.effects || []).some((effect) => effect.type !== 'LORE_EFFECT');
-    if (!hasMechanicalEffect) {
+    const hasGrantedSkills = Boolean(trait.grantsSkillIds?.length);
+    if (!hasMechanicalEffect && !hasGrantedSkills) {
       issues.push({
         level: 'error',
         category: 'traits',
         id: trait.id,
-        message: 'Trait has no mechanical gameplay effect.',
+        message: 'Trait has neither a gameplay modifier nor a granted skill.',
       });
     }
+    trait.grantsSkillIds?.forEach((skillId) => {
+      if (!skillIds.has(skillId)) {
+        issues.push({
+          level: 'error',
+          category: 'traits',
+          id: trait.id,
+          message: `Trait grants missing skill "${skillId}".`,
+        });
+      }
+    });
     validateEffects('traits', trait.id, trait.effects, issues);
   });
 
   occupations.forEach((occupation) => {
-    const hasMechanicalEffect = (occupation.effects || []).some((effect) => effect.type !== 'LORE_EFFECT');
-    if (!hasMechanicalEffect) {
+    const hasTraitLinks = Boolean(occupation.grantsTraitIds?.length);
+    const hasLegacyEffects = Boolean((occupation.effects || []).some((effect) => effect.type !== 'LORE_EFFECT'));
+    if (!hasTraitLinks && !hasLegacyEffects) {
       issues.push({
         level: 'error',
         category: 'occupations',
         id: occupation.id,
-        message: 'Occupation has no mechanical gameplay effect.',
+        message: 'Occupation has no gameplay payload.',
       });
     }
+    if (!hasTraitLinks) {
+      issues.push({
+        level: 'warning',
+        category: 'occupations',
+        id: occupation.id,
+        message: 'Occupation does not grant canonical trait ids yet.',
+      });
+    }
+    if (hasLegacyEffects) {
+      issues.push({
+        level: 'warning',
+        category: 'occupations',
+        id: occupation.id,
+        message: 'Occupation still uses raw effects. Migrate them to granted traits.',
+      });
+    }
+    occupation.grantsTraitIds?.forEach((traitId) => {
+      if (!traitIds.has(traitId)) {
+        issues.push({
+          level: 'error',
+          category: 'occupations',
+          id: occupation.id,
+          message: `Occupation grants missing trait "${traitId}".`,
+        });
+      }
+    });
     validateEffects('occupations', occupation.id, occupation.effects, issues);
   });
 
   talentTrees.forEach((tree) => {
     const nodeIds = new Set(tree.nodes.map((node) => node.id));
     tree.nodes.forEach((node) => {
-      const hasPayload = Boolean(node.effects?.length || node.grantsSkillIds?.length || node.grantsTraitIds?.length);
+      const hasLegacyEffects = Boolean(node.effects?.length);
+      const hasLegacySkills = Boolean(node.grantsSkillIds?.length);
+      const hasTraitLinks = Boolean(node.grantsTraitIds?.length);
+      const hasPayload = Boolean(hasLegacyEffects || hasLegacySkills || hasTraitLinks);
       if (!hasPayload) {
         issues.push({
           level: 'error',
@@ -104,6 +149,50 @@ export function validateGameplayContent(
           message: 'Talent node has no gameplay payload.',
         });
       }
+      if (!hasTraitLinks) {
+        issues.push({
+          level: 'warning',
+          category: 'talentTrees',
+          id: `${tree.occupationId}:${node.id}`,
+          message: 'Talent node does not grant canonical trait ids yet.',
+        });
+      }
+      if (hasLegacyEffects) {
+        issues.push({
+          level: 'warning',
+          category: 'talentTrees',
+          id: `${tree.occupationId}:${node.id}`,
+          message: 'Talent node still uses raw effects. Migrate them to granted traits.',
+        });
+      }
+      if (hasLegacySkills) {
+        issues.push({
+          level: 'warning',
+          category: 'talentTrees',
+          id: `${tree.occupationId}:${node.id}`,
+          message: 'Talent node still grants raw skills. Move them onto the linked trait.',
+        });
+      }
+      node.grantsTraitIds?.forEach((traitId) => {
+        if (!traitIds.has(traitId)) {
+          issues.push({
+            level: 'error',
+            category: 'talentTrees',
+            id: `${tree.occupationId}:${node.id}`,
+            message: `Talent node grants missing trait "${traitId}".`,
+          });
+        }
+      });
+      node.grantsSkillIds?.forEach((skillId) => {
+        if (!skillIds.has(skillId)) {
+          issues.push({
+            level: 'error',
+            category: 'talentTrees',
+            id: `${tree.occupationId}:${node.id}`,
+            message: `Talent node grants missing skill "${skillId}".`,
+          });
+        }
+      });
 
       node.dependencies?.forEach((dependency) => {
         if (!nodeIds.has(dependency)) {
