@@ -1,18 +1,18 @@
 use axum::http::StatusCode;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tracing::error;
 
 use crate::gemini;
+use crate::jobs::{JobOutputRef, JobRecord, JobStatus};
 
 #[derive(Clone)]
 pub struct QuestRuntime {
-    pub jobs: Arc<Mutex<HashMap<String, QuestJobRecord>>>,
+    pub jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
     pub config: QuestAiExecutorConfig,
     pub global_limiter: QuestWorkLimiter,
     pub text_limiter: QuestWorkLimiter,
@@ -53,9 +53,9 @@ impl QuestAiExecutorConfig {
 }
 
 impl QuestRuntime {
-    pub fn from_env(enabled: bool) -> Self {
+    pub fn from_env(enabled: bool, jobs: Arc<Mutex<HashMap<String, JobRecord>>>) -> Self {
         Self {
-            jobs: Arc::new(Mutex::new(HashMap::new())),
+            jobs,
             config: QuestAiExecutorConfig::from_env(),
             global_limiter: QuestWorkLimiter::new(
                 read_usize_env("QUEST_GEMINI_MAX_CONCURRENT", 3),
@@ -84,40 +84,43 @@ impl QuestRuntime {
         run_id: Option<String>,
     ) -> Result<String, (StatusCode, String)> {
         let job_id = format!("qjob-{}", uuid::Uuid::new_v4());
-        let mut jobs = self.jobs.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "quest job store lock poisoned".to_string(),
-            )
-        })?;
-        jobs.insert(
-            job_id.clone(),
-            QuestJobRecord {
-                job_id: job_id.clone(),
-                kind,
-                status: QuestJobStatus::Queued,
-                progress: 0.0,
-                stage: "Queued".to_string(),
-                result: None,
-                error: None,
-                world_id: world_id.to_string(),
-                run_id,
-                cancel_requested: false,
-                created_at: now_ms(),
-                updated_at: now_ms(),
-            },
-        );
+        let mut jobs = self.jobs.lock().map_err(lock_error)?;
+        let (shared_kind, title) = quest_job_kind_meta(&kind);
+        let mut job = JobRecord::new(shared_kind, title, "quests");
+        job.world_id = Some(world_id.to_string());
+        job.run_id = run_id;
+        jobs.insert(job_id.clone(), job);
         Ok(job_id)
     }
 
-    pub fn get_job(&self, job_id: &str) -> Result<Option<QuestJobRecord>, (StatusCode, String)> {
-        let jobs = self.jobs.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "quest job store lock poisoned".to_string(),
-            )
-        })?;
-        Ok(jobs.get(job_id).cloned())
+    pub fn create_custom_job(
+        &self,
+        job_id: String,
+        kind: &str,
+        title: &str,
+        world_id: &str,
+        run_id: Option<String>,
+        parent_job_id: Option<String>,
+        metadata: Option<Value>,
+        output_refs: Vec<JobOutputRef>,
+    ) -> Result<String, (StatusCode, String)> {
+        let mut jobs = self.jobs.lock().map_err(lock_error)?;
+        let mut job = JobRecord::new(kind, title, "quests");
+        job.world_id = Some(world_id.to_string());
+        job.run_id = run_id;
+        job.parent_job_id = parent_job_id;
+        job.metadata = metadata;
+        job.output_refs = output_refs;
+        jobs.insert(job_id.clone(), job);
+        Ok(job_id)
+    }
+
+    pub fn get_job(
+        &self,
+        job_id: &str,
+    ) -> Result<Option<QuestJobRecord>, (StatusCode, String)> {
+        let jobs = self.jobs.lock().map_err(lock_error)?;
+        Ok(jobs.get(job_id).and_then(|job| map_shared_job_to_quest_record(job_id, job)))
     }
 
     pub fn update_job(
@@ -131,9 +134,9 @@ impl QuestRuntime {
     ) {
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(job) = jobs.get_mut(job_id) {
-                job.status = status;
+                job.status = map_quest_status_to_job_status(&status);
                 job.progress = progress;
-                job.stage = stage.to_string();
+                job.current_stage = stage.to_string();
                 if result.is_some() {
                     job.result = result;
                 }
@@ -143,19 +146,66 @@ impl QuestRuntime {
         }
     }
 
+    pub fn set_job_metadata(&self, job_id: &str, metadata: Value) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(job) = jobs.get_mut(job_id) {
+                job.metadata = Some(metadata);
+                job.updated_at = now_ms();
+            }
+        }
+    }
+
+    pub fn merge_job_metadata(&self, job_id: &str, metadata: Map<String, Value>) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(job) = jobs.get_mut(job_id) {
+                let mut merged = match job.metadata.take() {
+                    Some(Value::Object(existing)) => existing,
+                    _ => Map::new(),
+                };
+                for (key, value) in metadata {
+                    merged.insert(key, value);
+                }
+                job.metadata = Some(Value::Object(merged));
+                job.updated_at = now_ms();
+            }
+        }
+    }
+
+    pub fn set_output_refs(&self, job_id: &str, output_refs: Vec<JobOutputRef>) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(job) = jobs.get_mut(job_id) {
+                job.output_refs = output_refs;
+                job.updated_at = now_ms();
+            }
+        }
+    }
+
+    pub fn set_parent_job(&self, job_id: &str, parent_job_id: Option<String>) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(job) = jobs.get_mut(job_id) {
+                job.parent_job_id = parent_job_id;
+                job.updated_at = now_ms();
+            }
+        }
+    }
+
+    pub fn set_run_id(&self, job_id: &str, run_id: Option<String>) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(job) = jobs.get_mut(job_id) {
+                job.run_id = run_id;
+                job.updated_at = now_ms();
+            }
+        }
+    }
+
     pub fn cancel_job(&self, job_id: &str) -> Result<bool, (StatusCode, String)> {
-        let mut jobs = self.jobs.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "quest job store lock poisoned".to_string(),
-            )
-        })?;
+        let mut jobs = self.jobs.lock().map_err(lock_error)?;
         let Some(job) = jobs.get_mut(job_id) else {
             return Ok(false);
         };
         job.cancel_requested = true;
-        if matches!(job.status, QuestJobStatus::Queued | QuestJobStatus::Running) {
-            job.stage = "Cancellation requested".to_string();
+        if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
+            job.current_stage = "Cancellation requested".to_string();
             job.updated_at = now_ms();
         }
         Ok(true)
@@ -232,7 +282,7 @@ impl QuestRuntime {
         loop {
             match gemini::generate_text_with_options(prompt, temperature).await {
                 Ok(text) => return Ok(text),
-                Err((status, message)) if should_retry(status) && attempt < retries => {
+                Err((status, _message)) if should_retry(status) && attempt < retries => {
                     let delay_ms = backoffs
                         .get(attempt)
                         .copied()
@@ -293,8 +343,8 @@ impl QuestRuntime {
                 .await
                 {
                     Ok(bytes) => return Ok((bytes, model_id)),
-                    Err((status, message))
-                        if should_retry(status) && attempt < self.config.max_retries_image =>
+                    Err((status, _message)) if should_retry(status)
+                        && attempt < self.config.max_retries_image =>
                     {
                         let delay_ms = self
                             .config
@@ -412,6 +462,66 @@ pub fn try_reserve_capacity(limiter: &QuestWorkLimiter) -> Option<QuestQueueRese
             });
         }
     }
+}
+
+fn lock_error<T>(_error: std::sync::PoisonError<T>) -> (StatusCode, String) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "quest job store lock poisoned".to_string(),
+    )
+}
+
+fn quest_job_kind_meta(kind: &QuestJobKind) -> (&'static str, &'static str) {
+    match kind {
+        QuestJobKind::GenerateRun => ("quests.generate-run.v2", "Generate Quest Run"),
+        QuestJobKind::AdvanceRun => ("quests.advance-run.v2", "Advance Quest Run"),
+    }
+}
+
+fn map_shared_kind_to_quest_kind(kind: &str) -> Option<QuestJobKind> {
+    match kind {
+        "quests.generate-run.v2" => Some(QuestJobKind::GenerateRun),
+        "quests.advance-run.v2" => Some(QuestJobKind::AdvanceRun),
+        _ => None,
+    }
+}
+
+fn map_quest_status_to_job_status(status: &QuestJobStatus) -> JobStatus {
+    match status {
+        QuestJobStatus::Queued => JobStatus::Queued,
+        QuestJobStatus::Running => JobStatus::Running,
+        QuestJobStatus::Completed => JobStatus::Completed,
+        QuestJobStatus::Cancelled => JobStatus::Cancelled,
+        QuestJobStatus::Failed => JobStatus::Failed,
+    }
+}
+
+fn map_job_status_to_quest_status(status: &JobStatus) -> QuestJobStatus {
+    match status {
+        JobStatus::Queued => QuestJobStatus::Queued,
+        JobStatus::Running => QuestJobStatus::Running,
+        JobStatus::Completed => QuestJobStatus::Completed,
+        JobStatus::Cancelled => QuestJobStatus::Cancelled,
+        JobStatus::Failed => QuestJobStatus::Failed,
+    }
+}
+
+fn map_shared_job_to_quest_record(job_id: &str, job: &JobRecord) -> Option<QuestJobRecord> {
+    let kind = map_shared_kind_to_quest_kind(&job.kind)?;
+    Some(QuestJobRecord {
+        job_id: job_id.to_string(),
+        kind,
+        status: map_job_status_to_quest_status(&job.status),
+        progress: job.progress,
+        stage: job.current_stage.clone(),
+        result: job.result.clone(),
+        error: job.error.clone(),
+        world_id: job.world_id.clone().unwrap_or_default(),
+        run_id: job.run_id.clone(),
+        cancel_requested: job.cancel_requested,
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+    })
 }
 
 async fn wait_for_permits(

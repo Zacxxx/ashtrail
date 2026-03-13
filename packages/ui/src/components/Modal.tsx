@@ -4,6 +4,7 @@ export interface ModalProps {
     open: boolean;
     onClose: () => void;
     title?: string;
+    headerContent?: React.ReactNode;
     children: React.ReactNode;
     /** Max width class — defaults to max-w-4xl */
     maxWidth?: string;
@@ -14,6 +15,7 @@ export const Modal = memo(function Modal({
     open,
     onClose,
     title,
+    headerContent,
     children,
     maxWidth = "max-w-4xl",
     className = "",
@@ -39,11 +41,16 @@ export const Modal = memo(function Modal({
                 className={`w-full ${maxWidth} h-[80vh] bg-[#1e1e1e]/90 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl flex flex-col overflow-hidden ${className}`}
                 onClick={(e) => e.stopPropagation()}
             >
-                {title && (
+                {(title || headerContent) && (
                     <div className="h-14 border-b border-white/5 flex justify-between items-center px-6 shrink-0 bg-white/5">
-                        <h3 className="text-[10px] font-black tracking-[0.2em] text-[#E6E6FA]">
-                            {title}
-                        </h3>
+                        <div className="flex min-w-0 flex-1 items-center gap-4">
+                            {title && (
+                                <h3 className="text-[10px] font-black tracking-[0.2em] text-[#E6E6FA]">
+                                    {title}
+                                </h3>
+                            )}
+                            {headerContent && <div className="min-w-0 flex-1">{headerContent}</div>}
+                        </div>
                         <button
                             onClick={onClose}
                             className="text-gray-500 hover:text-white transition-colors"

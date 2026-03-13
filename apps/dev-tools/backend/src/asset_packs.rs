@@ -15,7 +15,7 @@ use crate::AppState;
 #[serde(rename_all = "camelCase")]
 pub struct AssetPackGrouping {
     #[serde(rename = "type")]
-    pub group_type: String, // "biome" or "structure"
+    pub group_type: String, // "biome" | "structure" | "exploration-kit" | "block-palette"
     pub name: String,
     pub description: Option<String>,
 }

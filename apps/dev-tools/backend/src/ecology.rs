@@ -711,13 +711,15 @@ async fn spawn_ecology_job(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: "Queued ecology generation".to_string(),
-                result: None,
-                error: None,
-                cancel_requested: false,
+            {
+                let mut job = JobRecord::new(
+                    "ecology.generate",
+                    "Generate Ecology Data",
+                    "ecology",
+                );
+                job.world_id = Some(world_id.clone());
+                job.current_stage = "Queued ecology generation".to_string();
+                job
             },
         );
     }

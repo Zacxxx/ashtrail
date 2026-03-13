@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GameRegistry, Character, Skill, resolveCharacterSkills, resolveCharacterTraitGrants } from '@ashtrail/core';
+import { GameRegistry, Character, Skill, resolveCharacterSkills, resolveCharacterTraitGrants, sanitizeSkillLoadout } from '@ashtrail/core';
 import type { TacticalEntity, CombatConfig, DamagePreview, CombatResolutionSummary, CombatRosterEntry } from '@ashtrail/core';
 import { TacticalArena, type TacticalArenaUtilityAction } from './TacticalArena';
 import { useCombatWebSocket } from './useCombatWebSocket';
@@ -7,14 +7,20 @@ import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacti
 import { GameRulesManager } from '../rules/useGameRules';
 import { useActiveWorld } from '../../hooks/useActiveWorld';
 import { useEcologyData } from '../../ecology/useEcologyData';
+import { useJobs } from '../../jobs/useJobs';
+import { useTrackedJobLauncher } from '../../jobs/useTrackedJobLauncher';
 import type { EcologyBundle, FaunaEntry } from '../../ecology/types';
 
 // ── Default skills given to characters without their own ──
 function getDefaultPlayerSkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id));
+    return sanitizeSkillLoadout(
+        GameRegistry.getAllSkills().filter(s => ['use-weapon', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id)),
+    );
 }
 function getDefaultEnemySkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+    return sanitizeSkillLoadout(
+        GameRegistry.getAllSkills().filter(s => ['use-weapon', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id)),
+    );
 }
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number, defaultPlayerSkills: Skill[], defaultEnemySkills: Skill[]): TacticalEntity {
@@ -43,15 +49,11 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
 
     // ── 2. Resolve skills (prefer effect-aware resolution, then hydrate from registry) ──
     const refreshSkill = (skill: Skill) => GameRegistry.getSkill(skill.id) || skill;
-    const resolvedSkills = resolveCharacterSkills(char)
-        .filter((skill) => skill.id !== 'slash')
-        .map(refreshSkill);
+    const resolvedSkills = sanitizeSkillLoadout(resolveCharacterSkills(char).map(refreshSkill));
 
     let skills: Skill[] = resolvedSkills.length > 0
         ? resolvedSkills
-        : (char.skills || [])
-            .filter((skill) => skill.id !== 'slash')
-            .map(refreshSkill);
+        : sanitizeSkillLoadout((char.skills || []).map(refreshSkill));
 
     if (skills.length === 0) {
         skills = (isPlayer ? defaultPlayerSkills : defaultEnemySkills).map(refreshSkill);
@@ -59,11 +61,7 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
 
     if (isPlayer) {
         const baseSkills = GameRegistry.getAllSkills().filter((skill) => skill.category === 'base');
-        baseSkills.forEach((baseSkill) => {
-            if (!skills.some((skill) => skill.id === baseSkill.id)) {
-                skills.push(baseSkill);
-            }
-        });
+        skills = sanitizeSkillLoadout([...skills, ...baseSkills]);
     }
 
     // ── 3. Patch use-weapon skill with live weapon data (range + description + AOE) ──
@@ -256,6 +254,8 @@ export function CombatSimulator({
     ecologyBundle?: EcologyBundle | null,
 } = {}) {
     const { activeWorldId } = useActiveWorld();
+    const { waitForJob } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
     const ecology = useEcologyData(activeWorldId);
     const [characters, setCharacters] = React.useState<Character[]>(() => GameRegistry.getAllCharacters());
     const [charactersLoaded, setCharactersLoaded] = React.useState(() => GameRegistry.getAllCharacters().length > 0);
@@ -390,14 +390,42 @@ export function CombatSimulator({
         setMapName(null);
         try {
             const prompt = buildMapPrompt(mapPrompt.trim(), gridRows, gridCols);
-            const res = await fetch('http://127.0.0.1:8787/api/text/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt }),
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: '/api/text/generate',
+                request: { prompt },
+                optimisticJob: {
+                    kind: 'combat.text-generate',
+                    title: 'Generate Combat Map',
+                    tool: 'gameplay-engine',
+                    status: 'queued',
+                    currentStage: 'Queued',
+                    worldId: activeWorldId,
+                    metadata: {
+                        worldId: activeWorldId,
+                        rows: gridRows,
+                        cols: gridCols,
+                    },
+                },
+                metadata: {
+                    worldId: activeWorldId,
+                    rows: gridRows,
+                    cols: gridCols,
+                },
+                restore: {
+                    route: '/gameplay-engine',
+                    payload: {
+                        tab: 'combat',
+                        mapPrompt,
+                        gridRows,
+                        gridCols,
+                    },
+                },
             });
-            if (!res.ok) throw new Error(`API error: ${res.status}`);
-            const data = await res.json();
-            const text = data.text || data.result || (typeof data === 'string' ? data : JSON.stringify(data));
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== 'completed') {
+                throw new Error(detail.error || 'Map generation failed');
+            }
+            const text = String((detail.result as { text?: string } | undefined)?.text || '');
             const grid = parseAIGridResponse(text, gridRows, gridCols);
             if (grid) {
                 setAiGrid(grid);

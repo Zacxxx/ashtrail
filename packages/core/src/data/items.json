@@ -222,5 +222,67 @@
     "id": "item-1773335895487",
     "name": "Les lunettes du sachant",
     "rarity": "specialized"
+  },
+  {
+    "category": "weapon",
+    "cost": 51,
+    "description": "",
+    "effects": [
+      {
+        "target": "crit_rate",
+        "type": "COMBAT_BONUS",
+        "value": 12
+      },
+      {
+        "target": "damage",
+        "type": "COMBAT_BONUS",
+        "value": 22
+      }
+    ],
+    "equipSlot": "mainHand",
+    "icon": "📦",
+    "id": "item-1773434072316",
+    "name": "Good Old Georgia",
+    "rarity": "specialized",
+    "weaponAreaSize": 1,
+    "weaponAreaType": "cross",
+    "weaponRange": 7,
+    "weaponType": "ranged"
+  },
+  {
+    "category": "consumable",
+    "cost": 0,
+    "description": "Three days' worth of nutrient paste and dried protein strips.",
+    "effects": [],
+    "id": "item-1773437340512-1c274ed6-bdcb-4357-bedd-91e96a6c064f",
+    "name": "Rations",
+    "rarity": "salvaged"
+  },
+  {
+    "category": "consumable",
+    "cost": 0,
+    "description": "Five tabs capable of making ash-tainted water potable.",
+    "effects": [],
+    "id": "item-1773437340512-70359b92-accd-4faf-a189-ffa0c6d062b2",
+    "name": "Water Purifier Tabs",
+    "rarity": "salvaged"
+  },
+  {
+    "category": "resource",
+    "cost": 0,
+    "description": "Two standard power cells, compatible with most low-tech devices.",
+    "effects": [],
+    "id": "item-1773437340513-7068bc56-d898-40d7-9157-ee76a607243b",
+    "name": "Spare Power Cells",
+    "rarity": "salvaged"
+  },
+  {
+    "category": "resource",
+    "cost": 0,
+    "description": "A small, heavily encrypted data chip, recovered from a defeated Ash-Scout. It hums with a faint energy, hinting at valuable, protected information.",
+    "effects": [],
+    "id": "item-1773437340514-51b23107-e524-4bab-95a2-b8d707b698b6",
+    "name": "Encrypted Data Chip",
+    "rarity": "specialized"
   }
 ]

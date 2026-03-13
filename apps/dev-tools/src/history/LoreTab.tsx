@@ -25,12 +25,24 @@ function normalizeSnippet(input: Partial<LoreSnippet> & { id?: string }): LoreSn
         id: input.id || crypto.randomUUID(),
         title: priority === "main" ? "Main Lore" : (input.title || ""),
         priority,
-        date: priority === "main" ? null : (input.date || { ...DEFAULT_DATE }),
+        date: priority === "main" ? null : (input.date ?? null),
         location: priority === "main" ? "World" : (input.location || "Unknown"),
+        locationId: input.locationId || null,
+        provinceRegionId: input.provinceRegionId || null,
+        source: input.source || "manual",
+        isCustomized: input.isCustomized ?? (priority === "main"),
         content: input.content || "",
         involvedFactions: input.involvedFactions || [],
         involvedCharacters: input.involvedCharacters || [],
     };
+}
+
+function snippetLocationLabel(snippet: LoreSnippet, areas: Area[]) {
+    if (snippet.provinceRegionId) {
+        const area = areas.find((entry) => entry.provinceRegionId === snippet.provinceRegionId || entry.id === snippet.locationId);
+        if (area) return `${snippet.location} • ${area.provinceName}`;
+    }
+    return snippet.location;
 }
 
 function sortSnippets(snippets: LoreSnippet[]) {
@@ -207,6 +219,8 @@ export function LoreTab({ selectedWorld }: LoreTabProps) {
             priority: draftPriority,
             date: draftDate,
             location: draftLocation,
+            source: "manual",
+            isCustomized: true,
             content: draftText,
             involvedFactions: draftFactions,
             involvedCharacters: draftCharacters,
@@ -252,6 +266,8 @@ export function LoreTab({ selectedWorld }: LoreTabProps) {
                 priority: draftPriority,
                 date: draftDate,
                 location: draftLocation,
+                source: "manual",
+                isCustomized: true,
                 content: data.text || "",
                 involvedFactions: draftFactions,
                 involvedCharacters: draftCharacters,
@@ -326,16 +342,25 @@ export function LoreTab({ selectedWorld }: LoreTabProps) {
                                 className={`p-3 rounded-lg border text-left transition-all ${selectedSnippetId === snippet.id && !isDrafting ? "bg-cyan-500/10 border-cyan-500/30" : "bg-black/20 border-white/5 hover:border-white/20"}`}
                             >
                                 <div className="flex items-start justify-between gap-3 mb-2">
-                                    <div>
-                                        <div className="text-sm font-bold text-gray-200">{snippet.title || snippet.location}</div>
-                                        <div className="text-[10px] uppercase tracking-widest text-gray-500">{snippet.priority}</div>
-                                    </div>
+                                        <div>
+                                            <div className="text-sm font-bold text-gray-200">{snippet.title || snippet.location}</div>
+                                            <div className="text-[10px] uppercase tracking-widest text-gray-500">{snippet.priority}</div>
+                                        </div>
                                     {snippet.date ? (
                                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-black/50 text-cyan-400">
                                             {formatAshtrailDate(snippet.date, temporality || undefined)}
                                         </span>
                                     ) : (
                                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-black/50 text-indigo-300">CANON</span>
+                                    )}
+                                </div>
+                                <div className="mb-2 flex flex-wrap gap-2 text-[9px] uppercase tracking-[0.18em]">
+                                    <span className={`rounded-full px-2 py-1 ${snippet.source === "humanity_generated" ? "bg-orange-500/10 text-orange-200" : "bg-cyan-500/10 text-cyan-200"}`}>
+                                        {snippet.source === "humanity_generated" ? "Humanity Generated" : "Manual"}
+                                    </span>
+                                    {snippet.isCustomized && <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-200">Customized</span>}
+                                    {snippet.id !== MAIN_LORE_ID && (
+                                        <span className="rounded-full bg-white/5 px-2 py-1 text-gray-400">{snippetLocationLabel(snippet, areas)}</span>
                                     )}
                                 </div>
                                 <div className="text-[10px] text-gray-500 line-clamp-3">{snippet.content || "Empty lore snippet."}</div>
@@ -384,7 +409,7 @@ export function LoreTab({ selectedWorld }: LoreTabProps) {
                                     <span className="text-[10px] font-bold text-gray-400 tracking-widest uppercase">Location</span>
                                     <select value={draftLocation} onChange={e => setDraftLocation(e.target.value)} className="w-full bg-[#05080c] border border-white/5 rounded-xl p-4 text-sm text-gray-200 focus:outline-none focus:border-cyan-500/50">
                                         <option value="Unknown">Unknown Location</option>
-                                        {areas.map(area => <option key={area.id} value={area.name}>{area.name}</option>)}
+                                        {areas.map(area => <option key={area.id} value={area.name}>{`${area.name} • ${area.provinceName}`}</option>)}
                                     </select>
                                 </label>
                             </div>
@@ -447,6 +472,14 @@ export function LoreTab({ selectedWorld }: LoreTabProps) {
                                 <p className="text-[10px] tracking-widest uppercase text-gray-500 mt-1">
                                     {selectedSnippet.id === MAIN_LORE_ID ? "Canonical world ambience used by the GM" : "Autosaved to the selected world folder"}
                                 </p>
+                                <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.18em]">
+                                    <span className={`rounded-full px-2 py-1 ${selectedSnippet.source === "humanity_generated" ? "bg-orange-500/10 text-orange-200" : "bg-cyan-500/10 text-cyan-200"}`}>
+                                        {selectedSnippet.source === "humanity_generated" ? "Humanity Generated" : "Manual"}
+                                    </span>
+                                    {selectedSnippet.isCustomized && <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-200">Customized</span>}
+                                    {selectedSnippet.locationId && <span className="rounded-full bg-white/5 px-2 py-1 text-gray-300">Location Linked</span>}
+                                    {selectedSnippet.provinceRegionId && <span className="rounded-full bg-white/5 px-2 py-1 text-gray-300">{snippetLocationLabel(selectedSnippet, areas)}</span>}
+                                </div>
                             </div>
                             {selectedSnippet.id !== MAIN_LORE_ID && (
                                 <Button onClick={() => handleDeleteSnippet(selectedSnippet.id)} className="bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30 px-4 py-1.5 text-xs tracking-widest">
@@ -487,14 +520,14 @@ export function LoreTab({ selectedWorld }: LoreTabProps) {
                             <>
                                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
                                     <div className="flex flex-col gap-2">
-                                        <label className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Target Date</label>
+                                    <label className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Target Date</label>
                                         <DateSelector config={temporality || undefined} date={selectedSnippet.date || DEFAULT_DATE} onChange={date => updateSelectedSnippet({ date })} />
                                     </div>
                                     <label className="flex flex-col gap-2">
                                         <span className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Location</span>
                                         <select value={selectedSnippet.location} onChange={e => updateSelectedSnippet({ location: e.target.value })} className="bg-[#0a0f14] border border-white/5 rounded-xl p-4 text-sm text-gray-200 focus:outline-none focus:border-cyan-500/50">
                                             <option value="Unknown">Unknown Location</option>
-                                            {areas.map(area => <option key={area.id} value={area.name}>{area.name}</option>)}
+                                            {areas.map(area => <option key={area.id} value={area.name}>{`${area.name} • ${area.provinceName}`}</option>)}
                                         </select>
                                     </label>
                                 </div>

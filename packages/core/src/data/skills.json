@@ -534,32 +534,5 @@
     "damage": 14,
     "cooldown": 2,
     "effectType": "physical"
-  },
-  {
-    "apCost": 3,
-    "areaSize": 0,
-    "areaType": "single",
-    "category": "base",
-    "cooldown": 0,
-    "damage": 10,
-    "description": "A quick melee strike using the equipped weapon. The unit will use fists if nothing is equipped. ",
-    "effectType": "physical",
-    "effects": [
-      {
-        "description": "If equipped, the unit will use a weapon. ",
-        "id": "effect-1772726454302",
-        "name": "Weapon Using",
-        "target": "mainHand",
-        "trigger": "on_hit",
-        "type": "WEAPON_DAMAGE_REPLACEMENT",
-        "value": 1
-      }
-    ],
-    "icon": "🗡️",
-    "id": "slash",
-    "maxRange": 1,
-    "minRange": 1,
-    "name": "Use Weapon",
-    "targetType": "enemy"
   }
 ]

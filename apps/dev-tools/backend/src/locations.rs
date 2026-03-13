@@ -11,6 +11,7 @@ use crate::gemini;
 
 const PROVINCE_REGION_PREFIX: &str = "wgen_provinces_";
 const BATCH_SIZE: usize = 12;
+const MAX_GENERATED_LORE_SNIPPETS: usize = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -48,6 +49,13 @@ pub enum LocationScale {
     Medium,
     Major,
     Grand,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordSource {
+    Manual,
+    HumanityGenerated,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,8 +98,36 @@ pub struct LocationRecord {
     pub placement_drivers: Vec<String>,
     pub history_hooks: LocationHistoryHooks,
     pub lore: String,
+    #[serde(default = "default_record_source")]
+    pub source: RecordSource,
+    #[serde(default)]
+    pub is_customized: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_humanity_job_id: Option<String>,
     #[serde(rename = "type")]
     pub type_label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LocationGenerationScopeMode {
+    World,
+    Scoped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LocationScopeTargetKind {
+    Kingdom,
+    Duchy,
+    Province,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationScopeTarget {
+    pub kind: LocationScopeTargetKind,
+    pub id: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +139,12 @@ pub struct LocationGenerationRequest {
     pub settlement_density: f32,
     #[serde(default = "default_tech_level")]
     pub tech_level: f32,
+    #[serde(default = "default_scope_mode")]
+    pub scope_mode: LocationGenerationScopeMode,
+    #[serde(default)]
+    pub scope_targets: Vec<LocationScopeTarget>,
+    #[serde(default = "default_redo_mode")]
+    pub redo_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +153,9 @@ pub struct LocationGenerationConfig {
     pub prompt: String,
     pub settlement_density: f32,
     pub tech_level: f32,
+    pub scope_mode: LocationGenerationScopeMode,
+    pub scope_targets: Vec<LocationScopeTarget>,
+    pub resolved_province_ids: Vec<u32>,
     pub generated_at: u64,
 }
 
@@ -149,14 +194,26 @@ pub struct LocationGenerationMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LoreSnippetLite {
+pub struct LoreSnippetLite {
     pub id: String,
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default = "default_lore_priority")]
+    pub priority: String,
+    #[serde(default)]
+    pub date: Option<serde_json::Value>,
     #[serde(default)]
     pub location: String,
     #[serde(default)]
+    pub location_id: Option<String>,
+    #[serde(default)]
+    pub province_region_id: Option<String>,
+    #[serde(default)]
     pub content: String,
+    #[serde(default = "default_record_source")]
+    pub source: RecordSource,
+    #[serde(default)]
+    pub is_customized: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -321,6 +378,7 @@ struct WorldContext {
     world_seed_prompt: String,
     humanity_prompt: String,
     temporality: serde_json::Value,
+    main_lore: String,
     lore_snippets: Vec<LoreSnippetLite>,
 }
 
@@ -333,7 +391,272 @@ struct LocationBlueprint {
 #[derive(Debug, Clone)]
 pub struct LocationGenerationOutput {
     pub locations: Vec<LocationRecord>,
+    pub lore_snippets: Vec<LoreSnippetLite>,
     pub metadata: LocationGenerationMetadata,
+    pub resolved_province_ids: Vec<u32>,
+    pub generated_location_count: usize,
+    pub generated_lore_count: usize,
+}
+
+pub fn resolve_scope_province_ids(
+    planets_dir: &Path,
+    world_id: &str,
+    scope_mode: &LocationGenerationScopeMode,
+    scope_targets: &[LocationScopeTarget],
+) -> Result<Vec<u32>, String> {
+    let worldgen_dir = planets_dir.join(world_id).join("worldgen");
+    let provinces: Vec<ProvinceRecord> = read_json(worldgen_dir.join("provinces.json"))?;
+    let duchies: Vec<DuchyRecord> = read_json(worldgen_dir.join("duchies.json"))?;
+    let kingdoms: Vec<KingdomRecord> = read_json(worldgen_dir.join("kingdoms.json"))?;
+    let request = LocationGenerationRequest {
+        prompt: String::new(),
+        settlement_density: default_settlement_density(),
+        tech_level: default_tech_level(),
+        scope_mode: scope_mode.clone(),
+        scope_targets: scope_targets.to_vec(),
+        redo_mode: default_redo_mode(),
+    };
+    resolve_scope_province_ids_from_hierarchy(&request, &provinces, &duchies, &kingdoms)
+}
+
+pub fn merge_saved_locations(
+    existing: &[LocationRecord],
+    incoming: Vec<LocationRecord>,
+) -> Vec<LocationRecord> {
+    let existing_by_id = existing
+        .iter()
+        .map(|record| (record.id.clone(), record))
+        .collect::<HashMap<_, _>>();
+    incoming
+        .into_iter()
+        .map(|mut record| {
+            if let Some(previous) = existing_by_id.get(&record.id) {
+                let changed = location_edit_signature(previous) != location_edit_signature(&record);
+                record.source = previous.source.clone();
+                record.last_humanity_job_id = previous.last_humanity_job_id.clone();
+                record.is_customized = match previous.source {
+                    RecordSource::HumanityGenerated => previous.is_customized || changed,
+                    RecordSource::Manual => previous.is_customized || changed,
+                };
+            } else {
+                record.source = RecordSource::Manual;
+                record.is_customized = true;
+                record.last_humanity_job_id = None;
+            }
+            normalize_location_record(&record)
+        })
+        .collect()
+}
+
+pub fn adopt_existing_humanity_output(
+    planets_dir: &Path,
+    world_id: &str,
+    scope_mode: &LocationGenerationScopeMode,
+    scope_targets: &[LocationScopeTarget],
+) -> Result<Vec<LocationRecord>, String> {
+    let target_provinces = resolve_scope_province_ids(planets_dir, world_id, scope_mode, scope_targets)?
+        .into_iter()
+        .collect::<HashSet<_>>();
+    let adopted = read_locations(planets_dir, world_id)
+        .into_iter()
+        .map(|mut location| {
+            if target_provinces.contains(&location.province_id) && !location.is_customized {
+                location.source = RecordSource::HumanityGenerated;
+                location.is_customized = false;
+            }
+            normalize_location_record(&location)
+        })
+        .collect::<Vec<_>>();
+    write_locations(planets_dir, world_id, &adopted)
+}
+
+fn resolve_scope_province_ids_from_hierarchy(
+    request: &LocationGenerationRequest,
+    provinces: &[ProvinceRecord],
+    duchies: &[DuchyRecord],
+    kingdoms: &[KingdomRecord],
+) -> Result<Vec<u32>, String> {
+    if request.scope_mode == LocationGenerationScopeMode::World {
+        let mut ids = provinces.iter().map(|province| province.id).collect::<Vec<_>>();
+        ids.sort_unstable();
+        return Ok(ids);
+    }
+    if request.scope_targets.is_empty() {
+        return Err("Scoped Humanity runs require at least one kingdom, duchy, or province target.".to_string());
+    }
+
+    let duchy_provinces = duchies
+        .iter()
+        .map(|duchy| (duchy.id, duchy.province_ids.clone()))
+        .collect::<HashMap<_, _>>();
+    let kingdom_duchies = kingdoms
+        .iter()
+        .map(|kingdom| (kingdom.id, kingdom.duchy_ids.clone()))
+        .collect::<HashMap<_, _>>();
+    let province_ids = provinces.iter().map(|province| province.id).collect::<HashSet<_>>();
+    let mut selected = HashSet::new();
+
+    for target in &request.scope_targets {
+        match target.kind {
+            LocationScopeTargetKind::Province => {
+                if !province_ids.contains(&target.id) {
+                    return Err(format!("Province {} not found", target.id));
+                }
+                selected.insert(target.id);
+            }
+            LocationScopeTargetKind::Duchy => {
+                let Some(duchy_ids) = duchy_provinces.get(&target.id) else {
+                    return Err(format!("Duchy {} not found", target.id));
+                };
+                selected.extend(duchy_ids.iter().copied());
+            }
+            LocationScopeTargetKind::Kingdom => {
+                let Some(duchy_ids) = kingdom_duchies.get(&target.id) else {
+                    return Err(format!("Kingdom {} not found", target.id));
+                };
+                for duchy_id in duchy_ids {
+                    let Some(duchy_province_ids) = duchy_provinces.get(duchy_id) else {
+                        return Err(format!(
+                            "Duchy {} referenced by kingdom {} not found",
+                            duchy_id, target.id
+                        ));
+                    };
+                    selected.extend(duchy_province_ids.iter().copied());
+                }
+            }
+        }
+    }
+
+    let mut ids = selected.into_iter().collect::<Vec<_>>();
+    ids.sort_unstable();
+    Ok(ids)
+}
+
+fn should_replace_location(location: &LocationRecord, target_province_ids: &HashSet<u32>) -> bool {
+    target_province_ids.contains(&location.province_id)
+        && location.source == RecordSource::HumanityGenerated
+        && !location.is_customized
+}
+
+fn should_replace_generated_lore(snippet: &LoreSnippetLite, target_province_ids: &HashSet<u32>) -> bool {
+    if snippet.source != RecordSource::HumanityGenerated || snippet.is_customized {
+        return false;
+    }
+    if target_province_ids.is_empty() {
+        return true;
+    }
+    snippet
+        .province_region_id
+        .as_deref()
+        .and_then(|value| value.strip_prefix(PROVINCE_REGION_PREFIX))
+        .and_then(|value| value.parse::<u32>().ok())
+        .map(|province_id| target_province_ids.contains(&province_id))
+        .unwrap_or(false)
+}
+
+fn prune_removed_lore_links(location: &mut LocationRecord, removed_generated_lore_ids: &HashSet<String>) {
+    if removed_generated_lore_ids.is_empty() {
+        return;
+    }
+    location.history_hooks.linked_lore_snippet_ids = location
+        .history_hooks
+        .linked_lore_snippet_ids
+        .iter()
+        .filter(|id| !removed_generated_lore_ids.contains(*id))
+        .cloned()
+        .collect();
+}
+
+fn build_generated_lore_snippets(locations: &[LocationRecord]) -> Vec<LoreSnippetLite> {
+    let mut sorted = locations.iter().collect::<Vec<_>>();
+    sorted.sort_by(|a, b| b.importance.cmp(&a.importance).then_with(|| a.name.cmp(&b.name)));
+
+    let mut selected = Vec::new();
+    let mut selected_ids = HashSet::new();
+    let mut covered_provinces = HashSet::new();
+
+    for location in &sorted {
+        if selected.len() >= MAX_GENERATED_LORE_SNIPPETS {
+            break;
+        }
+        if covered_provinces.insert(location.province_id) {
+            selected.push(*location);
+            selected_ids.insert(location.id.clone());
+        }
+    }
+
+    for location in &sorted {
+        if selected.len() >= MAX_GENERATED_LORE_SNIPPETS {
+            break;
+        }
+        if selected_ids.insert(location.id.clone()) {
+            selected.push(*location);
+        }
+    }
+
+    selected
+        .into_iter()
+        .map(|location| LoreSnippetLite {
+            id: deterministic_uuid_like(),
+            title: Some(location.name.clone()),
+            priority: "minor".to_string(),
+            date: None,
+            location: location.name.clone(),
+            location_id: Some(location.id.clone()),
+            province_region_id: Some(location.province_region_id.clone()),
+            content: build_generated_location_lore_content(location),
+            source: RecordSource::HumanityGenerated,
+            is_customized: false,
+        })
+        .collect()
+}
+
+fn build_generated_location_lore_content(location: &LocationRecord) -> String {
+    let founding_reason = location.history_hooks.founding_reason.trim();
+    let current_tension = location.history_hooks.current_tension.trim();
+    let mut sentences = vec![location.lore.trim().to_string()];
+    if !founding_reason.is_empty() {
+        sentences.push(format!("Founding: {founding_reason}"));
+    }
+    if !current_tension.is_empty() {
+        sentences.push(format!("Current tension: {current_tension}"));
+    }
+    sentences
+        .into_iter()
+        .filter(|entry| !entry.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn location_edit_signature(record: &LocationRecord) -> String {
+    serde_json::to_string(&serde_json::json!({
+        "name": record.name,
+        "category": record.category,
+        "subtype": record.subtype,
+        "status": record.status,
+        "scale": record.scale,
+        "provinceId": record.province_id,
+        "provinceRegionId": record.province_region_id,
+        "provinceName": record.province_name,
+        "duchyId": record.duchy_id,
+        "kingdomId": record.kingdom_id,
+        "continentId": record.continent_id,
+        "x": record.x,
+        "y": record.y,
+        "populationEstimate": record.population_estimate,
+        "importance": record.importance,
+        "habitabilityScore": record.habitability_score,
+        "economicScore": record.economic_score,
+        "strategicScore": record.strategic_score,
+        "hazardScore": record.hazard_score,
+        "rulingFaction": record.ruling_faction,
+        "tags": record.tags,
+        "placementDrivers": record.placement_drivers,
+        "historyHooks": record.history_hooks,
+        "lore": record.lore,
+        "type": record.type_label,
+    }))
+    .unwrap_or_default()
 }
 
 pub async fn simulate_locations(
@@ -364,7 +687,12 @@ pub async fn simulate_locations(
     .unwrap_or_default();
     let cell_features: Option<CellFeaturesLite> =
         read_optional_json(planets_dir.join(world_id).join("cell_features.json"));
+    let existing_locations = read_locations(planets_dir, world_id);
+    let existing_lore_snippets: Vec<LoreSnippetLite> =
+        read_optional_json(planets_dir.join(world_id).join("lore_snippets.json")).unwrap_or_default();
     let world_context = load_world_context(planets_dir, world_id, request)?;
+    let requested_province_ids =
+        resolve_scope_province_ids_from_hierarchy(request, &provinces, &duchies, &kingdoms)?;
 
     let province_id_image = image::open(worldgen_dir.join("province_id.png"))
         .map_err(|e| format!("Failed to read province_id.png: {e}"))?
@@ -449,6 +777,27 @@ pub async fn simulate_locations(
 
     mark_seats(&mut contexts);
 
+    let resolved_province_ids = if request.scope_mode == LocationGenerationScopeMode::World {
+        let mut ids = contexts.iter().map(|ctx| ctx.province.id).collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids
+    } else {
+        requested_province_ids
+    };
+    let resolved_province_set = resolved_province_ids.iter().copied().collect::<HashSet<_>>();
+
+    let mut preserved_locations = existing_locations
+        .into_iter()
+        .filter(|location| !should_replace_location(location, &resolved_province_set))
+        .collect::<Vec<_>>();
+    let preserved_counts = preserved_locations
+        .iter()
+        .filter(|location| resolved_province_set.contains(&location.province_id))
+        .fold(HashMap::<u32, usize>::new(), |mut counts, location| {
+            *counts.entry(location.province_id).or_insert(0) += 1;
+            counts
+        });
+
     let avg_habitability = if contexts.is_empty() {
         0.0
     } else {
@@ -463,18 +812,29 @@ pub async fn simulate_locations(
         + 0.1 * ((avg_habitability - 50.0) / 50.0))
         .clamp(0.35, 0.65);
 
-    let mut locations = Vec::new();
+    let mut generated_locations = Vec::new();
     let area_quartile = upper_area_quartile(&contexts);
-    let mut settlement_count = 0usize;
+    let mut settlement_count = preserved_locations
+        .iter()
+        .filter(|location| location.category == LocationCategory::Settlement)
+        .count();
 
     contexts.sort_by_key(|ctx| ctx.province.id);
 
     for context in &contexts {
+        if !resolved_province_set.contains(&context.province.id) {
+            continue;
+        }
         if !context.viability.is_viable_land {
             continue;
         }
 
-        let node_count = compute_node_count(context, area_quartile, request.settlement_density);
+        let desired_node_count = compute_node_count(context, area_quartile, request.settlement_density);
+        let preserved_count = preserved_counts.get(&context.province.id).copied().unwrap_or(0);
+        let node_count = desired_node_count.saturating_sub(preserved_count);
+        if node_count == 0 {
+            continue;
+        }
         let anchors = choose_anchors(context, node_count);
         let mut province_blueprints = Vec::new();
 
@@ -498,7 +858,7 @@ pub async fn simulate_locations(
                 request,
                 target_settlement_ratio,
                 settlement_count,
-                locations.len() + province_blueprints.len(),
+                preserved_locations.len() + generated_locations.len() + province_blueprints.len(),
                 ensure_non_settlement,
             );
             if blueprint.location.category == LocationCategory::Settlement {
@@ -507,22 +867,67 @@ pub async fn simulate_locations(
             province_blueprints.push(blueprint);
         }
 
-        locations.extend(province_blueprints.into_iter().map(|bp| bp.location));
+        generated_locations.extend(province_blueprints.into_iter().map(|bp| bp.location));
     }
 
-    let ai_detail_pass = apply_ai_details(&world_context, &contexts, &mut locations).await;
+    let generated_location_count = generated_locations.len();
+    let ai_detail_pass = apply_ai_details(&world_context, &contexts, &mut generated_locations).await;
+
+    let removed_generated_lore_ids = existing_lore_snippets
+        .iter()
+        .filter(|snippet| should_replace_generated_lore(snippet, &resolved_province_set))
+        .map(|snippet| snippet.id.clone())
+        .collect::<HashSet<_>>();
+    let mut lore_snippets = existing_lore_snippets
+        .into_iter()
+        .filter(|snippet| !removed_generated_lore_ids.contains(&snippet.id))
+        .collect::<Vec<_>>();
+
+    let generated_lore_snippets = build_generated_lore_snippets(&generated_locations);
+    let generated_lore_links = generated_lore_snippets.iter().fold(
+        HashMap::<String, Vec<String>>::new(),
+        |mut links, snippet| {
+            if let Some(location_id) = &snippet.location_id {
+                links.entry(location_id.clone()).or_default().push(snippet.id.clone());
+            }
+            links
+        },
+    );
+
+    preserved_locations
+        .iter_mut()
+        .for_each(|location| prune_removed_lore_links(location, &removed_generated_lore_ids));
+    generated_locations
+        .iter_mut()
+        .for_each(|location| prune_removed_lore_links(location, &removed_generated_lore_ids));
+    generated_locations.iter_mut().for_each(|location| {
+        if let Some(linked_ids) = generated_lore_links.get(&location.id) {
+            location.history_hooks.linked_lore_snippet_ids =
+                unique_strings([location.history_hooks.linked_lore_snippet_ids.clone(), linked_ids.clone()].concat());
+        }
+    });
+
+    lore_snippets.extend(generated_lore_snippets.clone());
+
+    let mut final_locations = preserved_locations;
+    final_locations.extend(generated_locations);
     let metadata = build_generation_metadata(
         world_id,
         request,
         &contexts,
-        &locations,
+        &final_locations,
+        &resolved_province_ids,
         &world_context.seed_hash,
         ai_detail_pass,
     );
 
     Ok(LocationGenerationOutput {
-        locations,
+        locations: final_locations,
+        lore_snippets,
         metadata,
+        resolved_province_ids,
+        generated_location_count,
+        generated_lore_count: generated_lore_snippets.len(),
     })
 }
 
@@ -719,6 +1124,12 @@ fn normalize_location_value(value: serde_json::Value) -> Option<LocationRecord> 
             .unwrap_or_default(),
         history_hooks,
         lore: string_field(object, "lore").unwrap_or_default(),
+        source: parse_record_source(object.get("source").and_then(|value| value.as_str())),
+        is_customized: object
+            .get("isCustomized")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        last_humanity_job_id: string_field(object, "lastHumanityJobId"),
         type_label: string_field(object, "type").unwrap_or_else(|| title_case(&subtype)),
     }))
 }
@@ -1198,6 +1609,9 @@ fn build_location_blueprint(
             placement_drivers,
             history_hooks,
             lore,
+            source: RecordSource::HumanityGenerated,
+            is_customized: false,
+            last_humanity_job_id: None,
             type_label,
         },
     }
@@ -1864,18 +2278,21 @@ fn build_ai_prompt(
     format!(
         "You are generating grounded worldbuilding details for a planetary location simulation tool.\n\
 Do not assume any specific setting such as Ashfall, Romoan, Avalon, post-apocalypse, or Earth-like history unless it is explicitly present in the supplied world context.\n\
-Only refine the requested fields. Do not move locations, change their category, subtype, scores, or province.\n\
+The main lore is the hard canon anchor. Supporting lore may elaborate on it, but must never contradict or override it.\n\
+Only refine the requested fields. Do not move locations, change their category, subtype, scores, or province. Keep all output localized to the supplied scope only.\n\
 \n\
 World Name: {world_name}\n\
+Main Lore:\n{main_lore}\n\
+\n\
 Canonical World Prompt:\n{world_prompt}\n\
 \n\
 Seed Prompt:\n{seed_prompt}\n\
 \n\
 Humanity Direction:\n{humanity_prompt}\n\
 \n\
-Temporality:\n{temporality}\n\
+Supporting Lore Snippets:\n{lore_block}\n\
 \n\
-Selected Lore Snippets:\n{lore_block}\n\
+Temporality:\n{temporality}\n\
 \n\
 Return ONLY a JSON array. Each object must contain exactly:\n\
 - id: string\n\
@@ -1887,12 +2304,13 @@ Return ONLY a JSON array. Each object must contain exactly:\n\
 \n\
 Refine these locations:\n{locations_json}",
         world_name = world_context.world_name,
+        main_lore = empty_fallback(&world_context.main_lore, "No main lore recorded."),
         world_prompt = empty_fallback(&world_context.world_prompt, "No canonical world prompt recorded."),
         seed_prompt = empty_fallback(&world_context.world_seed_prompt, "No seed prompt recorded."),
         humanity_prompt = empty_fallback(&world_context.humanity_prompt, "No additional humanity direction."),
+        lore_block = empty_fallback(&lore_block, "No supporting lore snippets available."),
         temporality = serde_json::to_string_pretty(&world_context.temporality)
             .unwrap_or_else(|_| "null".to_string()),
-        lore_block = empty_fallback(&lore_block, "No lore snippets available."),
         locations_json = locations_json,
     )
 }
@@ -1927,6 +2345,7 @@ fn build_generation_metadata(
     request: &LocationGenerationRequest,
     contexts: &[ProvinceContext],
     locations: &[LocationRecord],
+    resolved_province_ids: &[u32],
     seed_hash: &str,
     ai_detail_pass: AiDetailPassSummary,
 ) -> LocationGenerationMetadata {
@@ -1965,6 +2384,9 @@ fn build_generation_metadata(
             prompt: request.prompt.clone(),
             settlement_density: request.settlement_density,
             tech_level: request.tech_level,
+            scope_mode: request.scope_mode.clone(),
+            scope_targets: request.scope_targets.clone(),
+            resolved_province_ids: resolved_province_ids.to_vec(),
             generated_at: now_unix_ms(),
         },
         coverage: CoverageSummary {
@@ -2019,9 +2441,27 @@ fn load_world_context(
         .and_then(|value| value.as_str())
         .unwrap_or("")
         .to_string();
+    let main_lore = lore_snippets
+        .iter()
+        .find(|snippet| snippet.id == "main-lore" || snippet.priority == "main")
+        .map(|snippet| snippet.content.trim().to_string())
+        .unwrap_or_default();
+    let supporting_lore = lore_snippets
+        .into_iter()
+        .filter(|snippet| {
+            snippet.id != "main-lore"
+                && matches!(snippet.source, RecordSource::Manual)
+                && matches!(snippet.priority.as_str(), "critical" | "major")
+        })
+        .collect::<Vec<_>>();
     let seed_hash = short_hash(&format!(
-        "{}:{}:{}:{:.3}:{:.3}",
-        world_id, world_name, request.prompt, request.settlement_density, request.tech_level
+        "{}:{}:{}:{:.3}:{:.3}:{:?}",
+        world_id,
+        world_name,
+        request.prompt,
+        request.settlement_density,
+        request.tech_level,
+        request.scope_targets
     ))
     .to_string();
 
@@ -2033,7 +2473,8 @@ fn load_world_context(
         world_seed_prompt,
         humanity_prompt: request.prompt.clone(),
         temporality,
-        lore_snippets,
+        main_lore,
+        lore_snippets: supporting_lore,
     })
 }
 
@@ -2381,4 +2822,27 @@ fn default_settlement_density() -> f32 {
 
 fn default_tech_level() -> f32 {
     0.4
+}
+
+pub fn default_scope_mode() -> LocationGenerationScopeMode {
+    LocationGenerationScopeMode::World
+}
+
+fn default_redo_mode() -> String {
+    "replace_scope".to_string()
+}
+
+fn default_record_source() -> RecordSource {
+    RecordSource::Manual
+}
+
+fn default_lore_priority() -> String {
+    "minor".to_string()
+}
+
+fn parse_record_source(value: Option<&str>) -> RecordSource {
+    match value.unwrap_or("manual") {
+        "humanity_generated" => RecordSource::HumanityGenerated,
+        _ => RecordSource::Manual,
+    }
 }

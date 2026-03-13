@@ -25,6 +25,21 @@ const DEFAULT_PLAYER_SKILL_IDS: &[&str] = &[
 
 const DEFAULT_ENEMY_SKILL_IDS: &[&str] = &["use-weapon", "quick-shot", "power-strike", "war-cry"];
 
+fn canonical_skill_id(skill_id: &str) -> &str {
+    match skill_id {
+        "slash" => "use-weapon",
+        _ => skill_id,
+    }
+}
+
+fn combat_skill_priority(skill_id: &str) -> usize {
+    match skill_id {
+        "use-weapon" => 0,
+        "first-aid" => 1,
+        _ => usize::MAX,
+    }
+}
+
 #[derive(Clone)]
 struct PreparedCombatant {
     team: CombatTeam,
@@ -223,7 +238,7 @@ fn resolve_combat_skills(
     let granted_skills = unlocked_nodes(content, character)
         .iter()
         .flat_map(|node| node.grants_skill_ids.iter())
-        .filter_map(|skill_id| content.skills.get(skill_id).cloned())
+        .filter_map(|skill_id| content.skills.get(canonical_skill_id(skill_id)).cloned())
         .collect::<Vec<_>>();
     skills.extend(granted_skills);
     skills = dedupe_skills(skills);
@@ -249,19 +264,27 @@ fn resolve_combat_skills(
         );
     }
 
-    dedupe_skills(skills)
+    prioritize_skills(dedupe_skills(skills))
 }
 
 fn refresh_skills(content: &ContentBundle, skills: &[Skill]) -> Vec<Skill> {
     skills
         .iter()
-        .filter(|skill| skill.id != "slash")
         .map(|skill| {
+            let canonical_id = canonical_skill_id(&skill.id);
             content
                 .skills
-                .get(&skill.id)
+                .get(canonical_id)
                 .cloned()
-                .unwrap_or_else(|| skill.clone())
+                .unwrap_or_else(|| {
+                    if canonical_id == skill.id {
+                        skill.clone()
+                    } else {
+                        let mut normalized = skill.clone();
+                        normalized.id = canonical_id.to_string();
+                        normalized
+                    }
+                })
         })
         .collect()
 }
@@ -434,6 +457,11 @@ fn dedupe_skills(skills: Vec<Skill>) -> Vec<Skill> {
         .into_iter()
         .filter(|skill| seen.insert(skill.id.clone()))
         .collect()
+}
+
+fn prioritize_skills(mut skills: Vec<Skill>) -> Vec<Skill> {
+    skills.sort_by_key(|skill| combat_skill_priority(&skill.id));
+    skills
 }
 
 fn dedupe_traits(traits: Vec<Trait>) -> Vec<Trait> {

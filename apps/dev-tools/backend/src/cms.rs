@@ -5,7 +5,144 @@ use crate::{
     AppState,
 };
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use base64::Engine as _;
+use serde_json::{json, Value};
 use std::fs;
+use std::path::{Path, PathBuf};
+
+fn character_portraits_dir(state: &AppState) -> PathBuf {
+    state.character_portraits_dir.clone()
+}
+
+fn characters_dir(state: &AppState) -> PathBuf {
+    state.characters_dir.clone()
+}
+
+fn parse_data_url_image(value: &str) -> Option<(&str, Vec<u8>)> {
+    let payload = value.strip_prefix("data:")?;
+    let (meta, encoded) = payload.split_once(',')?;
+    if !meta.ends_with(";base64") {
+        return None;
+    }
+    let mime = meta.trim_end_matches(";base64");
+    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+    Some((mime, bytes))
+}
+
+fn image_extension_for_mime(mime: &str) -> &'static str {
+    match mime {
+        "image/jpeg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        _ => "png",
+    }
+}
+
+fn portrait_public_url(file_name: &str) -> String {
+    format!("/api/character-portraits/{file_name}")
+}
+
+fn extract_portrait_file_name(value: &str) -> Option<String> {
+    let path = value.split('?').next().unwrap_or(value);
+    path.strip_prefix("/api/character-portraits/")
+        .map(str::to_string)
+        .filter(|name| !name.is_empty() && !name.contains("..") && !name.contains('/'))
+}
+
+fn remove_existing_portrait_assets(
+    portraits_dir: &Path,
+    character_id: &str,
+    existing_value: Option<&Value>,
+) {
+    if let Some(file_name) = existing_value
+        .and_then(Value::as_str)
+        .and_then(extract_portrait_file_name)
+    {
+        let _ = fs::remove_file(portraits_dir.join(file_name));
+    }
+
+    if let Ok(entries) = fs::read_dir(portraits_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            if stem == character_id {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+}
+
+fn normalize_character_portrait(
+    state: &AppState,
+    payload: &mut Value,
+) -> Result<bool, (StatusCode, String)> {
+    let Some(obj) = payload.as_object_mut() else {
+        return Ok(false);
+    };
+
+    let id = obj
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let portraits_dir = character_portraits_dir(state);
+    fs::create_dir_all(&portraits_dir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create portraits dir: {e}")))?;
+
+    let existing_path = characters_dir(state).join(format!("{id}.json"));
+    let existing_record = fs::read_to_string(&existing_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+    let existing_portrait = existing_record
+        .as_ref()
+        .and_then(|record| record.get("portraitUrl"))
+        .cloned();
+
+    let Some(portrait_url) = obj.get("portraitUrl").cloned() else {
+        remove_existing_portrait_assets(&portraits_dir, &id, existing_portrait.as_ref());
+        return Ok(false);
+    };
+
+    if portrait_url.is_null() {
+        obj.remove("portraitUrl");
+        remove_existing_portrait_assets(&portraits_dir, &id, existing_portrait.as_ref());
+        return Ok(true);
+    }
+
+    let Some(portrait_url_str) = portrait_url.as_str() else {
+        return Ok(false);
+    };
+
+    if let Some((mime, bytes)) = parse_data_url_image(portrait_url_str) {
+        remove_existing_portrait_assets(&portraits_dir, &id, existing_portrait.as_ref());
+        let extension = image_extension_for_mime(mime);
+        let file_name = format!("{id}.{extension}");
+        let output_path = portraits_dir.join(&file_name);
+        fs::write(&output_path, bytes).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write portrait asset: {e}"),
+            )
+        })?;
+        let cache_busted = format!("{}?v={}", portrait_public_url(&file_name), chrono::Utc::now().timestamp_millis());
+        obj.insert("portraitUrl".to_string(), Value::String(cache_busted));
+        return Ok(true);
+    }
+
+    if let Some(file_name) = extract_portrait_file_name(portrait_url_str) {
+        let path = portraits_dir.join(file_name);
+        if path.exists() {
+            return Ok(false);
+        }
+    }
+
+    Ok(false)
+}
 
 pub async fn get_traits(
     State(state): State<AppState>,
@@ -244,12 +381,9 @@ pub async fn save_items(
 }
 
 pub async fn get_characters(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dir = std::env::current_dir()
-        .unwrap()
-        .join("generated")
-        .join("characters");
+    let dir = characters_dir(&state);
     let mut characters = Vec::new();
     let rules = load_rules_from_file();
     let content = load_content_bundle().ok();
@@ -258,8 +392,15 @@ pub async fn get_characters(
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
-                if let Ok(raw) = fs::read_to_string(&path) {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Ok(content_raw) = fs::read_to_string(&path) {
+                    if let Ok(mut json) = serde_json::from_str::<Value>(&content_raw) {
+                        let normalized = normalize_character_portrait(&state, &mut json)?;
+                        if normalized {
+                            let _ = fs::write(
+                                &path,
+                                serde_json::to_string_pretty(&json).unwrap_or_else(|_| "{}".to_string()),
+                            );
+                        }
                         characters.push(normalize_character_payload(
                             json,
                             &rules,
@@ -271,23 +412,22 @@ pub async fn get_characters(
         }
     }
 
-    Ok((StatusCode::OK, Json(serde_json::Value::Array(characters))))
+    Ok((StatusCode::OK, Json(Value::Array(characters))))
 }
 
 pub async fn save_character(
-    State(_state): State<AppState>,
-    Json(payload): Json<serde_json::Value>,
+    State(state): State<AppState>,
+    Json(mut payload): Json<Value>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dir = std::env::current_dir()
-        .unwrap()
-        .join("generated")
-        .join("characters");
+    let dir = characters_dir(&state);
     if let Err(e) = fs::create_dir_all(&dir) {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to create characters dir: {}", e),
         ));
     }
+
+    normalize_character_portrait(&state, &mut payload)?;
 
     let id = payload
         .get("id")
@@ -300,7 +440,7 @@ pub async fn save_character(
     let normalized = normalize_character_payload(payload, &rules, content.as_ref());
     let json_string = serde_json::to_string_pretty(&normalized).unwrap();
     match fs::write(&path, json_string) {
-        Ok(_) => Ok((StatusCode::OK, Json(serde_json::json!({ "success": true })))),
+        Ok(_) => Ok((StatusCode::OK, Json(json!({ "success": true })))),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }

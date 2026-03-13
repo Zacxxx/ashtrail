@@ -546,6 +546,25 @@ export interface CombatResolutionSummary {
   turnCount?: number;
 }
 
+export interface QuestMemoryEntry {
+  id?: string;
+  title?: string;
+  text?: string;
+  kind?: string;
+}
+
+export interface QuestMemory {
+  activeFlags: string[];
+  openThreads: string[];
+  npcsInPlay: QuestNodeActor[];
+  recentNodes: QuestMemoryEntry[];
+  recentOutcomes: QuestMemoryEntry[];
+  selectedInfluenceIds: string[];
+  lastKnownGoal?: string;
+  lastKnownRisk?: string;
+  endingPressure: 'low' | 'medium' | 'high';
+}
+
 export interface QuestRunRecord {
   id: string;
   worldId: string;
@@ -573,6 +592,9 @@ export interface QuestRunRecord {
   worldConsequences?: QuestWorldConsequence[];
   introducedNpcIds?: string[];
   keyBeatIds?: string[];
+  questMemory?: QuestMemory | null;
+  contextDigestVersion?: number;
+  generationVersion?: number;
 }
 
 export interface QuestRunSummary {
@@ -649,6 +671,35 @@ export interface QuestIllustrationRecord {
   createdAt: number;
   updatedAt: number;
   error?: string | null;
+}
+
+export type QuestJobStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
+export type QuestJobKind = 'generate-run' | 'advance-run';
+
+export interface QuestJobAcceptedResponse {
+  jobId: string;
+  kind: QuestJobKind;
+}
+
+export interface QuestJobRecord {
+  jobId: string;
+  kind: QuestJobKind;
+  status: QuestJobStatus;
+  progress: number;
+  stage: string;
+  result?: {
+    run?: QuestRunRecord;
+    warnings?: string[];
+    materializedCharacters?: Character[];
+    restoredCharacters?: Character[];
+    partyUpdates?: Array<Record<string, unknown>>;
+  } | null;
+  error?: string | null;
+  worldId: string;
+  runId?: string | null;
+  cancelRequested: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface PointOfInterest {

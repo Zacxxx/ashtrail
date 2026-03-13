@@ -14,7 +14,7 @@ const TOOLS = [
         name: "Asset Generator",
         description: "AI-powered generation of icons and textures for game assets using Gemini.",
         icon: "🎨",
-        status: "WIP",
+        status: "STABLE",
         color: "bg-amber-500",
     },
     {
@@ -22,7 +22,7 @@ const TOOLS = [
         name: "Game Master",
         description: "World-scoped AI GM settings, canon context, and event guidance orchestration.",
         icon: "🧠",
-        status: "WIP",
+        status: "STABLE",
         color: "bg-indigo-500",
     },
     {
@@ -38,7 +38,7 @@ const TOOLS = [
         name: "Gameplay Engine",
         description: "Explore and define the rules for Exploration, Events, Combat, and Character.",
         icon: "⚙️",
-        status: "WIP",
+        status: "STABLE",
         color: "bg-orange-500",
     },
     {
@@ -46,7 +46,7 @@ const TOOLS = [
         name: "Character Builder",
         description: "Create, edit, and export characters, NPCs, and archetypes.",
         icon: "👤",
-        status: "WIP",
+        status: "STABLE",
         color: "bg-indigo-500",
     },
     {
@@ -54,7 +54,7 @@ const TOOLS = [
         name: "History",
         description: "AI powered tool to generate game history for lore, world, and factions.",
         icon: "📜",
-        status: "WIP",
+        status: "STABLE",
         color: "bg-red-500",
     },
     {
@@ -62,7 +62,7 @@ const TOOLS = [
         name: "Ecology",
         description: "World-scoped flora, fauna, climate, and province ecology canon management.",
         icon: "🌿",
-        status: "WIP",
+        status: "STABLE",
         color: "bg-emerald-500",
     },
     {
@@ -70,7 +70,7 @@ const TOOLS = [
         name: "Quests",
         description: "Generate, run, persist, and resume world-scoped multi-ending quest runs.",
         icon: "🧭",
-        status: "WIP",
+        status: "STABLE",
         color: "bg-amber-500",
     }
 ];

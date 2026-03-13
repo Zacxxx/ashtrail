@@ -23,6 +23,7 @@ export function GameplayEnginePage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [activeStep, setActiveStep] = useState<GameplayStep>(isGameplayStep(searchParams.get("step")) ? searchParams.get("step") as GameplayStep : "CHARACTER");
     const [combatInitData, setCombatInitData] = useState<{ players: string[], enemies: string[] } | null>(null);
+    const explorationTab = searchParams.get("explorationTab") === "world" ? "world" : "location";
 
     // Character Data State for live editing
     const [customTraits, setCustomTraits] = useState<Trait[]>([]);
@@ -67,7 +68,7 @@ export function GameplayEnginePage() {
 
             {/* ══ Tool-Specific Sub-Header ══ */}
             <div className="fixed top-16 left-0 right-0 z-30 bg-[#030508]/60 backdrop-blur-md border-b border-white/5 pointer-events-auto flex items-center justify-between px-6 h-12 shadow-2xl">
-                <div className="flex items-center gap-4">
+                <div className="flex min-w-[220px] items-center gap-4">
                     <h1 className="text-[10px] font-black tracking-[0.3em] text-white uppercase">GAMEPLAY ENGINE</h1>
                 </div>
 
@@ -93,6 +94,36 @@ export function GameplayEnginePage() {
                             </button>
                         ))}
                     </div>
+                </div>
+
+                <div className="flex min-w-[220px] items-center justify-end">
+                    {activeStep === "EXPLORATION" && (
+                        <div className="flex bg-[#1e1e1e]/40 border border-white/5 rounded-full p-1 shadow-lg backdrop-blur-md">
+                            {([
+                                { id: "location", label: "LOCATION EXPLORATION" },
+                                { id: "world", label: "WORLD EXPLORATION" },
+                            ] as const).map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => {
+                                        const next = new URLSearchParams(searchParams);
+                                        next.set("step", "EXPLORATION");
+                                        next.set("explorationTab", tab.id);
+                                        setSearchParams(next);
+                                    }}
+                                    className={`relative px-3 py-1.5 text-[8px] font-black tracking-[0.18em] rounded-full transition-all duration-300 overflow-hidden ${explorationTab === tab.id
+                                        ? "text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
+                                        : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                                        }`}
+                                >
+                                    {explorationTab === tab.id && (
+                                        <div className="absolute inset-0 bg-gradient-to-b from-orange-500/20 to-transparent pointer-events-none" />
+                                    )}
+                                    <span className="relative z-10">{tab.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -133,7 +164,7 @@ export function GameplayEnginePage() {
                 )}
 
                 {/* Center Canvas Wrapper */}
-                <div className={`flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ${activeStep !== "CHARACTER" && activeStep !== "COMBAT" && activeStep !== "SKILLS" && activeStep !== "RULES" ? "justify-center items-center" : ""}`}>
+                <div className={`flex-1 min-h-0 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden ${activeStep === "EVENTS" ? "justify-center items-center" : ""}`}>
                     {activeStep === "CHARACTER" && (
                         <div className="w-full h-full flex items-center justify-center relative">
                             {activeDetailTab === "traits" && (
@@ -181,7 +212,7 @@ export function GameplayEnginePage() {
                     )}
 
                     {activeStep === "EXPLORATION" && (
-                        <div className="w-full h-full">
+                        <div className="w-full h-full min-h-0 overflow-hidden">
                             <ExplorationView />
                         </div>
                     )}
