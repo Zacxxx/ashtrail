@@ -860,6 +860,10 @@ async fn main() {
             get(exploration_jobs::get_exploration_manifest),
         )
         .route(
+            "/api/planet/locations/{world_id}/{location_id}/exploration-chunks/{chunk_row}/{chunk_col}",
+            get(exploration_jobs::get_exploration_chunk),
+        )
+        .route(
             "/api/planet/locations/{world_id}/exploration-manifests",
             get(exploration_jobs::list_exploration_manifests),
         )
@@ -1928,7 +1932,10 @@ async fn generate_full_planet(
                                 },
                                 build_text_output_ref(
                                     "Generation Summary",
-                                    &format!("Run {} • {} nodes", manifest.run_key, manifest.total_nodes),
+                                    &format!(
+                                        "Run {} • {} nodes",
+                                        manifest.run_key, manifest.total_nodes
+                                    ),
                                 ),
                             ];
                             job.updated_at = now_ms();
@@ -2539,7 +2546,11 @@ fn normalize_lore_snippet_value(value: &serde_json::Value) -> Option<serde_json:
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(str::to_string);
-    let source = match obj.get("source").and_then(|v| v.as_str()).unwrap_or("manual") {
+    let source = match obj
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("manual")
+    {
         "humanity_generated" => "humanity_generated",
         _ => "manual",
     };
@@ -2610,22 +2621,13 @@ fn normalize_lore_snippets_value(value: serde_json::Value) -> serde_json::Value 
                         "location".to_string(),
                         serde_json::Value::String("World".to_string()),
                     );
-                    obj.insert(
-                        "locationId".to_string(),
-                        serde_json::Value::Null,
-                    );
-                    obj.insert(
-                        "provinceRegionId".to_string(),
-                        serde_json::Value::Null,
-                    );
+                    obj.insert("locationId".to_string(), serde_json::Value::Null);
+                    obj.insert("provinceRegionId".to_string(), serde_json::Value::Null);
                     obj.insert(
                         "source".to_string(),
                         serde_json::Value::String("manual".to_string()),
                     );
-                    obj.insert(
-                        "isCustomized".to_string(),
-                        serde_json::Value::Bool(true),
-                    );
+                    obj.insert("isCustomized".to_string(), serde_json::Value::Bool(true));
                 }
                 canonical_main = Some(main);
             } else if let Some(obj) = snippet.as_object_mut() {
@@ -2710,14 +2712,22 @@ fn lore_snippet_signature(snippet: &serde_json::Value) -> String {
     .unwrap_or_default()
 }
 
-fn merge_saved_lore_snippets(existing: &serde_json::Value, incoming: serde_json::Value) -> serde_json::Value {
+fn merge_saved_lore_snippets(
+    existing: &serde_json::Value,
+    incoming: serde_json::Value,
+) -> serde_json::Value {
     let normalized_existing = normalize_lore_snippets_value(existing.clone());
     let normalized_incoming = normalize_lore_snippets_value(incoming);
     let existing_by_id = normalized_existing
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|snippet| snippet.get("id").and_then(|value| value.as_str()).map(|id| (id.to_string(), snippet.clone())))
+        .filter_map(|snippet| {
+            snippet
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(|id| (id.to_string(), snippet.clone()))
+        })
         .collect::<HashMap<_, _>>();
 
     let merged = normalized_incoming
@@ -2726,10 +2736,19 @@ fn merge_saved_lore_snippets(existing: &serde_json::Value, incoming: serde_json:
         .flatten()
         .map(|snippet| {
             let mut next = snippet.clone();
-            let id = snippet.get("id").and_then(|value| value.as_str()).unwrap_or_default();
-            let priority = snippet.get("priority").and_then(|value| value.as_str()).unwrap_or("minor");
+            let id = snippet
+                .get("id")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            let priority = snippet
+                .get("priority")
+                .and_then(|value| value.as_str())
+                .unwrap_or("minor");
             if let Some(previous) = existing_by_id.get(id) {
-                let previous_source = previous.get("source").and_then(|value| value.as_str()).unwrap_or("manual");
+                let previous_source = previous
+                    .get("source")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("manual");
                 let changed = lore_snippet_signature(previous) != lore_snippet_signature(snippet);
                 if let Some(obj) = next.as_object_mut() {
                     obj.insert(
@@ -2739,8 +2758,11 @@ fn merge_saved_lore_snippets(existing: &serde_json::Value, incoming: serde_json:
                     obj.insert(
                         "isCustomized".to_string(),
                         serde_json::Value::Bool(
-                            previous.get("isCustomized").and_then(|value| value.as_bool()).unwrap_or(priority == "main")
-                                || changed
+                            previous
+                                .get("isCustomized")
+                                .and_then(|value| value.as_bool())
+                                .unwrap_or(priority == "main")
+                                || changed,
                         ),
                     );
                 }
@@ -2749,10 +2771,7 @@ fn merge_saved_lore_snippets(existing: &serde_json::Value, incoming: serde_json:
                     "source".to_string(),
                     serde_json::Value::String("manual".to_string()),
                 );
-                obj.insert(
-                    "isCustomized".to_string(),
-                    serde_json::Value::Bool(true),
-                );
+                obj.insert("isCustomized".to_string(), serde_json::Value::Bool(true));
             }
             if priority == "main" {
                 if let Some(obj) = next.as_object_mut() {
@@ -2760,10 +2779,7 @@ fn merge_saved_lore_snippets(existing: &serde_json::Value, incoming: serde_json:
                         "source".to_string(),
                         serde_json::Value::String("manual".to_string()),
                     );
-                    obj.insert(
-                        "isCustomized".to_string(),
-                        serde_json::Value::Bool(true),
-                    );
+                    obj.insert("isCustomized".to_string(), serde_json::Value::Bool(true));
                 }
             }
             next
@@ -2775,14 +2791,10 @@ fn merge_saved_lore_snippets(existing: &serde_json::Value, incoming: serde_json:
 
 fn evaluate_humanity_readiness_from_lore(lore: &serde_json::Value) -> HumanityReadinessResponse {
     let min_main_lore_chars = 250usize;
-    let main_lore = lore
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|snippet| {
-            snippet.get("id").and_then(|value| value.as_str()) == Some("main-lore")
-                || snippet.get("priority").and_then(|value| value.as_str()) == Some("main")
-        });
+    let main_lore = lore.as_array().into_iter().flatten().find(|snippet| {
+        snippet.get("id").and_then(|value| value.as_str()) == Some("main-lore")
+            || snippet.get("priority").and_then(|value| value.as_str()) == Some("main")
+    });
     let main_lore_text = main_lore
         .and_then(|snippet| snippet.get("content").and_then(|value| value.as_str()))
         .unwrap_or("")
@@ -3574,7 +3586,9 @@ async fn get_humanity_readiness(
     let lore = read_lore_snippets(&state, &id);
     (
         StatusCode::OK,
-        Json(serde_json::json!(evaluate_humanity_readiness_from_lore(&lore))),
+        Json(serde_json::json!(evaluate_humanity_readiness_from_lore(
+            &lore
+        ))),
     )
         .into_response()
 }
@@ -3711,7 +3725,10 @@ async fn save_locations(
     }
 
     let existing = locations::read_locations(&state.planets_dir, &id);
-    let normalized = locations::merge_saved_locations(&existing, locations::normalize_locations_value(locations));
+    let normalized = locations::merge_saved_locations(
+        &existing,
+        locations::normalize_locations_value(locations),
+    );
     match locations::write_locations(&state.planets_dir, &id, &normalized) {
         Ok(saved) => (StatusCode::OK, Json(serde_json::json!(saved))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
@@ -3774,8 +3791,14 @@ async fn generate_locations_job(
             None,
         );
         let mut metadata = serde_json::Map::new();
-        metadata.insert("scopeMode".to_string(), serde_json::json!(request.scope_mode));
-        metadata.insert("scopeTargets".to_string(), serde_json::json!(request.scope_targets));
+        metadata.insert(
+            "scopeMode".to_string(),
+            serde_json::json!(request.scope_mode),
+        );
+        metadata.insert(
+            "scopeTargets".to_string(),
+            serde_json::json!(request.scope_targets),
+        );
         if let Some(meta) = tracked_meta {
             if let Some(restore) = meta.restore {
                 metadata.insert("restore".to_string(), restore);
@@ -3812,9 +3835,11 @@ async fn generate_locations_job(
                     "Persisting scoped Humanity output...",
                     None,
                 );
-                let write_locations = locations::write_locations(&planets_dir, &world_id, &output.locations);
+                let write_locations =
+                    locations::write_locations(&planets_dir, &world_id, &output.locations);
                 let lore_path = planets_dir.join(&world_id).join("lore_snippets.json");
-                let normalized_lore = normalize_lore_snippets_value(serde_json::json!(output.lore_snippets));
+                let normalized_lore =
+                    normalize_lore_snippets_value(serde_json::json!(output.lore_snippets));
                 let write_lore = std::fs::write(
                     &lore_path,
                     serde_json::to_string_pretty(&normalized_lore).unwrap_or_default(),
@@ -3888,22 +3913,24 @@ async fn generate_locations_job(
                             }
                         }
                         set_location_job_state(
-                        &jobs,
-                        &spawned_job_id,
-                        JobStatus::Completed,
-                        100.0,
-                        "Completed",
-                        None,
-                    )
+                            &jobs,
+                            &spawned_job_id,
+                            JobStatus::Completed,
+                            100.0,
+                            "Completed",
+                            None,
+                        )
                     }
-                    (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => set_location_job_state(
-                        &jobs,
-                        &spawned_job_id,
-                        JobStatus::Failed,
-                        100.0,
-                        "Failed to persist Humanity output",
-                        Some(error),
-                    ),
+                    (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
+                        set_location_job_state(
+                            &jobs,
+                            &spawned_job_id,
+                            JobStatus::Failed,
+                            100.0,
+                            "Failed to persist Humanity output",
+                            Some(error),
+                        )
+                    }
                 }
             }
             Err(error) => {
@@ -7127,7 +7154,11 @@ fn local_to_cloud_key(
         return Some(format!("{}/planets/{}", cfg.prefix, normalize_slashes(rel)));
     }
     if let Ok(rel) = local_path.strip_prefix(&state.characters_dir) {
-        return Some(format!("{}/characters/{}", cfg.prefix, normalize_slashes(rel)));
+        return Some(format!(
+            "{}/characters/{}",
+            cfg.prefix,
+            normalize_slashes(rel)
+        ));
     }
     if let Ok(rel) = local_path.strip_prefix(&state.icons_dir) {
         return Some(format!("{}/icons/{}", cfg.prefix, normalize_slashes(rel)));

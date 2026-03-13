@@ -107,6 +107,60 @@ pub struct ExplorationMap {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExplorationSpawnPoint {
+    pub row: u32,
+    pub col: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorationManifestDescriptor {
+    pub id: String,
+    pub world_id: String,
+    pub location_id: String,
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub chunk_size: u32,
+    pub version: u32,
+    pub render_mode: String,
+    pub ambient_light: f32,
+    pub spawn: ExplorationSpawnPoint,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorationChunk {
+    pub id: String,
+    pub chunk_row: u32,
+    pub chunk_col: u32,
+    pub origin_row: u32,
+    pub origin_col: u32,
+    pub width: u32,
+    pub height: u32,
+    pub tiles: Vec<ExplorationTile>,
+    pub objects: Vec<ExplorationObject>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorationChunkSync {
+    pub descriptor_id: String,
+    pub chunks: Vec<ExplorationChunk>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorationVisibilityState {
+    pub revealed_interior_id: Option<String>,
+    pub revealed_roof_group_ids: Vec<String>,
+    pub opened_door_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PathNode {
     pub x: i32,
     pub y: i32,
@@ -115,8 +169,11 @@ pub struct PathNode {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorationSessionSnapshot {
-    pub map: ExplorationMap,
+    pub descriptor: ExplorationManifestDescriptor,
+    pub chunks: Vec<ExplorationChunk>,
+    pub pawns: Vec<ExplorationPawn>,
     pub selected_pawn_id: Option<String>,
+    pub visibility: ExplorationVisibilityState,
     pub tick: u64,
     pub connection_state: String,
 }
@@ -135,11 +192,18 @@ pub struct ExplorationSessionConfig {
 pub enum ExplorationClientAction {
     #[serde(rename_all = "camelCase")]
     StartSession {
-        map: ExplorationMap,
+        world_id: String,
+        location_id: String,
         #[serde(default)]
-        selected_pawn_id: Option<String>,
+        selected_character_ids: Vec<String>,
         #[serde(default)]
         config: Option<ExplorationSessionConfig>,
+    },
+    #[serde(rename_all = "camelCase")]
+    SubscribeChunks {
+        center_row: u32,
+        center_col: u32,
+        radius: u32,
     },
     #[serde(rename_all = "camelCase")]
     MoveTo {
@@ -170,13 +234,18 @@ pub enum ExplorationClientAction {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExplorationSessionEvent {
     #[serde(rename_all = "camelCase")]
-    StateSync {
+    SessionReady {
         state: ExplorationSessionSnapshot,
+    },
+    #[serde(rename_all = "camelCase")]
+    ChunkSync {
+        sync: ExplorationChunkSync,
     },
     #[serde(rename_all = "camelCase")]
     PawnSync {
         pawns: Vec<ExplorationPawn>,
         selected_pawn_id: Option<String>,
+        visibility: ExplorationVisibilityState,
         tick: u64,
         connection_state: String,
     },

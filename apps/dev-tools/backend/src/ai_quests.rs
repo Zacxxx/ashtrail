@@ -185,7 +185,11 @@ fn parse_job_launch_meta(headers: &HeaderMap) -> Option<JobLaunchMeta> {
     serde_json::from_slice::<JobLaunchMeta>(&decoded).ok()
 }
 
-fn build_quest_output_refs(world_id: &str, run_id: &str, chain_id: Option<&str>) -> Vec<JobOutputRef> {
+fn build_quest_output_refs(
+    world_id: &str,
+    run_id: &str,
+    chain_id: Option<&str>,
+) -> Vec<JobOutputRef> {
     let mut archive_search = Map::new();
     archive_search.insert("tab".to_string(), Value::String("archive".to_string()));
     archive_search.insert("worldId".to_string(), Value::String(world_id.to_string()));
@@ -264,7 +268,11 @@ fn build_quest_result_preview_refs(result: &Value) -> Vec<JobOutputRef> {
             if names.is_empty() {
                 format!("Materialized {} quest NPCs.", characters.len())
             } else {
-                format!("Materialized {} quest NPCs: {}", characters.len(), names.join(", "))
+                format!(
+                    "Materialized {} quest NPCs: {}",
+                    characters.len(),
+                    names.join(", ")
+                )
             }
         })
         .filter(|text| !text.is_empty());
@@ -309,7 +317,10 @@ fn build_quest_job_metadata(
         "worldId".to_string(),
         run_ref.get("worldId").cloned().unwrap_or(Value::Null),
     );
-    metadata.insert("runId".to_string(), run_ref.get("id").cloned().unwrap_or(Value::Null));
+    metadata.insert(
+        "runId".to_string(),
+        run_ref.get("id").cloned().unwrap_or(Value::Null),
+    );
     metadata.insert(
         "chainId".to_string(),
         run_ref.get("chainId").cloned().unwrap_or(Value::Null),
@@ -330,7 +341,10 @@ fn build_quest_job_metadata(
     );
     metadata.insert(
         "retrySnapshotId".to_string(),
-        run_ref.get("retrySnapshotId").cloned().unwrap_or(Value::Null),
+        run_ref
+            .get("retrySnapshotId")
+            .cloned()
+            .unwrap_or(Value::Null),
     );
     metadata.insert(
         "introducedNpcIds".to_string(),
@@ -341,7 +355,10 @@ fn build_quest_job_metadata(
     );
     metadata.insert(
         "keyBeatIds".to_string(),
-        run_ref.get("keyBeatIds").cloned().unwrap_or(Value::Array(vec![])),
+        run_ref
+            .get("keyBeatIds")
+            .cloned()
+            .unwrap_or(Value::Array(vec![])),
     );
     metadata.insert(
         "worldConsequencesCount".to_string(),
@@ -405,7 +422,9 @@ fn enrich_quest_job(
     let metadata = build_quest_job_metadata(result, restore, run_updated_at);
     state.quest_runtime.set_job_metadata(job_id, metadata);
     if let Some(run_id) = run_id {
-        state.quest_runtime.set_run_id(job_id, Some(run_id.to_string()));
+        state
+            .quest_runtime
+            .set_run_id(job_id, Some(run_id.to_string()));
     }
     if let (Some(world_id), Some(run_id)) = (world_id, run_id) {
         let mut output_refs = build_quest_output_refs(world_id, run_id, chain_id);
@@ -481,7 +500,11 @@ fn build_illustration_metadata(
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|npc| npc.get("id").and_then(Value::as_str).map(|id| Value::String(id.to_string())))
+        .filter_map(|npc| {
+            npc.get("id")
+                .and_then(Value::as_str)
+                .map(|id| Value::String(id.to_string()))
+        })
         .collect::<Vec<_>>();
     json!({
         "worldId": world_id,
@@ -631,7 +654,12 @@ async fn run_generate_quest_job(
 
     match execute_generate_quest_v2(&state, &payload, &job_id).await {
         Ok(result) => {
-            enrich_quest_job(&state, &job_id, &result, launch_meta.and_then(|meta| meta.restore));
+            enrich_quest_job(
+                &state,
+                &job_id,
+                &result,
+                launch_meta.and_then(|meta| meta.restore),
+            );
             runtime.update_job(
                 &job_id,
                 QuestJobStatus::Completed,
@@ -704,7 +732,12 @@ async fn run_advance_quest_job(
 
     match execute_advance_quest_v2(&state, &payload, &job_id).await {
         Ok(result) => {
-            enrich_quest_job(&state, &job_id, &result, launch_meta.and_then(|meta| meta.restore));
+            enrich_quest_job(
+                &state,
+                &job_id,
+                &result,
+                launch_meta.and_then(|meta| meta.restore),
+            );
             runtime.update_job(
                 &job_id,
                 QuestJobStatus::Completed,
@@ -1383,8 +1416,12 @@ async fn execute_generate_quest_v2(
         None,
         Some(&chain),
     )?;
-    let selected_influences =
-        collect_selected_influences(&payload.seed, &context.factions, &context.locations, &context.ecology);
+    let selected_influences = collect_selected_influences(
+        &payload.seed,
+        &context.factions,
+        &context.locations,
+        &context.ecology,
+    );
 
     state.quest_runtime.update_job(
         job_id,
@@ -1606,10 +1643,7 @@ async fn execute_generate_quest_v2(
         .cloned()
         .unwrap_or(Value::Null);
     if let Some(run_obj) = run.as_object_mut() {
-        run_obj.insert(
-            "pendingCombat".to_string(),
-            current_pending_combat,
-        );
+        run_obj.insert("pendingCombat".to_string(), current_pending_combat);
     }
 
     let retry_snapshot_id = create_retry_snapshot(
@@ -1644,7 +1678,9 @@ async fn execute_generate_quest_v2(
     persist_run_direct(
         &state.planets_dir,
         &payload.world_id,
-        run.get("id").and_then(Value::as_str).unwrap_or("unknown-run"),
+        run.get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown-run"),
         &run,
     )?;
 
@@ -2199,7 +2235,11 @@ fn resolve_party_value(payload: &GenerateQuestRunRequest) -> Result<Value, (Stat
         return Ok(payload.party.clone());
     }
     let party = load_builder_characters_by_ids(payload.party_character_ids.clone());
-    if party.as_array().map(|items| items.is_empty()).unwrap_or(true) {
+    if party
+        .as_array()
+        .map(|items| items.is_empty())
+        .unwrap_or(true)
+    {
         return Err((
             StatusCode::BAD_REQUEST,
             "Quest generation requires 1-3 party characters.".to_string(),
@@ -2241,8 +2281,7 @@ fn persist_run_direct(
     run: &Value,
 ) -> Result<(), (StatusCode, String)> {
     let dir = quest_dir(planets_dir, world_id);
-    fs::create_dir_all(&dir)
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    fs::create_dir_all(&dir).map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
     let path = dir.join(format!("{run_id}.json"));
     fs::write(
         path,
@@ -2271,9 +2310,13 @@ fn build_context_bundle(
         .unwrap_or_else(|| json!([]));
     let history_characters = read_optional_json(planets_dir.join(world_id).join("characters.json"))
         .unwrap_or_else(|| json!([]));
-    let ecology_bundle =
-        read_optional_json(planets_dir.join(world_id).join("ecology").join("bundle.json"))
-            .unwrap_or_else(|| json!({}));
+    let ecology_bundle = read_optional_json(
+        planets_dir
+            .join(world_id)
+            .join("ecology")
+            .join("bundle.json"),
+    )
+    .unwrap_or_else(|| json!({}));
     let ecology = compact_ecology_payload(&ecology_bundle);
     let world_name = metadata
         .get("name")
@@ -2303,7 +2346,8 @@ fn build_context_bundle(
         &["name", "type", "status", "lore"],
         4,
     );
-    let selected_ecology = summarize_selected_ecology(&ecology_bundle, seed.get("ecologyAnchorIds"), 6);
+    let selected_ecology =
+        summarize_selected_ecology(&ecology_bundle, seed.get("ecologyAnchorIds"), 6);
     let party_summary = summarize_party(party);
     let npc_candidates = summarize_selected_named_records(
         &history_characters,
@@ -2624,7 +2668,10 @@ fn summarize_party(party: &Value) -> String {
         .map(|character| {
             format!(
                 "- {} ({}) HP {}/{} | traits: {}",
-                character.get("name").and_then(Value::as_str).unwrap_or("Unknown"),
+                character
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Unknown"),
                 character
                     .get("occupation")
                     .and_then(|value| value.get("name"))
@@ -2639,7 +2686,10 @@ fn summarize_party(party: &Value) -> String {
                     .cloned()
                     .unwrap_or_default()
                     .into_iter()
-                    .filter_map(|trait_entry| trait_entry.get("name").and_then(Value::as_str).map(str::to_string))
+                    .filter_map(|trait_entry| trait_entry
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .map(str::to_string))
                     .take(4)
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -2655,7 +2705,10 @@ fn summarize_chain(chain: Option<&Value>) -> String {
     };
     format!(
         "Title: {}\nPremise: {}\nNext Hooks: {}\nStory Flags: {}",
-        chain.get("title").and_then(Value::as_str).unwrap_or("Untitled Chain"),
+        chain
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("Untitled Chain"),
         chain.get("premise").and_then(Value::as_str).unwrap_or(""),
         chain
             .get("nextQuestHooks")
@@ -2701,9 +2754,9 @@ fn summarize_selected_named_records(
         .into_iter()
         .filter(|entry| {
             desired_ids.is_empty()
-                || desired_ids.iter().any(|id| {
-                    entry.get(id_key).and_then(Value::as_str) == Some(id.as_str())
-                })
+                || desired_ids
+                    .iter()
+                    .any(|id| entry.get(id_key).and_then(Value::as_str) == Some(id.as_str()))
         })
         .take(limit)
         .map(|entry| {
@@ -2748,11 +2801,16 @@ fn summarize_selected_ecology(bundle: &Value, ids: Option<&Value>, limit: usize)
         {
             let id = entry.get("id").and_then(Value::as_str).unwrap_or("unknown");
             if !desired_ids.is_empty()
-                && !desired_ids.iter().any(|candidate| candidate == &format!("{prefix}:{id}"))
+                && !desired_ids
+                    .iter()
+                    .any(|candidate| candidate == &format!("{prefix}:{id}"))
             {
                 continue;
             }
-            let name = entry.get("name").and_then(Value::as_str).unwrap_or("Unknown");
+            let name = entry
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("Unknown");
             let description = entry
                 .get("description")
                 .and_then(Value::as_str)
@@ -2781,9 +2839,10 @@ fn compile_quest_lore_summary(lore_snippets: &Value, gm_settings: &Value) -> Str
     let lore_items = lore_snippets.as_array().cloned().unwrap_or_default();
     let mut selected = Vec::new();
     for priority in ["main", "critical", "major", "minor"] {
-        for snippet in lore_items.iter().filter(|snippet| {
-            snippet.get("priority").and_then(Value::as_str) == Some(priority)
-        }) {
+        for snippet in lore_items
+            .iter()
+            .filter(|snippet| snippet.get("priority").and_then(Value::as_str) == Some(priority))
+        {
             if selected.len() >= max_lore {
                 break;
             }
@@ -2804,10 +2863,7 @@ fn compile_quest_lore_summary(lore_snippets: &Value, gm_settings: &Value) -> Str
                 .and_then(Value::as_str)
                 .or_else(|| snippet.get("location").and_then(Value::as_str))
                 .unwrap_or("Untitled");
-            let content = snippet
-                .get("content")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let content = snippet.get("content").and_then(Value::as_str).unwrap_or("");
             format!("- {}: {}", title, trim_text(content, 240))
         })
         .collect::<Vec<_>>()
@@ -2882,14 +2938,16 @@ fn apply_party_updates_to_builder(
         let Some(character_id) = update.get("characterId").and_then(Value::as_str) else {
             continue;
         };
-        let Some(index) = characters
-            .iter()
-            .position(|character| character.get("id").and_then(Value::as_str) == Some(character_id))
-        else {
+        let Some(index) = characters.iter().position(|character| {
+            character.get("id").and_then(Value::as_str) == Some(character_id)
+        }) else {
             continue;
         };
         let mut current = characters[index].clone();
-        apply_stat_changes(&mut current, update.get("statChanges").and_then(Value::as_array));
+        apply_stat_changes(
+            &mut current,
+            update.get("statChanges").and_then(Value::as_array),
+        );
         apply_trait_changes(
             &mut current,
             update.get("removeTraitNames").and_then(Value::as_array),
@@ -2907,10 +2965,11 @@ fn apply_party_updates_to_builder(
         )?;
         apply_relationship_changes(
             &mut current,
+            update.get("relationshipChanges").and_then(Value::as_array),
             update
-                .get("relationshipChanges")
-                .and_then(Value::as_array),
-            update.get("summary").and_then(Value::as_str).unwrap_or("Quest update"),
+                .get("summary")
+                .and_then(Value::as_str)
+                .unwrap_or("Quest update"),
             world_id,
             &characters,
         );
@@ -2934,8 +2993,13 @@ fn apply_stat_changes(character: &mut Value, changes: Option<&Vec<Value>>) {
                 }
             }
             "maxHp" => {
-                let max_hp = (character.get("maxHp").and_then(Value::as_i64).unwrap_or(1) + value).max(1);
-                let hp = character.get("hp").and_then(Value::as_i64).unwrap_or(max_hp).min(max_hp);
+                let max_hp =
+                    (character.get("maxHp").and_then(Value::as_i64).unwrap_or(1) + value).max(1);
+                let hp = character
+                    .get("hp")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(max_hp)
+                    .min(max_hp);
                 if let Some(obj) = character.as_object_mut() {
                     obj.insert("maxHp".to_string(), Value::Number(max_hp.into()));
                     obj.insert("hp".to_string(), Value::Number(hp.into()));
@@ -2990,7 +3054,8 @@ fn apply_trait_changes(
             continue;
         };
         if next_traits.iter().any(|entry| {
-            entry.get("name")
+            entry
+                .get("name")
                 .and_then(Value::as_str)
                 .map(|existing| existing.eq_ignore_ascii_case(trait_name))
                 .unwrap_or(false)
@@ -3000,7 +3065,8 @@ fn apply_trait_changes(
         let value = registry_traits
             .iter()
             .find(|entry| {
-                entry.get("name")
+                entry
+                    .get("name")
                     .and_then(Value::as_str)
                     .map(|existing| existing.eq_ignore_ascii_case(trait_name))
                     .unwrap_or(false)
@@ -3061,9 +3127,13 @@ fn apply_skill_changes(
         .cloned()
         .unwrap_or_default();
     for skill in add_skills.cloned().unwrap_or_default() {
-        let skill_name = skill.get("name").and_then(Value::as_str).unwrap_or("Quest Skill");
+        let skill_name = skill
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("Quest Skill");
         let existing = registry_skills.iter().find(|entry| {
-            entry.get("name")
+            entry
+                .get("name")
                 .and_then(Value::as_str)
                 .map(|name| name.eq_ignore_ascii_case(skill_name))
                 .unwrap_or(false)
@@ -3086,7 +3156,8 @@ fn apply_skill_changes(
             })
         });
         if skills.iter().any(|entry| {
-            entry.get("name")
+            entry
+                .get("name")
                 .and_then(Value::as_str)
                 .map(|name| name.eq_ignore_ascii_case(skill_name))
                 .unwrap_or(false)
@@ -3133,9 +3204,10 @@ fn apply_relationship_changes(
             continue;
         }
         let change_value = change.get("change").and_then(Value::as_i64).unwrap_or(0);
-        if let Some(existing) = relationships.iter_mut().find(|entry| {
-            entry.get("targetId").and_then(Value::as_str) == Some(target_id)
-        }) {
+        if let Some(existing) = relationships
+            .iter_mut()
+            .find(|entry| entry.get("targetId").and_then(Value::as_str) == Some(target_id))
+        {
             if let Some(obj) = existing.as_object_mut() {
                 obj.insert(
                     "type".to_string(),
@@ -3180,14 +3252,12 @@ fn upsert_registry_record(
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         .and_then(|value| value.as_array().cloned())
         .unwrap_or_default();
-    let record_key = record
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let record_key = record.get(key).and_then(Value::as_str).unwrap_or("");
     if !record_key.is_empty() {
-        if let Some(index) = entries.iter().position(|entry| {
-            entry.get(key).and_then(Value::as_str) == Some(record_key)
-        }) {
+        if let Some(index) = entries
+            .iter()
+            .position(|entry| entry.get(key).and_then(Value::as_str) == Some(record_key))
+        {
             entries[index] = record.clone();
         } else {
             entries.push(record.clone());
@@ -3415,15 +3485,27 @@ pub async fn generate_character_portrait_handler(
             let mut jobs = match state.jobs.lock() {
                 Ok(jobs) => jobs,
                 Err(_) => {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()).into_response();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "job store lock poisoned".to_string(),
+                    )
+                        .into_response();
                 }
             };
             let mut job = make_job_record(
-                meta.kind.as_deref().unwrap_or("gm.generate-character-portrait"),
-                meta.title.as_deref().unwrap_or("Generate Character Portrait"),
+                meta.kind
+                    .as_deref()
+                    .unwrap_or("gm.generate-character-portrait"),
+                meta.title
+                    .as_deref()
+                    .unwrap_or("Generate Character Portrait"),
                 meta.tool.as_deref().unwrap_or("game-master"),
                 "Queued",
-                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(Value::as_str).map(str::to_string),
+                meta.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worldId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 None,
             );
             if meta.restore.is_some() || meta.metadata.is_some() {
@@ -3545,15 +3627,25 @@ Return ONLY the description text. Focus on how the ash-filled world has weathere
             let mut jobs = match state.jobs.lock() {
                 Ok(jobs) => jobs,
                 Err(_) => {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()).into_response();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "job store lock poisoned".to_string(),
+                    )
+                        .into_response();
                 }
             };
             let mut job = make_job_record(
-                meta.kind.as_deref().unwrap_or("gm.enhance-appearance-prompt"),
+                meta.kind
+                    .as_deref()
+                    .unwrap_or("gm.enhance-appearance-prompt"),
                 meta.title.as_deref().unwrap_or("Enhance Appearance Prompt"),
                 meta.tool.as_deref().unwrap_or("game-master"),
                 "Queued",
-                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(Value::as_str).map(str::to_string),
+                meta.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worldId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 None,
             );
             if meta.restore.is_some() || meta.metadata.is_some() {
@@ -3587,7 +3679,8 @@ Return ONLY the description text. Focus on how the ash-filled world has weathere
                             job.progress = 100.0;
                             job.current_stage = "Completed".to_string();
                             job.result = Some(json!({ "text": text.clone() }));
-                            job.output_refs = vec![build_text_output_ref("Appearance Prompt", &text)];
+                            job.output_refs =
+                                vec![build_text_output_ref("Appearance Prompt", &text)];
                             job.updated_at = shared_now_ms();
                         }
                     }
@@ -5289,8 +5382,9 @@ fn queue_quest_illustration(
                 );
             };
 
-        let Ok((_global_permit, _image_permit)) =
-            quest_runtime.wait_for_image_permits(&illustration_id_owned).await
+        let Ok((_global_permit, _image_permit)) = quest_runtime
+            .wait_for_image_permits(&illustration_id_owned)
+            .await
         else {
             update_record(
                 "failed",
@@ -5304,7 +5398,12 @@ fn queue_quest_illustration(
             );
             return;
         };
-        update_shared_job(35.0, "Generating illustration", QuestJobStatus::Running, None);
+        update_shared_job(
+            35.0,
+            "Generating illustration",
+            QuestJobStatus::Running,
+            None,
+        );
         update_record("generating", None);
         match quest_runtime
             .generate_image(&prompt_owned, 0.6, 512, 512, Some("1:1"), None)
@@ -5626,6 +5725,7 @@ mod tests {
             seed: json!({
                 "ecologyAnchorIds": ["biome:ashlands"]
             }),
+            party_character_ids: Vec::new(),
             party: json!([]),
             gm_context: Value::Null,
             factions: Value::Null,

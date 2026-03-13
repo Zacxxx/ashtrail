@@ -2,29 +2,25 @@ import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ExplorationSetup } from "./ExplorationSetup";
 import { IsometricLocationExploration } from "./IsometricLocationExploration";
-import { ExplorationMap } from "@ashtrail/core";
 import { useJobs } from "../jobs/useJobs";
-import { attachSelectedPawns, fetchExplorationManifest } from "./explorationSupport";
+import { fetchExplorationManifest, type ExplorationLaunchConfig } from "./explorationSupport";
 
 export function ExplorationView() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [phase, setPhase] = useState<"setup" | "active">("setup");
-    const [activeMap, setActiveMap] = useState<ExplorationMap | null>(null);
-    const [selectedPawnId, setSelectedPawnId] = useState<string | null>(null);
+    const [activeSession, setActiveSession] = useState<ExplorationLaunchConfig | null>(null);
     const { getJobDetail } = useJobs();
     const openedManifestRef = useRef<string | null>(null);
     const activeTab = searchParams.get("explorationTab") === "world" ? "world" : "location";
 
-    const handleStartExploration = (map: ExplorationMap, pawnId: string | null) => {
-        setActiveMap(map);
-        setSelectedPawnId(pawnId);
+    const handleStartExploration = (session: ExplorationLaunchConfig) => {
+        setActiveSession(session);
         setPhase("active");
     };
 
     const handleExit = () => {
         setPhase("setup");
-        setActiveMap(null);
-        setSelectedPawnId(null);
+        setActiveSession(null);
         const next = new URLSearchParams(searchParams);
         next.delete("mode");
         next.delete("jobId");
@@ -50,11 +46,11 @@ export function ExplorationView() {
         let cancelled = false;
         const openManifest = async () => {
             try {
-                const [manifest, detail] = await Promise.all([
+                const [descriptor, detail] = await Promise.all([
                     fetchExplorationManifest(worldId, locationId),
                     jobId ? getJobDetail(jobId) : Promise.resolve(null),
                 ]);
-                if (cancelled || !manifest) return;
+                if (cancelled || !descriptor) return;
 
                 const metadata = detail?.metadata || {};
                 const restorePayload = typeof metadata.restore === "object" && metadata.restore && typeof (metadata.restore as { payload?: unknown }).payload === "object"
@@ -66,8 +62,12 @@ export function ExplorationView() {
                         ? restorePayload.selectedCharIds.filter((value): value is string => typeof value === "string")
                         : [];
 
-                const { map, selectedPawnId } = attachSelectedPawns(manifest, selectedCharIds);
-                handleStartExploration(map, selectedPawnId);
+                handleStartExploration({
+                    worldId,
+                    locationId,
+                    selectedCharIds,
+                    jobId,
+                });
             } catch (error) {
                 console.error("Failed to open exploration manifest", error);
             }
@@ -86,10 +86,9 @@ export function ExplorationView() {
                     phase === "setup" ? (
                         <ExplorationSetup onStart={handleStartExploration} />
                     ) : (
-                        activeMap && (
+                        activeSession && (
                             <IsometricLocationExploration
-                                initialMap={activeMap}
-                                initialSelectedPawnId={selectedPawnId}
+                                session={activeSession}
                                 onExit={handleExit}
                             />
                         )

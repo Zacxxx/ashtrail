@@ -66,28 +66,76 @@ export interface ExplorationMap {
     metadata?: Record<string, unknown>;
 }
 
+export interface ExplorationSpawnPoint {
+    row: number;
+    col: number;
+}
+
+export interface ExplorationManifestDescriptor {
+    id: string;
+    worldId: string;
+    locationId: string;
+    name: string;
+    width: number;
+    height: number;
+    chunkSize: number;
+    version: 3;
+    renderMode: "isometric";
+    ambientLight: number;
+    spawn: ExplorationSpawnPoint;
+    metadata?: Record<string, unknown>;
+}
+
+export interface ExplorationChunk {
+    id: string;
+    chunkRow: number;
+    chunkCol: number;
+    originRow: number;
+    originCol: number;
+    width: number;
+    height: number;
+    tiles: Tile[];
+    objects: MapObject[];
+}
+
+export interface ExplorationChunkSync {
+    descriptorId: string;
+    chunks: ExplorationChunk[];
+}
+
+export interface ExplorationVisibilityState {
+    revealedInteriorId: string | null;
+    revealedRoofGroupIds: string[];
+    openedDoorIds: string[];
+}
+
 export interface ExplorationSessionConfig {
     sessionName?: string;
     tickRateHz?: number;
 }
 
 export interface ExplorationSessionSnapshot {
-    map: ExplorationMap;
+    descriptor: ExplorationManifestDescriptor;
+    chunks: ExplorationChunk[];
+    pawns: ExplorationPawn[];
     selectedPawnId: string | null;
+    visibility: ExplorationVisibilityState;
     tick: number;
-    connectionState: "active";
+    connectionState: "active" | "reconnecting";
 }
 
 export type ExplorationClientAction =
-    | { type: "start_session"; map: ExplorationMap; selectedPawnId?: string | null; config?: ExplorationSessionConfig }
+    | { type: "start_session"; worldId: string; locationId: string; selectedCharacterIds: string[]; config?: ExplorationSessionConfig }
+    | { type: "subscribe_chunks"; centerRow: number; centerCol: number; radius: number }
     | { type: "move_to"; pawnId: string; targetRow: number; targetCol: number }
     | { type: "set_selected_pawn"; pawnId?: string | null }
     | { type: "interact"; row?: number; col?: number; objectId?: string; actorId?: string }
     | { type: "ping" };
 
 export type ExplorationSessionEvent =
-    | { type: "state_sync"; state: ExplorationSessionSnapshot }
-    | { type: "pawn_sync"; pawns: ExplorationPawn[]; selectedPawnId: string | null; tick: number; connectionState: "active" }
+    | { type: "session_ready"; state: ExplorationSessionSnapshot }
+    | { type: "chunk_sync"; sync: ExplorationChunkSync }
+    | { type: "pawn_sync"; pawns: ExplorationPawn[]; selectedPawnId: string | null; visibility: ExplorationVisibilityState; tick: number; connectionState: "active" | "reconnecting" }
     | { type: "interaction"; label: string; row?: number; col?: number; objectId?: string; actorId?: string }
     | { type: "pong"; tick: number }
     | { type: "error"; message: string };
