@@ -127,10 +127,7 @@ fn process_action(
                     }
                 }
             } else {
-                (
-                    players.unwrap_or_default(),
-                    enemies.unwrap_or_default(),
-                )
+                (players.unwrap_or_default(), enemies.unwrap_or_default())
             };
 
             let state = CombatState::new(players, enemies, sanitized_grid, &config, rules);
@@ -143,7 +140,9 @@ fn process_action(
                 if let Some(active_id) = state.get_active_entity_id() {
                     let preview = state.preview_move(active_id, None, None);
                     if !preview.reachable_cells.is_empty() {
-                        events.push(CombatEvent::PreviewState { preview: preview.clone() });
+                        events.push(CombatEvent::PreviewState {
+                            preview: preview.clone(),
+                        });
                         events.push(CombatEvent::HighlightCells {
                             cells: preview.reachable_cells,
                             highlight_type: HighlightType::Move,

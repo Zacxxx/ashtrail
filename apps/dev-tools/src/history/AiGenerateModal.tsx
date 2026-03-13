@@ -3,6 +3,8 @@ import { Modal, Button, Slider } from "@ashtrail/ui";
 import type { Faction } from "./FactionsTab";
 import type { Area } from "./locationTypes";
 import type { Character } from "./CharactersTab";
+import { useJobs } from "../jobs/useJobs";
+import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 
 // ── Types ──
 
@@ -111,6 +113,8 @@ export function AiGenerateModal({
     existingItems = [],
     additionalContext,
 }: AiGenerateModalProps) {
+    const { waitForJob } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
     const [prompt, setPrompt] = useState("");
     const [individualPrompts, setIndividualPrompts] = useState<string[]>(Array(10).fill(""));
     const [count, setCount] = useState(3);
@@ -130,19 +134,32 @@ export function AiGenerateModal({
 
         try {
             const fullPrompt = buildPrompt(entityType, activePrompt, count, mode, existingItems, additionalContext);
-            const res = await fetch("/api/text/generate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt: fullPrompt }),
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: "/api/text/generate",
+                request: { prompt: fullPrompt },
+                optimisticJob: {
+                    kind: "history.ai-generate",
+                    title: `Generate ${ENTITY_LABELS[entityType]}`,
+                    tool: "history",
+                    status: "queued",
+                    currentStage: "Queued",
+                },
+                restore: {
+                    route: "/history",
+                    payload: {
+                        entityType,
+                        count,
+                        mode,
+                        prompt,
+                        individualPrompts: individualPrompts.slice(0, count),
+                    },
+                },
             });
-
-            if (!res.ok) {
-                const msg = await res.text();
-                throw new Error(msg || `HTTP ${res.status}`);
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") {
+                throw new Error(detail.error || "Generation failed");
             }
-
-            const data = await res.json();
-            let text: string = data.text || "";
+            let text: string = String((detail.result as { text?: string } | undefined)?.text || "");
 
             // Strip markdown fences if Gemini added them
             text = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
@@ -157,7 +174,7 @@ export function AiGenerateModal({
         } finally {
             setIsGenerating(false);
         }
-    }, [prompt, individualPrompts, count, mode, entityType, existingItems, additionalContext]);
+    }, [prompt, individualPrompts, count, mode, entityType, existingItems, additionalContext, launchTrackedJob, waitForJob]);
 
     const toggleSelection = (idx: number) => {
         setPreviews(prev => prev.map((p, i) => i === idx ? { ...p, selected: !p.selected } : p));

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
+import { useJobs } from "../jobs/useJobs";
 
 interface HistoryGalleryProps {
     history: GenerationHistoryItem[];
@@ -70,6 +71,7 @@ export function HistoryGallery({
     extendedRefreshKey = 0,
     onRenameWorld,
 }: HistoryGalleryProps) {
+    const { jobs } = useJobs();
     const ISOLATED_PAGE_SIZE = 24;
     const [activeTab, setActiveTab] = useState<TabType>(initialTab);
     const [iconImages, setIconImages] = useState<IconImageItem[]>([]);
@@ -104,6 +106,19 @@ export function HistoryGallery({
     }, [history]);
 
     const activePlanet = history.find(p => p.id === activePlanetId);
+    const galleryJobRefreshKey = useMemo(
+        () => jobs
+            .filter((job) => job.status === "completed")
+            .filter((job) => (
+                job.kind === "gm.generate-character-portrait"
+                || job.kind === "quests.generate-illustration"
+                || job.kind.startsWith("icons.")
+                || job.kind.startsWith("textures.")
+                || job.outputRefs.some((output) => output.kind === "asset")
+            ))
+            .reduce((sum, job) => sum + job.updatedAt, 0),
+        [jobs],
+    );
     // Include the base planet itself as a texture option
     const activeVariants = activePlanet ? [activePlanet, ...(textureVariants.get(activePlanet.id) || [])] : [];
     const contentGridClassName = activeTab === "icons"
@@ -268,7 +283,7 @@ export function HistoryGallery({
         return () => {
             isCancelled = true;
         };
-    }, [showExtendedTabs, extendedRefreshKey]);
+    }, [extendedRefreshKey, galleryJobRefreshKey, showExtendedTabs]);
 
     return (
         <div className="flex flex-col h-full bg-black/50 overflow-hidden">

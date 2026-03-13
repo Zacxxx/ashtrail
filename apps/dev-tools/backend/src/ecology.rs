@@ -711,13 +711,15 @@ async fn spawn_ecology_job(
         })?;
         jobs.insert(
             job_id.clone(),
-            JobRecord {
-                status: JobStatus::Queued,
-                progress: 0.0,
-                current_stage: "Queued ecology generation".to_string(),
-                result: None,
-                error: None,
-                cancel_requested: false,
+            {
+                let mut job = JobRecord::new(
+                    "ecology.generate",
+                    "Generate Ecology Data",
+                    "ecology",
+                );
+                job.world_id = Some(world_id.clone());
+                job.current_stage = "Queued ecology generation".to_string();
+                job
             },
         );
     }
@@ -1020,7 +1022,8 @@ async fn generate_flora_batch_impl(
     }
 
     let biome_ids = resolve_requested_biome_ids(&bundle, &request.biome_ids);
-    let generation_prompt = build_flora_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
+    let generation_prompt =
+        build_flora_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
     let draft_response: FloraBatchDraftResponse = generate_structured_text(
         "flora batch",
         &generation_prompt,
@@ -1066,7 +1069,8 @@ async fn generate_fauna_batch_impl(
     }
 
     let biome_ids = resolve_requested_biome_ids(&bundle, &request.biome_ids);
-    let generation_prompt = build_fauna_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
+    let generation_prompt =
+        build_fauna_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
     let draft_response: FaunaBatchDraftResponse = generate_structured_text(
         "fauna batch",
         &generation_prompt,

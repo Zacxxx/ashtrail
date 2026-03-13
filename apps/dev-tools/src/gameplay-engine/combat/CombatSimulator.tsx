@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GameRegistry, Character, Skill, resolveCharacterSkills, resolveCharacterTraitGrants } from '@ashtrail/core';
+import { GameRegistry, Character, Skill, resolveCharacterSkills, resolveCharacterTraitGrants, sanitizeSkillLoadout } from '@ashtrail/core';
 import type { TacticalEntity, CombatConfig, DamagePreview, CombatResolutionSummary, CombatRosterEntry } from '@ashtrail/core';
 import { TacticalArena, type TacticalArenaUtilityAction } from './TacticalArena';
 import { useCombatWebSocket } from './useCombatWebSocket';
@@ -7,14 +7,20 @@ import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacti
 import { GameRulesManager } from '../rules/useGameRules';
 import { useActiveWorld } from '../../hooks/useActiveWorld';
 import { useEcologyData } from '../../ecology/useEcologyData';
+import { useJobs } from '../../jobs/useJobs';
+import { useTrackedJobLauncher } from '../../jobs/useTrackedJobLauncher';
 import type { EcologyBundle, FaunaEntry } from '../../ecology/types';
 
 // ── Default skills given to characters without their own ──
 function getDefaultPlayerSkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id));
+    return sanitizeSkillLoadout(
+        GameRegistry.getAllSkills().filter(s => ['use-weapon', 'first-aid', 'fireball', 'shove', 'healing-pulse', 'piercing-shot', 'sprint', 'defend', 'hide', 'distract', 'analyze'].includes(s.id)),
+    );
 }
 function getDefaultEnemySkills(): Skill[] {
-    return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
+    return sanitizeSkillLoadout(
+        GameRegistry.getAllSkills().filter(s => ['use-weapon', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id)),
+    );
 }
 
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number, defaultPlayerSkills: Skill[], defaultEnemySkills: Skill[]): TacticalEntity {
@@ -43,15 +49,11 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
 
     // ── 2. Resolve skills (prefer effect-aware resolution, then hydrate from registry) ──
     const refreshSkill = (skill: Skill) => GameRegistry.getSkill(skill.id) || skill;
-    const resolvedSkills = resolveCharacterSkills(char)
-        .filter((skill) => skill.id !== 'slash')
-        .map(refreshSkill);
+    const resolvedSkills = sanitizeSkillLoadout(resolveCharacterSkills(char).map(refreshSkill));
 
     let skills: Skill[] = resolvedSkills.length > 0
         ? resolvedSkills
-        : (char.skills || [])
-            .filter((skill) => skill.id !== 'slash')
-            .map(refreshSkill);
+        : sanitizeSkillLoadout((char.skills || []).map(refreshSkill));
 
     if (skills.length === 0) {
         skills = (isPlayer ? defaultPlayerSkills : defaultEnemySkills).map(refreshSkill);
@@ -59,11 +61,7 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
 
     if (isPlayer) {
         const baseSkills = GameRegistry.getAllSkills().filter((skill) => skill.category === 'base');
-        baseSkills.forEach((baseSkill) => {
-            if (!skills.some((skill) => skill.id === baseSkill.id)) {
-                skills.push(baseSkill);
-            }
-        });
+        skills = sanitizeSkillLoadout([...skills, ...baseSkills]);
     }
 
     // ── 3. Patch use-weapon skill with live weapon data (range + description + AOE) ──
@@ -143,6 +141,45 @@ function faunaSelectionId(id: string): string {
     return id.replace(/^fauna:/, '');
 }
 
+function isKnownCombatantId(
+    id: string,
+    characterIds: Set<string>,
+    faunaIds: Set<string>,
+    charactersLoaded: boolean,
+): boolean {
+    if (!id) return false;
+    if (isFaunaSelection(id)) {
+        return faunaIds.has(faunaSelectionId(id));
+    }
+    return charactersLoaded ? characterIds.has(id) : true;
+}
+
+function normalizeCombatantSelections(
+    ids: string[],
+    count: number,
+    fallbackId: string,
+    characterIds: Set<string>,
+    faunaIds: Set<string>,
+    charactersLoaded: boolean,
+): string[] {
+    const normalized = ids.slice(0, count);
+    while (normalized.length < count) {
+        normalized.push('');
+    }
+
+    return normalized.map((id) => {
+        if (isKnownCombatantId(id, characterIds, faunaIds, charactersLoaded)) {
+            return id;
+        }
+
+        if (fallbackId && isKnownCombatantId(fallbackId, characterIds, faunaIds, charactersLoaded)) {
+            return fallbackId;
+        }
+
+        return id;
+    });
+}
+
 function mapFaunaToTactical(fauna: FaunaEntry, selectionId: string, isPlayer: boolean, index: number): TacticalEntity {
     const rules = GameRulesManager.get();
     const skills = fauna.skillIds
@@ -217,13 +254,16 @@ export function CombatSimulator({
     ecologyBundle?: EcologyBundle | null,
 } = {}) {
     const { activeWorldId } = useActiveWorld();
+    const { waitForJob } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
     const ecology = useEcologyData(activeWorldId);
-    const chars = GameRegistry.getAllCharacters();
+    const [characters, setCharacters] = React.useState<Character[]>(() => GameRegistry.getAllCharacters());
+    const [charactersLoaded, setCharactersLoaded] = React.useState(() => GameRegistry.getAllCharacters().length > 0);
     const faunaEntries = ecologyBundle?.fauna ?? ecology.bundle?.fauna ?? [];
     const combatantOptions = React.useMemo(() => ([
-        ...chars.map((char) => ({ id: char.id, label: char.name, kind: 'character' as const })),
+        ...characters.map((char) => ({ id: char.id, label: char.name, kind: 'character' as const })),
         ...faunaEntries.map((fauna) => ({ id: `fauna:${fauna.id}`, label: `${fauna.name} [fauna]`, kind: 'fauna' as const })),
-    ]), [chars, faunaEntries]);
+    ]), [characters, faunaEntries]);
     const defaultPlayerSelection = combatantOptions[0]?.id || '';
     const defaultEnemySelection = combatantOptions.find((entry) => entry.kind === 'fauna')?.id || combatantOptions[1]?.id || combatantOptions[0]?.id || '';
 
@@ -264,6 +304,22 @@ export function CombatSimulator({
     const [isApplyingTextures, setIsApplyingTextures] = useState(false);
     const [battlemapUrl, setBattlemapUrl] = useState<string | null>(null);
 
+    const characterIds = React.useMemo(() => new Set(characters.map((char) => char.id)), [characters]);
+    const faunaIds = React.useMemo(() => new Set(faunaEntries.map((fauna) => fauna.id)), [faunaEntries]);
+    const resolvedPlayerIds = React.useMemo(
+        () => normalizeCombatantSelections(playerIds, playerCount, defaultPlayerSelection, characterIds, faunaIds, charactersLoaded),
+        [characterIds, charactersLoaded, defaultPlayerSelection, faunaIds, playerCount, playerIds],
+    );
+    const resolvedEnemyIds = React.useMemo(
+        () => normalizeCombatantSelections(enemyIds, enemyCount, defaultEnemySelection, characterIds, faunaIds, charactersLoaded),
+        [characterIds, charactersLoaded, defaultEnemySelection, enemyCount, enemyIds, faunaIds],
+    );
+    const canLaunchCombat =
+        resolvedPlayerIds.length > 0 &&
+        resolvedEnemyIds.length > 0 &&
+        resolvedPlayerIds.every((id) => isKnownCombatantId(id, characterIds, faunaIds, charactersLoaded)) &&
+        resolvedEnemyIds.every((id) => isKnownCombatantId(id, characterIds, faunaIds, charactersLoaded));
+
     const updatePlayerCount = (count: number) => {
         setPlayerCount(count);
         setPlayerIds(prev => {
@@ -292,7 +348,14 @@ export function CombatSimulator({
 
     React.useEffect(() => {
         // Sync registry with backend
-        GameRegistry.fetchFromBackend("http://127.0.0.1:8787").catch(err => console.warn(err));
+        let isMounted = true;
+        GameRegistry.fetchFromBackend("http://127.0.0.1:8787")
+            .catch(err => console.warn(err))
+            .finally(() => {
+                if (!isMounted) return;
+                setCharacters(GameRegistry.getAllCharacters());
+                setCharactersLoaded(true);
+            });
 
         // Fetch texture batches
         fetch("/api/textures/batches")
@@ -301,7 +364,24 @@ export function CombatSimulator({
                 if (Array.isArray(data)) setTextureBatches(data);
             })
             .catch(err => console.error("Failed to fetch texture batches:", err));
+        return () => {
+            isMounted = false;
+        };
     }, []);
+
+    React.useEffect(() => {
+        setPlayerIds((prev) => {
+            const next = normalizeCombatantSelections(prev, playerCount, defaultPlayerSelection, characterIds, faunaIds, charactersLoaded);
+            return next.length === prev.length && next.every((id, index) => id === prev[index]) ? prev : next;
+        });
+    }, [characterIds, charactersLoaded, defaultPlayerSelection, faunaIds, playerCount]);
+
+    React.useEffect(() => {
+        setEnemyIds((prev) => {
+            const next = normalizeCombatantSelections(prev, enemyCount, defaultEnemySelection, characterIds, faunaIds, charactersLoaded);
+            return next.length === prev.length && next.every((id, index) => id === prev[index]) ? prev : next;
+        });
+    }, [characterIds, charactersLoaded, defaultEnemySelection, enemyCount, faunaIds]);
 
     const generateAIMap = async () => {
         if (!mapPrompt.trim() || isGenerating) return;
@@ -310,14 +390,42 @@ export function CombatSimulator({
         setMapName(null);
         try {
             const prompt = buildMapPrompt(mapPrompt.trim(), gridRows, gridCols);
-            const res = await fetch('http://127.0.0.1:8787/api/text/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt }),
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: '/api/text/generate',
+                request: { prompt },
+                optimisticJob: {
+                    kind: 'combat.text-generate',
+                    title: 'Generate Combat Map',
+                    tool: 'gameplay-engine',
+                    status: 'queued',
+                    currentStage: 'Queued',
+                    worldId: activeWorldId,
+                    metadata: {
+                        worldId: activeWorldId,
+                        rows: gridRows,
+                        cols: gridCols,
+                    },
+                },
+                metadata: {
+                    worldId: activeWorldId,
+                    rows: gridRows,
+                    cols: gridCols,
+                },
+                restore: {
+                    route: '/gameplay-engine',
+                    payload: {
+                        tab: 'combat',
+                        mapPrompt,
+                        gridRows,
+                        gridCols,
+                    },
+                },
             });
-            if (!res.ok) throw new Error(`API error: ${res.status}`);
-            const data = await res.json();
-            const text = data.text || data.result || (typeof data === 'string' ? data : JSON.stringify(data));
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== 'completed') {
+                throw new Error(detail.error || 'Map generation failed');
+            }
+            const text = String((detail.result as { text?: string } | undefined)?.text || '');
             const grid = parseAIGridResponse(text, gridRows, gridCols);
             if (grid) {
                 setAiGrid(grid);
@@ -339,6 +447,7 @@ export function CombatSimulator({
     };
 
     const startCombat = async () => {
+        if (!canLaunchCombat) return;
         setIsApplyingTextures(true);
         try {
             let baseGrid = aiGrid ? JSON.parse(JSON.stringify(aiGrid)) : generateGrid(gridRows, gridCols, 0.12);
@@ -523,7 +632,7 @@ export function CombatSimulator({
                                             <div className="w-6 h-6 rounded-full bg-blue-600 border border-blue-400 flex items-center justify-center text-[9px] font-black text-white shrink-0">
                                                 P{i + 1}
                                             </div>
-                                            <select value={playerIds[i] || defaultPlayerSelection}
+                                            <select value={resolvedPlayerIds[i] || defaultPlayerSelection}
                                                 onChange={e => setPlayerId(i, e.target.value)}
                                                 className="flex-1 bg-black/50 border border-blue-500/20 text-white text-xs px-3 py-2 rounded-lg outline-none focus:border-blue-500/50">
                                                 {combatantOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
@@ -551,7 +660,7 @@ export function CombatSimulator({
                                             <div className="w-6 h-6 rounded-full bg-red-600 border border-red-400 flex items-center justify-center text-[9px] font-black text-white shrink-0">
                                                 E{i + 1}
                                             </div>
-                                            <select value={enemyIds[i] || defaultEnemySelection}
+                                            <select value={resolvedEnemyIds[i] || defaultEnemySelection}
                                                 onChange={e => setEnemyId(i, e.target.value)}
                                                 className="flex-1 bg-black/50 border border-red-500/20 text-white text-xs px-3 py-2 rounded-lg outline-none focus:border-red-500/50">
                                                 {combatantOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
@@ -673,7 +782,7 @@ export function CombatSimulator({
                                 {mapName ? ` • ${mapName}` : ' • Random map'}
                             </div>
                             <button onClick={startCombat}
-                                disabled={isApplyingTextures}
+                                disabled={isApplyingTextures || !canLaunchCombat}
                                 className="px-8 py-3 bg-orange-500 hover:bg-orange-400 disabled:bg-orange-950 disabled:text-orange-900 text-black font-black uppercase tracking-[0.2em] rounded-xl text-sm transition-all shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40">
                                 {isApplyingTextures ? 'Initializing...' : '⚔️ Start Combat'}
                             </button>
@@ -704,8 +813,8 @@ export function CombatSimulator({
             <div className="flex-1 overflow-hidden">
                 <CombatEncounterView
                     key={`combat-${combatKey}`}
-                    playerIds={playerIds}
-                    enemyIds={enemyIds}
+                    playerIds={resolvedPlayerIds}
+                    enemyIds={resolvedEnemyIds}
                     faunaEntries={faunaEntries}
                     aiGrid={aiGrid}
                     config={config}

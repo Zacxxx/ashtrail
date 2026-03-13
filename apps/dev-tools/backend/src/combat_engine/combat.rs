@@ -7,15 +7,15 @@ use rand::Rng;
 use std::collections::HashMap;
 
 use super::grid::{
-    clear_highlights, find_path, get_aoe_cells, get_attackable_cells,
-    get_attackable_cells_split, get_neighbors, get_reachable_cells, highlight_cells,
-    move_entity_on_grid, place_entity, remove_entity,
+    clear_highlights, find_path, get_aoe_cells, get_attackable_cells, get_attackable_cells_split,
+    get_neighbors, get_reachable_cells, highlight_cells, move_entity_on_grid, place_entity,
+    remove_entity,
 };
 use super::rules::GameRulesConfig;
 use super::skill_basics::{
     analyze_crit_bonus, compute_basic_attack_preview, compute_basic_attack_roll,
-    compute_skill_damage_preview, compute_skill_damage_roll, distract_mp_reduction, mark_just_applied,
-    resolve_defend, stealth_duration, value_to_i32,
+    compute_skill_damage_preview, compute_skill_damage_roll, distract_mp_reduction,
+    mark_just_applied, resolve_defend, stealth_duration, value_to_i32,
 };
 use super::types::*;
 
@@ -420,7 +420,11 @@ impl CombatState {
         )
     }
 
-    fn basic_attack_preview(&self, attacker: &TacticalEntity, defender: &TacticalEntity) -> DamagePreview {
+    fn basic_attack_preview(
+        &self,
+        attacker: &TacticalEntity,
+        defender: &TacticalEntity,
+    ) -> DamagePreview {
         compute_basic_attack_preview(attacker, defender, &self.rules)
     }
 
@@ -448,7 +452,11 @@ impl CombatState {
         Self::refresh_entity_state(entity, rules, true);
     }
 
-    fn refresh_entity_state(entity: &mut TacticalEntity, rules: &GameRulesConfig, grant_resource_diffs: bool) {
+    fn refresh_entity_state(
+        entity: &mut TacticalEntity,
+        rules: &GameRulesConfig,
+        grant_resource_diffs: bool,
+    ) {
         let previous_max_hp = entity.max_hp;
         let previous_max_ap = entity.max_ap;
         let previous_max_mp = entity.max_mp;
@@ -616,7 +624,13 @@ impl CombatState {
 
         if let (Some(row), Some(col)) = (hover_row, hover_col) {
             preview.hovered_cell = Some(GridPos { row, col });
-            if let Some(path) = find_path(&self.grid, entity.grid_pos.row, entity.grid_pos.col, row, col) {
+            if let Some(path) = find_path(
+                &self.grid,
+                entity.grid_pos.row,
+                entity.grid_pos.col,
+                row,
+                col,
+            ) {
                 if (path.len() as i32) <= entity.mp {
                     preview.path_cells = path;
                 }
@@ -689,10 +703,7 @@ impl CombatState {
         };
 
         let (attackable_cells, blocked_cells) = match skill.target_type {
-            SkillTargetType::SelfTarget => (
-                vec![caster.grid_pos.clone()],
-                Vec::new(),
-            ),
+            SkillTargetType::SelfTarget => (vec![caster.grid_pos.clone()], Vec::new()),
             _ => get_attackable_cells_split(
                 &self.grid,
                 caster.grid_pos.row,
@@ -724,7 +735,8 @@ impl CombatState {
                     preview.aoe_cells =
                         self.skill_affected_cells(&caster.grid_pos, row, col, &valid_skill);
                     for pos in &preview.aoe_cells {
-                        if let Some(occupant_id) = self.grid[pos.row][pos.col].occupant_id.as_ref() {
+                        if let Some(occupant_id) = self.grid[pos.row][pos.col].occupant_id.as_ref()
+                        {
                             if let Some(target) = self.entities.get(occupant_id) {
                                 if let Some(damage_preview) =
                                     self.skill_damage_preview(caster, target, &valid_skill)
@@ -1111,7 +1123,10 @@ impl CombatState {
         });
 
         for (prot_id, prot_pos, prot_name) in defeated_protectors {
-            self.add_log(&format!("💀 {prot_name} has been defeated!"), LogType::System);
+            self.add_log(
+                &format!("💀 {prot_name} has been defeated!"),
+                LogType::System,
+            );
             remove_entity(&mut self.grid, prot_pos.row, prot_pos.col);
             events.push(CombatEvent::EntityDefeated {
                 entity_id: prot_id.clone(),
@@ -1365,11 +1380,13 @@ impl CombatState {
                         is_crit = damage_roll.is_crit;
                         let mut damage_to_target = damage_roll.actual_damage;
 
-                        if let Some(protection) = target.active_effects.as_ref().and_then(|effects| {
-                            effects
-                                .iter()
-                                .find(|effect| effect.effect_type == EffectType::ProtectionStance)
-                        }) {
+                        if let Some(protection) =
+                            target.active_effects.as_ref().and_then(|effects| {
+                                effects.iter().find(|effect| {
+                                    effect.effect_type == EffectType::ProtectionStance
+                                })
+                            })
+                        {
                             if let Some(protector_id) = protection.protector_id.as_ref() {
                                 if let Some(protector) = self.entities.get(protector_id).cloned() {
                                     if protector.hp > 0 {
@@ -1383,8 +1400,14 @@ impl CombatState {
                                         damage_to_target = defend.ally_damage;
                                         let mut protector_name: Option<String> = None;
                                         let mut protector_revealed = false;
-                                        let mut defeated_protector: Option<(String, GridPos, String)> = None;
-                                        if let Some(protector_ref) = self.entities.get_mut(protector_id) {
+                                        let mut defeated_protector: Option<(
+                                            String,
+                                            GridPos,
+                                            String,
+                                        )> = None;
+                                        if let Some(protector_ref) =
+                                            self.entities.get_mut(protector_id)
+                                        {
                                             protector_ref.hp =
                                                 (protector_ref.hp - defend.protector_damage).max(0);
                                             protector_name = Some(protector_ref.name.clone());
@@ -1402,7 +1425,10 @@ impl CombatState {
                                         if protector_revealed {
                                             if let Some(name) = protector_name.as_ref() {
                                                 self.add_log(
-                                                    &format!("{} was revealed by taking damage!", name),
+                                                    &format!(
+                                                        "{} was revealed by taking damage!",
+                                                        name
+                                                    ),
                                                     LogType::Info,
                                                 );
                                             }
@@ -1506,7 +1532,8 @@ impl CombatState {
                                     dist_remaining -= 1;
                                 }
 
-                                if current_row != target.grid_pos.row || current_col != target.grid_pos.col
+                                if current_row != target.grid_pos.row
+                                    || current_col != target.grid_pos.col
                                 {
                                     move_entity_on_grid(
                                         &mut self.grid,
@@ -1531,11 +1558,14 @@ impl CombatState {
                                     let shock_damage =
                                         (shock_pot - target.endurance as f64).max(0.0) as i32;
                                     if shock_damage > 0 {
-                                        if let Some(target_ref) = self.entities.get_mut(&occupant_id) {
+                                        if let Some(target_ref) =
+                                            self.entities.get_mut(&occupant_id)
+                                        {
                                             target_ref.hp = (target_ref.hp - shock_damage).max(0);
                                             new_hp = target_ref.hp;
                                         }
-                                        target_damage = Some(target_damage.unwrap_or(0) + shock_damage);
+                                        target_damage =
+                                            Some(target_damage.unwrap_or(0) + shock_damage);
                                         self.add_log(
                                             &format!(
                                                 "{} hits an obstacle for {} shock damage!",
@@ -1546,7 +1576,10 @@ impl CombatState {
                                     }
                                 } else {
                                     self.add_log(
-                                        &format!("{} is pushed back {} cells.", target.name, push_dist),
+                                        &format!(
+                                            "{} is pushed back {} cells.",
+                                            target.name, push_dist
+                                        ),
                                         LogType::Info,
                                     );
                                 }
@@ -1558,209 +1591,215 @@ impl CombatState {
 
             // ── Damage ──
             if !handled_special_damage {
-            if let Some(base_damage) = skill.damage {
-                let is_physical = skill.effect_type == Some(SkillEffectType::Physical);
-                let is_magical = skill.effect_type == Some(SkillEffectType::Magical);
+                if let Some(base_damage) = skill.damage {
+                    let is_physical = skill.effect_type == Some(SkillEffectType::Physical);
+                    let is_magical = skill.effect_type == Some(SkillEffectType::Magical);
 
-                // Physical evasion check
-                if is_physical {
-                    let hit_chance = 100 - target.evasion;
-                    if rng.random_range(0..100) > hit_chance {
-                        is_miss = true;
-                        let icon = skill.icon.as_deref().unwrap_or("✨");
-                        self.add_log(
-                            &format!("{icon} {} missed {}!", skill.name, target.name),
-                            LogType::Info,
-                        );
-                        skill_targets.push(SkillTarget {
-                            entity_id: occupant_id,
-                            damage: Some(0),
-                            healing: target_healing,
-                            is_crit: false,
-                            is_miss: true,
-                            new_hp,
-                        });
-                        continue;
-                    }
-                }
-
-                // Crit check
-                is_crit = rng.random::<f64>() < caster_crit_chance;
-
-                let variance = self.rules.combat.damage_variance_min
-                    + rng.random::<f64>()
-                        * (self.rules.combat.damage_variance_max
-                            - self.rules.combat.damage_variance_min);
-
-                let mut scaled_damage = ((base_damage as f64
-                    + caster_strength as f64 * self.rules.combat.strength_to_power_ratio)
-                    * variance) as i32;
-
-                if is_crit {
-                    scaled_damage = (scaled_damage as f64 * 1.5) as i32;
-                }
-
-                // Resistance/Defense
-                // Armor calculation
-                let armor_endu_scale = 0.4;
-                let armor_agi_scale = 0.2;
-                let endu_bonus = (target.endurance as f64 * armor_endu_scale) as i32;
-                let agi_bonus = (target.agility as f64 * armor_agi_scale) as i32;
-                let mut base_armor = 0;
-                if let Some(eq) = target.equipped.as_ref() {
-                    if let Some(chest) = eq.get("chest") {
-                        if let Some(effs) = chest.get("effects").and_then(|e| e.as_array()) {
-                            for e in effs {
-                                if e.get("target").and_then(|v| v.as_str()) == Some("armor") {
-                                    base_armor += e.get("value").map(value_to_i32).unwrap_or(0);
-                                }
-                            }
-                        }
-                    }
-                }
-                let total_armor = base_armor + endu_bonus + agi_bonus;
-
-                let actual_damage = if is_magical {
-                    let resist_amount = (scaled_damage as f64 * target.resistance) as i32;
-                    (scaled_damage - resist_amount).max(1)
-                } else {
-                    (scaled_damage - (target.defense + total_armor)).max(1)
-                };
-
-                let (final_damage, defeated_protectors) =
-                    self.apply_protection_to_target(&occupant_id, actual_damage, &mut rng);
-
-                if final_damage > 0 && self.break_stealth(&occupant_id) {
-                    self.add_log(
-                        &format!("👁️ {} was REVEALED by taking damage!", target.name),
-                        LogType::Info,
-                    );
-                }
-
-                new_hp = (self.entities.get(&occupant_id).unwrap().hp - final_damage).max(0);
-                target_damage = Some(final_damage);
-                defeated_ids.extend(defeated_protectors);
-
-                let icon = skill.icon.as_deref().unwrap_or("✨");
-                self.add_log(
-                    &format!(
-                        "{icon} {caster_name} uses {} on {} → {}{final_damage} damage!",
-                        skill.name,
-                        target.name,
-                        if is_crit { "CRITICAL " } else { "" }
-                    ),
-                    LogType::Damage,
-                );
-
-                // Apply HP change
-                if let Some(t) = self.entities.get_mut(&occupant_id) {
-                    t.hp = new_hp;
-                }
-
-                // Shove
-                if let Some(push_dist) = skill.push_distance {
-                    if new_hp > 0 {
-                        let row_diff = target.grid_pos.row as i32 - caster_pos.row as i32;
-                        let col_diff = target.grid_pos.col as i32 - caster_pos.col as i32;
-                        let dr = if row_diff > 0 {
-                            1
-                        } else if row_diff < 0 {
-                            -1
-                        } else {
-                            0
-                        };
-                        let dc = if col_diff > 0 {
-                            1
-                        } else if col_diff < 0 {
-                            -1
-                        } else {
-                            0
-                        };
-
-                        let mut dist_remaining = push_dist;
-                        let mut current_row = target.grid_pos.row;
-                        let mut current_col = target.grid_pos.col;
-                        let mut hit_obstacle = false;
-
-                        while dist_remaining > 0 && !hit_obstacle {
-                            let next_row = current_row as i32 + dr;
-                            let next_col = current_col as i32 + dc;
-
-                            if next_row < 0
-                                || next_row >= self.grid.len() as i32
-                                || next_col < 0
-                                || next_col >= self.grid[0].len() as i32
-                            {
-                                hit_obstacle = true;
-                                break;
-                            }
-
-                            let nr = next_row as usize;
-                            let nc = next_col as usize;
-
-                            if !self.grid[nr][nc].walkable
-                                || self.grid[nr][nc]
-                                    .occupant_id
-                                    .as_ref()
-                                    .is_some_and(|id| id != &occupant_id)
-                            {
-                                hit_obstacle = true;
-                                break;
-                            }
-
-                            current_row = nr;
-                            current_col = nc;
-                            dist_remaining -= 1;
-                        }
-
-                        if current_row != target.grid_pos.row || current_col != target.grid_pos.col
-                        {
-                            move_entity_on_grid(
-                                &mut self.grid,
-                                &occupant_id,
-                                target.grid_pos.row,
-                                target.grid_pos.col,
-                                current_row,
-                                current_col,
-                            );
-                            if let Some(t) = self.entities.get_mut(&occupant_id) {
-                                t.grid_pos = GridPos {
-                                    row: current_row,
-                                    col: current_col,
-                                };
-                            }
-                        }
-
-                        if hit_obstacle {
-                            let shock_pot = dist_remaining as f64 * (caster_strength as f64 * 0.3);
-                            let shock_dmg = (shock_pot - target.endurance as f64).max(0.0) as i32;
-                            if shock_dmg > 0 {
-                                if let Some(t) = self.entities.get_mut(&occupant_id) {
-                                    t.hp = (t.hp - shock_dmg).max(0);
-                                    new_hp = t.hp;
-                                }
-                                self.add_log(
-                                    &format!(
-                                        "💥 {} hits an obstacle! +{} shock damage!",
-                                        target.name, shock_dmg
-                                    ),
-                                    LogType::Damage,
-                                );
-                            }
-                        } else {
+                    // Physical evasion check
+                    if is_physical {
+                        let hit_chance = 100 - target.evasion;
+                        if rng.random_range(0..100) > hit_chance {
+                            is_miss = true;
+                            let icon = skill.icon.as_deref().unwrap_or("✨");
                             self.add_log(
-                                &format!("🌬️ {} is pushed back {} cells.", target.name, push_dist),
+                                &format!("{icon} {} missed {}!", skill.name, target.name),
                                 LogType::Info,
                             );
+                            skill_targets.push(SkillTarget {
+                                entity_id: occupant_id,
+                                damage: Some(0),
+                                healing: target_healing,
+                                is_crit: false,
+                                is_miss: true,
+                                new_hp,
+                            });
+                            continue;
                         }
                     }
+
+                    // Crit check
+                    is_crit = rng.random::<f64>() < caster_crit_chance;
+
+                    let variance = self.rules.combat.damage_variance_min
+                        + rng.random::<f64>()
+                            * (self.rules.combat.damage_variance_max
+                                - self.rules.combat.damage_variance_min);
+
+                    let mut scaled_damage = ((base_damage as f64
+                        + caster_strength as f64 * self.rules.combat.strength_to_power_ratio)
+                        * variance) as i32;
+
+                    if is_crit {
+                        scaled_damage = (scaled_damage as f64 * 1.5) as i32;
+                    }
+
+                    // Resistance/Defense
+                    // Armor calculation
+                    let armor_endu_scale = 0.4;
+                    let armor_agi_scale = 0.2;
+                    let endu_bonus = (target.endurance as f64 * armor_endu_scale) as i32;
+                    let agi_bonus = (target.agility as f64 * armor_agi_scale) as i32;
+                    let mut base_armor = 0;
+                    if let Some(eq) = target.equipped.as_ref() {
+                        if let Some(chest) = eq.get("chest") {
+                            if let Some(effs) = chest.get("effects").and_then(|e| e.as_array()) {
+                                for e in effs {
+                                    if e.get("target").and_then(|v| v.as_str()) == Some("armor") {
+                                        base_armor += e.get("value").map(value_to_i32).unwrap_or(0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let total_armor = base_armor + endu_bonus + agi_bonus;
+
+                    let actual_damage = if is_magical {
+                        let resist_amount = (scaled_damage as f64 * target.resistance) as i32;
+                        (scaled_damage - resist_amount).max(1)
+                    } else {
+                        (scaled_damage - (target.defense + total_armor)).max(1)
+                    };
+
+                    let (final_damage, defeated_protectors) =
+                        self.apply_protection_to_target(&occupant_id, actual_damage, &mut rng);
+
+                    if final_damage > 0 && self.break_stealth(&occupant_id) {
+                        self.add_log(
+                            &format!("👁️ {} was REVEALED by taking damage!", target.name),
+                            LogType::Info,
+                        );
+                    }
+
+                    new_hp = (self.entities.get(&occupant_id).unwrap().hp - final_damage).max(0);
+                    target_damage = Some(final_damage);
+                    defeated_ids.extend(defeated_protectors);
+
+                    let icon = skill.icon.as_deref().unwrap_or("✨");
+                    self.add_log(
+                        &format!(
+                            "{icon} {caster_name} uses {} on {} → {}{final_damage} damage!",
+                            skill.name,
+                            target.name,
+                            if is_crit { "CRITICAL " } else { "" }
+                        ),
+                        LogType::Damage,
+                    );
+
+                    // Apply HP change
+                    if let Some(t) = self.entities.get_mut(&occupant_id) {
+                        t.hp = new_hp;
+                    }
+
+                    // Shove
+                    if let Some(push_dist) = skill.push_distance {
+                        if new_hp > 0 {
+                            let row_diff = target.grid_pos.row as i32 - caster_pos.row as i32;
+                            let col_diff = target.grid_pos.col as i32 - caster_pos.col as i32;
+                            let dr = if row_diff > 0 {
+                                1
+                            } else if row_diff < 0 {
+                                -1
+                            } else {
+                                0
+                            };
+                            let dc = if col_diff > 0 {
+                                1
+                            } else if col_diff < 0 {
+                                -1
+                            } else {
+                                0
+                            };
+
+                            let mut dist_remaining = push_dist;
+                            let mut current_row = target.grid_pos.row;
+                            let mut current_col = target.grid_pos.col;
+                            let mut hit_obstacle = false;
+
+                            while dist_remaining > 0 && !hit_obstacle {
+                                let next_row = current_row as i32 + dr;
+                                let next_col = current_col as i32 + dc;
+
+                                if next_row < 0
+                                    || next_row >= self.grid.len() as i32
+                                    || next_col < 0
+                                    || next_col >= self.grid[0].len() as i32
+                                {
+                                    hit_obstacle = true;
+                                    break;
+                                }
+
+                                let nr = next_row as usize;
+                                let nc = next_col as usize;
+
+                                if !self.grid[nr][nc].walkable
+                                    || self.grid[nr][nc]
+                                        .occupant_id
+                                        .as_ref()
+                                        .is_some_and(|id| id != &occupant_id)
+                                {
+                                    hit_obstacle = true;
+                                    break;
+                                }
+
+                                current_row = nr;
+                                current_col = nc;
+                                dist_remaining -= 1;
+                            }
+
+                            if current_row != target.grid_pos.row
+                                || current_col != target.grid_pos.col
+                            {
+                                move_entity_on_grid(
+                                    &mut self.grid,
+                                    &occupant_id,
+                                    target.grid_pos.row,
+                                    target.grid_pos.col,
+                                    current_row,
+                                    current_col,
+                                );
+                                if let Some(t) = self.entities.get_mut(&occupant_id) {
+                                    t.grid_pos = GridPos {
+                                        row: current_row,
+                                        col: current_col,
+                                    };
+                                }
+                            }
+
+                            if hit_obstacle {
+                                let shock_pot =
+                                    dist_remaining as f64 * (caster_strength as f64 * 0.3);
+                                let shock_dmg =
+                                    (shock_pot - target.endurance as f64).max(0.0) as i32;
+                                if shock_dmg > 0 {
+                                    if let Some(t) = self.entities.get_mut(&occupant_id) {
+                                        t.hp = (t.hp - shock_dmg).max(0);
+                                        new_hp = t.hp;
+                                    }
+                                    self.add_log(
+                                        &format!(
+                                            "💥 {} hits an obstacle! +{} shock damage!",
+                                            target.name, shock_dmg
+                                        ),
+                                        LogType::Damage,
+                                    );
+                                }
+                            } else {
+                                self.add_log(
+                                    &format!(
+                                        "🌬️ {} is pushed back {} cells.",
+                                        target.name, push_dist
+                                    ),
+                                    LogType::Info,
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    // Apply HP change if no damage (e.g. heal)
+                    if let Some(t) = self.entities.get_mut(&occupant_id) {
+                        t.hp = new_hp;
+                    }
                 }
-            } else {
-                // Apply HP change if no damage (e.g. heal)
-                if let Some(t) = self.entities.get_mut(&occupant_id) {
-                    t.hp = new_hp;
-                }
-            }
             }
 
             // Apply active effects (Buffs/Debuffs)
@@ -1796,11 +1835,9 @@ impl CombatState {
                         );
                     }
                     if let Some(t_ref) = self.entities.get_mut(&occupant_id) {
-                        let should_mark_just_applied = !(
-                            skill.id == "sprint"
-                                && new_eff.effect_type == EffectType::StatModifier
-                                && new_eff.target.as_deref() == Some("maxMp")
-                        );
+                        let should_mark_just_applied = !(skill.id == "sprint"
+                            && new_eff.effect_type == EffectType::StatModifier
+                            && new_eff.target.as_deref() == Some("maxMp"));
                         Self::apply_effect_to_entity(
                             t_ref,
                             new_eff,

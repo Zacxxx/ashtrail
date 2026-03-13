@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from "react";
-import { useGameRules, GameRulesConfig, GameRulesManager } from "./rules/useGameRules";
+import { useGameRules, GameRulesConfig, GameRulesManager, DEFAULT_RULES } from "./rules/useGameRules";
+import { XpAndLevelingRulesSection } from "./XpAndLevelingRulesSection";
 
 // ─── Category type ───────────────────────────────────────────────────────────
 
-type Category = "all" | "core" | "combat" | "grid" | "regions" | "aoe" | "status" | "modifiers";
+type Category = "all" | "core" | "combat" | "grid" | "regions" | "xp-leveling" | "aoe" | "status" | "modifiers";
 
 const CATEGORIES: { id: Category; label: string; icon: string; color: string }[] = [
     { id: "all", label: "All Rules", icon: "📋", color: "text-gray-400" },
@@ -357,7 +358,7 @@ function GridPreview({ rules }: { rules: GameRulesConfig }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function GameRulesView() {
-    const { rules, updateRules, saveRules } = useGameRules();
+    const { rules, updateRules, saveRules, previewRules } = useGameRules();
     const [activeCategory, setActiveCategory] = useState<Category>("all");
     const [hasUnsaved, setHasUnsaved] = useState(false);
     const [saveFlash, setSaveFlash] = useState(false);
@@ -376,45 +377,7 @@ export function GameRulesView() {
     };
 
     const handleReset = () => {
-        GameRulesManager.update({
-            core: {
-                hpBase: 10, hpPerEndurance: 5, apBase: 5, apAgilityDivisor: 2,
-                mpBase: 3, critPerIntelligence: 0.02, resistPerWisdom: 0.05,
-                charismaBonusPerCharisma: 0.03,
-                armorAgiScale: 2.5, armorEnduScale: 3.5
-            },
-            combat: {
-                damageVarianceMin: 0.85,
-                damageVarianceMax: 1.15,
-                strengthToPowerRatio: 0.3,
-                strengthScalingMin: 0.2,
-                strengthScalingMax: 0.4,
-                agilityScalingMin: 0.2,
-                agilityScalingMax: 0.4,
-                meleeScalingStat: 'strength',
-                rangedScalingStat: 'agility',
-                shovePushDamageRatio: 0.1,
-                shoveShockDamageRatio: 0.3,
-                defendPartialThreshold: 5,
-                defendSuccessThreshold: 10,
-                defendFailReduction: 0.1,
-                defendPartialReduction: 0.2,
-                defendSuccessReduction: 0.6,
-                stealthBaseDuration: 1,
-                stealthScaleFactor: 1.4,
-                distractCharismaScale: 0.42,
-                analyzeBaseCrit: 30,
-                analyzeIntelScale: 0.6,
-            },
-            grid: { baseDisengageCost: 2, threatScaling: 1, agilityMitigationDivisor: 10 },
-            regions: {
-                popMultiplierContinent: 50, popMultiplierKingdom: 10,
-                popMultiplierDuchy: 3, popMultiplierProvince: 1,
-                popBaseMin: 500, popBaseMax: 5000,
-                wealthMin: -100, wealthMax: 100,
-                devMin: -100, devMax: 100,
-            },
-        });
+        GameRulesManager.update(DEFAULT_RULES);
         setHasUnsaved(false);
     };
 
@@ -431,6 +394,7 @@ export function GameRulesView() {
     const showCombat = activeCategory === "all" || activeCategory === "combat";
     const showGrid = activeCategory === "all" || activeCategory === "grid";
     const showRegions = activeCategory === "all" || activeCategory === "regions";
+    const showXpLeveling = activeCategory === "all" || activeCategory === "xp-leveling";
     const showAoe = activeCategory === "all" || activeCategory === "aoe";
     const showStatus = activeCategory === "all" || activeCategory === "status";
     const showModifiers = activeCategory === "all" || activeCategory === "modifiers";
@@ -454,6 +418,16 @@ export function GameRulesView() {
                         <span>{c.label}</span>
                     </button>
                 ))}
+                <button
+                    onClick={() => setActiveCategory("xp-leveling")}
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all text-left ${activeCategory === "xp-leveling"
+                        ? "bg-white/10 text-white border border-white/10"
+                        : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                        }`}
+                >
+                    <span className="text-base">XP</span>
+                    <span>XP & Leveling</span>
+                </button>
 
                 <div className="flex-1" />
 
@@ -998,6 +972,17 @@ Development = random(${rules.regions.devMin}, ${rules.regions.devMax})
                             </FormulaBox>
                         </div>
                     </section>
+                )}
+
+                {showXpLeveling && (
+                    <XpAndLevelingRulesSection
+                        rules={rules}
+                        onChange={(nextRules) => {
+                            updateRules(nextRules);
+                            setHasUnsaved(true);
+                        }}
+                        previewRules={previewRules}
+                    />
                 )}
 
                 {showAoe && (

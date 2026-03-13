@@ -10,6 +10,8 @@ import type { GeographyRegion } from "../history/RegionsTab";
 import type { Area } from "../history/locationTypes";
 import type { Faction } from "../history/FactionsTab";
 import type { LoreSnippet } from "../types/lore";
+import { useJobs } from "../jobs/useJobs";
+import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import { formatAshtrailDate } from "../lib/calendar";
 
 interface EventChoice {
@@ -56,6 +58,8 @@ export function EventsView({
     onCharacterUpdated?: () => void,
     onCombatRedirect?: (playerIds: string[], enemyIds: string[]) => void
 }) {
+    const { waitForJob } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
     const selectorClassName = "bg-[#0b1017] border border-white/10 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-orange-500/50";
     const selectorOptionClassName = "bg-[#0b1017] text-gray-100";
 
@@ -358,15 +362,32 @@ export function EventsView({
                         sourceSummary: latestGmContext.sourceSummary,
                     },
                 };
-                const res = await fetch("http://127.0.0.1:8787/api/events/rethink", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(body)
+                const accepted = await launchTrackedJob<{ jobId: string }, typeof body>({
+                    url: "/api/events/rethink",
+                    request: body,
+                    optimisticJob: {
+                        kind: "events.rethink",
+                        title: "Rethink Event",
+                        tool: "gameplay-engine",
+                        status: "queued",
+                        currentStage: "Queued",
+                        worldId: activeWorldId,
+                        metadata: {
+                            worldId: latestGmContext.worldId,
+                            eventType,
+                            characterName: character.name,
+                        },
+                    },
+                    metadata: {
+                        worldId: latestGmContext.worldId,
+                        eventType,
+                        characterName: character.name,
+                    },
                 });
-                if (res.ok) {
-                    const data = await res.json();
+                const detail = await waitForJob(accepted.jobId);
+                if (detail.status === "completed") {
                     try {
-                        const parsed = JSON.parse(data.rawJson);
+                        const parsed = JSON.parse(String((detail.result as { rawJson?: string } | undefined)?.rawJson || "{}"));
                         setEventData(prev => prev ? { ...prev, choices: parsed.choices } : prev);
                     } catch (e) {
                         console.error("Failed to parse rethink JSON", e);
@@ -392,15 +413,32 @@ export function EventsView({
                         sourceSummary: latestGmContext.sourceSummary,
                     },
                 };
-                const res = await fetch("http://127.0.0.1:8787/api/events/generate", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(body)
+                const accepted = await launchTrackedJob<{ jobId: string }, typeof body>({
+                    url: "/api/events/generate",
+                    request: body,
+                    optimisticJob: {
+                        kind: "events.generate",
+                        title: "Generate Event",
+                        tool: "gameplay-engine",
+                        status: "queued",
+                        currentStage: "Queued",
+                        worldId: activeWorldId,
+                        metadata: {
+                            worldId: latestGmContext.worldId,
+                            eventType,
+                            characterName: character.name,
+                        },
+                    },
+                    metadata: {
+                        worldId: latestGmContext.worldId,
+                        eventType,
+                        characterName: character.name,
+                    },
                 });
-                if (res.ok) {
-                    const data = await res.json();
+                const detail = await waitForJob(accepted.jobId);
+                if (detail.status === "completed") {
                     try {
-                        const parsed = JSON.parse(data.rawJson);
+                        const parsed = JSON.parse(String((detail.result as { rawJson?: string } | undefined)?.rawJson || "{}"));
                         setEventData(parsed);
                     } catch (e) {
                         console.error("Failed to parse event JSON", e);
@@ -434,16 +472,32 @@ export function EventsView({
                 },
             };
 
-            const res = await fetch("http://127.0.0.1:8787/api/events/resolve", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body)
+            const accepted = await launchTrackedJob<{ jobId: string }, typeof body>({
+                url: "/api/events/resolve",
+                request: body,
+                optimisticJob: {
+                    kind: "events.resolve",
+                    title: "Resolve Event",
+                    tool: "gameplay-engine",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId: activeWorldId,
+                    metadata: {
+                        worldId: latestGmContext.worldId,
+                        eventType,
+                        characterName: character.name,
+                    },
+                },
+                metadata: {
+                    worldId: latestGmContext.worldId,
+                    eventType,
+                    characterName: character.name,
+                },
             });
-
-            if (res.ok) {
-                const data = await res.json();
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status === "completed") {
                 try {
-                    const parsed = JSON.parse(data.rawJson);
+                    const parsed = JSON.parse(String((detail.result as { rawJson?: string } | undefined)?.rawJson || "{}"));
                     setOutcomeData(parsed);
 
                     // Apply to GameState

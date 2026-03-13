@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, getDefaultTalentPointsForLevel, isOccupationLinkedTrait, resolveOccupationTree } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, CharacterOccupationProgress, ResolvedProgression, getDefaultTalentPointsForLevel, isOccupationLinkedTrait, resolveOccupationTree, sanitizeSkillLoadout } from "@ashtrail/core";
 import { TabBar, Modal } from "@ashtrail/ui";
 import { Background, ConnectionLineType, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge as RFEdge, type Node as RFNode } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -8,6 +8,8 @@ import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import { useActiveWorld } from "../hooks/useActiveWorld";
+import { useJobs } from "../jobs/useJobs";
+import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import { CharacterGeneratorModal } from "./CharacterGeneratorModal";
 import {
     CharacterAppearanceSection,
@@ -15,10 +17,6 @@ import {
     type AppearanceSelectors,
     type AppearanceSelectorKey,
 } from "../../../website/Screens/IndividualScreens/CharacterAppearanceSection";
-import {
-    enhanceAppearancePromptViaApi,
-    generateCharacterPortraitViaApi,
-} from "../../../website/services/gmApi";
 
 // Map item category + name to an equipment slot
 const SLOT_MAP: Record<string, EquipSlot> = {
@@ -252,6 +250,8 @@ const CHARACTER_SPRITE_TYPE_MAP: Record<string, "human" | "monster" | "mutant" |
 
 export function CharacterBuilderPage() {
     const [searchParams] = useSearchParams();
+    const { jobs, waitForJob } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
     const [isLoading, setIsLoading] = useState(true);
     const [savedCharacters, setSavedCharacters] = useState<Character[]>([]);
     const [libraryItems, setLibraryItems] = useState<Item[]>([]);
@@ -292,6 +292,7 @@ export function CharacterBuilderPage() {
         setActiveWorldId(id);
     };
     const [level, setLevel] = useState(1);
+    const [xp, setXp] = useState(0);
     const [characterTitle, setCharacterTitle] = useState("");
     const [characterBadge, setCharacterBadge] = useState("");
     const [faction, setFaction] = useState("");
@@ -369,7 +370,40 @@ export function CharacterBuilderPage() {
         const contextPrompt = `A ${gender} wasteland explorer, aged ${age}. Overall characteristics: ${selectorsSummary}. Detailed appearance: ${profileText}`;
 
         try {
-            const url = await generateCharacterPortraitViaApi(contextPrompt);
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: "/api/gm/generate-character-portrait",
+                request: { prompt: contextPrompt },
+                optimisticJob: {
+                    kind: "gm.generate-character-portrait",
+                    title: "Generate Character Portrait",
+                    tool: "game-master",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId,
+                    metadata: {
+                        worldId,
+                        characterName: name || "Unnamed Character",
+                    },
+                },
+                metadata: {
+                    worldId,
+                    characterName: name || "Unnamed Character",
+                },
+                restore: {
+                    route: "/character-builder",
+                    payload: {
+                        worldId,
+                        charId,
+                        appearancePrompt: profileText,
+                        appearanceSelectors,
+                    },
+                },
+            });
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") {
+                throw new Error(detail.error || "Portrait generation failed");
+            }
+            const url = String((detail.result as { dataUrl?: string } | undefined)?.dataUrl || "");
             if (url) {
                 setPortraitUrl(url);
                 setIsProfileModified(false);
@@ -395,11 +429,47 @@ export function CharacterBuilderPage() {
             .join(", ");
 
         try {
-            narrative = await enhanceAppearancePromptViaApi({
-                ...appearanceSelectors,
-                age: age.toString(),
-                gender,
+            const accepted = await launchTrackedJob<{ jobId: string }, { params: Record<string, string> }>({
+                url: "/api/gm/enhance-appearance-prompt",
+                request: {
+                    params: {
+                        ...Object.fromEntries(Object.entries(appearanceSelectors).map(([key, value]) => [key, String(value)])),
+                        age: age.toString(),
+                        gender,
+                    },
+                },
+                optimisticJob: {
+                    kind: "gm.enhance-appearance-prompt",
+                    title: "Enhance Appearance Prompt",
+                    tool: "game-master",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId,
+                    metadata: {
+                        worldId,
+                        characterName: name || "Unnamed Character",
+                    },
+                },
+                metadata: {
+                    worldId,
+                    characterName: name || "Unnamed Character",
+                },
+                restore: {
+                    route: "/character-builder",
+                    payload: {
+                        worldId,
+                        charId,
+                        age,
+                        gender,
+                        appearanceSelectors,
+                    },
+                },
             });
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") {
+                throw new Error(detail.error || "Appearance prompt generation failed");
+            }
+            narrative = String((detail.result as { text?: string } | undefined)?.text || "");
             setAppearancePrompt(narrative || "");
         } catch (error) {
             console.error("Appearance prompt API failed:", error);
@@ -425,6 +495,103 @@ export function CharacterBuilderPage() {
         await handleRefreshPortrait(resolvedNarrative);
     };
 
+    const handleGenerateStory = async () => {
+        setIsGeneratingStory(true);
+        setHasStartedGeneration(true);
+        try {
+            const request = {
+                name: name || "This unit",
+                age,
+                gender,
+                occupation: selectedOccupation?.name || "Wanderer",
+                draft: backstory || "",
+                relationships: relationships.map(r => {
+                    const target = savedCharacters.find(c => c.id === r.targetId);
+                    return {
+                        targetName: target?.name || r.targetId,
+                        relType: r.type,
+                        isPlayer: target ? !target.isNPC : false,
+                    };
+                }),
+                worldLore: worldSnippets.length > 0 ? worldSnippets[worldSnippets.length - 1].content : "",
+            };
+            const accepted = await launchTrackedJob<{ jobId: string }, typeof request>({
+                url: "/api/ai/character-story",
+                request,
+                optimisticJob: {
+                    kind: "characters.story",
+                    title: "Generate Character Story",
+                    tool: "character-builder",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId,
+                    metadata: {
+                        worldId,
+                        characterName: name || "Unnamed Character",
+                    },
+                },
+                metadata: {
+                    worldId,
+                    characterName: name || "Unnamed Character",
+                },
+                restore: {
+                    route: "/character-builder",
+                    payload: {
+                        worldId,
+                        charId,
+                        name,
+                        age,
+                        gender,
+                        backstory,
+                    },
+                },
+            });
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") {
+                throw new Error(detail.error || "Character story generation failed");
+            }
+            const fullHistory = String((detail.result as { story?: string } | undefined)?.story || "");
+
+            setGenProgress(100);
+            setTimeout(() => {
+                setTargetHistory(fullHistory);
+                setIsGeneratingStory(false);
+            }, 500);
+
+            const h = fullHistory.toLowerCase();
+            const soulContext = (backstory || "").toLowerCase();
+
+            let moralScore = 0;
+            let orderScore = 0;
+
+            if (h.includes("save") || h.includes("protect") || h.includes("help") || h.includes("sacrifice")) moralScore += 3;
+            if (h.includes("kill") || h.includes("murder") || h.includes("ruthless") || h.includes("discard")) moralScore -= 3;
+            if (h.includes("order") || h.includes("law") || h.includes("duty") || h.includes("structure")) orderScore += 3;
+            if (h.includes("chaos") || h.includes("anarchy") || h.includes("theft") || h.includes("rogue")) orderScore -= 3;
+
+            if (soulContext.includes("protect") || soulContext.includes("family") || soulContext.includes("heal")) moralScore += 1;
+            if (soulContext.includes("revenge") || soulContext.includes("power") || soulContext.includes("dominate")) moralScore -= 1;
+            if (soulContext.includes("law") || soulContext.includes("duty") || soulContext.includes("order")) orderScore += 1;
+            if (soulContext.includes("freedom") || soulContext.includes("chaos") || soulContext.includes("rebel")) orderScore -= 1;
+
+            let finalAlign = "True Neutral";
+            if (moralScore >= 3 && orderScore >= 3) finalAlign = "Lawful Good";
+            else if (moralScore >= 3 && orderScore <= -3) finalAlign = "Chaotic Good";
+            else if (moralScore >= 3) finalAlign = "Neutral Good";
+            else if (moralScore <= -3 && orderScore >= 3) finalAlign = "Lawful Evil";
+            else if (moralScore <= -3 && orderScore <= -3) finalAlign = "Chaotic Evil";
+            else if (moralScore <= -3) finalAlign = "Neutral Evil";
+            else if (orderScore >= 3) finalAlign = "Lawful Neutral";
+            else if (orderScore <= -3) finalAlign = "Chaotic Neutral";
+            else finalAlign = "True Neutral";
+
+            setAlignment(finalAlign);
+        } catch (error) {
+            console.error("Character story API failed:", error);
+            setIsGeneratingStory(false);
+        }
+    };
+
     // Fetch world's lore snippets
     useEffect(() => {
         if (!worldId) return;
@@ -443,6 +610,12 @@ export function CharacterBuilderPage() {
     const [showGalleryModal, setShowGalleryModal] = useState(false);
     const [galleryMode, setGalleryMode] = useState<"worlds" | "characters">("worlds");
     const [showGeneratorModal, setShowGeneratorModal] = useState(false);
+    const galleryRefreshKey = useMemo(
+        () => jobs
+            .filter((job) => job.kind === "gm.generate-character-portrait" && job.status === "completed")
+            .reduce((sum, job) => sum + job.updatedAt, 0),
+        [jobs],
+    );
 
     const handleGenerateConfirm = async (characters: Character[]) => {
         try {
@@ -510,7 +683,9 @@ export function CharacterBuilderPage() {
     const [occCategory, setOccCategory] = useState<OccupationCategory | "ALL">("ALL");
     const [showTalentTreeModal, setShowTalentTreeModal] = useState(false);
     const [unlockedTalentNodeIds, setUnlockedTalentNodeIds] = useState<string[]>([]);
-    const [availableTalentPoints, setAvailableTalentPoints] = useState(() => getDefaultTalentPointsForLevel(1));
+    const [availableTalentPoints, setAvailableTalentPoints] = useState(0);
+    const [occupationStates, setOccupationStates] = useState<CharacterOccupationProgress[]>([]);
+    const [resolvedProgression, setResolvedProgression] = useState<ResolvedProgression | undefined>(undefined);
 
     // Load character for editing
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -781,12 +956,12 @@ export function CharacterBuilderPage() {
         } : undefined,
         hp: derivedStats.hp,
         maxHp: derivedStats.hp,
-        xp: 0,
+        xp,
         level,
         credits: normalizeCharacterCredits(credits),
         inventory,
         skills: (() => {
-            if (isNPC) return selectedSkills;
+            if (isNPC) return sanitizeSkillLoadout(selectedSkills);
             const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
             const merged = [...selectedSkills];
             baseSkills.forEach(bs => {
@@ -794,7 +969,7 @@ export function CharacterBuilderPage() {
                     merged.push(bs);
                 }
             });
-            return merged;
+            return sanitizeSkillLoadout(merged);
         })(),
         equipped: equippedItems,
         title: characterTitle,
@@ -810,6 +985,46 @@ export function CharacterBuilderPage() {
         relationships,
         ...overrides,
     });
+
+    const applyResolvedCharacter = (resolvedCharacter: Character) => {
+        setXp(resolvedCharacter.xp || 0);
+        setLevel(resolvedCharacter.level || 1);
+        setResolvedProgression(resolvedCharacter.resolvedProgression);
+        setOccupationStates(resolvedCharacter.occupations || []);
+        setSelectedOccupation(
+            resolvedCharacter.occupations?.find((entry) => entry.isPrimary)?.occupation ||
+            resolvedCharacter.occupation ||
+            null,
+        );
+        setUnlockedTalentNodeIds(resolvedCharacter.progression?.unlockedTalentNodeIds || []);
+        setAvailableTalentPoints(
+            resolvedCharacter.resolvedProgression?.availableTalentPoints ??
+            resolvedCharacter.progression?.availableTalentPoints ??
+            0,
+        );
+        if (!isRedispatching) {
+            setAttributePoints(resolvedCharacter.resolvedProgression?.availableStatPoints ?? 0);
+        }
+    };
+
+    const resolveCharacterDraft = async (overrides: Partial<Character> = {}) => {
+        try {
+            const response = await fetch("http://127.0.0.1:8787/api/progression/resolve-character", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(buildCharacterPayload(overrides)),
+            });
+            if (!response.ok) {
+                throw new Error(`Failed to resolve draft progression for ${charId}`);
+            }
+            const resolved = await response.json() as Character;
+            applyResolvedCharacter(resolved);
+            return resolved;
+        } catch (error) {
+            console.error("Failed to resolve character draft:", error);
+            return null;
+        }
+    };
 
     const refreshSavedCharacters = async () => {
         await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
@@ -919,13 +1134,13 @@ export function CharacterBuilderPage() {
             const skills = GameRegistry.getAllSkills();
             const baseSkills = skills.filter(s => s.category === "base");
 
-            // Enrich all characters with base skills immediately and filter out legacy slash
+            // Enrich all characters with base skills and canonicalize legacy aliases.
             const enriched = rawCharacters.map(c => ({
                 ...c,
-                skills: [
-                    ...(c.skills || []).filter(s => s.id !== 'slash'),
-                    ...baseSkills.filter(bs => !(c.skills || []).some(ms => ms.id === bs.id && ms.id !== 'slash'))
-                ]
+                skills: sanitizeSkillLoadout([
+                    ...(c.skills || []),
+                    ...baseSkills,
+                ]),
             }));
 
             setSavedCharacters(enriched);
@@ -992,6 +1207,27 @@ export function CharacterBuilderPage() {
         () => selectedTreeState.unlockedNodes.reduce((sum, node) => sum + (node.cost || 1), 0),
         [selectedTreeState.unlockedNodes],
     );
+    const displayOccupationStates = useMemo(() => {
+        if (occupationStates.length > 0) {
+            return occupationStates;
+        }
+        if (!selectedOccupation) {
+            return [];
+        }
+        return [{
+            occupationId: selectedOccupation.id,
+            occupation: selectedOccupation,
+            unlockedTalentNodeIds,
+            spentTalentPoints,
+            availableTalentPoints,
+            level: resolvedProgression?.occupations?.[0]?.level ?? 1,
+            isPrimary: true,
+        }];
+    }, [availableTalentPoints, occupationStates, resolvedProgression?.occupations, selectedOccupation, spentTalentPoints, unlockedTalentNodeIds]);
+    const primaryOccupationState = displayOccupationStates.find((entry) => entry.isPrimary) ?? displayOccupationStates[0];
+    const primaryOccupationLabel = primaryOccupationState?.occupation?.name
+        ? `${primaryOccupationState.occupation.name} Lv. ${primaryOccupationState.level}`
+        : "No Occupation";
 
     const toggleTrait = (trait: Trait) => {
         const isSelected = selectedTraits.find(t => t.id === trait.id);
@@ -1016,9 +1252,9 @@ export function CharacterBuilderPage() {
     const toggleSkill = (skill: Skill) => {
         const isSelected = selectedSkills.find(s => s.id === skill.id);
         if (isSelected) {
-            setSelectedSkills(p => p.filter(s => s.id !== skill.id));
+            setSelectedSkills(p => sanitizeSkillLoadout(p.filter(s => s.id !== skill.id)));
         } else {
-            setSelectedSkills(p => [...p, skill]);
+            setSelectedSkills(p => sanitizeSkillLoadout([...p, skill]));
         }
     };
 
@@ -1035,19 +1271,22 @@ export function CharacterBuilderPage() {
             if (grantAttributePoint && normalizedLevel > prevLevel) {
                 setAttributePoints(points => points + (normalizedLevel - prevLevel));
             }
-            const pointDelta = getDefaultTalentPointsForLevel(normalizedLevel) - getDefaultTalentPointsForLevel(prevLevel);
-            if (pointDelta !== 0) {
-                setAvailableTalentPoints(points => Math.max(0, points + pointDelta));
-            }
             return normalizedLevel;
         });
+        setXp(0);
+        void resolveCharacterDraft({ level: normalizedLevel, xp: 0 });
     };
 
     const handleOccupationSelect = (occupation: Occupation | null) => {
         if (!occupation) {
             setSelectedOccupation(null);
             setUnlockedTalentNodeIds([]);
-            setAvailableTalentPoints(getDefaultTalentPointsForLevel(level));
+            setOccupationStates([]);
+            setResolvedProgression(undefined);
+            void resolveCharacterDraft({
+                occupation: undefined,
+                progression: undefined,
+            });
             return;
         }
 
@@ -1055,7 +1294,15 @@ export function CharacterBuilderPage() {
         setSelectedOccupation(occupation);
         if (changedOccupation) {
             setUnlockedTalentNodeIds([]);
-            setAvailableTalentPoints(getDefaultTalentPointsForLevel(level));
+            void resolveCharacterDraft({
+                occupation,
+                progression: {
+                    treeOccupationId: occupation.id,
+                    unlockedTalentNodeIds: [],
+                    availableTalentPoints: 0,
+                    spentTalentPoints: 0,
+                },
+            });
         }
     };
 
@@ -1171,7 +1418,11 @@ export function CharacterBuilderPage() {
         setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
         setUnlockedTalentNodeIds(char.progression?.unlockedTalentNodeIds || []);
-        setAvailableTalentPoints(char.progression?.availableTalentPoints ?? getDefaultTalentPointsForLevel(char.level || 1));
+        setXp(char.xp || 0);
+        setOccupationStates(char.occupations || []);
+        setResolvedProgression(char.resolvedProgression);
+        setAvailableTalentPoints(char.resolvedProgression?.availableTalentPoints ?? char.progression?.availableTalentPoints ?? 0);
+        setAttributePoints(char.resolvedProgression?.availableStatPoints ?? 0);
         setInventory((char.inventory || []).map(invItem => {
             if (invItem && invItem.id) {
                 const fresh = GameRegistry.getItem(invItem.id);
@@ -1179,17 +1430,12 @@ export function CharacterBuilderPage() {
             }
             return invItem;
         }));
-        setSelectedSkills(prev => {
+        setSelectedSkills(() => {
             const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
-            const loadedSkills = (char.skills || []).filter(s => s.id !== 'slash');
-            // Merge char skills with base skills, avoiding duplicates
-            const merged = [...loadedSkills];
-            baseSkills.forEach(bs => {
-                if (!merged.some(ms => ms.id === bs.id)) {
-                    merged.push(bs);
-                }
-            });
-            return merged;
+            return sanitizeSkillLoadout([
+                ...(char.skills || []),
+                ...baseSkills,
+            ]);
         });
         setCredits(normalizeCharacterCredits(char.credits));
         if (char.equipped) {
@@ -1241,7 +1487,8 @@ export function CharacterBuilderPage() {
         setIsFamily(false);
         setFamilyId("");
         setWorldId("665774da-472d-4570-adfb-1242ceefdfd9");
-        updateLevel(1);
+        setLevel(1);
+        setXp(0);
         setCharacterTitle("");
         setCharacterBadge("");
         setFaction("");
@@ -1259,13 +1506,16 @@ export function CharacterBuilderPage() {
         setRedispatchUpgrades(null);
         setSelectedOccupation(null);
         setUnlockedTalentNodeIds([]);
-        setAvailableTalentPoints(getDefaultTalentPointsForLevel(1));
+        setOccupationStates([]);
+        setResolvedProgression(undefined);
+        setAvailableTalentPoints(0);
         setCredits({ ...DEFAULT_CHARACTER_CREDITS });
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
         });
-        setSelectedSkills(GameRegistry.getAllSkills().filter(s => s.category === "base"));
+        setSelectedSkills(sanitizeSkillLoadout(GameRegistry.getAllSkills().filter(s => s.category === "base")));
         setActiveTab("IDENTITY");
+        void resolveCharacterDraft({ level: 1, xp: 0, occupation: undefined, progression: undefined });
         // Also reset inventory to fresh mock data
         const rarities: ItemRarity[] = ["salvaged", "reinforced", "pre-ash", "specialized", "relic", "ashmarked"];
         const mockInventory: Item[] = [];
@@ -1474,7 +1724,10 @@ export function CharacterBuilderPage() {
                                                     <span className="text-[11px] font-bold uppercase text-indigo-400 line-clamp-1">{c.name}</span>
                                                     {c.isNPC && <span className="text-[8px] bg-red-500/20 text-red-300 px-1 py-0.5 rounded uppercase">NPC</span>}
                                                 </div>
-                                                <p className="text-[10px] text-gray-500">Lvl {c.level} | {c.occupation?.name || "None"}</p>
+                                                <p className="text-[10px] text-gray-500">
+                                                    Lvl {c.level} | {(c.resolvedProgression?.occupations?.find((entry) => entry.isPrimary) ?? c.occupations?.[0])?.occupation?.name || c.occupation?.name || "None"}
+                                                    {(c.resolvedProgression?.occupations?.find((entry) => entry.isPrimary) ?? c.occupations?.[0])?.level ? ` Lv. ${(c.resolvedProgression?.occupations?.find((entry) => entry.isPrimary) ?? c.occupations?.[0])?.level}` : ""}
+                                                </p>
                                             </button>
                                         ))}
                                         {savedCharacters.length === 0 && (
@@ -1563,15 +1816,10 @@ export function CharacterBuilderPage() {
                                                 // If switching to Player, auto-equip base skills
                                                 if (!nextIsNPC) {
                                                     const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
-                                                    setSelectedSkills(prev => {
-                                                        const merged = [...prev];
-                                                        baseSkills.forEach(bs => {
-                                                            if (!merged.some(ms => ms.id === bs.id)) {
-                                                                merged.push(bs);
-                                                            }
-                                                        });
-                                                        return merged;
-                                                    });
+                                                    setSelectedSkills(prev => sanitizeSkillLoadout([
+                                                        ...prev,
+                                                        ...baseSkills,
+                                                    ]));
                                                 }
                                             }}
                                             className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg border transition-all ${isNPC
@@ -2026,77 +2274,7 @@ export function CharacterBuilderPage() {
                                                     <div></div>
                                                     <div className="flex justify-end pt-8">
                                                         <button
-                                                            onClick={async () => {
-                                                                setIsGeneratingStory(true);
-                                                                setHasStartedGeneration(true);
-                                                                try {
-                                                                    const resp = await fetch("http://localhost:8787/api/ai/character-story", {
-                                                                        method: "POST",
-                                                                        headers: { "Content-Type": "application/json" },
-                                                                        body: JSON.stringify({
-                                                                            name: name || "This unit",
-                                                                            age: age,
-                                                                            gender: gender,
-                                                                            occupation: selectedOccupation?.name || "Wanderer",
-                                                                            draft: backstory || "",
-                                                                            relationships: relationships.map(r => {
-                                                                                const target = savedCharacters.find(c => c.id === r.targetId);
-                                                                                return {
-                                                                                    targetName: target?.name || r.targetId,
-                                                                                    relType: r.type,
-                                                                                    isPlayer: target ? !target.isNPC : false
-                                                                                };
-                                                                            }),
-                                                                            worldLore: worldSnippets.length > 0 ? worldSnippets[worldSnippets.length - 1].content : ""
-                                                                        })
-                                                                    });
-
-                                                                    if (resp.ok) {
-                                                                        const data = await resp.json();
-                                                                        const fullHistory = data.story;
-
-                                                                        // Force 100% progress before completing
-                                                                        setGenProgress(100);
-
-                                                                        // Small delay to let the user see the 100%
-                                                                        setTimeout(() => {
-                                                                            setTargetHistory(fullHistory);
-                                                                            setIsGeneratingStory(false);
-                                                                        }, 500);
-
-                                                                        // Refined Moral Sentiment Analysis based on AI output
-                                                                        const h = fullHistory.toLowerCase();
-                                                                        const soulContext = (backstory || "").toLowerCase();
-
-                                                                        // 1. Scoring System
-                                                                        let moralScore = 0;
-                                                                        let orderScore = 0;
-
-                                                                        // Analysis logic (Detecting markers in the AI's complex prose)
-                                                                        if (h.includes("save") || h.includes("protect") || h.includes("help") || h.includes("sacrifice")) moralScore += 3;
-                                                                        if (h.includes("kill") || h.includes("murder") || h.includes("ruthless") || h.includes("discard")) moralScore -= 3;
-                                                                        if (h.includes("order") || h.includes("law") || h.includes("duty") || h.includes("structure")) orderScore += 3;
-                                                                        if (h.includes("chaos") || h.includes("anarchy") || h.includes("theft") || h.includes("rogue")) orderScore -= 3;
-
-                                                                        // 2. Alignment Logic
-                                                                        let finalAlign = "True Neutral";
-                                                                        if (moralScore >= 3 && orderScore >= 3) finalAlign = "Lawful Good";
-                                                                        else if (moralScore >= 3 && orderScore <= -3) finalAlign = "Chaotic Good";
-                                                                        else if (moralScore >= 3) finalAlign = "Neutral Good";
-                                                                        else if (moralScore <= -3 && orderScore >= 3) finalAlign = "Lawful Evil";
-                                                                        else if (moralScore <= -3 && orderScore <= -3) finalAlign = "Chaotic Evil";
-                                                                        else if (moralScore <= -3) finalAlign = "Neutral Evil";
-                                                                        else if (orderScore >= 3) finalAlign = "Lawful Neutral";
-                                                                        else if (orderScore <= -3) finalAlign = "Chaotic Neutral";
-                                                                        else finalAlign = "True Neutral";
-
-                                                                        setAlignment(finalAlign);
-                                                                    }
-                                                                } catch (e) {
-                                                                    console.error("AI Lore Generation Failed:", e);
-                                                                    setIsGeneratingStory(false);
-                                                                }
-                                                            }}
+                                                            onClick={handleGenerateStory}
                                                             disabled={!backstory || isGeneratingStory}
                                                             className={`px-10 py-3.5 w-fit ${isGeneratingStory ? 'bg-orange-950/40' : 'bg-orange-600 hover:bg-orange-500'} text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all shadow-[0_10px_30px_rgba(234,88,12,0.2)] disabled:opacity-50 flex items-center gap-3 group relative overflow-hidden`}
                                                         >
@@ -2749,7 +2927,7 @@ export function CharacterBuilderPage() {
                                                         {/* Level & Name Overlay */}
                                                         <div className="absolute top-6 flex flex-col items-center">
                                                             <div className="text-[8px] text-orange-500/70 font-black tracking-[0.3em] uppercase">
-                                                                {selectedOccupation?.name || "SOLDAT"} | LVL {level}
+                                                                {primaryOccupationState?.occupation?.name || "SOLDAT"} | LVL {level}
                                                             </div>
                                                             <div className="text-[10px] text-white font-black tracking-[0.2em] mt-1 uppercase text-center px-4">{name || "UNNAMED"}</div>
                                                             <div className="w-8 h-0.5 bg-[#c2410c] mt-2 shadow-[0_0_8px_rgba(194,65,12,0.4)]" />
@@ -2955,7 +3133,7 @@ export function CharacterBuilderPage() {
                                                     </div>
                                                     {selectedOccupation && (
                                                         <div className="px-2 py-0.5 bg-[#c2410c]/10 border border-[#c2410c]/30 rounded text-[9px] font-bold text-[#c2410c] uppercase tracking-widest">
-                                                            {selectedOccupation.name}
+                                                            {primaryOccupationLabel}
                                                         </div>
                                                     )}
                                                 </div>
@@ -3107,8 +3285,17 @@ export function CharacterBuilderPage() {
                                                                         </h3>
                                                                     </div>
                                                                     <p className="pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.18em] text-gray-400">
-                                                                        {selectedOccupation?.name || "No Occupation"}
+                                                                        {primaryOccupationLabel}
                                                                     </p>
+                                                                    {displayOccupationStates.length > 1 && (
+                                                                        <select className="mt-1 w-full border border-white/5 bg-black/30 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.16em] text-gray-400">
+                                                                            {displayOccupationStates.map((occupationState) => (
+                                                                                <option key={occupationState.occupationId} value={occupationState.occupationId}>
+                                                                                    {(occupationState.occupation?.name || occupationState.occupationId)} Lv. {occupationState.level}
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                    )}
                                                                     <p className="pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.16em] text-gray-600">
                                                                         {characterTitle || "No Title"}
                                                                     </p>
@@ -3822,7 +4009,7 @@ export function CharacterBuilderPage() {
                                             <div className="flex gap-2">
                                                 {isNPC && <span className="px-2 py-1 bg-red-500/20 text-red-400 text-[10px] font-black uppercase rounded border border-red-500/20">NPC</span>}
                                                 <span className="px-2 py-1 bg-indigo-500/20 text-indigo-400 text-[10px] font-black uppercase rounded border border-indigo-500/20">
-                                                    {selectedOccupation?.name || "No Occupation"}
+                                                    {primaryOccupationLabel}
                                                 </span>
                                             </div>
                                         </div>
@@ -3990,6 +4177,7 @@ export function CharacterBuilderPage() {
                                     setShowGalleryModal(false);
                                 }}
                                 showExtendedTabs={galleryMode === "characters"}
+                                extendedRefreshKey={galleryRefreshKey}
                             />
                         </div>
                     </div>
@@ -4183,13 +4371,28 @@ export function CharacterBuilderPage() {
                 onClose={() => setShowTalentTreeModal(false)}
                 onReset={() => {
                     setUnlockedTalentNodeIds([]);
-                    setAvailableTalentPoints(getDefaultTalentPointsForLevel(level));
+                    void resolveCharacterDraft({
+                        progression: selectedOccupation ? {
+                            treeOccupationId: selectedOccupation.id,
+                            unlockedTalentNodeIds: [],
+                            availableTalentPoints: 0,
+                            spentTalentPoints: 0,
+                        } : undefined,
+                    });
                 }}
                 onUnlockNode={(node) => {
                     const cost = node.cost || 1;
                     if (unlockedTalentNodeIds.includes(node.id) || availableTalentPoints < cost) return;
-                    setUnlockedTalentNodeIds((prev) => [...prev, node.id]);
-                    setAvailableTalentPoints((prev) => Math.max(0, prev - cost));
+                    const nextUnlockedTalentNodeIds = [...unlockedTalentNodeIds, node.id];
+                    setUnlockedTalentNodeIds(nextUnlockedTalentNodeIds);
+                    void resolveCharacterDraft({
+                        progression: selectedOccupation ? {
+                            treeOccupationId: selectedOccupation.id,
+                            unlockedTalentNodeIds: nextUnlockedTalentNodeIds,
+                            availableTalentPoints: Math.max(0, availableTalentPoints - cost),
+                            spentTalentPoints: spentTalentPoints + cost,
+                        } : undefined,
+                    });
                 }}
             />
         </>

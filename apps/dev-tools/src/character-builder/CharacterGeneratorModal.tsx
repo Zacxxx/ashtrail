@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useMemo } from "react";
 import { Modal, Slider } from "@ashtrail/ui";
 import { Character, GameRegistry, Trait, Occupation, Stats, CharacterType, DEFAULT_CHARACTER_CREDITS } from "@ashtrail/core";
+import { useJobs } from "../jobs/useJobs";
+import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 
 interface CharacterGeneratorModalProps {
     open: boolean;
@@ -19,6 +21,8 @@ export function CharacterGeneratorModal({
     worldLore,
     baseTypes
 }: CharacterGeneratorModalProps) {
+    const { waitForJob } = useJobs();
+    const launchTrackedJob = useTrackedJobLauncher();
     const [prompt, setPrompt] = useState("");
     const [count, setCount] = useState(3);
     const [characterType, setCharacterType] = useState<CharacterType>("Human");
@@ -63,10 +67,9 @@ export function CharacterGeneratorModal({
         setError(null);
 
         try {
-            const res = await fetch("/api/characters/generate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
+            const accepted = await launchTrackedJob<{ jobId: string }, Record<string, unknown>>({
+                url: "/api/characters/generate",
+                request: {
                     count,
                     prompt: prompt.trim(),
                     worldLore,
@@ -74,16 +77,39 @@ export function CharacterGeneratorModal({
                     location,
                     characterType,
                     variance: { sex, minLevel, maxLevel }
-                }),
+                },
+                optimisticJob: {
+                    kind: "characters.generate",
+                    title: "Generate Characters",
+                    tool: "character-builder",
+                    status: "queued",
+                    currentStage: "Queued",
+                    worldId,
+                    metadata: {
+                        count,
+                        characterType,
+                    },
+                },
+                restore: {
+                    route: "/character-builder",
+                    payload: {
+                        worldId,
+                        prompt,
+                        count,
+                        characterType,
+                        faction,
+                        location,
+                        sex,
+                        minLevel,
+                        maxLevel,
+                    },
+                },
             });
-
-            if (!res.ok) {
-                const msg = await res.text();
-                throw new Error(msg || `HTTP ${res.status}`);
+            const detail = await waitForJob(accepted.jobId);
+            if (detail.status !== "completed") {
+                throw new Error(detail.error || "Generation failed.");
             }
-
-            const data = await res.json();
-            const text: string = data.rawJson || "";
+            const text: string = String((detail.result as { rawJson?: string } | undefined)?.rawJson || "");
             const parsed = JSON.parse(text);
 
             if (!Array.isArray(parsed)) throw new Error("Expected JSON array from AI.");

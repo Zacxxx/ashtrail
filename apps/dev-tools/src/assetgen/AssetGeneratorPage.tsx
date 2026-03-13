@@ -54,7 +54,7 @@ interface TextureBatchManifest {
             id: string;
         };
         grouping?: {
-            type: "biome" | "structure";
+            type: "biome" | "structure" | "exploration-kit" | "block-palette";
             name: string;
             description?: string;
         };
@@ -131,7 +131,7 @@ interface BatchSummary {
 }
 
 interface AssetPackGrouping {
-    type: "biome" | "structure";
+    type: "biome" | "structure" | "exploration-kit" | "block-palette";
     name: string;
     description?: string;
 }
@@ -610,7 +610,7 @@ export function AssetGeneratorPage() {
     const [isAssigningPack, setIsAssigningPack] = useState(false);
     const [assigningPackId, setAssigningPackId] = useState<string | null>(null);
     const [tempPackGroupingName, setTempPackGroupingName] = useState("");
-    const [tempPackGroupingType, setTempPackGroupingType] = useState<"biome" | "structure">("biome");
+    const [tempPackGroupingType, setTempPackGroupingType] = useState<AssetPackGrouping["type"]>("biome");
     const [tempPackGroupingDescription, setTempPackGroupingDescription] = useState("");
 
     // ── Game Assets Specific State ──
@@ -629,7 +629,7 @@ export function AssetGeneratorPage() {
     const [terrainMoveEfficiency, setTerrainMoveEfficiency] = useState(1.0);
     const [terrainFertility, setTerrainFertility] = useState(1.0);
     // Grouping
-    const [gameAssetGroupType, setGameAssetGroupType] = useState<"biome" | "structure">("biome");
+    const [gameAssetGroupType, setGameAssetGroupType] = useState<NonNullable<NonNullable<TextureBatchManifest["gameAsset"]>["grouping"]>["type"]>("biome");
     const [gameAssetGroupName, setGameAssetGroupName] = useState("");
     const [selectedBiomeId, setSelectedBiomeId] = useState<string | null>(null);
     const [structureDescription, setStructureDescription] = useState("");
@@ -2932,18 +2932,18 @@ export function AssetGeneratorPage() {
                     </div>
                 </Modal>
 
-                <Modal open={isAssigningPack} onClose={() => setIsAssigningPack(false)} title="ASSIGN PACK TO BIOME / STRUCTURE">
+                <Modal open={isAssigningPack} onClose={() => setIsAssigningPack(false)} title="ASSIGN PACK GROUPING">
                     <div className="space-y-6 p-4">
                         <div className="flex gap-4 p-4 bg-purple-500/5 border border-purple-500/10 rounded-2xl items-center">
                             <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center text-2xl">🏷️</div>
                             <div>
                                 <h4 className="text-[10px] font-black tracking-widest text-purple-400 uppercase">System Linkage</h4>
-                                <p className="text-xs text-gray-400 mt-1">This pack will be prioritized for the assigned biome/structure.</p>
+                                <p className="text-xs text-gray-400 mt-1">This pack will be prioritized for the assigned grouping metadata.</p>
                             </div>
                         </div>
 
                         <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                                 <button
                                     onClick={() => setTempPackGroupingType("biome")}
                                     className={`py-3 rounded-xl border font-bold text-[10px] tracking-widest transition-all ${tempPackGroupingType === "biome" ? "bg-emerald-500 border-emerald-400 text-black shadow-lg shadow-emerald-500/10" : "bg-black/40 border-white/5 text-gray-500 hover:border-white/10"}`}
@@ -2956,6 +2956,18 @@ export function AssetGeneratorPage() {
                                 >
                                     STRUCTURE
                                 </button>
+                                <button
+                                    onClick={() => setTempPackGroupingType("exploration-kit")}
+                                    className={`py-3 rounded-xl border font-bold text-[10px] tracking-widest transition-all ${tempPackGroupingType === "exploration-kit" ? "bg-sky-500 border-sky-400 text-black shadow-lg shadow-sky-500/10" : "bg-black/40 border-white/5 text-gray-500 hover:border-white/10"}`}
+                                >
+                                    KIT
+                                </button>
+                                <button
+                                    onClick={() => setTempPackGroupingType("block-palette")}
+                                    className={`py-3 rounded-xl border font-bold text-[10px] tracking-widest transition-all ${tempPackGroupingType === "block-palette" ? "bg-orange-500 border-orange-400 text-black shadow-lg shadow-orange-500/10" : "bg-black/40 border-white/5 text-gray-500 hover:border-white/10"}`}
+                                >
+                                    PALETTE
+                                </button>
                             </div>
 
                             <div className="space-y-2">
@@ -2964,7 +2976,15 @@ export function AssetGeneratorPage() {
                                     type="text"
                                     value={tempPackGroupingName}
                                     onChange={e => setTempPackGroupingName(e.target.value)}
-                                    placeholder={tempPackGroupingType === "biome" ? "e.g., Desert, Ashlands..." : "e.g., Outpost, Ruins..."}
+                                    placeholder={
+                                        tempPackGroupingType === "biome"
+                                            ? "e.g., Desert, Ashlands..."
+                                            : tempPackGroupingType === "structure"
+                                                ? "e.g., Outpost, Ruins..."
+                                                : tempPackGroupingType === "exploration-kit"
+                                                    ? "e.g., Frontier Settlement Kit..."
+                                                    : "e.g., Ashstone Palette..."
+                                    }
                                     className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:border-purple-500/50 outline-none transition-all"
                                 />
                             </div>

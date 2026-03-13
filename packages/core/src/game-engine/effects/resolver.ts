@@ -1,6 +1,7 @@
 import { ALL_SKILLS, ALL_TRAITS, TALENT_TREE_LOOKUP } from '../../content';
 import {
   Character,
+  CharacterOccupationProgress,
   CharacterProgression,
   GameplayEffect,
   Item,
@@ -26,10 +27,21 @@ export interface EffectResolutionContext {
 export interface EffectSource {
   traits?: Trait[];
   occupation?: Occupation;
+  occupations?: CharacterOccupationProgress[];
   progression?: CharacterProgression;
   equipped?: Record<string, Item | null | undefined> | null;
   activeEffects?: GameplayEffect[] | null;
   skills?: Skill[];
+}
+
+function getPrimaryOccupationState(
+  progression?: CharacterProgression,
+  occupations?: CharacterOccupationProgress[],
+): CharacterOccupationProgress | undefined {
+  const progressionPrimary = progression?.occupationStates?.find((state) => state.isPrimary)
+    || progression?.occupationStates?.[0];
+  if (progressionPrimary) return progressionPrimary;
+  return occupations?.find((state) => state.isPrimary) || occupations?.[0];
 }
 
 export interface ResolvedModifier {
@@ -81,6 +93,46 @@ function mergeUniqueById<T extends { id: string }>(items: T[]): T[] {
 
 function mergeUniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+const LEGACY_SKILL_ID_ALIASES: Record<string, string> = {
+  slash: 'use-weapon',
+};
+
+const COMBAT_SKILL_PRIORITY: Record<string, number> = {
+  'use-weapon': 0,
+  'first-aid': 1,
+};
+
+export function canonicalizeSkillId(skillId: string): string {
+  return LEGACY_SKILL_ID_ALIASES[skillId] || skillId;
+}
+
+export function sanitizeSkill(skill: Skill): Skill {
+  const canonicalId = canonicalizeSkillId(skill.id);
+  if (canonicalId === skill.id) {
+    return skill;
+  }
+
+  return ALL_SKILLS.find((entry) => entry.id === canonicalId) || { ...skill, id: canonicalId };
+}
+
+export function prioritizeCombatSkills(skills: Skill[]): Skill[] {
+  return skills
+    .map((skill, index) => ({ skill, index }))
+    .sort((left, right) => {
+      const leftPriority = COMBAT_SKILL_PRIORITY[left.skill.id] ?? Number.MAX_SAFE_INTEGER;
+      const rightPriority = COMBAT_SKILL_PRIORITY[right.skill.id] ?? Number.MAX_SAFE_INTEGER;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+      return left.index - right.index;
+    })
+    .map(({ skill }) => skill);
+}
+
+export function sanitizeSkillLoadout(skills: Skill[]): Skill[] {
+  return prioritizeCombatSkills(mergeUniqueById(skills.map(sanitizeSkill)));
 }
 
 function mergeUniqueTraitGrants(items: ResolvedTraitGrant[]): ResolvedTraitGrant[] {
@@ -195,8 +247,10 @@ export function resolveCharacterTraitGrants(source: EffectSource): {
   grantedTraitIds: string[];
   grantedSkillIds: string[];
 } {
-  const occupationId = source.progression?.treeOccupationId || source.occupation?.id;
-  const treeState = resolveOccupationTree(occupationId, source.progression?.unlockedTalentNodeIds || []);
+  const primaryOccupationState = getPrimaryOccupationState(source.progression, source.occupations);
+  const occupationId = primaryOccupationState?.occupationId || source.progression?.treeOccupationId || source.occupation?.id;
+  const unlockedTalentNodeIds = primaryOccupationState?.unlockedTalentNodeIds || source.progression?.unlockedTalentNodeIds || [];
+  const treeState = resolveOccupationTree(occupationId, unlockedTalentNodeIds);
   const resolvedTraitGrants: ResolvedTraitGrant[] = [];
 
   (source.traits || []).forEach((trait) => {
@@ -325,18 +379,19 @@ export function resolveCharacterEffects(source: EffectSource, context: EffectRes
   };
 }
 
-export function resolveCharacterSkills(character: Pick<Character, 'skills' | 'occupation' | 'progression' | 'traits'>): Skill[] {
+export function resolveCharacterSkills(character: Pick<Character, 'skills' | 'occupation' | 'occupations' | 'progression' | 'traits'>): Skill[] {
   const persistedSkills = character.skills || [];
   const traitState = resolveCharacterTraitGrants({
     traits: character.traits,
     occupation: character.occupation,
+    occupations: character.occupations,
     progression: character.progression,
   });
   const grantedSkills = traitState.grantedSkillIds
-    .map((id) => ALL_SKILLS.find((skill) => skill.id === id))
+    .map((id) => ALL_SKILLS.find((skill) => skill.id === canonicalizeSkillId(id)))
     .filter((skill): skill is Skill => Boolean(skill));
 
-  return mergeUniqueById([...persistedSkills, ...grantedSkills]);
+  return sanitizeSkillLoadout([...persistedSkills, ...grantedSkills]);
 }
 
 export function resolveCrewMemberTraits(traitIds: string[]): Trait[] {

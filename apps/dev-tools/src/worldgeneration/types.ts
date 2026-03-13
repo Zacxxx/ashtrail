@@ -37,6 +37,33 @@ export interface GenerationProgress {
     jobId: string | null;
 }
 
+export interface HumanityReadiness {
+    ready: boolean;
+    blockers: string[];
+    mainLoreChars: number;
+    minMainLoreChars: number;
+    hasMainLore: boolean;
+}
+
+export type HumanityScopeKind = "world" | "kingdom" | "duchy" | "province" | "mixed";
+
+export interface HumanityScopeTarget {
+    kind: "kingdom" | "duchy" | "province";
+    id: number;
+}
+
+export interface WorldgenRegionRecord {
+    id: string;
+    rawId: number;
+    name: string;
+    type: "Continent" | "Kingdom" | "Duchy" | "Province";
+    kingdomId?: number;
+    duchyId?: number;
+    kingdomIds?: number[];
+    duchyIds?: number[];
+    provinceIds?: number[];
+}
+
 // ── Region Segmentation ──
 export type RegionType =
     | "continent" | "subcontinent" | "island" | "archipelago" | "peninsula" | "isthmus"
