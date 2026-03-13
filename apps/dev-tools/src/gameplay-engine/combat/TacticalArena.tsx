@@ -7,6 +7,7 @@ import { Skill } from '@ashtrail/core';
 import type { TacticalEntity, CombatPhase, CombatLogMessage, CombatPreviewState, DamagePreview } from '@ashtrail/core';
 import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, findPath } from './tacticalGrid';
 import type { PlayerAction } from './useCombatWebSocket';
+import { GameRulesManager } from '../rules/useGameRules';
 
 interface TacticalArenaProps {
     grid: Grid;
@@ -66,9 +67,14 @@ export function TacticalArena({
     }, [grid]);
 
     const [hoveredCell, setHoveredCell] = useState<{ row: number, col: number } | null>(null);
+    const [battlemapLoaded, setBattlemapLoaded] = useState(false);
     const [isHotbarUnlocked, setIsHotbarUnlocked] = useState(false);
     const [skillOrders, setSkillOrders] = useState<Record<string, (Skill | null)[]>>({});
     const [hoveredDragSlot, setHoveredDragSlot] = useState<number | null>(null);
+
+    useEffect(() => {
+        setBattlemapLoaded(false);
+    }, [battlemapUrl]);
 
     const currentSkills = useMemo(() => {
         if (!activeEntity) return Array.from({ length: 20 }, () => null);
@@ -190,6 +196,8 @@ export function TacticalArena({
                                 src={battlemapUrl}
                                 alt="Battlemap"
                                 className="pointer-events-none"
+                                onLoad={() => setBattlemapLoaded(true)}
+                                onError={() => setBattlemapLoaded(false)}
                                 style={{
                                     position: 'absolute',
                                     left: gridBounds.minX,
@@ -221,7 +229,7 @@ export function TacticalArena({
                                         entity={occupant}
                                         isActive={cell.occupantId === activeEntityId}
                                         isAoe={aoeSet.has(`${r},${c}`)}
-                                        hasBattlemap={!!battlemapUrl}
+                                        hasBattlemap={!!battlemapUrl && battlemapLoaded}
                                         onClick={() => {
                                             if (error) return; // Block clicking
                                             onCellClick(r, c);
@@ -426,6 +434,8 @@ export function TacticalArena({
                                                                 let strBonus = 0;
                                                                 if (skill.pushDistance && skill.pushDistance > 0) {
                                                                     strBonus = activeEntity ? Math.floor(activeEntity.strength * (rules.combat.shovePushDamageRatio || 0.1)) : 0;
+                                                                } else if (hasWeaponScaling && weapon?.weaponType === 'ranged') {
+                                                                    strBonus = 0;
                                                                 } else {
                                                                     strBonus = activeEntity ? Math.floor(activeEntity.strength * 0.3) : 0;
                                                                 }
@@ -438,7 +448,7 @@ export function TacticalArena({
                                                                     if (weaponDmgEffect) baseVal = weaponDmgEffect.value;
                                                                 }
 
-                                                                const total = (skill.damage || 0) + strBonus;
+                                                                const total = hasWeaponScaling ? (baseVal + strBonus) : ((skill.damage || 0) + strBonus);
                                                                 const isDistract = skill.id === 'distract';
                                                                 const isAnalyze = skill.id === 'analyze';
                                                                 const isStealth = skill.effects?.some(e => e.type === 'STEALTH' as any);
@@ -510,31 +520,43 @@ export function TacticalArena({
                                                                     );
                                                                 }
 
-                                                                if (skill.damage || strBonus > 0 || skill.pushDistance) {
-                                                                    // Only show damage block if the skill ACTUALLY has a damage property or is a push skill
-                                                                    if (!skill.damage && !skill.pushDistance) return null;
+                                                                if (hasWeaponScaling) {
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="text-red-400 font-black uppercase">Damage</span>
+                                                                                <span className="text-white font-mono">Weapon-based</span>
+                                                                            </div>
+                                                                            <div className="text-[8px] text-gray-500 italic leading-snug">
+                                                                                Hover a target to see the Rust combat preview.
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                if (skill.pushDistance) {
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full">
+                                                                            <div className="flex items-center justify-between text-[9px]">
+                                                                                <span className="text-indigo-400 font-bold uppercase">Pushback</span>
+                                                                                <span className="text-white font-mono">{skill.pushDistance} cells</span>
+                                                                            </div>
+                                                                            <div className="text-[8px] text-gray-500 italic leading-snug">
+                                                                                Damage and shock are resolved by the Rust combat engine.
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                if (skill.damage || strBonus > 0) {
                                                                     return (
                                                                         <div className="flex flex-col gap-1 w-full">
                                                                             <div className="flex items-center gap-1.5">
                                                                                 <span className="text-red-400 font-black">{total} dmg</span>
                                                                                 <span className="text-[8px] text-gray-500">
-                                                                                    ({hasWeaponScaling ? (weapon ? '⚔️' : '👊') : ''}{baseVal} + 💪{strBonus})
+                                                                                    ({baseVal} + str {strBonus})
                                                                                 </span>
                                                                             </div>
-                                                                            {skill.pushDistance && (
-                                                                                <div className="flex flex-col gap-0.5 border-t border-white/5 pt-1 mt-0.5">
-                                                                                    <div className="flex items-center justify-between text-[9px]">
-                                                                                        <span className="text-indigo-400 font-bold uppercase">Pushback</span>
-                                                                                        <span className="text-white font-mono">{skill.pushDistance} cells</span>
-                                                                                    </div>
-                                                                                    <div className="flex items-center justify-between text-[9px]">
-                                                                                        <span className="text-indigo-400/70 italic">Shock Potential</span>
-                                                                                        <span className="text-indigo-300 font-mono">
-                                                                                            ~{activeEntity ? Math.floor(1 * activeEntity.strength * (rules.combat.shoveShockDamageRatio || 0.3)) : 0}/cell
-                                                                                        </span>
-                                                                                    </div>
-                                                                                </div>
-                                                                            )}
                                                                         </div>
                                                                     );
                                                                 }
