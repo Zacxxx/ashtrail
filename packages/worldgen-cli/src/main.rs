@@ -1,5 +1,5 @@
 use clap::Parser;
-use image::io::Reader as ImageReader;
+use image::ImageReader;
 use std::path::PathBuf;
 use worldgen_core::*;
 
@@ -63,8 +63,8 @@ fn run_build(input: &PathBuf, out: &PathBuf, counties: u32, seed: u64) {
         println!("  [{:5.1}%] {}", pct, msg);
     };
 
-    // ── Stage 1: Load & Normalize ──
-    println!("\n🎨 Stage 1: Normalize Albedo");
+    // ── Stage 1: Load Base Image ──
+    println!("\n🖼️  Stage 1: Load Base Image");
     let img = ImageReader::open(input)
         .expect("Failed to open input image")
         .decode()
@@ -73,17 +73,11 @@ fn run_build(input: &PathBuf, out: &PathBuf, counties: u32, seed: u64) {
     let (width, height) = img.dimensions();
     println!("  Input: {}x{}", width, height);
 
-    let flat = normalize::normalize_albedo(&img, 60.0, &mut progress);
-    export::write_rgb_image(&flat, &out.join("albedo_flat.png"))
-        .expect("Failed to write albedo_flat.png");
-    println!("  ✅ albedo_flat.png");
-
     let mut status = export::PipelineStatus::new();
-    status.mark_completed("normalize");
 
     // ── Stage 2: Landmask ──
     println!("\n🌊 Stage 2: Land Mask");
-    let landmask = landmask::extract_landmask(&flat, 15, 500, 200, &mut progress);
+    let landmask = landmask::extract_landmask(&img, &config, 500, 200, &mut progress);
     export::write_landmask(&landmask, width, height, &out.join("landmask.png"))
         .expect("Failed to write landmask.png");
     let land_count = landmask.iter().filter(|&&v| v).count();
@@ -95,16 +89,23 @@ fn run_build(input: &PathBuf, out: &PathBuf, counties: u32, seed: u64) {
     );
     status.mark_completed("landmask");
 
-    // ── Stage 3: Height ──
-    println!("\n⛰️  Stage 3: Height Reconstruction");
+    println!("\n🎨 Stage 3: Normalize Albedo");
+    let flat = normalize::normalize_albedo(&img, &landmask, 60.0, &mut progress);
+    export::write_rgb_image(&flat, &out.join("albedo_flat.png"))
+        .expect("Failed to write albedo_flat.png");
+    println!("  ✅ albedo_flat.png");
+    status.mark_completed("normalize");
+
+    // ── Stage 4: Height ──
+    println!("\n⛰️  Stage 4: Height Reconstruction");
     let height_field = height::reconstruct_height(&flat, &landmask, seed, &mut progress);
     export::write_height_texture(&height_field, width, height, &out.join("height16.png"))
         .expect("Failed to write height16.png");
     println!("  ✅ height16.png");
     status.mark_completed("height");
 
-    // ── Stage 4: Rivers ──
-    println!("\n🌊 Stage 4: Rivers & Flow");
+    // ── Stage 5: Rivers ──
+    println!("\n🌊 Stage 5: Rivers & Flow");
     let (river_mask, _accumulation) =
         hydrology::compute_rivers(&height_field, &landmask, width, height, 200, &mut progress);
     export::write_mask_texture(&river_mask, width, height, &out.join("river_mask.png"))
@@ -113,21 +114,43 @@ fn run_build(input: &PathBuf, out: &PathBuf, counties: u32, seed: u64) {
     println!("  ✅ river_mask.png ({} river pixels)", river_count);
     status.mark_completed("rivers");
 
-    // ── Stage 5: Biomes ──
-    println!("\n🌲 Stage 5: Biome Classification");
-    let biome_map = biome::classify_biomes(&height_field, &landmask, width, height, &mut progress);
-    export::write_mask_texture(&biome_map, width, height, &out.join("biome.png"))
+    // ── Stage 6: Biomes ──
+    println!("\n🌲 Stage 6: Biome Classification");
+    let registry = BiomeRegistry::default_registry();
+    let model_settings = BiomeModelSettings::default();
+    let biome_analysis = biome::classify_biomes(
+        &height_field,
+        &landmask,
+        Some(&river_mask),
+        &img,
+        &config,
+        &registry,
+        &model_settings,
+        None,
+        width,
+        height,
+        &mut progress,
+    );
+    export::write_mask_texture(&biome_analysis.biome_indices, width, height, &out.join("biome.png"))
         .expect("Failed to write biome.png");
+    export::write_mask_texture(
+        &biome_analysis.confidence_map,
+        width,
+        height,
+        &out.join("biome_confidence.png"),
+    )
+    .expect("Failed to write biome_confidence.png");
     println!("  ✅ biome.png");
     status.mark_completed("biome");
 
-    // ── Stage 6: Suitability ──
-    println!("\n📊 Stage 6: Suitability Map");
+    // ── Stage 7: Suitability ──
+    println!("\n📊 Stage 7: Suitability Map");
     let suitability = suitability::compute_suitability(
         &height_field,
         &landmask,
         &river_mask,
-        &biome_map,
+        &biome_analysis.biome_indices,
+        &registry,
         width,
         height,
         &mut progress,
@@ -137,8 +160,8 @@ fn run_build(input: &PathBuf, out: &PathBuf, counties: u32, seed: u64) {
     println!("  ✅ suitability.bin");
     status.mark_completed("suitability");
 
-    // ── Stage 7: Seeds ──
-    println!("\n🌱 Stage 7: Seed Placement");
+    // ── Stage 8: Seeds ──
+    println!("\n🌱 Stage 8: Seed Placement");
     let seeds = sampling::place_seeds(
         &suitability,
         &landmask,
@@ -154,8 +177,8 @@ fn run_build(input: &PathBuf, out: &PathBuf, counties: u32, seed: u64) {
     println!("  ✅ seeds.json ({} seeds placed)", seeds.len());
     status.mark_completed("seeds");
 
-    // ── Stage 8: Province Growth ──
-    println!("\n🗺️  Stage 8: Province Growth (Dijkstra)");
+    // ── Stage 9: Province Growth ──
+    println!("\n🗺️  Stage 9: Province Growth (Dijkstra)");
     let mut province_labels = partition::grow_provinces(
         &seeds,
         &height_field,
@@ -171,8 +194,8 @@ fn run_build(input: &PathBuf, out: &PathBuf, counties: u32, seed: u64) {
     println!("  ✅ Province labels computed");
     status.mark_completed("partition");
 
-    // ── Stage 9: Postprocessing ──
-    println!("\n✨ Stage 9: Postprocessing");
+    // ── Stage 10: Postprocessing ──
+    println!("\n✨ Stage 10: Postprocessing");
     postprocess::postprocess_provinces(
         &mut province_labels,
         &landmask,
@@ -192,8 +215,8 @@ fn run_build(input: &PathBuf, out: &PathBuf, counties: u32, seed: u64) {
     println!("  ✅ province_id.png");
     status.mark_completed("postprocess");
 
-    // ── Stage 10: Adjacency ──
-    println!("\n🔗 Stage 10: Adjacency Graph");
+    // ── Stage 11: Adjacency ──
+    println!("\n🔗 Stage 11: Adjacency Graph");
     let adjacency = graph::build_adjacency(
         &province_labels,
         &height_field,
@@ -210,12 +233,12 @@ fn run_build(input: &PathBuf, out: &PathBuf, counties: u32, seed: u64) {
     );
     status.mark_completed("adjacency");
 
-    // ── Stage 11: Clustering ──
-    println!("\n👑 Stage 11: Hierarchy Clustering");
+    // ── Stage 12: Clustering ──
+    println!("\n👑 Stage 12: Hierarchy Clustering");
     let seed_tuples: Vec<(u32, u32, u32)> = seeds.iter().map(|s| (s.id, s.x, s.y)).collect();
     let (provinces, duchies, kingdoms, duchy_labels, kingdom_labels) = cluster::cluster_hierarchy(
         &province_labels,
-        &biome_map,
+        &biome_analysis.biome_indices,
         &seed_tuples,
         &adjacency,
         width,
@@ -244,8 +267,8 @@ fn run_build(input: &PathBuf, out: &PathBuf, counties: u32, seed: u64) {
     );
     status.mark_completed("clustering");
 
-    // ── Stage 12: Naming (placeholder) ──
-    println!("\n📝 Stage 12: Naming & Flavor (placeholder)");
+    // ── Stage 13: Naming (placeholder) ──
+    println!("\n📝 Stage 13: Naming & Flavor (placeholder)");
     println!("  ⏭️  Skipped — will be implemented with AI integration");
     status.mark_completed("naming");
 

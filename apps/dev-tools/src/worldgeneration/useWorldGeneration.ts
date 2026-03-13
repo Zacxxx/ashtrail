@@ -5,6 +5,7 @@ import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { BIOME_META } from "../modules/geo/biomes";
 
 interface UseWorldGenerationParams {
+    activeWorldId: string | null;
     prompt: string;
     config: SimulationConfig;
     aiResolution: string;
@@ -22,9 +23,11 @@ interface UseWorldGenerationParams {
     setContinents: (continents: ContinentConfig[]) => void;
     setActiveWorldId: (id: string | null) => void;
     saveCellSubTiles: (cellX: number, cellY: number, subTiles: any[]) => void;
+    onHumanityGenerated?: () => Promise<void> | void;
 }
 
 export function useWorldGeneration({
+    activeWorldId,
     prompt,
     config,
     aiResolution,
@@ -42,6 +45,7 @@ export function useWorldGeneration({
     setContinents,
     setActiveWorldId,
     saveCellSubTiles,
+    onHumanityGenerated,
 }: UseWorldGenerationParams) {
     const [genProgress, setGenProgress] = useState<GenerationProgress>({
         isActive: false,
@@ -271,34 +275,25 @@ Parameters: Vegetation Density: ${ecoVegetation}, Fauna Hotspots: ${ecoFauna}${r
     }, [globeWorld, ecoPrompt, ecoVegetation, ecoFauna, aiTemperature, pollJobProgress]);
 
     const generateHumanity = useCallback(async (targetRegionName?: string) => {
-        if (!globeWorld?.textureUrl) {
-            alert("You must generate a base map first!");
+        if (!activeWorldId) {
+            alert("Select an active world before simulating locations.");
             return;
         }
 
-        setGenProgress({ isActive: true, progress: 0, stage: "Preparing Ecology Map...", jobId: null });
+        setGenProgress({ isActive: true, progress: 0, stage: "Preparing location simulation...", jobId: null });
 
         try {
-            const imgRes = await fetch(globeWorld.textureUrl);
-            const blob = await imgRes.blob();
-            const base64_image = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.readAsDataURL(blob);
-            });
-
-            const regionalContext = targetRegionName ? `\n\n🎯 FOCUS AREA: Apply these instructions STRICTLY and ONLY to the geographic region named '${targetRegionName}' (The rest of the planet should remain as the base map).` : "";
-            const fullPrompt = `You are a Humanity civilization simulator. Overpaint the provided planetary map with signs of intelligent life, cities, roads, and borders. Do not alter the underlying tectonic plates or continent shapes.
-User Instructions: ${humPrompt}
-Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}${regionalContext}`;
-
-            const response = await fetch("http://127.0.0.1:8787/api/planet/humanity", {
+            const regionalContext = targetRegionName
+                ? ` Focus only on the region named "${targetRegionName}" when deciding localized emphasis, while still respecting the whole-planet simulation.`
+                : "";
+            const fullPrompt = `${humPrompt.trim()}${regionalContext}`.trim();
+            const response = await fetch(`http://127.0.0.1:8787/api/planet/locations/${activeWorldId}/generate`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     prompt: fullPrompt,
-                    base64_image,
-                    temperature: aiTemperature,
+                    settlementDensity: humSettlements,
+                    techLevel: humTech,
                 }),
             });
 
@@ -307,15 +302,52 @@ Parameters: Settlement Density: ${humSettlements}, Tech Level: ${humTech}${regio
             }
 
             const { jobId } = await response.json();
-            setGenProgress(prev => ({ ...prev, jobId }));
-            pollJobProgress(jobId);
+            setGenProgress(prev => ({ ...prev, jobId, stage: "Simulating canonical locations..." }));
+
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = setInterval(async () => {
+                try {
+                    const res = await fetch(`http://127.0.0.1:8787/api/jobs/${jobId}`);
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    setGenProgress({
+                        isActive: data.status === "queued" || data.status === "running",
+                        progress: data.progress || 0,
+                        stage: data.currentStage || "Running",
+                        jobId,
+                    });
+
+                    if (data.status === "completed") {
+                        if (pollRef.current) clearInterval(pollRef.current);
+                        pollRef.current = null;
+                        await onHumanityGenerated?.();
+                        setGenProgress({
+                            isActive: false,
+                            progress: 100,
+                            stage: "Locations ready",
+                            jobId: null,
+                        });
+                    } else if (data.status === "failed" || data.status === "cancelled") {
+                        if (pollRef.current) clearInterval(pollRef.current);
+                        pollRef.current = null;
+                        setGenProgress({
+                            isActive: false,
+                            progress: 0,
+                            stage: data.error || "Location simulation failed",
+                            jobId: null,
+                        });
+                    }
+                } catch {
+                    // Retry on next tick.
+                }
+            }, 700);
         } catch (error) {
             console.error(error);
             setGenProgress({
                 isActive: false, progress: 0, stage: `Error: ${error instanceof Error ? error.message : "Unknown error"}`, jobId: null,
             });
         }
-    }, [globeWorld, humPrompt, humSettlements, humTech, aiTemperature, pollJobProgress]);
+    }, [activeWorldId, humPrompt, humSettlements, humTech, onHumanityGenerated]);
 
     const fetchRegionLore = useCallback(async (selectedCell: any) => {
         if (!selectedCell) return;

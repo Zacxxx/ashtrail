@@ -119,7 +119,47 @@ export interface Trait {
   type: 'positive' | 'negative' | 'neutral';
   impact?: string;
   effects?: GameplayEffect[];
+  grantsSkillIds?: string[];
+  source?: TraitSource;
   icon?: string;           // Emoji or gallery path
+}
+
+export type TraitSourceKind =
+  | 'core'
+  | 'occupation-base'
+  | 'occupation-node'
+  | 'quest'
+  | 'temporary';
+
+export interface TraitSource {
+  kind: TraitSourceKind;
+  occupationId?: string;
+  talentNodeId?: string;
+}
+
+export function isOccupationLinkedTraitSource(source?: TraitSource | null): boolean {
+  return source?.kind === 'occupation-base' || source?.kind === 'occupation-node';
+}
+
+export function isOccupationLinkedTrait(trait?: Pick<Trait, 'source'> | null): boolean {
+  return isOccupationLinkedTraitSource(trait?.source);
+}
+
+export function getTraitSourceLabel(trait?: Pick<Trait, 'source'> | null): string {
+  switch (trait?.source?.kind) {
+    case 'occupation-base':
+      return 'Occupation Base';
+    case 'occupation-node':
+      return 'Occupation Node';
+    case 'quest':
+      return 'Quest';
+    case 'temporary':
+      return 'Temporary';
+    case 'core':
+      return 'Core';
+    default:
+      return 'Standard';
+  }
 }
 
 export type OccupationCategory = 'SECURITY' | 'TECHNICAL' | 'CRAFT' | 'ADMIN' | 'SOCIAL' | 'FIELD';
@@ -131,6 +171,7 @@ export interface Occupation {
   description: string;
   shortDescription: string;
   effects?: GameplayEffect[];
+  grantsTraitIds?: string[];
   perks?: string[];
   icon?: string;           // Emoji or gallery path
 }
@@ -258,6 +299,7 @@ export interface Character {
   history: string;
   appearancePrompt: string;
   portraitUrl?: string;
+  portraitName?: string;
   explorationSprite?: DirectionalSpriteBinding;
   stats: Stats;
   traits: Trait[];

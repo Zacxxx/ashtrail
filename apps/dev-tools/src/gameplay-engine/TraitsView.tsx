@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Trait, GameRegistry, GameplayEffect } from "@ashtrail/core";
+import { Trait, GameRegistry, GameplayEffect, getTraitSourceLabel, isOccupationLinkedTrait } from "@ashtrail/core";
 import { IconGallerySelector } from "../components/IconGallerySelector";
 import { ModifierEditor } from "../components/ModifierEditor";
 
@@ -20,6 +20,9 @@ export function TraitsView({ trait, onSave }: TraitsViewProps) {
     const [impact, setImpact] = useState("");
     const [icon, setIcon] = useState("🧬");
     const [effects, setEffects] = useState<GameplayEffect[]>([]);
+    const [grantsSkillIds, setGrantsSkillIds] = useState<string[]>([]);
+    const [selectedSkillId, setSelectedSkillId] = useState("");
+    const allSkills = GameRegistry.getAllSkills();
 
     // Gallery State
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -35,6 +38,7 @@ export function TraitsView({ trait, onSave }: TraitsViewProps) {
             setImpact(trait.impact || "");
             setIcon(trait.icon || "🧬");
             setEffects(trait.effects || []);
+            setGrantsSkillIds(trait.grantsSkillIds || []);
         } else {
             setEditingTrait(null);
             resetForm();
@@ -50,6 +54,8 @@ export function TraitsView({ trait, onSave }: TraitsViewProps) {
         setImpact("");
         setIcon("🧬");
         setEffects([]);
+        setGrantsSkillIds([]);
+        setSelectedSkillId("");
     };
 
     const handleSave = async () => {
@@ -62,6 +68,7 @@ export function TraitsView({ trait, onSave }: TraitsViewProps) {
             impact: impact || undefined,
             icon,
             effects,
+            grantsSkillIds: grantsSkillIds.length > 0 ? grantsSkillIds : undefined,
         };
 
         try {
@@ -91,6 +98,17 @@ export function TraitsView({ trait, onSave }: TraitsViewProps) {
         );
     }
 
+    const addGrantedSkill = () => {
+        const nextId = selectedSkillId.trim();
+        if (!nextId || grantsSkillIds.includes(nextId)) return;
+        setGrantsSkillIds(prev => [...prev, nextId]);
+        setSelectedSkillId("");
+    };
+
+    const removeGrantedSkill = (skillId: string) => {
+        setGrantsSkillIds(prev => prev.filter(id => id !== skillId));
+    };
+
     return (
         <div className="w-full h-full max-w-[1000px] bg-[#1e1e1e]/60 rounded-2xl border border-white/5 shadow-2xl p-8 overflow-y-auto custom-scrollbar space-y-6">
             <IconGallerySelector
@@ -103,7 +121,22 @@ export function TraitsView({ trait, onSave }: TraitsViewProps) {
             />
 
             <div className="flex justify-between items-center">
-                <h2 className="text-xl font-black tracking-widest text-orange-400 uppercase">Trait Editor</h2>
+                <div className="space-y-2">
+                    <h2 className="text-xl font-black tracking-widest text-orange-400 uppercase">Trait Editor</h2>
+                    {editingTrait && (
+                        <div className="flex flex-wrap gap-2">
+                            <span className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${isOccupationLinkedTrait(editingTrait)
+                                ? "border-teal-500/20 bg-teal-500/10 text-teal-200"
+                                : "border-white/10 bg-white/5 text-gray-300"
+                                }`}>
+                                {isOccupationLinkedTrait(editingTrait) ? "Occupation-linked" : "Standard"}
+                            </span>
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-gray-400">
+                                {getTraitSourceLabel(editingTrait)}
+                            </span>
+                        </div>
+                    )}
+                </div>
                 <div className="flex items-center gap-4">
                     <button
                         onClick={async () => {
@@ -205,9 +238,64 @@ export function TraitsView({ trait, onSave }: TraitsViewProps) {
                 colorScheme="orange"
             />
 
+            <div className="space-y-3 border-t border-white/10 pt-6">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Granted Skills</h3>
+                    <span className="text-[9px] font-mono text-gray-500">{grantsSkillIds.length} linked</span>
+                </div>
+                <div className="flex gap-2">
+                    <select
+                        value={selectedSkillId}
+                        onChange={e => setSelectedSkillId(e.target.value)}
+                        className="flex-1 bg-black/50 border border-white/10 text-white px-3 py-2 rounded-xl text-xs outline-none focus:border-orange-500/50 transition-all"
+                    >
+                        <option value="">Select a skill to grant...</option>
+                        {allSkills
+                            .filter(skill => !grantsSkillIds.includes(skill.id))
+                            .map(skill => (
+                                <option key={skill.id} value={skill.id}>{skill.name}</option>
+                            ))}
+                    </select>
+                    <button
+                        onClick={addGrantedSkill}
+                        disabled={!selectedSkillId}
+                        className="px-3 py-2 rounded-xl border border-orange-500/30 bg-orange-500/10 text-[10px] font-black uppercase tracking-widest text-orange-300 disabled:opacity-30"
+                    >
+                        Link
+                    </button>
+                </div>
+                {grantsSkillIds.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-2">
+                        {grantsSkillIds.map(skillId => {
+                            const skill = allSkills.find(entry => entry.id === skillId);
+                            return (
+                                <div key={skillId} className="flex items-center justify-between bg-black/30 border border-white/5 rounded-xl px-3 py-2">
+                                    <div>
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-white">
+                                            {skill?.name || skillId}
+                                        </div>
+                                        <div className="text-[9px] font-mono text-gray-500">{skillId}</div>
+                                    </div>
+                                    <button
+                                        onClick={() => removeGrantedSkill(skillId)}
+                                        className="text-[9px] font-black uppercase text-red-400 hover:text-red-300"
+                                    >
+                                        Remove
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="bg-black/20 border border-dashed border-white/5 rounded-xl p-4 text-[10px] font-mono uppercase text-gray-500">
+                        No skills granted by this trait.
+                    </div>
+                )}
+            </div>
+
             <div className="space-y-2 border-t border-white/10 pt-6">
                 <h3 className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Resolved Metrics Preview</h3>
-                {effects.length > 0 ? (
+                {(effects.length > 0 || grantsSkillIds.length > 0) ? (
                     <div className="grid grid-cols-1 gap-2">
                         {effects.map((effect, index) => (
                             <div key={`${effect.id || index}-preview`} className="bg-black/40 border border-white/5 rounded-xl p-3 text-[10px] font-mono">
@@ -217,6 +305,15 @@ export function TraitsView({ trait, onSave }: TraitsViewProps) {
                                 </div>
                             </div>
                         ))}
+                        {grantsSkillIds.map((skillId) => {
+                            const skill = allSkills.find((entry) => entry.id === skillId);
+                            return (
+                                <div key={`${skillId}-preview`} className="bg-black/40 border border-orange-500/10 rounded-xl p-3 text-[10px] font-mono">
+                                    <div className="text-orange-200 uppercase font-black tracking-widest">{skill?.name || skillId}</div>
+                                    <div className="text-gray-500 mt-1">Granted skill • {skillId}</div>
+                                </div>
+                            );
+                        })}
                     </div>
                 ) : (
                     <div className="bg-black/20 border border-dashed border-white/5 rounded-xl p-4 text-[10px] font-mono uppercase text-gray-500">

@@ -9,20 +9,41 @@ export interface MapTransform {
   scale: number;
 }
 
+export interface LocationMarker {
+  id: string;
+  x: number;
+  y: number;
+  size: number;
+  color: string;
+  label: string;
+  selected?: boolean;
+}
+
 interface PlanetMap2DProps {
   world: PlanetWorldData;
   onTransformChange?: (transform: MapTransform) => void;
   onCellHover?: (cell: TerrainCell | null) => void;
   onCellClick?: (cell: TerrainCell | null) => void;
   showHexGrid?: boolean;
+  locationMarkers?: LocationMarker[];
+  onLocationMarkerClick?: (id: string) => void;
 }
 
-export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick, showHexGrid }: PlanetMap2DProps) {
+export function PlanetMap2D({
+  world,
+  onTransformChange,
+  onCellHover,
+  onCellClick,
+  showHexGrid,
+  locationMarkers = [],
+  onLocationMarkerClick,
+}: PlanetMap2DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
 
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [renderTransform, setRenderTransform] = useState<MapTransform>({ x: 0, y: 0, scale: 1 });
 
   // Transform state: represents translation (x, y) and zoom (scale)
   const transformRef = useRef<MapTransform>({ x: 0, y: 0, scale: 1 });
@@ -38,6 +59,12 @@ export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick
   const rafRef = useRef<number>(0);
 
   const overlayKey = (overlay: ProvinceOverlay) => `${overlay.sourcePlanetId}:${overlay.artifactId}:${overlay.imageUrl}`;
+
+  const commitTransform = (next: MapTransform) => {
+    transformRef.current = next;
+    setRenderTransform(next);
+    onTransformChange?.(next);
+  };
 
   // ── 0. Boundary Logic ──
   const clampTransform = (x: number, y: number, scale: number, w: number, h: number, imgWidth: number, imgHeight: number) => {
@@ -146,8 +173,7 @@ export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick
           // Re-clamp current transform to new bounds instead of fully resetting
           const { x, y, scale } = transformRef.current;
           const clamped = clampTransform(x, y, scale, newWidth, newHeight, imageRef.current.width, imageRef.current.height);
-          transformRef.current = clamped;
-          onTransformChange?.(clamped);
+          commitTransform(clamped);
           draw(newWidth, newHeight);
         }
       }
@@ -164,8 +190,7 @@ export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick
     const x = (w - img.width * scale) / 2;
     const y = (h - img.height * scale) / 2;
 
-    transformRef.current = { x, y, scale };
-    onTransformChange?.(transformRef.current);
+    commitTransform({ x, y, scale });
   };
 
   // ── 3. Render Loop ──
@@ -313,8 +338,7 @@ export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick
     const newY = mouseY - (mouseY - y) * (newScale / scale);
 
     const clamped = clampTransform(newX, newY, newScale, size.width, size.height, imageRef.current.width, imageRef.current.height);
-    transformRef.current = clamped;
-    onTransformChange?.(clamped);
+    commitTransform(clamped);
 
     scheduleDraw();
   };
@@ -355,9 +379,7 @@ export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick
       lastPosRef.current = { x: e.clientX, y: e.clientY };
 
       const clamped = clampTransform(x, y, scale, size.width, size.height, imageRef.current.width, imageRef.current.height);
-      transformRef.current = clamped;
-
-      onTransformChange?.(clamped);
+      commitTransform(clamped);
       scheduleDraw();
       return;
     }
@@ -422,7 +444,7 @@ export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick
   };
 
   return (
-    <div ref={containerRef} className="w-full h-full rounded-lg border border-[#1f2937] overflow-hidden bg-[#080d15]">
+    <div ref={containerRef} className="relative w-full h-full rounded-lg border border-[#1f2937] overflow-hidden bg-[#080d15]">
       <canvas
         ref={canvasRef}
         className="w-full h-full block cursor-grab active:cursor-grabbing touch-none"
@@ -432,6 +454,46 @@ export function PlanetMap2D({ world, onTransformChange, onCellHover, onCellClick
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       />
+      {imageRef.current && locationMarkers.length > 0 && (
+        <div className="pointer-events-none absolute inset-0">
+          {locationMarkers.map((marker) => {
+            const img = imageRef.current;
+            if (!img) return null;
+            const left = renderTransform.x + marker.x * img.width * renderTransform.scale;
+            const top = renderTransform.y + marker.y * img.height * renderTransform.scale;
+            const baseSize = Math.max(8, marker.size);
+            const visible = left >= -baseSize && top >= -baseSize && left <= size.width + baseSize && top <= size.height + baseSize;
+            if (!visible) {
+              return null;
+            }
+            return (
+              <button
+                key={marker.id}
+                type="button"
+                title={marker.label}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onLocationMarkerClick?.(marker.id);
+                }}
+                className="pointer-events-auto absolute rounded-full border transition-all"
+                style={{
+                  left,
+                  top,
+                  width: baseSize,
+                  height: baseSize,
+                  transform: "translate(-50%, -50%)",
+                  backgroundColor: marker.color,
+                  borderColor: marker.selected ? "rgba(255,255,255,0.95)" : "rgba(5, 8, 12, 0.75)",
+                  boxShadow: marker.selected
+                    ? `0 0 0 3px ${marker.color}55, 0 0 18px ${marker.color}`
+                    : `0 0 12px ${marker.color}88`,
+                  zIndex: marker.selected ? 2 : 1,
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,33 @@
+{
+  "age": 30,
+  "appearancePrompt": "Pragmatic Survivor, Brice's Partner forged by the quest.",
+  "backstory": "Anya Fane, a former technician, found herself inextricably linked with Brice in the chaotic aftermath of the Ashfall. Initially a 'servant' in a world where titles meant little, she became his unyielding physical bulwark against chaos, a pragmatic anchor to his intellectual gambits. Her loyalty is unquestioned, though her patience for Brice's schemes can be thin. She trusts action over plans, and survival above all else.",
+  "faction": null,
+  "gender": "Unknown",
+  "history": "Anya Fane, a former technician, found herself inextricably linked with Brice in the chaotic aftermath of the Ashfall. Initially a 'servant' in a world where titles meant little, she became his unyielding physical bulwark against chaos, a pragmatic anchor to his intellectual gambits. Her loyalty is unquestioned, though her patience for Brice's schemes can be thin. She trusts action over plans, and survival above all else.",
+  "hp": 30,
+  "id": "char-abfabb32-6131-42e7-9d6f-4851b5dc68e9",
+  "inventory": [],
+  "isNPC": true,
+  "level": 2,
+  "maxHp": 30,
+  "name": "Anya Fane (AF)",
+  "origin": {
+    "sourceId": "quest-699a78c6-b5bc-419b-955c-e02d9c06f23c",
+    "system": "quest",
+    "worldId": "665774da-472d-4570-adfb-1242ceefdfd9"
+  },
+  "skills": [],
+  "stats": {
+    "agility": 4,
+    "charisma": 4,
+    "endurance": 4,
+    "intelligence": 4,
+    "strength": 4,
+    "wisdom": 4
+  },
+  "traits": [],
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
+  "xp": 0
+}

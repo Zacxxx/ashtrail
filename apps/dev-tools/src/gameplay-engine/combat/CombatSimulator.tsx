@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { GameRegistry, Character, Skill, Trait, resolveCharacterSkills, resolveOccupationTree } from '@ashtrail/core';
-import type { TacticalEntity, CombatConfig, DamagePreview, CombatResolutionSummary } from '@ashtrail/core';
-import { TacticalArena } from './TacticalArena';
+import { GameRegistry, Character, Skill, resolveCharacterSkills, resolveCharacterTraitGrants } from '@ashtrail/core';
+import type { TacticalEntity, CombatConfig, DamagePreview, CombatResolutionSummary, CombatRosterEntry } from '@ashtrail/core';
+import { TacticalArena, type TacticalArenaUtilityAction } from './TacticalArena';
 import { useCombatWebSocket } from './useCombatWebSocket';
 import { Grid, buildMapPrompt, parseAIGridResponse, generateGrid } from './tacticalGrid';
 import { GameRulesManager } from '../rules/useGameRules';
+import { useActiveWorld } from '../../hooks/useActiveWorld';
+import { useEcologyData } from '../../ecology/useEcologyData';
+import type { EcologyBundle, FaunaEntry } from '../../ecology/types';
 
 // ── Default skills given to characters without their own ──
 function getDefaultPlayerSkills(): Skill[] {
@@ -14,42 +17,12 @@ function getDefaultEnemySkills(): Skill[] {
     return GameRegistry.getAllSkills().filter(s => ['use-weapon', 'quick-shot', 'power-strike', 'war-cry'].includes(s.id));
 }
 
-function buildCombatTraits(char: Character): Trait[] {
-    const traits: Trait[] = [...char.traits];
-
-    if (char.occupation?.effects?.length) {
-        traits.push({
-            id: `${char.occupation.id}-combat-baseline`,
-            name: `${char.occupation.name} Baseline`,
-            description: `Resolved occupation effects for ${char.occupation.name}.`,
-            cost: 0,
-            type: 'neutral',
-            effects: char.occupation.effects.filter((effect) => !effect.scope || effect.scope === 'combat' || effect.scope === 'global'),
-        });
-    }
-
-    const treeState = resolveOccupationTree(
-        char.progression?.treeOccupationId || char.occupation?.id,
-        char.progression?.unlockedTalentNodeIds || [],
-    );
-
-    treeState.unlockedNodes.forEach((node) => {
-        if (!node.effects?.length) return;
-        traits.push({
-            id: `${char.id}-${node.id}-resolved`,
-            name: node.name,
-            description: node.description,
-            cost: 0,
-            type: 'neutral',
-            effects: node.effects.filter((effect) => !effect.scope || effect.scope === 'combat' || effect.scope === 'global'),
-        });
-    });
-
-    return traits;
-}
-
 function mapCharToTactical(char: Character, isPlayer: boolean, index: number, defaultPlayerSkills: Skill[], defaultEnemySkills: Skill[]): TacticalEntity {
-    const traits = buildCombatTraits(char);
+    const traits = resolveCharacterTraitGrants({
+        traits: char.traits,
+        occupation: char.occupation,
+        progression: char.progression,
+    }).traits;
     const rules = GameRulesManager.get();
     const maxHp = rules.core.hpBase + char.stats.endurance * rules.core.hpPerEndurance;
     const maxAp = rules.core.apBase + Math.floor(char.stats.agility / rules.core.apAgilityDivisor);
@@ -162,20 +135,97 @@ function mapCharToTactical(char: Character, isPlayer: boolean, index: number, de
     };
 }
 
+function isFaunaSelection(id: string): boolean {
+    return id.startsWith('fauna:');
+}
+
+function faunaSelectionId(id: string): string {
+    return id.replace(/^fauna:/, '');
+}
+
+function mapFaunaToTactical(fauna: FaunaEntry, selectionId: string, isPlayer: boolean, index: number): TacticalEntity {
+    const rules = GameRulesManager.get();
+    const skills = fauna.skillIds
+        .map((skillId) => GameRegistry.getSkill(skillId))
+        .filter((skill): skill is Skill => Boolean(skill));
+    const maxHp = Math.max(1, rules.core.hpBase + fauna.combatProfile.endurance * rules.core.hpPerEndurance + fauna.combatProfile.baseHpBonus);
+    const maxAp = Math.max(1, rules.core.apBase + Math.floor(fauna.combatProfile.agility / rules.core.apAgilityDivisor) + fauna.combatProfile.baseApBonus);
+    const maxMp = Math.max(1, rules.core.mpBase + fauna.combatProfile.baseMpBonus);
+    const agiScale = 2.5;
+    const enduScale = 3.5;
+    const derivedDefense =
+        Math.floor(
+            agiScale * Math.log((Math.max(0, fauna.combatProfile.agility)) + 1)
+            + enduScale * Math.log((Math.max(0, fauna.combatProfile.endurance)) + 1),
+        ) + fauna.combatProfile.baseDefense;
+
+    return {
+        id: `${selectionId}_${isPlayer ? 'p' : 'e'}${index}`,
+        isPlayer,
+        name: fauna.name,
+        strength: fauna.combatProfile.strength,
+        agility: fauna.combatProfile.agility,
+        intelligence: fauna.combatProfile.intelligence,
+        wisdom: fauna.combatProfile.wisdom,
+        endurance: fauna.combatProfile.endurance,
+        charisma: fauna.combatProfile.charisma,
+        evasion: fauna.combatProfile.baseEvasion,
+        defense: Math.max(0, derivedDefense),
+        hp: maxHp,
+        maxHp,
+        ap: maxAp,
+        maxAp,
+        mp: maxMp,
+        maxMp,
+        level: fauna.combatProfile.level,
+        critChance: fauna.combatProfile.critChance,
+        resistance: fauna.combatProfile.resistance,
+        socialBonus: fauna.combatProfile.socialBonus,
+        traits: [],
+        skills,
+        occupation: null,
+        progression: null,
+        skillCooldowns: {},
+        gridPos: { row: 0, col: 0 },
+        equipped: null,
+        baseStats: {
+            strength: fauna.combatProfile.strength,
+            agility: fauna.combatProfile.agility,
+            intelligence: fauna.combatProfile.intelligence,
+            wisdom: fauna.combatProfile.wisdom,
+            endurance: fauna.combatProfile.endurance,
+            charisma: fauna.combatProfile.charisma,
+            evasion: fauna.combatProfile.baseEvasion,
+            defense: fauna.combatProfile.baseDefense,
+        },
+    };
+}
+
 export function CombatSimulator({
     initialPlayerIds,
     initialEnemyIds,
     initialCombatStarted,
     onCombatFinished,
     onCombatCancelled,
+    ecologyBundle,
 }: {
     initialPlayerIds?: string[],
     initialEnemyIds?: string[],
     initialCombatStarted?: boolean,
     onCombatFinished?: (summary: CombatResolutionSummary) => void,
     onCombatCancelled?: () => void,
+    ecologyBundle?: EcologyBundle | null,
 } = {}) {
+    const { activeWorldId } = useActiveWorld();
+    const ecology = useEcologyData(activeWorldId);
     const chars = GameRegistry.getAllCharacters();
+    const faunaEntries = ecologyBundle?.fauna ?? ecology.bundle?.fauna ?? [];
+    const combatantOptions = React.useMemo(() => ([
+        ...chars.map((char) => ({ id: char.id, label: char.name, kind: 'character' as const })),
+        ...faunaEntries.map((fauna) => ({ id: `fauna:${fauna.id}`, label: `${fauna.name} [fauna]`, kind: 'fauna' as const })),
+    ]), [chars, faunaEntries]);
+    const defaultPlayerSelection = combatantOptions[0]?.id || '';
+    const defaultEnemySelection = combatantOptions.find((entry) => entry.kind === 'fauna')?.id || combatantOptions[1]?.id || combatantOptions[0]?.id || '';
 
     // ── Phase: 'setup' or 'combat' ──
     const [combatStarted, setCombatStarted] = useState(initialCombatStarted || false);
@@ -187,13 +237,11 @@ export function CombatSimulator({
 
     const [playerIds, setPlayerIds] = useState<string[]>(() => {
         if (initialPlayerIds && initialPlayerIds.length > 0) return initialPlayerIds;
-        const allC = GameRegistry.getAllCharacters();
-        return [allC.length > 0 ? allC[0].id : ''];
+        return [defaultPlayerSelection];
     });
     const [enemyIds, setEnemyIds] = useState<string[]>(() => {
         if (initialEnemyIds && initialEnemyIds.length > 0) return initialEnemyIds;
-        const allC = GameRegistry.getAllCharacters();
-        return [allC.length > 1 ? allC[1].id : allC.length > 0 ? allC[0].id : ''];
+        return [defaultEnemySelection];
     });
 
     const [playerCount, setPlayerCount] = useState(playerIds.length);
@@ -220,7 +268,7 @@ export function CombatSimulator({
         setPlayerCount(count);
         setPlayerIds(prev => {
             const next = [...prev];
-            const defaultId = chars.length > 0 ? chars[0].id : '';
+            const defaultId = defaultPlayerSelection;
             while (next.length < count) next.push(defaultId);
             return next.slice(0, count);
         });
@@ -229,7 +277,7 @@ export function CombatSimulator({
         setEnemyCount(count);
         setEnemyIds(prev => {
             const next = [...prev];
-            const defaultId = chars.length > 1 ? chars[1].id : chars.length > 0 ? chars[0].id : '';
+            const defaultId = defaultEnemySelection;
             while (next.length < count) next.push(defaultId);
             return next.slice(0, count);
         });
@@ -475,11 +523,10 @@ export function CombatSimulator({
                                             <div className="w-6 h-6 rounded-full bg-blue-600 border border-blue-400 flex items-center justify-center text-[9px] font-black text-white shrink-0">
                                                 P{i + 1}
                                             </div>
-                                            <select value={playerIds[i] || 'mock_1'}
+                                            <select value={playerIds[i] || defaultPlayerSelection}
                                                 onChange={e => setPlayerId(i, e.target.value)}
                                                 className="flex-1 bg-black/50 border border-blue-500/20 text-white text-xs px-3 py-2 rounded-lg outline-none focus:border-blue-500/50">
-                                                <option value="mock_1">Default Character {i + 1}</option>
-                                                {chars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                                {combatantOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
                                             </select>
                                         </div>
                                     ))}
@@ -504,11 +551,10 @@ export function CombatSimulator({
                                             <div className="w-6 h-6 rounded-full bg-red-600 border border-red-400 flex items-center justify-center text-[9px] font-black text-white shrink-0">
                                                 E{i + 1}
                                             </div>
-                                            <select value={enemyIds[i] || 'mock_2'}
+                                            <select value={enemyIds[i] || defaultEnemySelection}
                                                 onChange={e => setEnemyId(i, e.target.value)}
                                                 className="flex-1 bg-black/50 border border-red-500/20 text-white text-xs px-3 py-2 rounded-lg outline-none focus:border-red-500/50">
-                                                <option value="mock_2">Default Enemy {i + 1}</option>
-                                                {chars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                                {combatantOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
                                             </select>
                                         </div>
                                     ))}
@@ -656,13 +702,15 @@ export function CombatSimulator({
 
             {/* Arena */}
             <div className="flex-1 overflow-hidden">
-                <TacticalCombatArena
+                <CombatEncounterView
                     key={`combat-${combatKey}`}
                     playerIds={playerIds}
                     enemyIds={enemyIds}
+                    faunaEntries={faunaEntries}
                     aiGrid={aiGrid}
                     config={config}
                     battlemapUrl={battlemapUrl}
+                    variant="gameplay"
                     onCombatFinished={onCombatFinished}
                 />
             </div>
@@ -670,41 +718,102 @@ export function CombatSimulator({
     );
 }
 
-function TacticalCombatArena({
-    playerIds, enemyIds, aiGrid, config, battlemapUrl, onCombatFinished
-}: {
+export interface CombatEncounterViewProps {
     playerIds: string[];
     enemyIds: string[];
-    aiGrid: Grid | null;
+    aiGrid?: Grid | null;
     config: CombatConfig;
-    battlemapUrl: string | null;
+    battlemapUrl?: string | null;
     onCombatFinished?: (summary: CombatResolutionSummary) => void;
-}) {
+    faunaEntries: FaunaEntry[];
+    variant?: 'gameplay' | 'quest';
+    utilityActions?: TacticalArenaUtilityAction[];
+}
+
+export function CombatEncounterView({
+    playerIds,
+    enemyIds,
+    aiGrid = null,
+    config,
+    battlemapUrl = null,
+    onCombatFinished,
+    faunaEntries,
+    variant = 'gameplay',
+    utilityActions = [],
+}: CombatEncounterViewProps) {
     const defaultPlayerSkills = getDefaultPlayerSkills();
     const defaultEnemySkills = getDefaultEnemySkills();
+    const faunaById = React.useMemo(() => new Map(faunaEntries.map((entry) => [entry.id, entry])), [faunaEntries]);
+    const usesRoster = React.useMemo(
+        () => [...playerIds, ...enemyIds].every((id) => !isFaunaSelection(id)),
+        [enemyIds, playerIds],
+    );
+
+    const playerRoster = React.useMemo<CombatRosterEntry[]>(
+        () => playerIds.map((characterId, index) => ({
+            rosterId: `player-${index}`,
+            characterId,
+            team: 'player',
+        })),
+        [playerIds],
+    );
+
+    const enemyRoster = React.useMemo<CombatRosterEntry[]>(
+        () => enemyIds.map((characterId, index) => ({
+            rosterId: `enemy-${index}`,
+            characterId,
+            team: 'enemy',
+        })),
+        [enemyIds],
+    );
 
     // Build TacticalEntity for each character using the resolved data from mapCharToTactical
     const playerEntities = playerIds
-        .map(id => GameRegistry.getCharacter(id))
-        .filter((char): char is Character => char !== undefined)
-        .map((char, i) => mapCharToTactical(char, true, i, defaultPlayerSkills, defaultEnemySkills));
+        .map((id, i) => {
+            if (isFaunaSelection(id)) {
+                const fauna = faunaById.get(faunaSelectionId(id));
+                return fauna ? mapFaunaToTactical(fauna, id, true, i) : null;
+            }
+            const char = GameRegistry.getCharacter(id);
+            return char ? mapCharToTactical(char, true, i, defaultPlayerSkills, defaultEnemySkills) : null;
+        })
+        .filter((entity): entity is TacticalEntity => entity !== null);
 
     const enemyEntities = enemyIds
-        .map(id => GameRegistry.getCharacter(id))
-        .filter((char): char is Character => char !== undefined)
-        .map((char, i) => mapCharToTactical(char, false, i, defaultPlayerSkills, defaultEnemySkills));
+        .map((id, i) => {
+            if (isFaunaSelection(id)) {
+                const fauna = faunaById.get(faunaSelectionId(id));
+                return fauna ? mapFaunaToTactical(fauna, id, false, i) : null;
+            }
+            const char = GameRegistry.getCharacter(id);
+            return char ? mapCharToTactical(char, false, i, defaultPlayerSkills, defaultEnemySkills) : null;
+        })
+        .filter((entity): entity is TacticalEntity => entity !== null);
+
+    const combatSetup = React.useMemo(() => {
+        if (usesRoster) {
+            return {
+                roster: [...playerRoster, ...enemyRoster],
+                grid: aiGrid || undefined,
+                config,
+            };
+        }
+
+        return {
+            players: playerEntities,
+            enemies: enemyEntities,
+            grid: aiGrid || undefined,
+            config,
+        };
+    }, [aiGrid, config, enemyEntities, enemyRoster, playerEntities, playerRoster, usesRoster]);
 
     // ── Use LOCAL combat engine (correct weapon damage, game rules, modifiers) ──
     const {
         grid, entities, turnOrder, activeEntityId, activeEntity,
         isPlayerTurn, phase, playerAction, logs, turnNumber,
-        handleCellClick, endTurn, selectSkill, selectedSkill, MELEE_ATTACK_COST,
-    } = useCombatWebSocket({
-        players: playerEntities,
-        enemies: enemyEntities,
-        grid: aiGrid || undefined,
-        config,
-    });
+        handleCellClick, endTurn, selectSkill, selectedSkill, previewState,
+        previewMove, previewBasicAttack, previewSkill, MELEE_ATTACK_COST,
+    } = useCombatWebSocket(combatSetup);
 
     const hasReportedCombatEnd = React.useRef(false);
     const resolveEntityByBaseId = React.useCallback((baseId: string, isPlayer: boolean) => {
@@ -719,8 +828,16 @@ function TacticalCombatArena({
         hasReportedCombatEnd.current = true;
         onCombatFinished?.({
             outcome: phase,
-            survivingPlayerIds: playerIds.filter((id) => (resolveEntityByBaseId(id, true)?.hp ?? 0) > 0),
-            defeatedEnemyIds: enemyIds.filter((id) => (resolveEntityByBaseId(id, false)?.hp ?? 0) <= 0),
+            survivingPlayerIds: usesRoster
+                ? playerRoster
+                    .filter((entry) => (entities.get(entry.rosterId)?.hp ?? 0) > 0)
+                    .map((entry) => entry.characterId)
+                : playerIds.filter((id) => (resolveEntityByBaseId(id, true)?.hp ?? 0) > 0),
+            defeatedEnemyIds: usesRoster
+                ? enemyRoster
+                    .filter((entry) => (entities.get(entry.rosterId)?.hp ?? 0) <= 0)
+                    .map((entry) => entry.characterId)
+                : enemyIds.filter((id) => (resolveEntityByBaseId(id, false)?.hp ?? 0) <= 0),
             playerSnapshots: Array.from(entities.values())
                 .filter((entity) => entity.isPlayer)
                 .map((entity) => ({ id: entity.id, hp: entity.hp, maxHp: entity.maxHp })),
@@ -729,7 +846,7 @@ function TacticalCombatArena({
                 .map((entity) => ({ id: entity.id, hp: entity.hp, maxHp: entity.maxHp })),
             turnCount: turnNumber,
         });
-    }, [enemyIds, entities, onCombatFinished, phase, playerIds, resolveEntityByBaseId, turnNumber]);
+    }, [enemyIds, enemyRoster, entities, onCombatFinished, phase, playerIds, playerRoster, resolveEntityByBaseId, turnNumber, usesRoster]);
 
     const getDamagePreview = React.useCallback((attacker: TacticalEntity, target: TacticalEntity, skill: Skill): DamagePreview | null => {
         if (!skill.damage && !skill.pushDistance) return null;
@@ -756,7 +873,6 @@ function TacticalCombatArena({
         const vMin = rules.combat.damageVarianceMin || 0.85;
         const vMax = rules.combat.damageVarianceMax || 1.15;
 
-        // Critical Hit check
         const analyzedBonus = target.activeEffects?.filter(e => e.type === 'ANALYZED' as any).reduce((sum: number, e: any) => sum + (e.value || 0), 0) || 0;
         const finalCritChance = attacker.critChance + (analyzedBonus / 100);
 
@@ -766,9 +882,8 @@ function TacticalCombatArena({
             if (isMagical) {
                 const resist = Math.floor(d * (target.resistance || 0));
                 return Math.max(1, d - resist);
-            } else {
-                return Math.max(1, d - (target.defense || 0));
             }
+            return Math.max(1, d - (target.defense || 0));
         };
 
         return {
@@ -777,7 +892,7 @@ function TacticalCombatArena({
             critMin: calc(minStrBonus, vMin, true),
             critMax: calc(maxStrBonus, vMax, true),
             isMagical,
-            critChance: isNaN(finalCritChance) ? (attacker.critChance || 0) : finalCritChance
+            critChance: isNaN(finalCritChance) ? (attacker.critChance || 0) : finalCritChance,
         };
     }, []);
 
@@ -800,6 +915,12 @@ function TacticalCombatArena({
             selectedSkill={selectedSkill}
             battlemapUrl={battlemapUrl}
             getDamagePreview={getDamagePreview}
+            variant={variant}
+            utilityActions={utilityActions}
+            previewState={previewState}
+            onPreviewMove={previewMove}
+            onPreviewBasicAttack={previewBasicAttack}
+            onPreviewSkill={previewSkill}
         />
     );
 }

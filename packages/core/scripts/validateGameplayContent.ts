@@ -1,6 +1,6 @@
-import { ALL_OCCUPATIONS, ALL_TALENT_TREES, ALL_TRAITS, validateGameplayContent } from '../src/index';
+import { ALL_OCCUPATIONS, ALL_SKILLS, ALL_TALENT_TREES, ALL_TRAITS, validateGameplayContent } from '../src/index';
 
-const report = validateGameplayContent(ALL_TRAITS, ALL_OCCUPATIONS, ALL_TALENT_TREES);
+const report = validateGameplayContent(ALL_TRAITS, ALL_OCCUPATIONS, ALL_TALENT_TREES, ALL_SKILLS);
 
 if (report.issues.length > 0) {
   console.error(`Gameplay content validation found ${report.summary.errorCount} errors and ${report.summary.warningCount} warnings.`);

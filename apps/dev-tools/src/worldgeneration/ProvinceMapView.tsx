@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback, type PointerEvent } from "react";
 
+const MAX_BIOME_PALETTE = 32;
+
 // ── Shader Sources ──
 
 const VERT_SHADER = `
@@ -29,13 +31,16 @@ uniform sampler2D u_kingdomIdTexture;
 uniform sampler2D u_continentIdTexture;
 uniform sampler2D u_heightTexture;
 uniform sampler2D u_biomeTexture;
+uniform sampler2D u_biomeConfidenceTexture;
 uniform sampler2D u_landmaskTexture;
-uniform int u_layer;          // 0=provinces, 1=duchies, 2=kingdoms, 3=continents, 4=biome, 5=height, 6=base
+uniform int u_layer;          // 0=provinces, 1=duchies, 2=kingdoms, 3=continents, 4=biome, 5=height, 6=base, 7=biome-confidence
 uniform float u_borderWidth;
 uniform float u_opacity;
 uniform vec2 u_texSize;
 uniform vec3 u_highlightId;   // RGB of hovered province
 uniform int u_hasHighlight;
+uniform vec3 u_biomePalette[32];
+uniform int u_biomePaletteSize;
 
 // Stable hash for ID → color
 vec3 idToColor(vec3 id) {
@@ -58,17 +63,12 @@ vec3 idToColor(vec3 id) {
 
 vec3 biomeColor(float biomeVal) {
     int b = int(biomeVal * 255.0 + 0.5);
-    if (b == 0) return vec3(0.08, 0.15, 0.35);    // ocean
-    if (b == 1) return vec3(0.75, 0.82, 0.85);    // tundra
-    if (b == 2) return vec3(0.2, 0.4, 0.3);       // taiga
-    if (b == 3) return vec3(0.15, 0.55, 0.2);     // temperate
-    if (b == 4) return vec3(0.65, 0.7, 0.32);     // grassland
-    if (b == 5) return vec3(0.85, 0.72, 0.4);     // desert
-    if (b == 6) return vec3(0.7, 0.6, 0.3);       // savanna
-    if (b == 7) return vec3(0.1, 0.5, 0.15);      // tropical
-    if (b == 8) return vec3(0.5, 0.45, 0.4);      // mountain
-    if (b == 9) return vec3(0.9, 0.95, 1.0);      // ice
-    return vec3(0.4, 0.2, 0.1);                    // volcanic
+    for (int i = 0; i < 32; i++) {
+        if (i == b && i < u_biomePaletteSize) {
+            return u_biomePalette[i];
+        }
+    }
+    return vec3(0.4, 0.2, 0.1);
 }
 
 // Border detection: check if any neighbor has a different ID
@@ -97,6 +97,10 @@ void main() {
     if (u_layer == 6) {
         // Base texture pass-through
         color = base;
+    } else if (u_layer == 7) {
+        float c = texture2D(u_biomeConfidenceTexture, v_texCoord).r;
+        color = mix(vec3(0.5, 0.1, 0.1), vec3(0.1, 0.8, 0.5), c);
+        if (land < 0.5) color = vec3(0.05, 0.12, 0.25);
     } else if (u_layer == 5) {
         // Height visualization
         float h = texture2D(u_heightTexture, v_texCoord).r;
@@ -177,7 +181,7 @@ void main() {
 
 // ── Types ──
 
-export type ProvinceLayer = "provinces" | "duchies" | "kingdoms" | "continents" | "biome" | "height" | "base" | "areas";
+export type ProvinceLayer = "provinces" | "duchies" | "kingdoms" | "continents" | "biome" | "biome-confidence" | "height" | "base" | "areas";
 
 interface ProvinceMapViewProps {
     planetId: string | null;
@@ -203,6 +207,7 @@ const LAYER_INDEX: Record<ProvinceLayer, number> = {
     biome: 4,
     height: 5,
     base: 6,
+    "biome-confidence": 7,
     areas: 0, // areas uses provinces texture underneath
 };
 
@@ -216,6 +221,7 @@ export function ProvinceMapView({
     const programRef = useRef<WebGLProgram | null>(null);
     const texturesRef = useRef<Record<string, WebGLTexture>>({});
     const pickingDataRef = useRef<Record<string, Uint8ClampedArray>>({});
+    const biomePaletteRef = useRef<number[]>([]);
     const rafRef = useRef<number>(0);
     const sizeRef = useRef({ width: 0, height: 0 });
     const texSizeRef = useRef({ width: 0, height: 0 });
@@ -355,7 +361,32 @@ export function ProvinceMapView({
                 }
                 await loadTexture(gl, `${worldgenBase}/height16.png?${cacheBuster}`, "height");
                 await loadTexture(gl, `${worldgenBase}/biome.png?${cacheBuster}`, "biome");
+                try {
+                    await loadTexture(gl, `${worldgenBase}/biome_confidence.png?${cacheBuster}`, "biome_confidence");
+                } catch {
+                    await loadTexture(gl, `${worldgenBase}/biome.png?${cacheBuster}`, "biome_confidence");
+                }
                 await loadTexture(gl, `${worldgenBase}/landmask.png?${cacheBuster}`, "landmask");
+                try {
+                    const paletteRes = await fetch(`${worldgenBase}/biome_palette.json?${cacheBuster}`);
+                    if (paletteRes.ok) {
+                        const payload = await paletteRes.json();
+                        const palette = Array.from({ length: MAX_BIOME_PALETTE }, (_, index) => {
+                            const entry = Array.isArray(payload) ? payload.find((candidate: any) => candidate.index === index) : null;
+                            if (!entry?.hexColor) return [0.25, 0.12, 0.1];
+                            const hex = String(entry.hexColor).replace("#", "");
+                            const normalized = hex.length === 6 ? hex : "7d6b5b";
+                            return [
+                                parseInt(normalized.slice(0, 2), 16) / 255,
+                                parseInt(normalized.slice(2, 4), 16) / 255,
+                                parseInt(normalized.slice(4, 6), 16) / 255,
+                            ];
+                        }).flat();
+                        biomePaletteRef.current = palette;
+                    }
+                } catch {
+                    biomePaletteRef.current = [];
+                }
                 setLoaded(true);
                 setLoadError(null);
             } catch (err: any) {
@@ -441,6 +472,14 @@ export function ProvinceMapView({
             gl.uniform1f(gl.getUniformLocation(program, "u_borderWidth"), borderWidth);
             gl.uniform1f(gl.getUniformLocation(program, "u_opacity"), opacity);
             gl.uniform2f(gl.getUniformLocation(program, "u_texSize"), imgW, imgH);
+            const paletteValues = biomePaletteRef.current.length === MAX_BIOME_PALETTE * 3
+                ? biomePaletteRef.current
+                : Array.from({ length: MAX_BIOME_PALETTE * 3 }, () => 0.2);
+            gl.uniform3fv(gl.getUniformLocation(program, "u_biomePalette[0]"), new Float32Array(paletteValues));
+            gl.uniform1i(
+                gl.getUniformLocation(program, "u_biomePaletteSize"),
+                Math.min(MAX_BIOME_PALETTE, Math.floor(paletteValues.length / 3)),
+            );
 
             // Apply specific highlight ID from parent props
             const targetHighlightId = selectedId !== null ? selectedId : hoveredId;
@@ -465,7 +504,8 @@ export function ProvinceMapView({
                 ["continent_id", "u_continentIdTexture", 4],
                 ["height", "u_heightTexture", 5],
                 ["biome", "u_biomeTexture", 6],
-                ["landmask", "u_landmaskTexture", 7],
+                ["biome_confidence", "u_biomeConfidenceTexture", 7],
+                ["landmask", "u_landmaskTexture", 8],
             ];
 
             for (const [key, uniform, unit] of texBindings) {
@@ -664,7 +704,7 @@ export function ProvinceMapView({
             {/* Layer Picker Toolbar */}
             {loaded && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-[#0a0a0a]/90 backdrop-blur-xl border border-white/10 rounded-full px-2 py-1 shadow-2xl">
-                    {(["provinces", "duchies", "kingdoms", "continents", "areas", "biome", "height", "base"] as ProvinceLayer[]).map((l) => (
+                    {(["provinces", "duchies", "kingdoms", "continents", "areas", "biome", "biome-confidence", "height", "base"] as ProvinceLayer[]).map((l) => (
                         <button
                             key={l}
                             onClick={() => {

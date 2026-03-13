@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
-import { useMemo, useState } from "react";
-import { EcologyHierarchyList } from "../ecology/EcologyHierarchyList";
+import { useMemo } from "react";
 import { useEcologyData } from "../ecology/useEcologyData";
 
 interface EcologyPanelProps {
@@ -20,22 +19,9 @@ function baselinePill(status: string) {
 
 export function EcologyPanel({ planetId }: EcologyPanelProps) {
     const ecology = useEcologyData(planetId);
-    const [selectedProvinceId, setSelectedProvinceId] = useState<number | null>(null);
-
-    const selectedProvince = useMemo(
-        () => ecology.regionsByType.provinces.find((entry) => entry.rawId === selectedProvinceId) ?? null,
-        [ecology.regionsByType.provinces, selectedProvinceId],
-    );
-    const selectedRecord = selectedProvince?.rawId
-        ? ecology.bundle?.provinces.find((entry) => entry.provinceId === selectedProvince.rawId) ?? null
-        : null;
-    const kingdomStatus = selectedProvince?.kingdomId
-        ? ecology.baselineLookup.get(`kingdom:${selectedProvince.kingdomId}`)?.status ?? "missing"
-        : "missing";
-    const duchyStatus = selectedProvince?.duchyId
-        ? ecology.baselineLookup.get(`duchy:${selectedProvince.duchyId}`)?.status ?? "missing"
-        : "missing";
     const worldStatus = ecology.baselineLookup.get("world:world")?.status ?? "missing";
+    const kingdomCount = useMemo(() => ecology.regionsByType.kingdoms.length, [ecology.regionsByType.kingdoms.length]);
+    const duchyCount = useMemo(() => ecology.regionsByType.duchies.length, [ecology.regionsByType.duchies.length]);
 
     if (!planetId) {
         return (
@@ -59,7 +45,7 @@ export function EcologyPanel({ planetId }: EcologyPanelProps) {
                     <div className="flex items-center justify-between gap-2">
                         <div>
                             <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">Baseline Status</p>
-                            <p className="text-[10px] text-gray-500 mt-1">World {"->"} Kingdom {"->"} Duchy gates province generation.</p>
+                            <p className="text-[10px] text-gray-500 mt-1">Ecology now runs from world, kingdom, duchy, biome, flora, and fauna canon only.</p>
                         </div>
                         <Link
                             to="/ecology"
@@ -70,8 +56,8 @@ export function EcologyPanel({ planetId }: EcologyPanelProps) {
                     </div>
                     <div className="mt-3 grid grid-cols-3 gap-2">
                         <StatusCard label="WORLD" status={worldStatus} />
-                        <StatusCard label="KINGDOM" status={kingdomStatus} />
-                        <StatusCard label="DUCHY" status={duchyStatus} />
+                        <StatusCard label="KINGDOMS" status={String(kingdomCount)} />
+                        <StatusCard label="DUCHIES" status={String(duchyCount)} />
                     </div>
                     <div className="mt-3 grid grid-cols-1 gap-2">
                         <button
@@ -81,26 +67,6 @@ export function EcologyPanel({ planetId }: EcologyPanelProps) {
                         >
                             GENERATE WORLD BASELINE
                         </button>
-                        {selectedProvince?.kingdomId !== undefined && (
-                            <button
-                                type="button"
-                                onClick={() => void ecology.generateKingdomBaseline(selectedProvince.kingdomId!)}
-                                disabled={worldStatus !== "approved"}
-                                className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:opacity-40"
-                            >
-                                GENERATE KINGDOM BASELINE
-                            </button>
-                        )}
-                        {selectedProvince?.duchyId !== undefined && (
-                            <button
-                                type="button"
-                                onClick={() => void ecology.generateDuchyBaseline(selectedProvince.duchyId!)}
-                                disabled={kingdomStatus !== "approved"}
-                                className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:opacity-40"
-                            >
-                                GENERATE DUCHY BASELINE
-                            </button>
-                        )}
                     </div>
                 </div>
 
@@ -110,68 +76,33 @@ export function EcologyPanel({ planetId }: EcologyPanelProps) {
                         : "No active ecology job."}
                 </div>
 
-                <EcologyHierarchyList
-                    regions={ecology.regions}
-                    bundle={ecology.bundle!}
-                    selectedProvinceId={selectedProvinceId}
-                    onSelectProvince={setSelectedProvinceId}
-                    onGenerateProvince={(provinceId) => void ecology.generateProvince(provinceId)}
-                    disableActions={ecology.jobState.status === "running" || ecology.jobState.status === "queued"}
-                    canGenerateProvince={(province) =>
-                        worldStatus === "approved"
-                        && (province.kingdomId ? ecology.baselineLookup.get(`kingdom:${province.kingdomId}`)?.status === "approved" : false)
-                        && (province.duchyId ? ecology.baselineLookup.get(`duchy:${province.duchyId}`)?.status === "approved" : false)
-                    }
-                />
-
-                {selectedProvince && (
-                    <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
-                        <div className="mb-3 flex items-center justify-between">
+                {ecology.biomeReport && (
+                    <div className="mb-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+                        <div className="flex items-center justify-between gap-3">
                             <div>
-                                <h4 className="text-sm font-bold text-gray-100">{selectedProvince.name}</h4>
-                                <p className="text-[10px] tracking-widest text-gray-500 uppercase">
-                                    Dossier {selectedRecord?.status ?? "missing"}
+                                <p className="text-[10px] font-bold tracking-widest text-cyan-300 uppercase">Biome Summary</p>
+                                <p className="mt-1 text-[10px] text-gray-500">
+                                    {ecology.biomeReport.activeBiomes.length} active archetypes • avg confidence {(ecology.biomeReport.averageConfidence * 100).toFixed(0)}%
                                 </p>
                             </div>
-                            {selectedRecord && (
-                                <button
-                                    type="button"
-                                    onClick={() => void ecology.approveProvince(selectedRecord.provinceId)}
-                                    className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-1.5 text-[10px] font-bold tracking-widest text-green-300 transition-all hover:bg-green-500/20"
-                                >
-                                    APPROVE
-                                </button>
-                            )}
+                            <Link
+                                to="/ecology?tab=biomes"
+                                className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300"
+                            >
+                                TUNE BIOMES
+                            </Link>
                         </div>
-
-                        {selectedRecord?.sourceIsolatedImageUrl ? (
-                            <img
-                                src={`http://127.0.0.1:8787${selectedRecord.sourceIsolatedImageUrl}`}
-                                alt={selectedProvince.name}
-                                className="mb-3 h-44 w-full rounded-lg border border-white/10 object-contain bg-[#05080c]"
-                            />
-                        ) : (
-                            <div className="mb-3 rounded-lg border border-dashed border-white/10 p-4 text-center text-[10px] text-gray-500">
-                                Province isolate will be cached during the first generation.
-                            </div>
-                        )}
-
-                        <div className="grid grid-cols-2 gap-3 mb-3">
-                            <div className="rounded-lg border border-white/10 bg-[#0a0f14] p-3">
-                                <p className="text-[9px] tracking-widest text-gray-500 uppercase mb-1">Ecological Potential</p>
-                                <p className="text-lg font-bold text-green-300">{selectedRecord?.ecologicalPotential ?? 0}</p>
-                            </div>
-                            <div className="rounded-lg border border-white/10 bg-[#0a0f14] p-3">
-                                <p className="text-[9px] tracking-widest text-gray-500 uppercase mb-1">Agriculture Potential</p>
-                                <p className="text-lg font-bold text-amber-300">{selectedRecord?.agriculturePotential ?? 0}</p>
-                            </div>
+                        <div className="mt-3 grid grid-cols-3 gap-2">
+                            <StatusCard label="LOW CONF" status={`${ecology.biomeReport.lowConfidencePixelCount}`} />
+                            <StatusCard label="VISION" status={ecology.bundle.biomeModelSettings.visionModelId} />
+                            <StatusCard label="VERSION" status={ecology.bundle.biomeModelSettings.analysisVersion} />
                         </div>
-
-                        <p className="text-[11px] leading-relaxed text-gray-300 whitespace-pre-wrap">
-                            {selectedRecord?.description || "No province ecology draft yet."}
-                        </p>
                     </div>
                 )}
+
+                <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4 text-[11px] text-gray-400 leading-relaxed">
+                    Province dossiers and climate profiles have been removed from ecology management. Use `/ecology` to work on baselines, biome coverage, flora, and fauna.
+                </div>
             </div>
         </div>
     );

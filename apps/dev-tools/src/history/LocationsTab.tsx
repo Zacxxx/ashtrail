@@ -1,48 +1,106 @@
-import { useState, useEffect, useMemo } from "react";
-import { type GenerationHistoryItem } from "../hooks/useGenerationHistory";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@ashtrail/ui";
-import { AiGenerateModal } from "./AiGenerateModal";
+import { type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { type HistoryTab } from "./HistoryPage";
 import { type Faction } from "./FactionsTab";
+import {
+    LOCATION_CATEGORY_OPTIONS,
+    LOCATION_SCALE_OPTIONS,
+    LOCATION_STATUS_OPTIONS,
+    defaultLocationHistoryHooks,
+    normalizeLocation,
+    titleCaseLocation,
+    type Area,
+    type WorldLocation,
+} from "./locationTypes";
+
+export type { Area, WorldLocation } from "./locationTypes";
 
 interface LocationsTabProps {
     selectedWorld: GenerationHistoryItem | null;
     setActiveTab: (tab: HistoryTab) => void;
 }
 
-export interface WorldLocation {
-    id: string;
-    name: string;
-    type: "Urban" | "Rural" | "Wilderness" | "Ruins" | "Dungeon" | "Outpost" | "Fortress" | "Sacred";
-    status: "Thriving" | "Stable" | "Struggling" | "Abandoned" | "Rebuilding";
-    provinceId: string;       // ID into geography.json province
-    provinceName: string;     // Display name
-    /** Percentage share of the parent province's stats (0-100) */
-    sharePercent: number;
-    lore: string;
-    rulingFaction: string;
-}
-
-// Keep backward compat export so other files that import Area still work
-export type Area = WorldLocation;
-
 interface ProvinceInfo {
     id: string;
+    rawId: number;
     name: string;
-    population: number;
-    wealth: number;
-    development: number;
+    duchyId?: number;
+    kingdomId?: number;
+    continentId?: number;
+}
+
+function splitListField(value: string) {
+    return value
+        .split(/[\n,]/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+}
+
+function joinListField(values: string[]) {
+    return values.join(", ");
+}
+
+function clamp01(value: number) {
+    return Math.max(0, Math.min(1, value));
+}
+
+function parseNumber(value: string, fallback: number) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function applyProvince(location: WorldLocation, province: ProvinceInfo | null): WorldLocation {
+    if (!province) return location;
+    return {
+        ...location,
+        provinceId: province.rawId,
+        provinceRegionId: province.id,
+        provinceName: province.name,
+        duchyId: province.duchyId,
+        kingdomId: province.kingdomId,
+        continentId: province.continentId,
+    };
+}
+
+function createLocationTemplate(province: ProvinceInfo | null) {
+    return applyProvince(
+        normalizeLocation({
+            name: province ? `${province.name} Site` : "New Location",
+            category: province ? "settlement" : "wild",
+            subtype: province ? "market_town" : "landmark",
+            type: province ? "Market Town" : "Landmark",
+            scale: province ? "small" : "minor",
+            status: "stable",
+            importance: province ? 48 : 35,
+            habitabilityScore: province ? 52 : 30,
+            economicScore: province ? 44 : 22,
+            strategicScore: province ? 38 : 26,
+            hazardScore: province ? 24 : 45,
+            populationEstimate: province ? 2800 : null,
+            x: 0.5,
+            y: 0.5,
+            rulingFaction: "None",
+            tags: [],
+            placementDrivers: [],
+            historyHooks: defaultLocationHistoryHooks(),
+        }),
+        province,
+    );
 }
 
 export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps) {
     const [locations, setLocations] = useState<WorldLocation[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
-    const [editingLocation, setEditingLocation] = useState<WorldLocation | null>(null);
-
-    const [showGenModal, setShowGenModal] = useState(false);
     const [factions, setFactions] = useState<Faction[]>([]);
     const [provinces, setProvinces] = useState<ProvinceInfo[]>([]);
+    const [editingLocation, setEditingLocation] = useState<WorldLocation | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+
+    const [categoryFilter, setCategoryFilter] = useState<string>("all");
+    const [statusFilter, setStatusFilter] = useState<string>("all");
+    const [provinceFilter, setProvinceFilter] = useState<string>("all");
+    const [subtypeFilter, setSubtypeFilter] = useState("");
 
     useEffect(() => {
         if (!selectedWorld) {
@@ -53,127 +111,150 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
             return;
         }
 
+        let cancelled = false;
         setIsLoading(true);
-        Promise.all([
-            fetch(`http://localhost:8787/api/planet/locations/${selectedWorld.id}`).then(res => res.json()),
-            fetch(`http://localhost:8787/api/planet/factions/${selectedWorld.id}`).then(res => res.json()),
-            fetch(`http://localhost:8787/api/planet/geography/${selectedWorld.id}`).then(res => res.json()),
-            fetch(`http://localhost:8787/api/planet/worldgen-regions/${selectedWorld.id}`).then(res => res.json()),
-        ])
-            .then(([locsData, factionsData, geoData, worldgenData]) => {
-                setLocations(Array.isArray(locsData) ? locsData : []);
+
+        async function load() {
+            try {
+                const [locationsRes, factionsRes, worldgenRegionsRes] = await Promise.all([
+                    fetch(`http://127.0.0.1:8787/api/planet/locations/${selectedWorld.id}`),
+                    fetch(`http://127.0.0.1:8787/api/planet/factions/${selectedWorld.id}`),
+                    fetch(`http://127.0.0.1:8787/api/planet/worldgen-regions/${selectedWorld.id}`),
+                ]);
+
+                const [locationsData, factionsData, worldgenRegionsData] = await Promise.all([
+                    locationsRes.ok ? locationsRes.json() : [],
+                    factionsRes.ok ? factionsRes.json() : [],
+                    worldgenRegionsRes.ok ? worldgenRegionsRes.json() : [],
+                ]);
+
+                if (cancelled) return;
+
+                const nextLocations = Array.isArray(locationsData)
+                    ? locationsData.map((entry) => normalizeLocation(entry))
+                    : [];
+                const nextProvinces = (Array.isArray(worldgenRegionsData) ? worldgenRegionsData : [])
+                    .filter((region: any) => region?.type === "Province")
+                    .map((region: any) => ({
+                        id: String(region.id || `wgen_provinces_${region.rawId ?? 0}`),
+                        rawId: Number(region.rawId ?? 0),
+                        name: String(region.name || "Unknown Province"),
+                        duchyId: typeof region.duchyId === "number" ? region.duchyId : Number(region.duchyId ?? 0) || undefined,
+                        kingdomId: typeof region.kingdomId === "number" ? region.kingdomId : Number(region.kingdomId ?? 0) || undefined,
+                        continentId: typeof region.continentId === "number" ? region.continentId : Number(region.continentId ?? 0) || undefined,
+                    }))
+                    .sort((a: ProvinceInfo, b: ProvinceInfo) => a.name.localeCompare(b.name));
+
+                setLocations(nextLocations);
                 setFactions(Array.isArray(factionsData) ? factionsData : []);
+                setProvinces(nextProvinces);
+                setEditingLocation((prev) => {
+                    if (prev && nextLocations.some((entry) => entry.id === prev.id)) {
+                        return nextLocations.find((entry) => entry.id === prev.id) || null;
+                    }
+                    return nextLocations[0] || null;
+                });
+            } catch (error) {
+                console.error("Failed to load locations", error);
+                if (!cancelled) {
+                    setLocations([]);
+                    setFactions([]);
+                    setProvinces([]);
+                    setEditingLocation(null);
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsLoading(false);
+                }
+            }
+        }
 
-                // Get province stats: merge saved geography with worldgen data
-                const savedGeo: any[] = Array.isArray(geoData) ? geoData : [];
-                const wgenGeo: any[] = Array.isArray(worldgenData) ? worldgenData : [];
-                const savedMap = new Map(savedGeo.map((r: any) => [r.id, r]));
-
-                const allProvs: ProvinceInfo[] = wgenGeo
-                    .filter((r: any) => r.type === "Province")
-                    .map((prov: any) => {
-                        const saved = savedMap.get(prov.id);
-                        return {
-                            id: prov.id,
-                            name: saved?.name || prov.name || "Unknown Province",
-                            population: saved?.population ?? prov.population ?? 0,
-                            wealth: saved?.wealth ?? prov.wealth ?? 0,
-                            development: saved?.development ?? prov.development ?? 0,
-                        };
-                    });
-                setProvinces(allProvs);
-            })
-            .catch(err => console.error("Failed to load locations data", err))
-            .finally(() => setIsLoading(false));
+        load();
+        return () => {
+            cancelled = true;
+        };
     }, [selectedWorld]);
 
     const handleSave = async (updated: WorldLocation[]) => {
         if (!selectedWorld) return;
         setIsSaving(true);
         try {
-            const res = await fetch(`http://localhost:8787/api/planet/locations/${selectedWorld.id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updated)
+            const response = await fetch(`http://127.0.0.1:8787/api/planet/locations/${selectedWorld.id}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(updated),
             });
-            if (res.ok) {
-                setLocations(updated);
+            if (!response.ok) {
+                throw new Error(`Failed to save locations: ${response.status}`);
             }
-        } catch (err) {
-            console.error("Failed to save locations", err);
+            const normalized = updated.map((entry) => normalizeLocation(entry));
+            setLocations(normalized);
+            setEditingLocation((prev) => {
+                if (!prev) return normalized[0] || null;
+                return normalized.find((entry) => entry.id === prev.id) || normalized[0] || null;
+            });
+        } catch (error) {
+            console.error("Failed to save locations", error);
         } finally {
             setIsSaving(false);
         }
     };
 
-    const handleAdd = () => {
-        const newLoc: WorldLocation = {
-            id: crypto.randomUUID(),
-            name: "New Location",
-            type: "Urban",
-            status: "Stable",
-            provinceId: provinces[0]?.id || "",
-            provinceName: provinces[0]?.name || "Unknown",
-            sharePercent: 10,
-            lore: "",
-            rulingFaction: "None",
-        };
-        setEditingLocation(newLoc);
-    };
+    const filteredLocations = useMemo(() => {
+        const query = subtypeFilter.trim().toLowerCase();
+        return [...locations]
+            .filter((location) => categoryFilter === "all" || location.category === categoryFilter)
+            .filter((location) => statusFilter === "all" || location.status === statusFilter)
+            .filter((location) => provinceFilter === "all" || location.provinceRegionId === provinceFilter)
+            .filter((location) => {
+                if (!query) return true;
+                const haystack = [location.name, location.subtype, location.type, location.provinceName].join(" ").toLowerCase();
+                return haystack.includes(query);
+            })
+            .sort((a, b) => b.importance - a.importance || a.name.localeCompare(b.name));
+    }, [locations, categoryFilter, statusFilter, provinceFilter, subtypeFilter]);
 
-    const handleSaveLocation = () => {
-        if (!editingLocation) return;
-        let updated = [...locations];
-        const idx = updated.findIndex(l => l.id === editingLocation.id);
-        if (idx >= 0) {
-            updated[idx] = editingLocation;
-        } else {
-            updated.push(editingLocation);
-        }
-        handleSave(updated);
-        setEditingLocation(null);
-    };
-
-    const handleDelete = (id: string) => {
-        const updated = locations.filter(l => l.id !== id);
-        handleSave(updated);
-        if (editingLocation?.id === id) setEditingLocation(null);
-    };
-
-    // Compute the parent province stats + remaining share for the editing location
-    const parentProvince = useMemo(() => {
-        if (!editingLocation) return null;
-        return provinces.find(p => p.id === editingLocation.provinceId) || null;
-    }, [editingLocation, provinces]);
-
-    const siblingShareTotal = useMemo(() => {
-        if (!editingLocation) return 0;
-        return locations
-            .filter(l => l.provinceId === editingLocation.provinceId && l.id !== editingLocation.id)
-            .reduce((s, l) => s + (l.sharePercent || 0), 0);
-    }, [editingLocation, locations]);
-
-    const maxAllowedShare = 100 - siblingShareTotal;
-
-    // Derived absolute stats for the current editing location
-    const derivedStats = useMemo(() => {
-        if (!editingLocation || !parentProvince) return null;
-        const pct = (editingLocation.sharePercent || 0) / 100;
-        return {
-            population: Math.round(parentProvince.population * pct),
-            wealth: Math.round(parentProvince.wealth * pct),
-            development: Math.round(parentProvince.development * pct),
-        };
-    }, [editingLocation, parentProvince]);
-
-    // Per-province share totals for list display
-    const provinceShareTotals = useMemo(() => {
-        const map = new Map<string, number>();
-        for (const loc of locations) {
-            map.set(loc.provinceId, (map.get(loc.provinceId) || 0) + (loc.sharePercent || 0));
-        }
-        return map;
+    const subtypeOptions = useMemo(() => {
+        return Array.from(new Set(locations.map((location) => location.subtype).filter(Boolean))).sort((a, b) => a.localeCompare(b));
     }, [locations]);
+
+    const selectedProvince = editingLocation
+        ? provinces.find((province) => province.rawId === editingLocation.provinceId || province.id === editingLocation.provinceRegionId) || null
+        : null;
+
+    const highestImportance = useMemo(() => {
+        return [...locations].sort((a, b) => b.importance - a.importance).slice(0, 5);
+    }, [locations]);
+
+    const settlementCount = locations.filter((location) => location.category === "settlement").length;
+
+    const handleAdd = () => {
+        const next = createLocationTemplate(provinces[0] || null);
+        setEditingLocation(next);
+    };
+
+    const handleSelect = (location: WorldLocation) => {
+        setEditingLocation(normalizeLocation(location));
+    };
+
+    const handleSaveLocation = async () => {
+        if (!editingLocation) return;
+        const updatedLocation = normalizeLocation(editingLocation);
+        const index = locations.findIndex((entry) => entry.id === updatedLocation.id);
+        const nextLocations = [...locations];
+        if (index >= 0) {
+            nextLocations[index] = updatedLocation;
+        } else {
+            nextLocations.push(updatedLocation);
+        }
+        await handleSave(nextLocations);
+    };
+
+    const handleDelete = async (id: string) => {
+        const nextLocations = locations.filter((location) => location.id !== id);
+        await handleSave(nextLocations);
+        setEditingLocation((prev) => (prev?.id === id ? nextLocations[0] || null : prev));
+    };
 
     if (!selectedWorld) {
         return (
@@ -181,247 +262,506 @@ export function LocationsTab({ selectedWorld, setActiveTab }: LocationsTabProps)
                 <div className="text-5xl mb-4">📍</div>
                 <h3 className="text-xl font-bold tracking-widest text-gray-400 mb-2 uppercase">No World Selected</h3>
                 <p className="text-gray-500 max-w-sm text-center">
-                    Please select a world to begin documenting its locations and points of interest.
+                    Select a planet before editing canonical locations.
                 </p>
             </div>
         );
     }
 
     return (
-        <>
-            <div className="flex-1 flex gap-8 overflow-hidden min-h-0">
-                {/* List Panel */}
-                <div className="w-[350px] flex flex-col gap-4 bg-[#121820] border border-white/5 rounded-xl p-4 overflow-y-auto custom-scrollbar">
-                    <div className="flex items-center justify-between pb-2 border-b border-white/10 shrink-0">
-                        <div>
-                            <h2 className="text-sm font-bold tracking-widest text-emerald-500 uppercase">Locations</h2>
-                            <p className="text-[10px] tracking-widest text-gray-500 uppercase">{locations.length} documented</p>
+        <div className="flex-1 flex gap-6 overflow-hidden min-h-0">
+            <div className="w-[360px] shrink-0 flex flex-col gap-4 bg-[#121820] border border-white/5 rounded-xl p-4 overflow-y-auto custom-scrollbar">
+                <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                    <div>
+                        <h2 className="text-sm font-bold tracking-widest text-emerald-400 uppercase">Locations</h2>
+                        <p className="text-[10px] tracking-[0.18em] text-gray-500 uppercase">
+                            {locations.length} nodes • {settlementCount} settlements
+                        </p>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button onClick={() => setActiveTab("factions")} className="bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 px-3 py-1 text-xs font-bold">
+                            FACTIONS
+                        </Button>
+                        <Button onClick={handleAdd} className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 px-3 py-1 text-xs font-bold">
+                            + ADD
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                    <SummaryTile label="Province Coverage" value={String(new Set(locations.map((location) => location.provinceRegionId)).size)} />
+                    <SummaryTile label="Highest Importance" value={String(highestImportance[0]?.importance ?? 0)} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-2">
+                        <label className="text-[10px] font-bold tracking-[0.18em] text-gray-500 uppercase">Category</label>
+                        <select
+                            value={categoryFilter}
+                            onChange={(event) => setCategoryFilter(event.target.value)}
+                            className="bg-[#0a0f14] border border-white/10 rounded-lg p-2.5 text-sm text-gray-200"
+                        >
+                            <option value="all">All Categories</option>
+                            {LOCATION_CATEGORY_OPTIONS.map((option) => (
+                                <option key={option} value={option}>{titleCaseLocation(option)}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <label className="text-[10px] font-bold tracking-[0.18em] text-gray-500 uppercase">Status</label>
+                        <select
+                            value={statusFilter}
+                            onChange={(event) => setStatusFilter(event.target.value)}
+                            className="bg-[#0a0f14] border border-white/10 rounded-lg p-2.5 text-sm text-gray-200"
+                        >
+                            <option value="all">All Statuses</option>
+                            {LOCATION_STATUS_OPTIONS.map((option) => (
+                                <option key={option} value={option}>{titleCaseLocation(option)}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="col-span-2 flex flex-col gap-2">
+                        <label className="text-[10px] font-bold tracking-[0.18em] text-gray-500 uppercase">Province</label>
+                        <select
+                            value={provinceFilter}
+                            onChange={(event) => setProvinceFilter(event.target.value)}
+                            className="bg-[#0a0f14] border border-white/10 rounded-lg p-2.5 text-sm text-gray-200"
+                        >
+                            <option value="all">All Provinces</option>
+                            {provinces.map((province) => (
+                                <option key={province.id} value={province.id}>{province.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="col-span-2 flex flex-col gap-2">
+                        <label className="text-[10px] font-bold tracking-[0.18em] text-gray-500 uppercase">Search</label>
+                        <input
+                            type="text"
+                            list="location-subtypes"
+                            value={subtypeFilter}
+                            onChange={(event) => setSubtypeFilter(event.target.value)}
+                            placeholder="Name, subtype, type, province..."
+                            className="bg-[#0a0f14] border border-white/10 rounded-lg p-2.5 text-sm text-gray-200"
+                        />
+                        <datalist id="location-subtypes">
+                            {subtypeOptions.map((option) => (
+                                <option key={option} value={option} />
+                            ))}
+                        </datalist>
+                    </div>
+                </div>
+
+                {isLoading ? (
+                    <div className="text-center text-gray-500 text-sm py-8 animate-pulse">Loading locations...</div>
+                ) : filteredLocations.length === 0 ? (
+                    <div className="text-center text-gray-600 text-sm py-8 border border-dashed border-white/10 rounded-lg">
+                        No locations match the current filters.
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-2">
+                        {filteredLocations.map((location) => (
+                            <button
+                                key={location.id}
+                                type="button"
+                                onClick={() => handleSelect(location)}
+                                className={`rounded-xl border p-3 text-left transition-all ${
+                                    editingLocation?.id === location.id
+                                        ? "border-emerald-500/40 bg-emerald-500/10"
+                                        : "border-white/5 bg-black/20 hover:border-white/20"
+                                }`}
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="truncate text-sm font-bold text-gray-100">{location.name}</p>
+                                        <p className="truncate text-[10px] uppercase tracking-[0.18em] text-gray-500">
+                                            {location.type} • {location.provinceName}
+                                        </p>
+                                    </div>
+                                    <div className="shrink-0 text-right">
+                                        <div className="text-sm font-black text-orange-300">{location.importance}</div>
+                                        <div className="text-[9px] uppercase tracking-widest text-gray-500">{titleCaseLocation(location.scale)}</div>
+                                    </div>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2 text-[9px] uppercase tracking-[0.18em] text-gray-400">
+                                    <span>{titleCaseLocation(location.category)}</span>
+                                    <span>{titleCaseLocation(location.status)}</span>
+                                    <span>{titleCaseLocation(location.subtype)}</span>
+                                    {location.populationEstimate !== null && <span>Pop {location.populationEstimate.toLocaleString()}</span>}
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            <div className="flex-1 bg-[#121820] border border-white/5 rounded-xl flex flex-col overflow-hidden">
+                {editingLocation ? (
+                    <div className="flex-1 flex flex-col p-6 overflow-y-auto custom-scrollbar">
+                        <div className="flex items-center justify-between gap-4 mb-6 pb-4 border-b border-white/10">
+                            <div>
+                                <h2 className="text-lg font-bold tracking-widest text-gray-100 uppercase">Canonical Location</h2>
+                                <p className="text-[10px] tracking-[0.18em] text-gray-500 uppercase">
+                                    {editingLocation.provinceName} • {titleCaseLocation(editingLocation.category)}
+                                </p>
+                            </div>
+                            <div className="flex gap-3">
+                                <Button
+                                    onClick={() => handleDelete(editingLocation.id)}
+                                    className="bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30 px-4 py-1.5 text-xs tracking-widest"
+                                >
+                                    DELETE
+                                </Button>
+                                <Button
+                                    onClick={handleSaveLocation}
+                                    disabled={isSaving}
+                                    className="bg-emerald-500 hover:bg-emerald-400 text-black border border-emerald-400 px-6 py-1.5 font-bold tracking-widest text-xs"
+                                >
+                                    {isSaving ? "SAVING..." : "SAVE CHANGES"}
+                                </Button>
+                            </div>
                         </div>
-                        <div className="flex gap-2">
-                            <Button onClick={() => setShowGenModal(true)} className="bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 px-3 py-1 font-bold text-xs">
-                                ✨ GEN
-                            </Button>
-                            <Button onClick={handleAdd} className="bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 px-3 py-1 font-bold text-xs">
-                                + ADD
-                            </Button>
+
+                        <div className="grid grid-cols-2 gap-6 mb-6">
+                            <Field label="Name">
+                                <input
+                                    type="text"
+                                    value={editingLocation.name}
+                                    onChange={(event) => setEditingLocation({ ...editingLocation, name: event.target.value })}
+                                    className="input-shell"
+                                />
+                            </Field>
+                            <Field label="Legacy Type Label">
+                                <input
+                                    type="text"
+                                    value={editingLocation.type}
+                                    onChange={(event) => setEditingLocation({ ...editingLocation, type: event.target.value })}
+                                    className="input-shell"
+                                />
+                            </Field>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6 mb-6">
+                            <Field label="Province">
+                                <select
+                                    value={editingLocation.provinceRegionId}
+                                    onChange={(event) => {
+                                        const province = provinces.find((entry) => entry.id === event.target.value) || null;
+                                        setEditingLocation(applyProvince(editingLocation, province));
+                                    }}
+                                    className="input-shell"
+                                >
+                                    <option value="">Select Province</option>
+                                    {provinces.map((province) => (
+                                        <option key={province.id} value={province.id}>{province.name}</option>
+                                    ))}
+                                </select>
+                            </Field>
+                            <Field label="Ruling Faction">
+                                <select
+                                    value={editingLocation.rulingFaction}
+                                    onChange={(event) => setEditingLocation({ ...editingLocation, rulingFaction: event.target.value })}
+                                    className="input-shell"
+                                >
+                                    <option value="None">None</option>
+                                    {factions.map((faction) => (
+                                        <option key={faction.id} value={faction.name}>{faction.name}</option>
+                                    ))}
+                                </select>
+                            </Field>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-4 mb-6">
+                            <Field label="Category">
+                                <select
+                                    value={editingLocation.category}
+                                    onChange={(event) => setEditingLocation({ ...editingLocation, category: event.target.value as WorldLocation["category"] })}
+                                    className="input-shell"
+                                >
+                                    {LOCATION_CATEGORY_OPTIONS.map((option) => (
+                                        <option key={option} value={option}>{titleCaseLocation(option)}</option>
+                                    ))}
+                                </select>
+                            </Field>
+                            <Field label="Subtype">
+                                <input
+                                    type="text"
+                                    value={editingLocation.subtype}
+                                    onChange={(event) => setEditingLocation({ ...editingLocation, subtype: event.target.value })}
+                                    className="input-shell"
+                                />
+                            </Field>
+                            <Field label="Status">
+                                <select
+                                    value={editingLocation.status}
+                                    onChange={(event) => setEditingLocation({ ...editingLocation, status: event.target.value as WorldLocation["status"] })}
+                                    className="input-shell"
+                                >
+                                    {LOCATION_STATUS_OPTIONS.map((option) => (
+                                        <option key={option} value={option}>{titleCaseLocation(option)}</option>
+                                    ))}
+                                </select>
+                            </Field>
+                            <Field label="Scale">
+                                <select
+                                    value={editingLocation.scale}
+                                    onChange={(event) => setEditingLocation({ ...editingLocation, scale: event.target.value as WorldLocation["scale"] })}
+                                    className="input-shell"
+                                >
+                                    {LOCATION_SCALE_OPTIONS.map((option) => (
+                                        <option key={option} value={option}>{titleCaseLocation(option)}</option>
+                                    ))}
+                                </select>
+                            </Field>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-4 mb-6">
+                            <Field label="X">
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={1}
+                                    step={0.001}
+                                    value={editingLocation.x}
+                                    onChange={(event) => setEditingLocation({ ...editingLocation, x: clamp01(parseNumber(event.target.value, editingLocation.x)) })}
+                                    className="input-shell"
+                                />
+                            </Field>
+                            <Field label="Y">
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={1}
+                                    step={0.001}
+                                    value={editingLocation.y}
+                                    onChange={(event) => setEditingLocation({ ...editingLocation, y: clamp01(parseNumber(event.target.value, editingLocation.y)) })}
+                                    className="input-shell"
+                                />
+                            </Field>
+                            <Field label="Population">
+                                <input
+                                    type="number"
+                                    min={0}
+                                    value={editingLocation.populationEstimate ?? ""}
+                                    onChange={(event) => setEditingLocation({
+                                        ...editingLocation,
+                                        populationEstimate: event.target.value === "" ? null : Math.max(0, Math.round(parseNumber(event.target.value, 0))),
+                                    })}
+                                    className="input-shell"
+                                    placeholder="None"
+                                />
+                            </Field>
+                            <Field label="Importance">
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={editingLocation.importance}
+                                    onChange={(event) => setEditingLocation({ ...editingLocation, importance: Math.max(0, Math.min(100, Math.round(parseNumber(event.target.value, editingLocation.importance)))) })}
+                                    className="input-shell"
+                                />
+                            </Field>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-4 mb-6">
+                            <MetricInput
+                                label="Habitability"
+                                value={editingLocation.habitabilityScore}
+                                onChange={(value) => setEditingLocation({ ...editingLocation, habitabilityScore: value })}
+                            />
+                            <MetricInput
+                                label="Economic"
+                                value={editingLocation.economicScore}
+                                onChange={(value) => setEditingLocation({ ...editingLocation, economicScore: value })}
+                            />
+                            <MetricInput
+                                label="Strategic"
+                                value={editingLocation.strategicScore}
+                                onChange={(value) => setEditingLocation({ ...editingLocation, strategicScore: value })}
+                            />
+                            <MetricInput
+                                label="Hazard"
+                                value={editingLocation.hazardScore}
+                                onChange={(value) => setEditingLocation({ ...editingLocation, hazardScore: value })}
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)] gap-6 mb-6">
+                            <div className="space-y-6">
+                                <Field label="Lore">
+                                    <textarea
+                                        value={editingLocation.lore}
+                                        onChange={(event) => setEditingLocation({ ...editingLocation, lore: event.target.value })}
+                                        className="input-shell min-h-[180px]"
+                                        placeholder="Describe the site, its role, and the logic behind its existence."
+                                    />
+                                </Field>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <Field label="Tags">
+                                        <textarea
+                                            value={joinListField(editingLocation.tags)}
+                                            onChange={(event) => setEditingLocation({ ...editingLocation, tags: splitListField(event.target.value) })}
+                                            className="input-shell min-h-[110px]"
+                                            placeholder="trade, river, pilgrimage"
+                                        />
+                                    </Field>
+                                    <Field label="Placement Drivers">
+                                        <textarea
+                                            value={joinListField(editingLocation.placementDrivers)}
+                                            onChange={(event) => setEditingLocation({ ...editingLocation, placementDrivers: splitListField(event.target.value) })}
+                                            className="input-shell min-h-[110px]"
+                                            placeholder="fresh water, sheltered bay, duchy seat"
+                                        />
+                                    </Field>
+                                </div>
+                            </div>
+
+                            <div className="rounded-xl border border-white/10 bg-[#0a0f14] p-4 space-y-4">
+                                <div>
+                                    <p className="text-[10px] font-bold tracking-[0.18em] text-cyan-400 uppercase mb-2">Map Focus</p>
+                                    <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/40 aspect-[2/1]">
+                                        {selectedWorld.textureUrl ? (
+                                            <>
+                                                <img src={selectedWorld.textureUrl} alt={selectedWorld.prompt} className="absolute inset-0 w-full h-full object-cover opacity-85" />
+                                                <div
+                                                    className="absolute w-4 h-4 rounded-full border-2 border-white shadow-[0_0_18px_rgba(249,115,22,0.8)] bg-orange-500"
+                                                    style={{
+                                                        left: `${editingLocation.x * 100}%`,
+                                                        top: `${editingLocation.y * 100}%`,
+                                                        transform: "translate(-50%, -50%)",
+                                                    }}
+                                                />
+                                            </>
+                                        ) : (
+                                            <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-500">
+                                                No world texture available.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 text-xs text-gray-300">
+                                    <MetaPill label="Province" value={editingLocation.provinceName} />
+                                    <MetaPill label="Region Id" value={editingLocation.provinceRegionId} />
+                                    <MetaPill label="Duchy" value={selectedProvince?.duchyId ? String(selectedProvince.duchyId) : "None"} />
+                                    <MetaPill label="Kingdom" value={selectedProvince?.kingdomId ? String(selectedProvince.kingdomId) : "None"} />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6">
+                            <Field label="Founding Reason">
+                                <textarea
+                                    value={editingLocation.historyHooks.foundingReason}
+                                    onChange={(event) => setEditingLocation({
+                                        ...editingLocation,
+                                        historyHooks: { ...editingLocation.historyHooks, foundingReason: event.target.value },
+                                    })}
+                                    className="input-shell min-h-[120px]"
+                                />
+                            </Field>
+                            <Field label="Current Tension">
+                                <textarea
+                                    value={editingLocation.historyHooks.currentTension}
+                                    onChange={(event) => setEditingLocation({
+                                        ...editingLocation,
+                                        historyHooks: { ...editingLocation.historyHooks, currentTension: event.target.value },
+                                    })}
+                                    className="input-shell min-h-[120px]"
+                                />
+                            </Field>
+                            <Field label="Story Seeds">
+                                <textarea
+                                    value={joinListField(editingLocation.historyHooks.storySeeds)}
+                                    onChange={(event) => setEditingLocation({
+                                        ...editingLocation,
+                                        historyHooks: { ...editingLocation.historyHooks, storySeeds: splitListField(event.target.value) },
+                                    })}
+                                    className="input-shell min-h-[110px]"
+                                    placeholder="bandit tax revolt, lost shrine below the hill"
+                                />
+                            </Field>
+                            <Field label="Linked Lore Snippet Ids">
+                                <textarea
+                                    value={joinListField(editingLocation.historyHooks.linkedLoreSnippetIds)}
+                                    onChange={(event) => setEditingLocation({
+                                        ...editingLocation,
+                                        historyHooks: { ...editingLocation.historyHooks, linkedLoreSnippetIds: splitListField(event.target.value) },
+                                    })}
+                                    className="input-shell min-h-[110px]"
+                                    placeholder="snippet ids"
+                                />
+                            </Field>
                         </div>
                     </div>
+                ) : (
+                    <div className="h-full flex flex-col items-center justify-center opacity-40">
+                        <div className="text-5xl mb-4">📍</div>
+                        <p className="font-bold tracking-widest uppercase text-gray-400">Select or Create a Location</p>
+                    </div>
+                )}
+            </div>
 
-                    {isLoading ? (
-                        <div className="text-center text-gray-500 text-sm py-8 animate-pulse">Loading locations...</div>
-                    ) : locations.length === 0 ? (
-                        <div className="text-center text-gray-600 text-sm py-8 border border-dashed border-white/10 rounded-lg">No locations documented yet.</div>
-                    ) : (
-                        <div className="flex flex-col gap-2">
-                            {locations.map(loc => {
-                                const prov = provinces.find(p => p.id === loc.provinceId);
-                                const derivedPop = prov ? Math.round(prov.population * (loc.sharePercent || 0) / 100) : 0;
-                                return (
-                                    <div
-                                        key={loc.id}
-                                        onClick={() => setEditingLocation(loc)}
-                                        className={`p-3 rounded-lg border cursor-pointer transition-all ${editingLocation?.id === loc.id ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-black/20 border-white/5 hover:border-white/20'}`}
-                                    >
-                                        <div className="flex justify-between items-start mb-1">
-                                            <h3 className="text-sm font-bold text-gray-200">{loc.name}</h3>
-                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-black/50 text-emerald-400">{loc.type}</span>
-                                        </div>
-                                        <div className="flex gap-2 text-[10px] tracking-widest text-gray-500 uppercase">
-                                            <span>{loc.provinceName || "No Province"}</span>
-                                            <span>•</span>
-                                            <span className="text-cyan-400">{loc.sharePercent || 0}%</span>
-                                            <span>•</span>
-                                            <span>POP {derivedPop.toLocaleString()}</span>
-                                            <span>•</span>
-                                            <span>{loc.status}</span>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-
-                {/* Editor Panel */}
-                <div className="flex-1 bg-[#121820] border border-white/5 rounded-xl flex flex-col relative overflow-hidden">
-                    {editingLocation ? (
-                        <div className="flex-1 flex flex-col p-6 overflow-y-auto custom-scrollbar">
-                            <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
-                                <h2 className="text-lg font-bold tracking-widest text-gray-100 uppercase">Edit Location</h2>
-                                <div className="flex gap-3">
-                                    <Button onClick={() => handleDelete(editingLocation.id)} className="bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/30 px-4 py-1.5 text-xs tracking-widest">
-                                        DELETE
-                                    </Button>
-                                    <Button onClick={handleSaveLocation} disabled={isSaving} className="bg-emerald-500 hover:bg-emerald-400 text-black border border-emerald-400 px-6 py-1.5 font-bold tracking-widest text-xs">
-                                        {isSaving ? "SAVING..." : "SAVE CHANGES"}
-                                    </Button>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-6 mb-6">
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-xs font-bold text-gray-500 tracking-widest uppercase">Name</label>
-                                    <input
-                                        type="text"
-                                        value={editingLocation.name}
-                                        onChange={e => setEditingLocation({ ...editingLocation, name: e.target.value })}
-                                        className="bg-[#0a0f14] border border-white/10 rounded-lg p-3 text-sm focus:border-emerald-500/50 focus:outline-none text-gray-200 w-full"
-                                    />
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-xs font-bold text-gray-500 tracking-widest uppercase">Parent Province</label>
-                                    <select
-                                        value={editingLocation.provinceId}
-                                        onChange={e => {
-                                            const prov = provinces.find(p => p.id === e.target.value);
-                                            setEditingLocation({
-                                                ...editingLocation,
-                                                provinceId: e.target.value,
-                                                provinceName: prov?.name || "Unknown"
-                                            });
-                                        }}
-                                        className="bg-[#0a0f14] border border-white/10 rounded-lg p-3 text-sm focus:border-emerald-500/50 focus:outline-none text-gray-300 w-full appearance-none"
-                                    >
-                                        <option value="">— Select Province —</option>
-                                        {provinces.map(p => (
-                                            <option key={p.id} value={p.id}>{p.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-4 gap-4 mb-6">
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-xs font-bold text-gray-500 tracking-widest uppercase">Type</label>
-                                    <select
-                                        value={editingLocation.type}
-                                        onChange={e => setEditingLocation({ ...editingLocation, type: e.target.value as any })}
-                                        className="bg-[#0a0f14] border border-white/10 rounded-lg p-3 text-sm focus:border-emerald-500/50 focus:outline-none text-gray-300 w-full appearance-none"
-                                    >
-                                        {["Urban", "Rural", "Wilderness", "Ruins", "Dungeon", "Outpost", "Fortress", "Sacred"].map(t => <option key={t} value={t}>{t}</option>)}
-                                    </select>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-xs font-bold text-gray-500 tracking-widest uppercase">Status</label>
-                                    <select
-                                        value={editingLocation.status}
-                                        onChange={e => setEditingLocation({ ...editingLocation, status: e.target.value as any })}
-                                        className="bg-[#0a0f14] border border-white/10 rounded-lg p-3 text-sm focus:border-emerald-500/50 focus:outline-none text-gray-300 w-full appearance-none"
-                                    >
-                                        {["Thriving", "Stable", "Struggling", "Abandoned", "Rebuilding"].map(t => <option key={t} value={t}>{t}</option>)}
-                                    </select>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-xs font-bold text-gray-500 tracking-widest uppercase">Share %</label>
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        max={maxAllowedShare}
-                                        value={editingLocation.sharePercent || 0}
-                                        onChange={e => setEditingLocation({
-                                            ...editingLocation,
-                                            sharePercent: Math.max(0, Math.min(maxAllowedShare, parseInt(e.target.value) || 0))
-                                        })}
-                                        className="bg-[#0a0f14] border border-white/10 rounded-lg p-3 text-sm focus:border-emerald-500/50 focus:outline-none text-gray-200 w-full"
-                                    />
-                                    <span className="text-[9px] text-gray-600">
-                                        {siblingShareTotal}% used by siblings · max {maxAllowedShare}%
-                                    </span>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-xs font-bold text-gray-500 tracking-widest uppercase">Ruling Faction</label>
-                                    <select
-                                        value={editingLocation.rulingFaction}
-                                        onChange={e => setEditingLocation({ ...editingLocation, rulingFaction: e.target.value })}
-                                        className="bg-[#0a0f14] border border-white/10 rounded-lg p-3 text-sm focus:border-emerald-500/50 focus:outline-none text-gray-300 w-full appearance-none"
-                                    >
-                                        <option value="None">None</option>
-                                        {factions.map(f => (
-                                            <option key={f.id} value={f.name}>{f.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-
-                            {/* Derived Stats from Province */}
-                            {parentProvince && derivedStats && (
-                                <div className="mb-6 bg-[#0a0f14] border border-white/5 rounded-xl p-4">
-                                    <p className="text-[10px] font-bold text-cyan-400 tracking-widest uppercase mb-3">
-                                        Derived from {parentProvince.name} — {editingLocation.sharePercent}% share
-                                    </p>
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div className="bg-black/40 border border-white/5 rounded-lg p-3 text-center">
-                                            <p className="text-[9px] text-gray-600 font-bold uppercase tracking-widest mb-1">Population</p>
-                                            <p className="text-lg font-black text-emerald-400">{derivedStats.population.toLocaleString()}</p>
-                                            <p className="text-[9px] text-gray-600 mt-1">of {parentProvince.population.toLocaleString()}</p>
-                                        </div>
-                                        <div className="bg-black/40 border border-white/5 rounded-lg p-3 text-center">
-                                            <p className="text-[9px] text-gray-600 font-bold uppercase tracking-widest mb-1">Wealth</p>
-                                            <p className={`text-lg font-black ${derivedStats.wealth >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
-                                                {derivedStats.wealth >= 0 ? '+' : ''}{derivedStats.wealth}
-                                            </p>
-                                            <p className="text-[9px] text-gray-600 mt-1">of {parentProvince.wealth}</p>
-                                        </div>
-                                        <div className="bg-black/40 border border-white/5 rounded-lg p-3 text-center">
-                                            <p className="text-[9px] text-gray-600 font-bold uppercase tracking-widest mb-1">Development</p>
-                                            <p className={`text-lg font-black ${derivedStats.development >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
-                                                {derivedStats.development >= 0 ? '+' : ''}{derivedStats.development}
-                                            </p>
-                                            <p className="text-[9px] text-gray-600 mt-1">of {parentProvince.development}</p>
-                                        </div>
-                                    </div>
-                                    {/* Province allocation bar */}
-                                    <div className="mt-3">
-                                        <div className="flex items-center justify-between text-[9px] text-gray-600 mb-1">
-                                            <span>Province allocation</span>
-                                            <span>{provinceShareTotals.get(editingLocation.provinceId) || 0}% allocated</span>
-                                        </div>
-                                        <div className="w-full h-2 bg-black/60 rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-full transition-all"
-                                                style={{ width: `${Math.min(100, provinceShareTotals.get(editingLocation.provinceId) || 0)}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="flex flex-col gap-2 flex-1 relative">
-                                <label className="text-xs font-bold text-gray-500 tracking-widest uppercase">Lore & Description</label>
-                                <textarea
-                                    value={editingLocation.lore}
-                                    onChange={e => setEditingLocation({ ...editingLocation, lore: e.target.value })}
-                                    className="bg-[#05080c] border border-white/5 rounded-xl p-5 text-sm focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 focus:outline-none text-gray-300 w-full flex-1 min-h-[200px] custom-scrollbar shadow-inner leading-relaxed transition-all duration-300"
-                                    placeholder="Detail the history, notable landmarks, and environment of this location..."
-                                />
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="h-full flex flex-col items-center justify-center opacity-30 pointer-events-none">
-                            <div className="text-5xl mb-4">📍</div>
-                            <p className="font-bold tracking-widest uppercase text-gray-400">Select a Location to Edit</p>
-                        </div>
-                    )}
-                </div>
-
-                <style>{`
+            <style>{`
                 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
                 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
                 .custom-scrollbar::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.1); border-radius: 20px; }
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.2); }
+                .input-shell {
+                    width: 100%;
+                    border-radius: 0.75rem;
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    background: rgba(5, 8, 12, 0.9);
+                    padding: 0.8rem 0.95rem;
+                    color: rgb(229 231 235);
+                    outline: none;
+                    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                }
+                .input-shell:focus {
+                    border-color: rgba(16, 185, 129, 0.45);
+                    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.12);
+                }
             `}</style>
-            </div>
+        </div>
+    );
+}
 
-            <AiGenerateModal
-                open={showGenModal}
-                onClose={() => setShowGenModal(false)}
-                entityType="area"
-                existingItems={locations as any}
-                onConfirm={(items) => {
-                    const newLocs = [...locations, ...(items as WorldLocation[])];
-                    handleSave(newLocs);
-                }}
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+        <div className="flex flex-col gap-2">
+            <label className="text-[10px] font-bold tracking-[0.18em] text-gray-500 uppercase">{label}</label>
+            {children}
+        </div>
+    );
+}
+
+function SummaryTile({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+            <div className="text-[9px] uppercase tracking-[0.18em] text-gray-500">{label}</div>
+            <div className="mt-1 text-lg font-black text-white">{value}</div>
+        </div>
+    );
+}
+
+function MetaPill({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+            <div className="text-[9px] uppercase tracking-[0.18em] text-gray-500">{label}</div>
+            <div className="mt-1 text-sm font-semibold text-gray-200 truncate">{value}</div>
+        </div>
+    );
+}
+
+function MetricInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+    return (
+        <Field label={label}>
+            <input
+                type="number"
+                min={0}
+                max={100}
+                value={value}
+                onChange={(event) => onChange(Math.max(0, Math.min(100, Math.round(parseNumber(event.target.value, value)))))}
+                className="input-shell"
             />
-        </>
+        </Field>
     );
 }

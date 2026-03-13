@@ -205,5 +205,22 @@
     "weaponAreaType": "splash",
     "weaponRange": 5,
     "weaponType": "ranged"
+  },
+  {
+    "category": "armor",
+    "cost": 230,
+    "description": "De belles lunettes, bien fines qui permettent a celui qui les porte de voir loin et mieux.",
+    "effects": [
+      {
+        "target": "crit_rate",
+        "type": "COMBAT_BONUS",
+        "value": 20
+      }
+    ],
+    "equipSlot": "head",
+    "icon": "📦",
+    "id": "item-1773335895487",
+    "name": "Les lunettes du sachant",
+    "rarity": "specialized"
   }
 ]

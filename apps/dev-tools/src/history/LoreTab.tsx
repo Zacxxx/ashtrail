@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { type GenerationHistoryItem, type TemporalityConfig } from "../hooks/useGenerationHistory";
 import { Button, Card } from "@ashtrail/ui";
-import { type Area } from "./LocationsTab";
+import { type Area } from "./locationTypes";
 import { type Faction } from "./FactionsTab";
 import { type Character } from "./CharactersTab";
 import { DateSelector } from "../components/DateSelector";

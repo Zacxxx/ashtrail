@@ -19,8 +19,10 @@
     "build:website": "bun run --cwd apps/website build",
     "start:server": "bun run --cwd apps/server start",
     "build:dev-tools": "bun run --cwd apps/dev-tools build",
-    "build:wasm": "cd packages/geo-wasm && wasm-pack build --target web --out-dir pkg",
-    "validate:content": "bun packages/core/scripts/validateGameplayContent.ts"
+    "ensure:geo-wasm": "bun packages/geo-wasm/scripts/ensureGeoWasm.ts",
+    "build:wasm": "cd packages/geo-wasm && wasm-pack build --target web --out-dir pkg --scope ashtrail",
+    "validate:content": "bun packages/core/scripts/validateGameplayContent.ts",
+    "migrate:occupation-traits": "node packages/core/scripts/migrateOccupationTraits.mjs"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.0",

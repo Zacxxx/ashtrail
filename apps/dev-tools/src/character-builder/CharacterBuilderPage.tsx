@@ -1,12 +1,24 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, getDefaultTalentPointsForLevel, isOccupationLinkedTrait, resolveOccupationTree } from "@ashtrail/core";
 import { TabBar, Modal } from "@ashtrail/ui";
+import { Background, ConnectionLineType, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge as RFEdge, type Node as RFNode } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { CharacterGeneratorModal } from "./CharacterGeneratorModal";
+import {
+    CharacterAppearanceSection,
+    DEFAULT_APPEARANCE_SELECTORS,
+    type AppearanceSelectors,
+    type AppearanceSelectorKey,
+} from "../../../website/Screens/IndividualScreens/CharacterAppearanceSection";
+import {
+    enhanceAppearancePromptViaApi,
+    generateCharacterPortraitViaApi,
+} from "../../../website/services/gmApi";
 
 // Map item category + name to an equipment slot
 const SLOT_MAP: Record<string, EquipSlot> = {
@@ -50,7 +62,17 @@ function isEquipable(item: Item): boolean {
     return getEquipSlot(item) !== null;
 }
 
-type BuilderTab = "IDENTITY" | "LORE" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
+type BuilderTab = "IDENTITY" | "APPEARANCE" | "LORE" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
+
+function injectAppearanceTab(tabs: BuilderTab[]): BuilderTab[] {
+    if (tabs.includes("APPEARANCE")) return tabs;
+    const loreIndex = tabs.indexOf("LORE");
+    const identityIndex = tabs.indexOf("IDENTITY");
+    if (loreIndex === -1 || identityIndex === -1) return tabs;
+    const nextTabs = [...tabs];
+    nextTabs.splice(loreIndex, 0, "APPEARANCE");
+    return nextTabs;
+}
 
 const DEFAULT_STATS: Stats = { strength: 3, agility: 3, intelligence: 3, wisdom: 3, endurance: 3, charisma: 3 };
 const ZERO_STATS: Stats = { strength: 0, agility: 0, intelligence: 0, wisdom: 0, endurance: 0, charisma: 0 };
@@ -71,6 +93,128 @@ const ASH_TRAIL_CHRONICLES = [
     { id: "ASH-3", label: "ASH-3: The Rebuilding (30 yr)", event: "Tribal cults like the Ash Trackers began to emerge, scavenging relics and learning to survive the surface fog." },
     { id: "ASH-4", label: "ASH-4: The Surface Return (50 yr)", event: "Surface re-colonization has begun. New City-States arise from scavenged tech, while the Ash continues to evolve." }
 ];
+
+const TALENT_ANIMATIONS = `
+@keyframes shimmer {
+  0% { transform: translateX(-150%) skewX(-20deg); }
+  100% { transform: translateX(150%) skewX(-20deg); }
+}
+@keyframes progress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+`;
+
+function TalentFlowNode({ data, selected }: { data: any; selected: boolean }) {
+    const { isCapstone, isConverging, isUnlocked, isAvailable, name, type, isConfirming } = data;
+    const themeColors = {
+        active: {
+            border: "border-cyan-500",
+            bg: "bg-cyan-500/10",
+            shadow: "shadow-[0_0_20px_rgba(6,182,212,0.2)]",
+            text: "text-cyan-500",
+            glow: "bg-cyan-500/30",
+            wave: "border-cyan-500/20",
+            breath: "bg-cyan-500/25",
+            ring: "border-cyan-500/40",
+            innerRing: "border-cyan-500/10",
+        },
+        stat: {
+            border: "border-emerald-500",
+            bg: "bg-emerald-500/10",
+            shadow: "shadow-[0_0_20px_rgba(16,185,129,0.2)]",
+            text: "text-emerald-500",
+            glow: "bg-emerald-500/30",
+            wave: "border-emerald-500/20",
+            breath: "bg-emerald-500/25",
+            ring: "border-emerald-500/40",
+            innerRing: "border-emerald-500/10",
+        },
+        passive: {
+            border: "border-orange-500",
+            bg: "bg-orange-500/10",
+            shadow: "shadow-[0_0_20px_rgba(249,115,22,0.2)]",
+            text: "text-orange-500",
+            glow: "bg-orange-500/30",
+            wave: "border-orange-500/20",
+            breath: "bg-orange-500/25",
+            ring: "border-orange-500/40",
+            innerRing: "border-orange-500/10",
+        },
+    }[type as "active" | "stat" | "passive"] || {
+        border: "border-orange-500",
+        bg: "bg-orange-500/10",
+        shadow: "shadow-[0_0_20px_rgba(249,115,22,0.2)]",
+        text: "text-orange-500",
+        glow: "bg-orange-500/30",
+        wave: "border-orange-500/20",
+        breath: "bg-orange-500/25",
+        ring: "border-orange-500/40",
+        innerRing: "border-orange-500/10",
+    };
+
+    return (
+        <div className="relative group">
+            <Handle type="target" position={Position.Top} style={{ background: "transparent", border: "none", top: "0%" }} />
+
+            <div className="flex items-center justify-center">
+                <div
+                    className={`w-16 h-16 transition-all duration-300 flex items-center justify-center relative z-10
+                    ${type === "stat" ? "rotate-45 rounded-sm" : type === "active" ? "rounded-lg" : "rounded-full"} border-2
+                    ${isUnlocked
+                            ? `${themeColors.border} ${themeColors.bg} ${themeColors.shadow}`
+                            : isAvailable
+                                ? "border-zinc-500 bg-zinc-900 shadow-[0_0_10px_rgba(255,255,255,0.05)]"
+                                : "border-zinc-800 bg-zinc-900/60 opacity-60"}
+                    ${isCapstone && isUnlocked ? "shadow-[0_0_25px_rgba(249,115,22,0.4)] scale-110" : ""}
+                    group-hover:scale-105 transition-transform`}
+                >
+                    <span className={`text-[10px] font-black uppercase tracking-widest transition-colors ${type === "stat" ? "-rotate-45" : ""} ${isUnlocked ? themeColors.text : "text-zinc-700"}`}>
+                        {name.charAt(0)}
+                    </span>
+
+                    {isConverging && (
+                        <div className={`absolute inset-1.5 rounded-full border-2 animate-pulse pointer-events-none ${isUnlocked ? `${themeColors.ring.replace("40", "20")}` : "border-zinc-700/20"}`} />
+                    )}
+
+                    <div className="absolute inset-2.5 rounded-full border border-zinc-800/25 pointer-events-none" />
+
+                    <div className={`absolute -bottom-1 -right-1 min-w-[20px] h-[15px] border px-1.5 flex items-center justify-center rounded-[2px] shadow-black shadow-sm transition-colors z-30
+                        ${isUnlocked ? `${themeColors.text.replace("text", "bg")} border-white/20 text-zinc-950 font-black` : "bg-zinc-950 border-zinc-800 text-zinc-500"} ${type === "stat" ? "-rotate-45" : ""}`}>
+                        <span className="text-[7px] font-bold">1/1</span>
+                    </div>
+
+                    <div className={`absolute inset-0 rounded-full blur-xl transition-all duration-700
+                        ${selected ? `${themeColors.glow} scale-110 opacity-100` : isAvailable ? `${themeColors.glow.replace("30", "10")} opacity-0 group-hover:opacity-100` : "opacity-0"}`}
+                    />
+
+                    {isConfirming && (selected || isUnlocked) && (
+                        <>
+                            <div className={`absolute -inset-10 rounded-full border ${themeColors.wave} animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] z-0`} />
+                            <div className={`absolute -inset-1 rounded-full ${themeColors.breath} animate-[pulse_0.8s_ease-in-out_infinite] z-0 ${!selected && "opacity-40"}`} />
+                            {selected && (
+                                <div className={`absolute inset-0 overflow-hidden ${type === "stat" ? "" : "rounded-full"} z-20 pointer-events-none`}>
+                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-[shimmer_1.5s_infinite]" />
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {selected && (
+                        <div className={`absolute -inset-3 rounded-full border-2 ${themeColors.ring} pointer-events-none transition-all duration-500
+                            ${isConfirming ? "scale-125 opacity-0" : "animate-[pulse_3s_ease-in-out_infinite]"}`}>
+                            <div className={`absolute inset-0 border ${themeColors.innerRing} rounded-full scale-110`} />
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <Handle type="source" position={Position.Bottom} style={{ background: "transparent", border: "none", bottom: "0%" }} />
+        </div>
+    );
+}
+
+const talentNodeTypes = { talent: TalentFlowNode };
 
 const ITEMS_BY_CATEGORY: Record<string, string[]> = {
     weapon: ["Stun Baton", "Vibration Blade", "Pulse Rifle", "Rusty Pipe", "Spiked Bat", "Serrated Knife"],
@@ -118,6 +262,12 @@ export function CharacterBuilderPage() {
     const [name, setName] = useState("");
     const [age, setAge] = useState(25);
     const [gender, setGender] = useState("Male");
+    const [appearanceSelectors, setAppearanceSelectors] = useState<AppearanceSelectors>(() => ({ ...DEFAULT_APPEARANCE_SELECTORS }));
+    const [appearancePrompt, setAppearancePrompt] = useState("");
+    const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
+    const [isGeneratingPortrait, setIsGeneratingPortrait] = useState(false);
+    const [isSyncingAppearance, setIsSyncingAppearance] = useState(false);
+    const [isProfileModified, setIsProfileModified] = useState(false);
     const [backstory, setBackstory] = useState("");
     const [history, setHistory] = useState("");
     const [currentStory, setCurrentStory] = useState("");
@@ -201,6 +351,80 @@ export function CharacterBuilderPage() {
         return () => clearInterval(interval);
     }, [isGeneratingStory]);
 
+    useEffect(() => {
+        if (gender === "Female" && appearanceSelectors.facialHair !== "None") {
+            setAppearanceSelectors(prev => ({ ...prev, facialHair: "None" }));
+        }
+    }, [gender, appearanceSelectors.facialHair]);
+
+    const handleRefreshPortrait = async (specificText?: string) => {
+        if (isGeneratingPortrait) return;
+        setIsGeneratingPortrait(true);
+
+        const selectorsSummary = Object.entries(appearanceSelectors)
+            .map(([key, value]) => `${key.replace(/([A-Z])/g, " $1")}: ${value}`)
+            .join(", ");
+
+        const profileText = (specificText || appearancePrompt).trim();
+        const contextPrompt = `A ${gender} wasteland explorer, aged ${age}. Overall characteristics: ${selectorsSummary}. Detailed appearance: ${profileText}`;
+
+        try {
+            const url = await generateCharacterPortraitViaApi(contextPrompt);
+            if (url) {
+                setPortraitUrl(url);
+                setIsProfileModified(false);
+                await persistCharacterRecord(buildCharacterPayload({
+                    appearancePrompt: profileText,
+                    portraitUrl: url,
+                }));
+            }
+        } catch (error) {
+            console.error("Portrait API failed:", error);
+        }
+
+        setIsGeneratingPortrait(false);
+    };
+
+    const handleManifestAppearance = async () => {
+        if (isSyncingAppearance || isGeneratingPortrait) return;
+
+        setIsSyncingAppearance(true);
+        let narrative = "";
+        const selectorsSummary = Object.entries(appearanceSelectors)
+            .map(([key, value]) => `${key.replace(/([A-Z])/g, " $1")}: ${value}`)
+            .join(", ");
+
+        try {
+            narrative = await enhanceAppearancePromptViaApi({
+                ...appearanceSelectors,
+                age: age.toString(),
+                gender,
+            });
+            setAppearancePrompt(narrative || "");
+        } catch (error) {
+            console.error("Appearance prompt API failed:", error);
+        } finally {
+            setIsSyncingAppearance(false);
+        }
+
+        const fallbackNarrative = appearancePrompt.trim() || `Weathered survivor profile. ${selectorsSummary}.`;
+        const resolvedNarrative = (narrative || fallbackNarrative).trim();
+        if (!narrative && !appearancePrompt.trim()) {
+            setAppearancePrompt(resolvedNarrative);
+        }
+
+        try {
+            await persistCharacterRecord(buildCharacterPayload({
+                appearancePrompt: resolvedNarrative,
+                portraitUrl: portraitUrl || undefined,
+            }), false);
+        } catch (error) {
+            console.error("Failed to persist appearance profile:", error);
+        }
+
+        await handleRefreshPortrait(resolvedNarrative);
+    };
+
     // Fetch world's lore snippets
     useEffect(() => {
         if (!worldId) return;
@@ -217,6 +441,7 @@ export function CharacterBuilderPage() {
     // World Picker
     const { history: generationHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const [showGalleryModal, setShowGalleryModal] = useState(false);
+    const [galleryMode, setGalleryMode] = useState<"worlds" | "characters">("worlds");
     const [showGeneratorModal, setShowGeneratorModal] = useState(false);
 
     const handleGenerateConfirm = async (characters: Character[]) => {
@@ -283,6 +508,9 @@ export function CharacterBuilderPage() {
     // Occupation
     const [selectedOccupation, setSelectedOccupation] = useState<Occupation | null>(null);
     const [occCategory, setOccCategory] = useState<OccupationCategory | "ALL">("ALL");
+    const [showTalentTreeModal, setShowTalentTreeModal] = useState(false);
+    const [unlockedTalentNodeIds, setUnlockedTalentNodeIds] = useState<string[]>([]);
+    const [availableTalentPoints, setAvailableTalentPoints] = useState(() => getDefaultTalentPointsForLevel(1));
 
     // Load character for editing
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -346,6 +574,7 @@ export function CharacterBuilderPage() {
 
     const activeBaseTypes = worldSettings?.baseTypes && worldSettings.baseTypes.length > 0 ? worldSettings.baseTypes : DEFAULT_BASE_TYPES;
     const activeRules = currentBaseTypeRules || activeBaseTypes.find(t => t.id === characterType) || DEFAULT_BASE_TYPES[0];
+    const visibleTabs = useMemo(() => injectAppearanceTab(activeRules.allowedTabs as BuilderTab[]), [activeRules.allowedTabs]);
     const supportsExplorationSprite = SPRITE_ENABLED_TYPES.has(characterType);
     const spriteActorType = CHARACTER_SPRITE_TYPE_MAP[characterType] ?? "human";
     const spriteGeneratorLink = `/asset-generator?tab=sprites&mode=directional-set&spriteType=${spriteActorType}&targetKind=character&targetId=${charId}`;
@@ -526,6 +755,84 @@ export function CharacterBuilderPage() {
         };
     }, [effectiveStats, equippedItems]);
 
+    const buildCharacterPayload = (overrides: Partial<Character> = {}): Character => ({
+        id: charId,
+        isNPC,
+        type: characterType,
+        isFamily,
+        familyId: isFamily ? familyId : undefined,
+        worldId,
+        name,
+        age,
+        gender,
+        history,
+        backstory,
+        appearancePrompt,
+        portraitUrl: portraitUrl || undefined,
+        portraitName: name.trim() || charId,
+        stats: { ...stats },
+        traits: selectedTraits,
+        occupation: selectedOccupation || undefined,
+        progression: selectedOccupation ? {
+            treeOccupationId: selectedOccupation.id,
+            unlockedTalentNodeIds,
+            availableTalentPoints,
+            spentTalentPoints,
+        } : undefined,
+        hp: derivedStats.hp,
+        maxHp: derivedStats.hp,
+        xp: 0,
+        level,
+        credits: normalizeCharacterCredits(credits),
+        inventory,
+        skills: (() => {
+            if (isNPC) return selectedSkills;
+            const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
+            const merged = [...selectedSkills];
+            baseSkills.forEach(bs => {
+                if (!merged.some(ms => ms.id === bs.id)) {
+                    merged.push(bs);
+                }
+            });
+            return merged;
+        })(),
+        equipped: equippedItems,
+        title: characterTitle,
+        badge: characterBadge,
+        faction,
+        alignment,
+        currentStory,
+        explorationSprite,
+        parents: {
+            father: relationships.find(r => r.type === "father")?.targetId || null,
+            mother: relationships.find(r => r.type === "mother")?.targetId || null,
+        },
+        relationships,
+        ...overrides,
+    });
+
+    const refreshSavedCharacters = async () => {
+        await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
+        setSavedCharacters(GameRegistry.getAllCharacters());
+    };
+
+    const persistCharacterRecord = async (character: Character, markEditing = true) => {
+        const res = await fetch("http://127.0.0.1:8787/api/data/characters", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(character),
+        });
+
+        if (!res.ok) {
+            throw new Error(`Failed to persist character ${character.id}`);
+        }
+
+        await refreshSavedCharacters();
+        if (markEditing) {
+            setEditingId(character.id);
+        }
+    };
+
     // Check if an item is currently equipped (used by context menu)
     const isItemEquipped = (item: Item): EquipSlot | null => {
         for (const [slotId, equipped] of Object.entries(equippedItems)) {
@@ -659,7 +966,7 @@ export function CharacterBuilderPage() {
         };
     }, [activeTab]);
 
-    const allTraits = GameRegistry.getAllTraits().filter(t => !t.id.startsWith("age-"));
+    const allTraits = GameRegistry.getAllTraits().filter(t => !t.id.startsWith("age-") && !isOccupationLinkedTrait(t));
     const allOccupations = GameRegistry.getAllOccupations();
 
     const filteredTraits = useMemo(() => {
@@ -675,6 +982,16 @@ export function CharacterBuilderPage() {
     const filteredOccupations = useMemo(() => {
         return allOccupations.filter(o => occCategory === "ALL" || o.category === occCategory);
     }, [occCategory, allOccupations]);
+
+    const selectedTreeState = useMemo(
+        () => resolveOccupationTree(selectedOccupation?.id, unlockedTalentNodeIds),
+        [selectedOccupation?.id, unlockedTalentNodeIds],
+    );
+
+    const spentTalentPoints = useMemo(
+        () => selectedTreeState.unlockedNodes.reduce((sum, node) => sum + (node.cost || 1), 0),
+        [selectedTreeState.unlockedNodes],
+    );
 
     const toggleTrait = (trait: Trait) => {
         const isSelected = selectedTraits.find(t => t.id === trait.id);
@@ -718,8 +1035,34 @@ export function CharacterBuilderPage() {
             if (grantAttributePoint && normalizedLevel > prevLevel) {
                 setAttributePoints(points => points + (normalizedLevel - prevLevel));
             }
+            const pointDelta = getDefaultTalentPointsForLevel(normalizedLevel) - getDefaultTalentPointsForLevel(prevLevel);
+            if (pointDelta !== 0) {
+                setAvailableTalentPoints(points => Math.max(0, points + pointDelta));
+            }
             return normalizedLevel;
         });
+    };
+
+    const handleOccupationSelect = (occupation: Occupation | null) => {
+        if (!occupation) {
+            setSelectedOccupation(null);
+            setUnlockedTalentNodeIds([]);
+            setAvailableTalentPoints(getDefaultTalentPointsForLevel(level));
+            return;
+        }
+
+        const changedOccupation = selectedOccupation?.id !== occupation.id;
+        setSelectedOccupation(occupation);
+        if (changedOccupation) {
+            setUnlockedTalentNodeIds([]);
+            setAvailableTalentPoints(getDefaultTalentPointsForLevel(level));
+        }
+    };
+
+    const handleOpenTalentTree = (occupation?: Occupation | null) => {
+        if (!occupation) return;
+        handleOccupationSelect(occupation);
+        setShowTalentTreeModal(true);
     };
 
     const upgradeAttribute = (stat: keyof Stats) => {
@@ -778,12 +1121,25 @@ export function CharacterBuilderPage() {
     };
 
     const loadCharacter = (char: Character) => {
+        const loadedBackstory = char.backstory || "";
+        const loadedAppearancePrompt = (() => {
+            const prompt = (char.appearancePrompt || "").trim();
+            if (!prompt) return "";
+            if (prompt === loadedBackstory.trim()) return "";
+            return prompt;
+        })();
+
         setEditingId(char.id);
         setCharId(char.id);
         setName(char.name);
         setAge(char.age);
         setGender(char.gender);
-        const loadedBackstory = char.backstory || char.appearancePrompt || "";
+        setAppearanceSelectors({ ...DEFAULT_APPEARANCE_SELECTORS });
+        setAppearancePrompt(loadedAppearancePrompt);
+        setPortraitUrl(char.portraitUrl || null);
+        setIsGeneratingPortrait(false);
+        setIsSyncingAppearance(false);
+        setIsProfileModified(false);
         setBackstory(loadedBackstory);
         // If history is identical to backstory, it shows it wasn't a real generated story
         const loadedHistory = (char.history && char.history !== loadedBackstory && char.history.length > loadedBackstory.length + 50) ? char.history : "";
@@ -807,13 +1163,15 @@ export function CharacterBuilderPage() {
             if (char.parents.mother) loadedRels.push({ targetId: char.parents.mother, type: 'mother' });
         }
         setRelationships(loadedRels);
-        setSelectedTraits(char.traits || []);
+        setSelectedTraits((char.traits || []).filter((trait) => !isOccupationLinkedTrait(trait)));
         setStats(char.stats);
         setAttributeUpgrades({ ...ZERO_STATS });
         setIsRedispatching(false);
         setRedispatchPoints(null);
         setRedispatchUpgrades(null);
         setSelectedOccupation(char.occupation || null);
+        setUnlockedTalentNodeIds(char.progression?.unlockedTalentNodeIds || []);
+        setAvailableTalentPoints(char.progression?.availableTalentPoints ?? getDefaultTalentPointsForLevel(char.level || 1));
         setInventory((char.inventory || []).map(invItem => {
             if (invItem && invItem.id) {
                 const fresh = GameRegistry.getItem(invItem.id);
@@ -869,6 +1227,12 @@ export function CharacterBuilderPage() {
         setName("");
         setAge(25);
         setGender("Male");
+        setAppearanceSelectors({ ...DEFAULT_APPEARANCE_SELECTORS });
+        setAppearancePrompt("");
+        setPortraitUrl(null);
+        setIsGeneratingPortrait(false);
+        setIsSyncingAppearance(false);
+        setIsProfileModified(false);
         setHistory("");
         setBackstory("");
         setIsNPC(false);
@@ -894,6 +1258,8 @@ export function CharacterBuilderPage() {
         setRedispatchPoints(null);
         setRedispatchUpgrades(null);
         setSelectedOccupation(null);
+        setUnlockedTalentNodeIds([]);
+        setAvailableTalentPoints(getDefaultTalentPointsForLevel(1));
         setCredits({ ...DEFAULT_CHARACTER_CREDITS });
         setEquippedItems({
             head: null, chest: null, gloves: null, waist: null, legs: null, boots: null, mainHand: null, offHand: null
@@ -921,64 +1287,10 @@ export function CharacterBuilderPage() {
     };
 
     const handleSave = async () => {
-        const finalStats = { ...stats };
-        const character: Character = {
-            id: charId,
-            isNPC,
-            type: characterType,
-            isFamily,
-            familyId: isFamily ? familyId : undefined,
-            worldId,
-            name,
-            age,
-            gender,
-            history,
-            backstory,
-            appearancePrompt: backstory, // Keep both in sync for legacy data/backend support
-            stats: finalStats,
-            traits: selectedTraits,
-            occupation: selectedOccupation || undefined,
-            hp: derivedStats.hp,
-            maxHp: derivedStats.hp,
-            xp: 0,
-            level: level,
-            credits: normalizeCharacterCredits(credits),
-            inventory: inventory,
-            skills: (() => {
-                if (isNPC) return selectedSkills;
-                // Enforce base skills for players
-                const baseSkills = GameRegistry.getAllSkills().filter(s => s.category === "base");
-                const merged = [...selectedSkills];
-                baseSkills.forEach(bs => {
-                    if (!merged.some(ms => ms.id === bs.id)) {
-                        merged.push(bs);
-                    }
-                });
-                return merged;
-            })(),
-            equipped: equippedItems,
-            title: characterTitle,
-            badge: characterBadge,
-            faction: faction,
-            alignment: alignment,
-            currentStory: currentStory,
-            explorationSprite,
-            parents: { father: relationships.find(r => r.type === 'father')?.targetId || null, mother: relationships.find(r => r.type === 'mother')?.targetId || null },
-            relationships,
-        };
+        const character = buildCharacterPayload();
 
         try {
-            const res = await fetch("http://127.0.0.1:8787/api/data/characters", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(character),
-            });
-            if (res.ok) {
-                // Refresh list
-                await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
-                setSavedCharacters(GameRegistry.getAllCharacters());
-                setEditingId(character.id);
-            }
+            await persistCharacterRecord(character);
         } catch (e) {
             console.error("Failed to save character:", e);
         }
@@ -1118,7 +1430,7 @@ export function CharacterBuilderPage() {
 
                     {/* Left: Saved Characters Sidebar */}
                     {
-                        activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT" && activeTab !== "CHARACTER_SHEET" && activeTab !== "SKILLS" && (
+                        activeTab !== "INVENTORY" && activeTab !== "EQUIPEMENT" && activeTab !== "CHARACTER_SHEET" && activeTab !== "SKILLS" && activeTab !== "APPEARANCE" && (
                             <aside className="w-[260px] flex flex-col gap-4 shrink-0">
                                 <div className="bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md p-4 flex flex-col gap-3 flex-1 overflow-hidden">
                                     <div className="flex flex-col gap-2 border-b border-indigo-900/30 pb-2">
@@ -1179,7 +1491,7 @@ export function CharacterBuilderPage() {
                         {/* Tab Navigation */}
                         <div className="shrink-0 flex items-center justify-center p-1 bg-[#1e1e1e]/60 border border-white/5 rounded-2xl shadow-lg backdrop-blur-md">
                             <TabBar
-                                tabs={activeRules.allowedTabs}
+                                tabs={visibleTabs}
                                 activeTab={activeTab}
                                 onTabChange={(t) => setActiveTab(t as BuilderTab)}
                             />
@@ -1205,7 +1517,7 @@ export function CharacterBuilderPage() {
                                                     const newRules = worldSettings?.baseTypes.find(t => t.id === newType) || DEFAULT_BASE_TYPES.find(t => t.id === newType) || DEFAULT_BASE_TYPES[0];
                                                     // Ensure occupation is null if not allowed by rules
                                                     if (!newRules.canHaveOccupation) {
-                                                        setSelectedOccupation(null);
+                                                        handleOccupationSelect(null);
                                                     }
                                                 }}
                                                 className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all">
@@ -1634,6 +1946,41 @@ export function CharacterBuilderPage() {
                             )}
 
                             {/* ═══ LORE TAB ═══ */}
+                            {activeTab === "APPEARANCE" && (
+                                <div className="mx-auto flex h-full max-w-6xl flex-col gap-6 py-2">
+                                    <div className="space-y-2">
+                                        <h2 className="text-lg font-black uppercase tracking-widest text-indigo-400">Appearance</h2>
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">
+                                            Physical vectors, portrait synthesis, and the same appearance prompt generation flow used by the website character creation.
+                                        </p>
+                                    </div>
+
+                                    <div className="min-h-0 flex-1">
+                                        <CharacterAppearanceSection
+                                            appearanceSelectors={appearanceSelectors}
+                                            onAppearanceSelectorChange={(key: AppearanceSelectorKey, value: string) => {
+                                                setAppearanceSelectors(prev => ({ ...prev, [key]: value }));
+                                            }}
+                                            appearancePrompt={appearancePrompt}
+                                            onAppearancePromptChange={(value: string) => {
+                                                setAppearancePrompt(value);
+                                                setIsProfileModified(true);
+                                            }}
+                                            portraitUrl={portraitUrl}
+                                            isGeneratingPortrait={isGeneratingPortrait}
+                                            isSyncing={isSyncingAppearance}
+                                            isProfileModified={isProfileModified}
+                                            onManifestIdentity={handleManifestAppearance}
+                                            onRefreshPortrait={() => handleRefreshPortrait()}
+                                            onOpenGallery={() => {
+                                                setGalleryMode("characters");
+                                                setShowGalleryModal(true);
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
                             {activeTab === "LORE" && (
                                 <div className="flex flex-col h-full relative font-mono overflow-hidden py-2 px-2 gap-4 animate-ash-settling">
                                     <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pt-2 pb-6 max-w-6xl mx-auto w-full">
@@ -1660,7 +2007,7 @@ export function CharacterBuilderPage() {
                                                         <div className="flex-1 p-8 bg-orange-500/[0.03] border border-orange-500/10 rounded-3xl flex flex-col group/world max-h-[420px]">
                                                             <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
                                                                 <p className="text-base text-gray-400 leading-relaxed italic font-medium">
-                                                                    {worldSnippets.length > 0
+                                                                    {worldSnippets.length > 0 && worldSnippets[worldSnippets.length - 1].content.trim()
                                                                         ? worldSnippets[worldSnippets.length - 1].content
                                                                         : ASH_TRAIL_CHRONICLES.find(c => c.id === "ASH-4")?.event || "No records found for this coordinate."}
                                                                 </p>
@@ -1921,6 +2268,9 @@ export function CharacterBuilderPage() {
                                             <input value={traitSearch} onChange={e => setTraitSearch(e.target.value)} placeholder="Search..." className="bg-black/50 border border-white/10 text-white px-3 py-1.5 rounded-lg text-xs outline-none w-48" />
                                         </div>
                                     </div>
+                                    <div className="rounded-lg border border-indigo-500/10 bg-indigo-500/5 px-3 py-2 text-[10px] text-indigo-100/80">
+                                        Occupation-linked traits are excluded here. Unlock those from the occupation selection and talent tree instead.
+                                    </div>
 
                                     {/* Selected Traits */}
                                     {selectedTraits.length > 0 && (
@@ -1987,7 +2337,65 @@ export function CharacterBuilderPage() {
                             {/* ═══ OCCUPATION TAB ═══ */}
                             {activeTab === "OCCUPATION" && (
                                 <div className="space-y-4">
-                                    <h2 className="text-lg font-black tracking-widest text-indigo-400 uppercase">Occupation</h2>
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div>
+                                            <h2 className="text-lg font-black tracking-widest text-indigo-400 uppercase">Occupation</h2>
+                                            <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-gray-600">Select a role, then inspect or spend points in its talent tree.</p>
+                                        </div>
+                                        <button
+                                            onClick={() => handleOpenTalentTree(selectedOccupation)}
+                                            disabled={!selectedOccupation}
+                                            className={`shrink-0 rounded-xl border px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${selectedOccupation
+                                                ? "border-indigo-500/50 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25"
+                                                : "cursor-not-allowed border-white/10 bg-black/20 text-gray-600"
+                                                }`}
+                                        >
+                                            Open Talent Tree
+                                        </button>
+                                    </div>
+                                    {selectedOccupation && (
+                                        <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4 shadow-lg">
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-black uppercase tracking-widest text-indigo-300">{selectedOccupation.name}</span>
+                                                        <span className="rounded bg-black/30 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-gray-400">{selectedOccupation.category}</span>
+                                                    </div>
+                                                    <p className="mt-2 max-w-2xl text-xs text-gray-400">{selectedOccupation.description}</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleOccupationSelect(null)}
+                                                    className="text-[10px] font-black uppercase tracking-widest text-gray-500 transition-colors hover:text-red-400"
+                                                >
+                                                    Clear
+                                                </button>
+                                            </div>
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {selectedTreeState.unlockedNodes.length > 0 ? selectedTreeState.unlockedNodes.map((node) => (
+                                                    <span key={node.id} className="rounded-lg border border-indigo-500/20 bg-black/30 px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-indigo-200">
+                                                        {node.name}
+                                                    </span>
+                                                )) : (
+                                                    <span className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-gray-500">
+                                                        No talents unlocked yet
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="mt-4 flex items-center justify-between gap-3">
+                                                <div className="flex items-center gap-2 text-[10px] font-mono text-gray-400">
+                                                    <span className="rounded-lg border border-white/10 bg-black/30 px-2 py-1">Unlocked: {unlockedTalentNodeIds.length}</span>
+                                                    <span className="rounded-lg border border-white/10 bg-black/30 px-2 py-1">Spent: {spentTalentPoints}</span>
+                                                    <span className="rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-2 py-1 text-indigo-300">Available: {availableTalentPoints}</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleOpenTalentTree(selectedOccupation)}
+                                                    className="rounded-lg border border-indigo-500/40 bg-black/30 px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-indigo-200 transition-all hover:bg-black/50"
+                                                >
+                                                    Inspect Tree
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="flex gap-2 flex-wrap">
                                         {(["ALL", "SECURITY", "TECHNICAL", "CRAFT", "ADMIN", "SOCIAL", "FIELD"] as const).map(cat => (
                                             <button key={cat} onClick={() => setOccCategory(cat)} className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border transition-all ${occCategory === cat ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-400" : "bg-black/40 border-white/10 text-gray-500 hover:text-white"}`}>
@@ -1997,7 +2405,7 @@ export function CharacterBuilderPage() {
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         {filteredOccupations.map(o => (
-                                            <button key={o.id} onClick={() => setSelectedOccupation(o)} className={`w-full text-left p-4 border rounded-xl flex flex-col gap-2 transition-all ${selectedOccupation?.id === o.id ? "bg-indigo-500/20 border-indigo-500" : "bg-black/40 border-white/5 hover:border-white/20"}`}>
+                                            <div key={o.id} className={`w-full p-4 border rounded-xl flex flex-col gap-2 transition-all ${selectedOccupation?.id === o.id ? "bg-indigo-500/20 border-indigo-500" : "bg-black/40 border-white/5 hover:border-white/20"}`}>
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-sm font-bold uppercase text-indigo-400">{o.name}</span>
                                                     <span className="text-[8px] bg-white/10 px-1.5 py-0.5 rounded uppercase text-gray-400">{o.category}</span>
@@ -2008,7 +2416,24 @@ export function CharacterBuilderPage() {
                                                         <span key={i} className="text-[9px] bg-teal-500/10 text-teal-400 px-1.5 py-0.5 rounded border border-teal-500/20">{p}</span>
                                                     ))}
                                                 </div>
-                                            </button>
+                                                <div className="mt-2 flex items-center justify-between gap-3">
+                                                    <button
+                                                        onClick={() => handleOccupationSelect(o)}
+                                                        className={`rounded-lg border px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${selectedOccupation?.id === o.id
+                                                            ? "border-indigo-400 bg-indigo-500/20 text-indigo-200"
+                                                            : "border-white/10 bg-black/30 text-gray-300 hover:border-white/20"
+                                                            }`}
+                                                    >
+                                                        {selectedOccupation?.id === o.id ? "Selected" : "Select Occupation"}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleOpenTalentTree(o)}
+                                                        className="rounded-lg border border-indigo-500/30 bg-black/30 px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-indigo-300 transition-all hover:bg-indigo-500/10"
+                                                    >
+                                                        Open Tree
+                                                    </button>
+                                                </div>
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
@@ -3546,12 +3971,25 @@ export function CharacterBuilderPage() {
                                 activePlanetId={worldId}
                                 deleteFromHistory={deleteFromHistory}
                                 onRenameWorld={renameInHistory}
+                                initialTab={galleryMode === "characters" ? "characters" : "planets"}
                                 onSelectPlanet={(item) => {
                                     handleUpdateWorldId(item.id);
                                     setShowGalleryModal(false);
                                 }}
-                                onSelectTexture={() => { }}
-                                showExtendedTabs={false}
+                                onSelectTexture={async (source, textureUrl) => {
+                                    if (!source.startsWith("characters")) return;
+                                    setPortraitUrl(textureUrl);
+                                    setIsProfileModified(false);
+                                    try {
+                                        await persistCharacterRecord(buildCharacterPayload({
+                                            portraitUrl: textureUrl,
+                                        }));
+                                    } catch (error) {
+                                        console.error("Failed to persist gallery portrait:", error);
+                                    }
+                                    setShowGalleryModal(false);
+                                }}
+                                showExtendedTabs={galleryMode === "characters"}
                             />
                         </div>
                     </div>
@@ -3736,6 +4174,397 @@ export function CharacterBuilderPage() {
                     onConfirm={handleGenerateConfirm}
                 />
             )}
+
+            <OccupationTalentTreeModal
+                open={showTalentTreeModal}
+                occupation={selectedOccupation}
+                unlockedTalentNodeIds={unlockedTalentNodeIds}
+                availableTalentPoints={availableTalentPoints}
+                onClose={() => setShowTalentTreeModal(false)}
+                onReset={() => {
+                    setUnlockedTalentNodeIds([]);
+                    setAvailableTalentPoints(getDefaultTalentPointsForLevel(level));
+                }}
+                onUnlockNode={(node) => {
+                    const cost = node.cost || 1;
+                    if (unlockedTalentNodeIds.includes(node.id) || availableTalentPoints < cost) return;
+                    setUnlockedTalentNodeIds((prev) => [...prev, node.id]);
+                    setAvailableTalentPoints((prev) => Math.max(0, prev - cost));
+                }}
+            />
         </>
+    );
+}
+
+interface OccupationTalentTreeModalProps {
+    open: boolean;
+    occupation: Occupation | null;
+    unlockedTalentNodeIds: string[];
+    availableTalentPoints: number;
+    onClose: () => void;
+    onReset: () => void;
+    onUnlockNode: (node: TalentNode) => void;
+}
+
+function OccupationTalentTreeModal({
+    open,
+    occupation,
+    unlockedTalentNodeIds,
+    availableTalentPoints,
+    onClose,
+    onReset,
+    onUnlockNode,
+}: OccupationTalentTreeModalProps) {
+    if (!open) return null;
+
+    return (
+        <Modal
+            open={open}
+            onClose={onClose}
+            maxWidth="max-w-[96vw]"
+            className="h-[92vh] rounded-lg border border-zinc-800 bg-zinc-950 shadow-[0_0_100px_rgba(0,0,0,1)]"
+        >
+            <ReactFlowProvider>
+                <OccupationTalentTreeOverlay
+                    occupation={occupation}
+                    unlockedTalentNodeIds={unlockedTalentNodeIds}
+                    availableTalentPoints={availableTalentPoints}
+                    onClose={onClose}
+                    onReset={onReset}
+                    onUnlockNode={onUnlockNode}
+                />
+            </ReactFlowProvider>
+        </Modal>
+    );
+}
+
+function OccupationTalentTreeOverlay({
+    occupation,
+    unlockedTalentNodeIds,
+    availableTalentPoints,
+    onClose,
+    onReset,
+    onUnlockNode,
+}: Omit<OccupationTalentTreeModalProps, "open">) {
+    const { fitView } = useReactFlow();
+    const treeState = useMemo(
+        () => resolveOccupationTree(occupation?.id, unlockedTalentNodeIds),
+        [occupation?.id, unlockedTalentNodeIds],
+    );
+    const tree = treeState.tree;
+    const unlockedSet = useMemo(() => new Set(unlockedTalentNodeIds), [unlockedTalentNodeIds]);
+    const allSkills = GameRegistry.getAllSkills();
+    const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    const [isConfirming, setIsConfirming] = useState(false);
+
+    const spentPoints = useMemo(
+        () => treeState.unlockedNodes.reduce((sum, node) => sum + (node.cost || 1), 0),
+        [treeState.unlockedNodes],
+    );
+
+    const handleUnlockNode = (nodeId: string) => {
+        const node = tree?.nodes.find((entry) => entry.id === nodeId);
+        const nodeCost = node?.cost || 1;
+        if (!node || unlockedSet.has(node.id) || availableTalentPoints < nodeCost) return;
+        onUnlockNode(node);
+    };
+
+    const selectedNode = selectedNodeId ? tree?.nodes.find((node) => node.id === selectedNodeId) : null;
+    const isSelectedNodeUnlockable = !!(
+        selectedNode &&
+        !unlockedSet.has(selectedNode.id) &&
+        availableTalentPoints >= (selectedNode.cost || 1) &&
+        (!selectedNode.dependencies || selectedNode.dependencies.every((dependencyId) => unlockedSet.has(dependencyId)))
+    );
+
+    const handleApplyUpgrade = () => {
+        if (!selectedNodeId || !isSelectedNodeUnlockable) return;
+        setIsConfirming(true);
+        handleUnlockNode(selectedNodeId);
+        window.setTimeout(() => setIsConfirming(false), 2000);
+    };
+
+    useEffect(() => {
+        setHoveredNodeId(null);
+        setSelectedNodeId(null);
+    }, [occupation?.id]);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            fitView({ padding: 0.15, duration: 800 });
+        }, 100);
+        return () => window.clearTimeout(timer);
+    }, [fitView, occupation?.id]);
+
+    const { nodes, edges } = useMemo(() => {
+        if (!tree) return { nodes: [] as RFNode[], edges: [] as RFEdge[] };
+
+        const flowNodes: RFNode[] = tree.nodes.map((node) => {
+            const isUnlocked = unlockedSet.has(node.id);
+            const hasUnmetDependencies = node.dependencies?.some((dependencyId) => !unlockedSet.has(dependencyId));
+            const isAvailable = !isUnlocked && !hasUnmetDependencies;
+
+            return {
+                id: node.id,
+                type: "talent",
+                position: node.pos,
+                data: {
+                    name: node.name,
+                    description: node.description,
+                    type: node.type,
+                    isCapstone: node.id.includes("capstone") || node.id.includes("legend") || /-(8|9)$/.test(node.id),
+                    isConverging: (node.dependencies?.length || 0) > 1,
+                    isUnlocked,
+                    isAvailable,
+                    isConfirming,
+                    onUnlock: () => handleUnlockNode(node.id),
+                },
+                draggable: false,
+                selectable: true,
+            };
+        });
+
+        const flowEdges: RFEdge[] = [];
+        tree.nodes.forEach((node) => {
+            node.dependencies?.forEach((dependencyId) => {
+                const isSourceUnlocked = unlockedSet.has(dependencyId);
+                const isTargetUnlocked = unlockedSet.has(node.id);
+                flowEdges.push({
+                    id: `e-${dependencyId}-${node.id}`,
+                    source: dependencyId,
+                    target: node.id,
+                    type: ConnectionLineType.Straight,
+                    animated: isSourceUnlocked && !isTargetUnlocked,
+                    style: {
+                        stroke: isSourceUnlocked ? "#f97316" : "#27272a",
+                        strokeWidth: 1.5,
+                        opacity: isSourceUnlocked ? 0.8 : 0.4,
+                        transition: "stroke 0.5s ease",
+                    },
+                });
+            });
+        });
+
+        return { nodes: flowNodes, edges: flowEdges };
+    }, [tree, unlockedSet, isConfirming, availableTalentPoints]);
+
+    const activeDisplayNodeId = hoveredNodeId || selectedNodeId;
+    const activeNode = activeDisplayNodeId ? tree?.nodes.find((node) => node.id === activeDisplayNodeId) : null;
+
+    return (
+        <div className="relative flex h-full w-full flex-col overflow-hidden">
+            <style>{TALENT_ANIMATIONS}</style>
+            <div
+                className="pointer-events-none absolute inset-0 opacity-[0.05]"
+                style={{ backgroundImage: "radial-gradient(circle, #f97316 1px, transparent 1px)", backgroundSize: "40px 40px" }}
+            />
+            <div className="pointer-events-none absolute left-1/2 top-0 h-[300px] w-[500px] -translate-x-1/2 rounded-full bg-orange-500/10 blur-[120px]" />
+
+            <button
+                onClick={onClose}
+                className="absolute right-6 top-6 z-50 flex items-center gap-2 border border-zinc-800 bg-zinc-950/50 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-500 transition-all hover:border-zinc-600 hover:text-white"
+            >
+                <span className="transition-colors group-hover:text-red-500">Close</span>
+                <span className="text-[8px] opacity-30">[ESC]</span>
+            </button>
+
+            <div className="relative z-20 flex shrink-0 flex-col items-center pb-4 pt-8">
+                <div className="relative group">
+                    <div className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-4 border-zinc-800 bg-zinc-950 shadow-[0_0_40px_rgba(0,0,0,0.7)] transition-all duration-500 group-hover:border-orange-500/50">
+                        <div className="z-10 text-4xl font-black text-zinc-800 select-none">{occupation?.name.charAt(0) || "?"}</div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-60 z-0" />
+                    </div>
+                    <div className="absolute -inset-3 rounded-full border border-orange-500/10 animate-[spin_15s_linear_infinite]" />
+                    <div className="absolute -inset-1 rounded-full border border-zinc-800/50" />
+                </div>
+                <div className="mt-6 text-center">
+                    <h2 className="text-2xl font-black uppercase tracking-[0.2em] text-zinc-100">{occupation?.name || "Occupation"}</h2>
+                    <div className="mt-2 text-[9px] font-bold uppercase tracking-[0.4em] text-orange-500">Occupation Tree</div>
+                </div>
+            </div>
+
+            <div className="relative z-20 h-px w-full shrink-0 bg-zinc-900/50 shadow-[0_4px_10px_rgba(0,0,0,0.5)]" />
+
+            <div className="relative flex flex-1 overflow-hidden">
+                <div className="talent-flow-container relative flex-1 bg-zinc-950/20">
+                    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-32 bg-gradient-to-b from-zinc-950 to-transparent" />
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-32 bg-gradient-to-t from-zinc-950 to-transparent" />
+
+                    <ReactFlow
+                        nodes={nodes}
+                        edges={edges}
+                        nodeTypes={talentNodeTypes}
+                        nodeOrigin={[0.5, 0.5]}
+                        onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
+                        onNodeMouseLeave={() => setHoveredNodeId(null)}
+                        onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+                        onNodeDoubleClick={(_, node) => {
+                            if (node.data.isAvailable && !node.data.isUnlocked) {
+                                node.data.onUnlock();
+                            }
+                        }}
+                        fitView
+                        fitViewOptions={{ padding: 0.15, includeHiddenNodes: true }}
+                        zoomOnScroll
+                        panOnDrag
+                        zoomOnPinch
+                        zoomOnDoubleClick={false}
+                        nodesDraggable={false}
+                        nodesConnectable={false}
+                        elementsSelectable
+                        panOnScroll={false}
+                        preventScrolling
+                        minZoom={0.4}
+                        maxZoom={2}
+                        proOptions={{ hideAttribution: true }}
+                    >
+                        <Background color="#18181b" gap={24} size={1} />
+                    </ReactFlow>
+
+                    {!tree && (
+                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 text-center">
+                            <div className="flex h-20 w-20 items-center justify-center rounded-full border border-dashed border-zinc-800 text-zinc-800">
+                                <span className="text-2xl">?</span>
+                            </div>
+                            <div className="max-w-[200px] text-[9px] font-black uppercase tracking-[0.2em] text-zinc-700">
+                                Matrix structure undefined for {occupation?.name || "this"} classification
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="relative z-30 flex w-80 flex-col gap-6 border-l border-zinc-900 bg-zinc-950/40 p-6 backdrop-blur-sm">
+                    <div className="flex-1 space-y-4">
+                        <label className="flex justify-between border-b border-zinc-900 pb-2 text-[10px] font-black uppercase tracking-widest text-zinc-600">
+                            <span>Informations</span>
+                        </label>
+
+                        {activeNode ? (
+                            <div key={activeNode.id} className="animate-in fade-in slide-in-from-top-2 duration-300">
+                                <div className="space-y-4">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <h3 className="text-lg font-black uppercase leading-none text-zinc-100">{activeNode.name}</h3>
+                                        <span className="rounded border border-white/10 bg-white/5 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-zinc-300">
+                                            {activeNode.type}
+                                        </span>
+                                    </div>
+
+                                    <p className="text-xs leading-relaxed text-zinc-400">
+                                        {activeNode.description}
+                                    </p>
+
+                                    <div className="space-y-3 border-t border-zinc-900 pt-4">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[9px] font-bold uppercase text-zinc-500">Cost</span>
+                                            <span className="text-[9px] font-bold uppercase text-zinc-300">{activeNode.cost || 1} point</span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[9px] font-bold uppercase text-zinc-500">Status</span>
+                                            {unlockedSet.has(activeNode.id) ? (
+                                                <span className="flex items-center gap-1 text-[9px] font-black uppercase text-orange-500">
+                                                    <span className="h-1 w-1 rounded-full bg-orange-500" />
+                                                    Unlocked
+                                                </span>
+                                            ) : availableTalentPoints >= (activeNode.cost || 1) && (!activeNode.dependencies || activeNode.dependencies.every((dependencyId) => unlockedSet.has(dependencyId))) ? (
+                                                <span className="animate-pulse text-[9px] font-black uppercase text-blue-500">Available</span>
+                                            ) : (
+                                                <span className="text-[9px] font-black uppercase text-zinc-700">Locked</span>
+                                            )}
+                                        </div>
+                                        {activeNode.effects && activeNode.effects.length > 0 && (
+                                            <div className="space-y-2">
+                                                <span className="block text-[9px] font-bold uppercase text-zinc-500">Effects</span>
+                                                <div className="space-y-1">
+                                                    {activeNode.effects.map((effect, index) => (
+                                                        <div key={`${activeNode.id}-effect-${index}`} className="rounded-sm border border-zinc-800 px-2 py-1 text-[9px] text-zinc-300">
+                                                            {effect.name || effect.target || effect.type}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {activeNode.grantsSkillIds && activeNode.grantsSkillIds.length > 0 && (
+                                            <div className="space-y-2">
+                                                <span className="block text-[9px] font-bold uppercase text-zinc-500">Granted Skills</span>
+                                                <div className="space-y-1">
+                                                    {activeNode.grantsSkillIds.map((skillId) => (
+                                                        <div key={`${activeNode.id}-${skillId}`} className="rounded-sm border border-cyan-900/30 px-2 py-1 text-[9px] text-cyan-300">
+                                                            {allSkills.find((skill) => skill.id === skillId)?.name || skillId}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {activeNode.grantsTraitIds && activeNode.grantsTraitIds.length > 0 && (
+                                            <div className="space-y-2">
+                                                <span className="block text-[9px] font-bold uppercase text-zinc-500">Granted Traits</span>
+                                                <div className="space-y-1">
+                                                    {activeNode.grantsTraitIds.map((traitId) => (
+                                                        <div key={`${activeNode.id}-${traitId}`} className="rounded-sm border border-fuchsia-900/30 px-2 py-1 text-[9px] text-fuchsia-300">
+                                                            {GameRegistry.getTrait(traitId)?.name || traitId}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex h-40 flex-col items-center justify-center rounded-sm border border-dashed border-zinc-800 opacity-20">
+                                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-zinc-500">Select node for telemetry</p>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-auto border-t border-zinc-900 pt-6">
+                        <div className="group relative overflow-hidden rounded-sm border border-zinc-800 bg-zinc-900/40 p-4">
+                            <div className="flex flex-col items-center gap-1">
+                                <span className="text-[8px] uppercase tracking-tight text-zinc-600">Ability points available</span>
+                                <span className="text-2xl font-black text-orange-500 transition-transform duration-500 group-hover:scale-110">
+                                    {String(availableTalentPoints).padStart(2, "0")}
+                                </span>
+                                <span className="text-[8px] uppercase tracking-tight text-zinc-600">
+                                    Spent {spentPoints}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="relative z-40 flex shrink-0 items-center justify-between border-t border-zinc-900 bg-zinc-950/80 p-6 backdrop-blur-md">
+                <div className="flex gap-2 text-[8px] uppercase text-zinc-600">
+                    {unlockedSet.size} / {tree?.nodes.length || 0} Talents mastered
+                </div>
+                <div className="flex gap-4">
+                    <button
+                        onClick={() => {
+                            onReset();
+                            setSelectedNodeId(null);
+                        }}
+                        className="border border-zinc-800 bg-zinc-900 px-4 py-2 text-[8px] font-black uppercase tracking-widest text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+                    >
+                        Reset talent tree
+                    </button>
+                    <button
+                        onClick={handleApplyUpgrade}
+                        disabled={isConfirming || !isSelectedNodeUnlockable}
+                        className={`relative overflow-hidden border px-6 py-2 text-[9px] font-black uppercase tracking-[0.2em] transition-all duration-500 active:scale-95
+                            ${isSelectedNodeUnlockable
+                                ? "border-orange-500 bg-orange-600 text-zinc-950 shadow-[0_0_20px_rgba(249,115,22,0.4)] hover:bg-orange-500 hover:shadow-[0_0_30px_rgba(249,115,22,0.6)]"
+                                : "cursor-not-allowed border-zinc-700 bg-zinc-800 text-zinc-100 opacity-50"}
+                            ${isConfirming ? "brightness-125" : ""}`}
+                    >
+                        {isConfirming && <div className="absolute inset-0 animate-[pulse_1s_infinite] bg-white/10" />}
+                        {isConfirming && <div className="absolute bottom-0 left-0 h-1 animate-[progress_2s_linear] bg-white/40" />}
+                        <span className="relative z-10 flex items-center gap-2">
+                            {isConfirming ? "Committing..." : "Upgrade Selection"}
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 }

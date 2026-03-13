@@ -3,7 +3,7 @@ import { GameRegistry, Occupation, Trait, validateGameplayContent } from "@ashtr
 
 export function GameplayValidationPanel({ traits, occupations }: { traits: Trait[]; occupations: Occupation[] }) {
     const report = useMemo(
-        () => validateGameplayContent(traits, occupations, GameRegistry.getAllTalentTrees()),
+        () => validateGameplayContent(traits, occupations, GameRegistry.getAllTalentTrees(), GameRegistry.getAllSkills()),
         [traits, occupations],
     );
 

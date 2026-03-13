@@ -1,0 +1,33 @@
+{
+  "age": 30,
+  "appearancePrompt": "Tracker, Vanguard forged by the quest.",
+  "backstory": "A hardened survivor of the Ashlands, notorious for their keen senses and ability to track through the shifting sands and dust. Part of a larger, unknown group seeking the archives.",
+  "faction": null,
+  "gender": "Unknown",
+  "history": "A hardened survivor of the Ashlands, notorious for their keen senses and ability to track through the shifting sands and dust. Part of a larger, unknown group seeking the archives.",
+  "hp": 35,
+  "id": "char-5430b19a-68ef-427c-87dd-507f242cacba",
+  "inventory": [],
+  "isNPC": true,
+  "level": 2,
+  "maxHp": 35,
+  "name": "Ash-Scout",
+  "origin": {
+    "sourceId": "quest-699a78c6-b5bc-419b-955c-e02d9c06f23c",
+    "system": "quest",
+    "worldId": "665774da-472d-4570-adfb-1242ceefdfd9"
+  },
+  "skills": [],
+  "stats": {
+    "agility": 4,
+    "charisma": 4,
+    "endurance": 5,
+    "intelligence": 4,
+    "strength": 4,
+    "wisdom": 4
+  },
+  "traits": [],
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
+  "xp": 0
+}

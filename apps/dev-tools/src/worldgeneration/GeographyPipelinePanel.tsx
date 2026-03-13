@@ -1,8 +1,9 @@
 import { Button } from "@ashtrail/ui";
+import { Link } from "react-router-dom";
 import type { PlanetWorld } from "./types";
 import { useWorldgenPipeline, PIPELINE_STAGES, DEFAULT_WORLDGEN_CONFIG } from "./useWorldgenPipeline";
 import type { StageStatus, WorldgenConfig } from "./useWorldgenPipeline";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // ── Status Icons ──
 
@@ -21,13 +22,37 @@ interface GeographyPipelinePanelProps {
     globeWorld: PlanetWorld | null;
 }
 
+interface BiomeStageReport {
+    visionAvailable: boolean;
+    visionModelId?: string | null;
+    averageConfidence: number;
+    lowConfidencePixelCount: number;
+    activeBiomes: Array<{
+        biomeId: string;
+        name: string;
+        pixelShare: number;
+    }>;
+}
+
 export function GeographyPipelinePanel({ activeHistoryId, globeWorld }: GeographyPipelinePanelProps) {
     const { stages, config, setConfig, runStage, resetStage, clearPipeline, isAutoRunning, startAutoRun, stopAutoRun } = useWorldgenPipeline(activeHistoryId);
     const [expandedStage, setExpandedStage] = useState<string | null>(null);
     const [showConfig, setShowConfig] = useState(false);
+    const [biomeReport, setBiomeReport] = useState<BiomeStageReport | null>(null);
 
     const completedCount = Object.values(stages).filter(s => s.status === "completed").length;
     const totalCount = PIPELINE_STAGES.length;
+
+    useEffect(() => {
+        if (!activeHistoryId) {
+            setBiomeReport(null);
+            return;
+        }
+        fetch(`http://127.0.0.1:8787/api/worldgen/${activeHistoryId}/biome/report`)
+            .then(async (response) => (response.ok ? response.json() : null))
+            .then((data) => setBiomeReport(data))
+            .catch(() => setBiomeReport(null));
+    }, [activeHistoryId, stages.biome?.completedAt]);
 
     const handleRunAll = () => {
         if (isAutoRunning) {
@@ -246,6 +271,18 @@ export function GeographyPipelinePanel({ activeHistoryId, globeWorld }: Geograph
                                             )}
                                             {state.completedAt && (
                                                 <p><span className="text-gray-400 font-bold">Completed:</span> {new Date(state.completedAt).toLocaleTimeString()}</p>
+                                            )}
+                                            {stage.id === "biome" && biomeReport && (
+                                                <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-2 text-[9px]">
+                                                    <p><span className="text-cyan-300 font-bold">Active archetypes:</span> {biomeReport.activeBiomes.length}</p>
+                                                    <p><span className="text-cyan-300 font-bold">Avg confidence:</span> {(biomeReport.averageConfidence * 100).toFixed(0)}%</p>
+                                                    <p><span className="text-cyan-300 font-bold">Low-confidence pixels:</span> {biomeReport.lowConfidencePixelCount}</p>
+                                                    <p><span className="text-cyan-300 font-bold">Vision cache:</span> {biomeReport.visionAvailable ? biomeReport.visionModelId || "available" : "not cached"}</p>
+                                                    <p className="text-gray-400">Top coverage: {biomeReport.activeBiomes.slice(0, 3).map((entry) => `${entry.name} ${(entry.pixelShare * 100).toFixed(1)}%`).join(" • ") || "n/a"}</p>
+                                                    <Link to="/ecology?tab=biomes" className="inline-block mt-2 text-cyan-300 hover:text-cyan-200">
+                                                        Open archetype tuning →
+                                                    </Link>
+                                                </div>
                                             )}
                                         </div>
                                     </div>

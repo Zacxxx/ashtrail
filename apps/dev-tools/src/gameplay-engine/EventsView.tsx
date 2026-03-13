@@ -7,7 +7,7 @@ import { useActiveWorld } from "../hooks/useActiveWorld";
 import { CharacterGeneratorModal } from "../character-builder/CharacterGeneratorModal";
 import type { CompiledGmContext } from "../types/lore";
 import type { GeographyRegion } from "../history/RegionsTab";
-import type { Area } from "../history/LocationsTab";
+import type { Area } from "../history/locationTypes";
 import type { Faction } from "../history/FactionsTab";
 import type { LoreSnippet } from "../types/lore";
 import { formatAshtrailDate } from "../lib/calendar";

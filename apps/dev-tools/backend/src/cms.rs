@@ -441,9 +441,7 @@ pub async fn delete_talent_tree(
     let mut data: Vec<serde_json::Value> = load_json_array(&path);
     let initial_len = data.len();
     data.retain(|v| {
-        v.get("occupationId")
-            .and_then(|id_val| id_val.as_str())
-            != Some(occupation_id.as_str())
+        v.get("occupationId").and_then(|id_val| id_val.as_str()) != Some(occupation_id.as_str())
     });
     tracing::info!("Removed {} items", initial_len - data.len());
     save_json_array(&path, data)

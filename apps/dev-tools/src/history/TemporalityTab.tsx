@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button, Card } from "@ashtrail/ui";
-import { useGenerationHistory, type GenerationHistoryItem, type TemporalityConfig } from "../hooks/useGenerationHistory";
+import { type GenerationHistoryItem, type TemporalityConfig } from "../hooks/useGenerationHistory";
 
 interface TemporalityTabProps {
     selectedWorld: GenerationHistoryItem | null;
@@ -35,12 +35,24 @@ const DEFAULT_TEMPORALITY: TemporalityConfig = {
     }
 };
 
+function cloneTemporalityConfig(config: TemporalityConfig): TemporalityConfig {
+    return JSON.parse(JSON.stringify(config)) as TemporalityConfig;
+}
+
+function serializeTemporalityConfig(config: TemporalityConfig): string {
+    return JSON.stringify(config);
+}
+
 export function TemporalityTab({ selectedWorld }: TemporalityTabProps) {
     const [config, setConfig] = useState<TemporalityConfig | null>(null);
+    const [saveState, setSaveState] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
+    const lastSavedConfigRef = useRef<string | null>(null);
 
     useEffect(() => {
         if (!selectedWorld) {
             setConfig(null);
+            setSaveState("idle");
+            lastSavedConfigRef.current = null;
             return;
         }
 
@@ -49,12 +61,32 @@ export function TemporalityTab({ selectedWorld }: TemporalityTabProps) {
             .then(data => {
                 if (data && data.eras) {
                     setConfig(data);
+                    lastSavedConfigRef.current = serializeTemporalityConfig(data);
+                    setSaveState("saved");
                 } else {
                     setConfig(null);
+                    setSaveState("idle");
+                    lastSavedConfigRef.current = null;
                 }
             })
-            .catch(() => setConfig(null));
+            .catch(() => {
+                setConfig(null);
+                setSaveState("error");
+                lastSavedConfigRef.current = null;
+            });
     }, [selectedWorld]);
+
+    useEffect(() => {
+        if (!selectedWorld || !config || saveState === "saving") {
+            return;
+        }
+
+        const serializedConfig = serializeTemporalityConfig(config);
+        const nextState = serializedConfig === lastSavedConfigRef.current ? "saved" : "dirty";
+        if (saveState !== nextState) {
+            setSaveState(nextState);
+        }
+    }, [config, saveState, selectedWorld]);
 
     if (!selectedWorld) {
         return (
@@ -70,27 +102,68 @@ export function TemporalityTab({ selectedWorld }: TemporalityTabProps) {
 
     const handleInitialize = async () => {
         if (!selectedWorld) return;
-        setConfig(DEFAULT_TEMPORALITY);
-        await fetch(`/api/planet/temporality/${selectedWorld.id}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(DEFAULT_TEMPORALITY)
-        });
+        const initialConfig = cloneTemporalityConfig(DEFAULT_TEMPORALITY);
+        setConfig(initialConfig);
+        setSaveState("saving");
+
+        try {
+            const response = await fetch(`/api/planet/temporality/${selectedWorld.id}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(initialConfig)
+            });
+
+            if (!response.ok) {
+                throw new Error("Failed to initialize temporality");
+            }
+
+            lastSavedConfigRef.current = serializeTemporalityConfig(initialConfig);
+            setSaveState("saved");
+        } catch {
+            setSaveState("error");
+        }
     };
 
     const handleSave = async () => {
         if (!selectedWorld || !config) return;
-        await fetch(`/api/planet/temporality/${selectedWorld.id}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(config)
-        });
+        setSaveState("saving");
+
+        try {
+            const response = await fetch(`/api/planet/temporality/${selectedWorld.id}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(config)
+            });
+
+            if (!response.ok) {
+                throw new Error("Failed to save temporality");
+            }
+
+            lastSavedConfigRef.current = serializeTemporalityConfig(config);
+            setSaveState("saved");
+        } catch {
+            setSaveState("error");
+        }
     };
 
     const totalDays = config?.months.reduce((acc, m) => acc + m.days, 0) || 0;
+    const saveLabel =
+        saveState === "saving"
+            ? "SAVING..."
+            : saveState === "saved"
+                ? "SAVED!"
+                : saveState === "error"
+                    ? "RETRY SAVE"
+                    : "SAVE CHANGES";
+    const isSaveDisabled = saveState === "saving" || saveState === "saved";
+    const saveButtonClassName = saveState === "saved"
+        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 cursor-default"
+        : saveState === "error"
+            ? "bg-red-500/10 text-red-400 hover:bg-red-500/20 border-red-500/30"
+            : "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border-amber-500/30";
 
     return (
-        <div className="flex-1 flex gap-8 overflow-hidden min-h-0 relative items-start justify-center">
+        <div className="flex-1 min-h-0 overflow-hidden relative flex justify-center px-6 pb-6">
             {!config ? (
                 <div className="m-auto flex flex-col items-center gap-6">
                     <div className="text-6xl">⏱️</div>
@@ -105,15 +178,19 @@ export function TemporalityTab({ selectedWorld }: TemporalityTabProps) {
                     </Button>
                 </div>
             ) : (
-                <Card className="flex flex-col gap-8 bg-[#0a0f14] border-white/10 shadow-lg p-8 w-full max-w-4xl overflow-y-auto custom-scrollbar relative">
+                <Card className="relative flex h-full min-h-0 w-full max-w-4xl flex-col gap-8 overflow-y-auto overscroll-contain bg-[#0a0f14] border-white/10 p-8 shadow-lg custom-scrollbar">
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500/0 via-amber-500/50 to-amber-500/0"></div>
 
                     <div className="flex items-center justify-between border-b border-white/5 pb-4">
                         <h2 className="text-lg font-black tracking-[0.2em] text-amber-500 uppercase drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]">
                             TEMPORALITY EDITOR
                         </h2>
-                        <Button onClick={handleSave} className="bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 px-6 py-2 border border-amber-500/30 text-xs font-bold tracking-widest">
-                            SAVE CHANGES
+                        <Button
+                            onClick={handleSave}
+                            disabled={isSaveDisabled}
+                            className={`px-6 py-2 border text-xs font-bold tracking-widest ${saveButtonClassName}`}
+                        >
+                            {saveLabel}
                         </Button>
                     </div>
 

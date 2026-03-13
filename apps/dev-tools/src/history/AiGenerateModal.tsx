@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { Modal, Button, Slider } from "@ashtrail/ui";
 import type { Faction } from "./FactionsTab";
-import type { Area } from "./LocationsTab";
+import type { Area } from "./locationTypes";
 import type { Character } from "./CharactersTab";
 
 // ── Types ──
