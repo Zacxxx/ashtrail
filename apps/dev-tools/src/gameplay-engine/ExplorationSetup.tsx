@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Character, ExplorationMap, GameRegistry } from "@ashtrail/core";
+import { Character, ExplorationManifestDescriptor, GameRegistry } from "@ashtrail/core";
 import { useSearchParams } from "react-router-dom";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useJobs } from "../jobs/useJobs";
 import type { JobListItem } from "../jobs/types";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import {
-    attachSelectedPawns,
     type ExplorationJobAcceptedResponse,
+    type ExplorationLaunchConfig,
     fetchExplorationManifestIndex,
     type ExplorationManifestListItem,
     fetchExplorationManifest,
@@ -16,7 +16,7 @@ import {
 } from "./explorationSupport";
 
 interface ExplorationSetupProps {
-    onStart: (map: ExplorationMap, selectedPawnId: string) => void;
+    onStart: (session: ExplorationLaunchConfig) => void;
 }
 
 type CrewFilter = "all" | "selected" | "humans" | "others";
@@ -73,7 +73,7 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     const [crewFilter, setCrewFilter] = useState<CrewFilter>("all");
     const [mapPrompt, setMapPrompt] = useState("");
     const [isGenerating, setIsGenerating] = useState(false);
-    const [generatedMap, setGeneratedMap] = useState<ExplorationMap | null>(null);
+    const [generatedDescriptor, setGeneratedDescriptor] = useState<ExplorationManifestDescriptor | null>(null);
     const [manifestError, setManifestError] = useState<string | null>(null);
 
     const [availableBiomes, setAvailableBiomes] = useState<any[]>([]);
@@ -189,7 +189,7 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     const activeLocationJob = matchingLocationJobs.find((job) => job.status === "queued" || job.status === "running") || null;
 
     const canQueueGeneration = Boolean(activeWorldId && selectedLocationId) && !activeLocationJob && !isGenerating;
-    const canLaunch = Boolean(generatedMap) && selectedCharIds.length > 0;
+    const canLaunch = Boolean(generatedDescriptor) && selectedCharIds.length > 0;
 
     useEffect(() => {
         if (!initializedPartyRef.current && allCharacters.length > 0 && selectedCharIds.length === 0) {
@@ -254,7 +254,7 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
             setAvailableLocations([]);
             setSavedManifestLocations([]);
             setSelectedLocationId("");
-            setGeneratedMap(null);
+            setGeneratedDescriptor(null);
             return;
         }
 
@@ -392,7 +392,7 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
 
     const loadExistingManifest = React.useCallback(async () => {
         if (!activeWorldId || !selectedLocationId) {
-            setGeneratedMap(null);
+            setGeneratedDescriptor(null);
             return;
         }
 
@@ -400,13 +400,13 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
             setManifestError(null);
             const manifest = await fetchExplorationManifest(activeWorldId, selectedLocationId);
             if (!manifest) {
-                setGeneratedMap(null);
+                setGeneratedDescriptor(null);
                 return;
             }
-            setGeneratedMap(manifest);
+            setGeneratedDescriptor(manifest);
         } catch (error) {
             console.error("Failed to load exploration manifest", error);
-            setGeneratedMap(null);
+            setGeneratedDescriptor(null);
             setManifestError(error instanceof Error ? error.message : "Failed to load manifest");
         }
     }, [activeWorldId, selectedLocationId]);
@@ -497,22 +497,26 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     };
 
     const handleLaunch = () => {
-        if (!generatedMap) return;
-        const { map, selectedPawnId } = attachSelectedPawns(generatedMap, selectedCharIds);
-        if (!selectedPawnId) return;
-        onStart(map, selectedPawnId);
+        if (!generatedDescriptor || !activeWorldId || !selectedLocationId || selectedCharIds.length === 0) return;
+        onStart({
+            worldId: activeWorldId,
+            locationId: selectedLocationId,
+            selectedCharIds,
+        });
     };
 
     const handleExploreLocation = async (locationId: string) => {
-        if (!activeWorldId) return;
+        if (!activeWorldId || selectedCharIds.length === 0) return;
         try {
             const manifest = await fetchExplorationManifest(activeWorldId, locationId);
             if (!manifest) return;
-            const { map, selectedPawnId } = attachSelectedPawns(manifest, selectedCharIds);
-            if (!selectedPawnId) return;
             setSelectedLocationId(locationId);
             setIsLibraryOpen(false);
-            onStart(map, selectedPawnId);
+            onStart({
+                worldId: activeWorldId,
+                locationId,
+                selectedCharIds,
+            });
         } catch (error) {
             console.error("Failed to open saved exploration manifest", error);
         }
@@ -522,8 +526,8 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
         ? `${activeLocationJob.currentStage} (${Math.round(activeLocationJob.progress)}%)`
         : manifestError
             ? manifestError
-            : generatedMap
-                ? "Saved exploration manifest ready."
+                : generatedDescriptor
+                    ? "Saved exploration manifest ready."
                 : latestLocationJob?.status === "failed"
                     ? (latestLocationJob.error || "The latest generation job failed.")
                     : selectedLocationId === TEST_EXPLORATION_LOCATION_ID
@@ -551,7 +555,7 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                                 disabled={!canQueueGeneration}
                                 className="rounded-2xl bg-emerald-500 px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.24em] text-black transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-30"
                             >
-                                {isGenerating ? "Generating..." : activeLocationJob ? "Generating..." : generatedMap ? "Regenerate" : "Generate"}
+                                {isGenerating ? "Generating..." : activeLocationJob ? "Generating..." : generatedDescriptor ? "Regenerate" : "Generate"}
                             </button>
                             <button
                                 type="button"

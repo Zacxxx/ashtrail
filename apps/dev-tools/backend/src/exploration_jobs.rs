@@ -11,17 +11,26 @@ use serde_json::{json, Map, Value};
 use std::{
     collections::HashMap,
     fs,
-    path::{Path as FsPath, PathBuf},
+    path::Path as FsPath,
     sync::atomic::{AtomicUsize, Ordering},
     sync::{Arc, Mutex},
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::{
-    exploration_engine::manifest::{load_and_upgrade_manifest, migrate_manifest_value},
+    exploration_engine::{
+        manifest::{
+            load_chunk, load_manifest_descriptor, manifest_path as chunked_manifest_path,
+            write_chunked_location,
+        },
+        types::ExplorationMap as RuntimeExplorationMap,
+    },
     gemini,
     jobs::{now_ms, JobOutputRef, JobRecord, JobRouteRef, JobStatus},
-    locations::{self, LocationCategory, LocationHistoryHooks, LocationRecord, LocationScale, LocationStatus, RecordSource},
+    locations::{
+        self, LocationCategory, LocationHistoryHooks, LocationRecord, LocationScale,
+        LocationStatus, RecordSource,
+    },
     AppState,
 };
 
@@ -55,7 +64,6 @@ enum ExplorationChildJobKind {
     Semantics,
     BlockPack,
     AssetKit,
-    Preview,
 }
 
 impl Drop for ExplorationQueueReservation {
@@ -390,7 +398,10 @@ pub async fn start_generate_location_job(
     )?;
 
     let launch_meta = parse_job_launch_meta(&headers);
-    let metadata = build_location_job_metadata(&payload, launch_meta.as_ref().and_then(|meta| meta.restore.clone()));
+    let metadata = build_location_job_metadata(
+        &payload,
+        launch_meta.as_ref().and_then(|meta| meta.restore.clone()),
+    );
     state
         .exploration_runtime
         .set_job_metadata(&job_id, Value::Object(metadata));
@@ -447,22 +458,51 @@ pub async fn get_exploration_manifest(
     State(state): State<AppState>,
     Path((world_id, location_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let path = manifest_path(&state.planets_dir, &world_id, &location_id);
+    let path = chunked_manifest_path(&state.planets_dir, &world_id, &location_id);
     if !path.exists() {
         if is_test_exploration_location(&location_id) {
-            let manifest = migrate_manifest_value(build_test_manifest_value(&world_id)).0;
-            return (StatusCode::OK, Json(manifest)).into_response();
+            if let Err(error) = ensure_test_exploration_location(&state.planets_dir, &world_id) {
+                return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response();
+            }
+        } else {
+            return (
+                StatusCode::NOT_FOUND,
+                "Exploration manifest not found".to_string(),
+            )
+                .into_response();
         }
-        return (StatusCode::NOT_FOUND, "Exploration manifest not found".to_string()).into_response();
     }
 
-    match load_and_upgrade_manifest(&path) {
+    match load_manifest_descriptor(&state.planets_dir, &world_id, &location_id) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-        Err(error) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            error,
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
+    }
+}
+
+pub async fn get_exploration_chunk(
+    State(state): State<AppState>,
+    Path((world_id, location_id, chunk_row, chunk_col)): Path<(String, String, u32, u32)>,
+) -> impl IntoResponse {
+    if is_test_exploration_location(&location_id) {
+        if let Err(error) = ensure_test_exploration_location(&state.planets_dir, &world_id) {
+            return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response();
+        }
+    }
+
+    match load_chunk(
+        &state.planets_dir,
+        &world_id,
+        &location_id,
+        chunk_row,
+        chunk_col,
+    ) {
+        Ok(Some(chunk)) => (StatusCode::OK, Json(chunk)).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            "Exploration chunk not found".to_string(),
         )
             .into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
     }
 }
 
@@ -477,10 +517,11 @@ pub async fn list_exploration_manifests(
         built_in: true,
     }];
 
-    let location_names: HashMap<String, String> = locations::read_locations(&state.planets_dir, &world_id)
-        .into_iter()
-        .map(|entry| (entry.id, entry.name))
-        .collect();
+    let location_names: HashMap<String, String> =
+        locations::read_locations(&state.planets_dir, &world_id)
+            .into_iter()
+            .map(|entry| (entry.id, entry.name))
+            .collect();
 
     let root = state.planets_dir.join(&world_id).join("exploration");
     if let Ok(entries) = fs::read_dir(root) {
@@ -501,7 +542,12 @@ pub async fn list_exploration_manifests(
             let manifest_name = fs::read_to_string(&path)
                 .ok()
                 .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-                .and_then(|value| value.get("name").and_then(Value::as_str).map(str::to_string));
+                .and_then(|value| {
+                    value
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                });
 
             let name = location_names
                 .get(&location_id)
@@ -519,7 +565,8 @@ pub async fn list_exploration_manifests(
     }
 
     items.sort_by(|left, right| {
-        right.built_in
+        right
+            .built_in
             .cmp(&left.built_in)
             .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
     });
@@ -562,7 +609,9 @@ async fn start_placeholder_asset_job(
         &job_id,
         payload.location_name.as_deref().unwrap_or("Location"),
     );
-    state.exploration_runtime.set_output_refs(&job_id, output_refs);
+    state
+        .exploration_runtime
+        .set_output_refs(&job_id, output_refs);
 
     let runtime = state.exploration_runtime.clone();
     let spawned_job_id = job_id.clone();
@@ -616,7 +665,10 @@ async fn run_generate_location_job(
     );
 
     let locations = locations::read_locations(&state.planets_dir, &payload.world_id);
-    let location_record = match locations.into_iter().find(|entry| entry.id == payload.location_id) {
+    let location_record = match locations
+        .into_iter()
+        .find(|entry| entry.id == payload.location_id)
+    {
         Some(entry) => entry,
         None if is_test_exploration_location(&payload.location_id) => {
             build_test_location_record(&payload.world_id)
@@ -696,8 +748,27 @@ async fn run_generate_location_job(
         None,
     );
 
-    let manifest = build_manifest(&payload, &location_record, &context, semantics_summary.as_deref());
+    let manifest = build_manifest(
+        &payload,
+        &location_record,
+        &context,
+        semantics_summary.as_deref(),
+    );
     let manifest_value = build_manifest_value(&manifest, &payload, &context);
+    let runtime_map = match serde_json::from_value::<RuntimeExplorationMap>(manifest_value) {
+        Ok(value) => value,
+        Err(error) => {
+            runtime.update_job(
+                &job_id,
+                JobStatus::Failed,
+                100.0,
+                "Failed",
+                None,
+                Some(format!("Failed to normalize exploration map: {error}")),
+            );
+            return;
+        }
+    };
 
     if runtime.is_cancel_requested(&job_id) {
         runtime.update_job(
@@ -711,11 +782,11 @@ async fn run_generate_location_job(
         return;
     }
 
-    if let Err(error) = write_manifest(
+    if let Err(error) = write_chunked_location(
         &state.planets_dir,
         &payload.world_id,
         &payload.location_id,
-        &manifest_value,
+        &runtime_map,
     ) {
         runtime.update_job(
             &job_id,
@@ -741,102 +812,70 @@ async fn run_generate_location_job(
         return;
     }
 
-    let block_pack_job = runtime
-        .create_job(
-            "exploration.generate-block-pack.v1",
-            "Generate Exploration Block Pack",
-            &payload.world_id,
-            Some(job_id.clone()),
-        )
-        .ok();
-    if let Some(child_job_id) = block_pack_job.as_deref() {
-        runtime.set_job_metadata(
-            child_job_id,
-            Value::Object(build_child_job_metadata(
-                &payload,
-                &context.location_name,
-                ExplorationChildJobKind::BlockPack,
-            )),
+    if payload.block_palette_id.is_some() {
+        let block_pack_job = runtime
+            .create_job(
+                "exploration.link-block-palette.v1",
+                "Link Block Palette",
+                &payload.world_id,
+                Some(job_id.clone()),
+            )
+            .ok();
+        if let Some(child_job_id) = block_pack_job.as_deref() {
+            runtime.set_job_metadata(
+                child_job_id,
+                Value::Object(build_child_job_metadata(
+                    &payload,
+                    &context.location_name,
+                    ExplorationChildJobKind::BlockPack,
+                )),
+            );
+        }
+        complete_child_job(
+            &runtime,
+            block_pack_job.as_deref(),
+            78.0,
+            "Linked block palette",
+            json!({
+                "blockPaletteId": payload.block_palette_id,
+                "assetMode": payload.asset_mode,
+            }),
+            build_asset_generator_output_refs(),
         );
     }
-    complete_child_job(
-        &runtime,
-        block_pack_job.as_deref(),
-        70.0,
-        "Linked block palette",
-        json!({
-            "blockPaletteId": payload.block_palette_id,
-            "assetMode": payload.asset_mode,
-        }),
-        build_asset_generator_output_refs(),
-    );
 
-    let asset_kit_job = runtime
-        .create_job(
-            "exploration.generate-asset-kit.v1",
-            "Generate Exploration Asset Kit",
-            &payload.world_id,
-            Some(job_id.clone()),
-        )
-        .ok();
-    if let Some(child_job_id) = asset_kit_job.as_deref() {
-        runtime.set_job_metadata(
-            child_job_id,
-            Value::Object(build_child_job_metadata(
-                &payload,
-                &context.location_name,
-                ExplorationChildJobKind::AssetKit,
-            )),
+    if payload.biome_pack_id.is_some() || !payload.structure_pack_ids.is_empty() {
+        let asset_kit_job = runtime
+            .create_job(
+                "exploration.link-asset-kit.v1",
+                "Link Asset Kit",
+                &payload.world_id,
+                Some(job_id.clone()),
+            )
+            .ok();
+        if let Some(child_job_id) = asset_kit_job.as_deref() {
+            runtime.set_job_metadata(
+                child_job_id,
+                Value::Object(build_child_job_metadata(
+                    &payload,
+                    &context.location_name,
+                    ExplorationChildJobKind::AssetKit,
+                )),
+            );
+        }
+        complete_child_job(
+            &runtime,
+            asset_kit_job.as_deref(),
+            90.0,
+            "Linked asset kit",
+            json!({
+                "biomePackId": payload.biome_pack_id,
+                "structurePackIds": payload.structure_pack_ids,
+                "assetMode": payload.asset_mode,
+            }),
+            build_pack_output_refs(),
         );
     }
-    complete_child_job(
-        &runtime,
-        asset_kit_job.as_deref(),
-        82.0,
-        "Linked exploration kits",
-        json!({
-            "biomePackId": payload.biome_pack_id,
-            "structurePackIds": payload.structure_pack_ids,
-            "assetMode": payload.asset_mode,
-        }),
-        build_pack_output_refs(),
-    );
-
-    let preview_job = runtime
-        .create_job(
-            "exploration.generate-preview.v1",
-            "Generate Exploration Preview",
-            &payload.world_id,
-            Some(job_id.clone()),
-        )
-        .ok();
-    if let Some(child_job_id) = preview_job.as_deref() {
-        runtime.set_job_metadata(
-            child_job_id,
-            Value::Object(build_child_job_metadata(
-                &payload,
-                &context.location_name,
-                ExplorationChildJobKind::Preview,
-            )),
-        );
-    }
-    complete_child_job(
-        &runtime,
-        preview_job.as_deref(),
-        92.0,
-        "Preview ready",
-        json!({
-            "locationName": context.location_name,
-            "rows": context.rows,
-            "cols": context.cols,
-        }),
-        build_location_output_refs(
-            &payload.world_id,
-            &payload.location_id,
-            &job_id,
-            &context.location_name,
-        ),
-    );
 
     let output_refs = build_location_output_refs(
         &payload.world_id,
@@ -898,7 +937,8 @@ async fn run_semantics_child_job(
         return heuristic_semantics(payload, context);
     }
 
-    let Ok((_global_permit, _text_permit)) = runtime.wait_for_text_permits(child_job_id).await else {
+    let Ok((_global_permit, _text_permit)) = runtime.wait_for_text_permits(child_job_id).await
+    else {
         runtime.update_job(
             child_job_id,
             JobStatus::Completed,
@@ -985,7 +1025,14 @@ fn complete_child_job(
         return;
     };
     runtime.set_output_refs(job_id, output_refs);
-    runtime.update_job(job_id, JobStatus::Completed, progress, stage, Some(result), None);
+    runtime.update_job(
+        job_id,
+        JobStatus::Completed,
+        progress,
+        stage,
+        Some(result),
+        None,
+    );
 }
 
 fn build_generation_context(
@@ -1009,9 +1056,7 @@ fn build_generation_context(
             .unwrap_or_else(|| "linked-packs".to_string()),
         rows: clamp_dimension(payload.rows, DEFAULT_ROWS),
         cols: clamp_dimension(payload.cols, DEFAULT_COLS),
-        seed: payload
-            .seed
-            .unwrap_or_else(|| now_ms()),
+        seed: payload.seed.unwrap_or_else(|| now_ms()),
     }
 }
 
@@ -1091,6 +1136,19 @@ fn build_test_manifest_value(world_id: &str) -> Value {
     build_manifest_value(&manifest, &payload, &context)
 }
 
+pub fn ensure_test_exploration_location(
+    planets_dir: &FsPath,
+    world_id: &str,
+) -> Result<(), String> {
+    let path = chunked_manifest_path(planets_dir, world_id, TEST_EXPLORATION_LOCATION_ID);
+    if path.exists() {
+        return Ok(());
+    }
+    let map = serde_json::from_value::<RuntimeExplorationMap>(build_test_manifest_value(world_id))
+        .map_err(|error| format!("Failed to build test exploration map: {error}"))?;
+    write_chunked_location(planets_dir, world_id, TEST_EXPLORATION_LOCATION_ID, &map).map(|_| ())
+}
+
 fn build_manifest(
     payload: &GenerateExplorationLocationRequest,
     location: &LocationRecord,
@@ -1129,7 +1187,16 @@ fn build_manifest(
     let structure_count = payload
         .structure_names
         .len()
-        .max(if matches!(location.category, locations::LocationCategory::Settlement | locations::LocationCategory::Ruin) { 2 } else { 1 })
+        .max(
+            if matches!(
+                location.category,
+                locations::LocationCategory::Settlement | locations::LocationCategory::Ruin
+            ) {
+                2
+            } else {
+                1
+            },
+        )
         .min(5);
     let center_clear_x = width / 2;
     let center_clear_y = height / 2;
@@ -1156,7 +1223,10 @@ fn build_manifest(
             if rect_intersects_center(x, y, room_w, room_h, center_clear_x, center_clear_y) {
                 continue;
             }
-            if placed.iter().any(|(px, py, pw, ph)| rects_overlap(x, y, room_w, room_h, *px, *py, *pw, *ph)) {
+            if placed
+                .iter()
+                .any(|(px, py, pw, ph)| rects_overlap(x, y, room_w, room_h, *px, *py, *pw, *ph))
+            {
                 continue;
             }
             placed.push((x, y, room_w, room_h));
@@ -1202,7 +1272,8 @@ fn build_manifest(
             if room_w > 4 && room_h > 4 {
                 objects.push(ExplorationObject {
                     id: format!("obj-furniture-{index}"),
-                    r#type: if matches!(location.category, locations::LocationCategory::Settlement) {
+                    r#type: if matches!(location.category, locations::LocationCategory::Settlement)
+                    {
                         "crate".to_string()
                     } else {
                         "rubble".to_string()
@@ -1297,8 +1368,11 @@ fn build_manifest_value(
 ) -> Value {
     let mut value = serde_json::to_value(manifest).unwrap_or_else(|_| json!({}));
     if let Some(obj) = value.as_object_mut() {
-        obj.insert("version".to_string(), Value::from(2_u64));
-        obj.insert("renderMode".to_string(), Value::String("isometric".to_string()));
+        obj.insert("version".to_string(), Value::from(3_u64));
+        obj.insert(
+            "renderMode".to_string(),
+            Value::String("isometric".to_string()),
+        );
         obj.insert(
             "metadata".to_string(),
             json!({
@@ -1310,10 +1384,16 @@ fn build_manifest_value(
             }),
         );
         if let Some(biome_pack_id) = &payload.biome_pack_id {
-            obj.insert("biomePackId".to_string(), Value::String(biome_pack_id.clone()));
+            obj.insert(
+                "biomePackId".to_string(),
+                Value::String(biome_pack_id.clone()),
+            );
         }
         if let Some(biome_source) = &payload.biome_source {
-            obj.insert("biomeSource".to_string(), Value::String(biome_source.clone()));
+            obj.insert(
+                "biomeSource".to_string(),
+                Value::String(biome_source.clone()),
+            );
         }
         if let Some(biome_name) = &payload.biome_name {
             obj.insert("biomeName".to_string(), Value::String(biome_name.clone()));
@@ -1344,13 +1424,22 @@ fn build_manifest_value(
             "structureSourceMap".to_string(),
             serde_json::to_value(&payload.structure_source_map).unwrap_or_else(|_| json!({})),
         );
-        obj.insert("worldId".to_string(), Value::String(payload.world_id.clone()));
-        obj.insert("locationId".to_string(), Value::String(payload.location_id.clone()));
+        obj.insert(
+            "worldId".to_string(),
+            Value::String(payload.world_id.clone()),
+        );
+        obj.insert(
+            "locationId".to_string(),
+            Value::String(payload.location_id.clone()),
+        );
         obj.insert(
             "generationMode".to_string(),
             Value::String(context.generation_mode.clone()),
         );
-        obj.insert("assetMode".to_string(), Value::String(context.asset_mode.clone()));
+        obj.insert(
+            "assetMode".to_string(),
+            Value::String(context.asset_mode.clone()),
+        );
         obj.insert(
             "seed".to_string(),
             Value::Number(serde_json::Number::from(context.seed)),
@@ -1370,8 +1459,14 @@ fn build_location_job_metadata(
     restore: Option<JobRestoreSpec>,
 ) -> Map<String, Value> {
     let mut metadata = Map::new();
-    metadata.insert("worldId".to_string(), Value::String(payload.world_id.clone()));
-    metadata.insert("locationId".to_string(), Value::String(payload.location_id.clone()));
+    metadata.insert(
+        "worldId".to_string(),
+        Value::String(payload.world_id.clone()),
+    );
+    metadata.insert(
+        "locationId".to_string(),
+        Value::String(payload.location_id.clone()),
+    );
     metadata.insert(
         "locationName".to_string(),
         Value::String(
@@ -1442,8 +1537,14 @@ fn build_asset_job_metadata(
     restore: Option<JobRestoreSpec>,
 ) -> Map<String, Value> {
     let mut metadata = Map::new();
-    metadata.insert("worldId".to_string(), Value::String(payload.world_id.clone()));
-    metadata.insert("locationId".to_string(), Value::String(payload.location_id.clone()));
+    metadata.insert(
+        "worldId".to_string(),
+        Value::String(payload.world_id.clone()),
+    );
+    metadata.insert(
+        "locationId".to_string(),
+        Value::String(payload.location_id.clone()),
+    );
     metadata.insert(
         "locationName".to_string(),
         Value::String(
@@ -1476,8 +1577,14 @@ fn build_child_job_metadata(
     kind: ExplorationChildJobKind,
 ) -> Map<String, Value> {
     let mut metadata = Map::new();
-    metadata.insert("worldId".to_string(), Value::String(payload.world_id.clone()));
-    metadata.insert("locationId".to_string(), Value::String(payload.location_id.clone()));
+    metadata.insert(
+        "worldId".to_string(),
+        Value::String(payload.world_id.clone()),
+    );
+    metadata.insert(
+        "locationId".to_string(),
+        Value::String(payload.location_id.clone()),
+    );
     metadata.insert(
         "locationName".to_string(),
         Value::String(location_name.to_string()),
@@ -1543,12 +1650,14 @@ fn build_child_job_metadata(
     );
     metadata.insert(
         "childKind".to_string(),
-        Value::String(match kind {
-            ExplorationChildJobKind::Semantics => "semantics",
-            ExplorationChildJobKind::BlockPack => "block-pack",
-            ExplorationChildJobKind::AssetKit => "asset-kit",
-            ExplorationChildJobKind::Preview => "preview",
-        }.to_string()),
+        Value::String(
+            match kind {
+                ExplorationChildJobKind::Semantics => "semantics",
+                ExplorationChildJobKind::BlockPack => "block-palette",
+                ExplorationChildJobKind::AssetKit => "asset-kit",
+            }
+            .to_string(),
+        ),
     );
     metadata
 }
@@ -1571,7 +1680,10 @@ fn build_location_output_refs(
                     ("step".to_string(), Value::String("EXPLORATION".to_string())),
                     ("mode".to_string(), Value::String("manifest".to_string())),
                     ("worldId".to_string(), Value::String(world_id.to_string())),
-                    ("locationId".to_string(), Value::String(location_id.to_string())),
+                    (
+                        "locationId".to_string(),
+                        Value::String(location_id.to_string()),
+                    ),
                     ("jobId".to_string(), Value::String(job_id.to_string())),
                 ])),
             }),
@@ -1656,34 +1768,16 @@ fn build_pack_output_refs() -> Vec<JobOutputRef> {
     }]
 }
 
-fn manifest_path(planets_dir: &FsPath, world_id: &str, location_id: &str) -> PathBuf {
-    planets_dir
-        .join(world_id)
-        .join("exploration")
-        .join(location_id)
-        .join("manifest.json")
-}
-
-fn write_manifest(
-    planets_dir: &FsPath,
-    world_id: &str,
-    location_id: &str,
-    value: &Value,
-) -> Result<(), String> {
-    let path = manifest_path(planets_dir, world_id, location_id);
-    let Some(parent) = path.parent() else {
-        return Err("Invalid exploration manifest path".to_string());
-    };
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("Failed to create exploration directory: {error}"))?;
-    let content = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("Failed to serialize exploration manifest: {error}"))?;
-    fs::write(path, content).map_err(|error| format!("Failed to write exploration manifest: {error}"))
-}
-
 fn remove_manifest_if_exists(planets_dir: &FsPath, world_id: &str, location_id: &str) {
-    let path = manifest_path(planets_dir, world_id, location_id);
+    let path = chunked_manifest_path(planets_dir, world_id, location_id);
     let _ = fs::remove_file(path);
+    let _ = fs::remove_dir_all(
+        planets_dir
+            .join(world_id)
+            .join("exploration")
+            .join(location_id)
+            .join("chunks"),
+    );
 }
 
 fn set_wall(tiles: &mut [ExplorationTile], width: u32, x: u32, y: u32) {
@@ -1791,7 +1885,16 @@ fn rect_intersects_center(
     let center_min_y = center_y.saturating_sub(4);
     let center_max_x = center_x + 4;
     let center_max_y = center_y + 4;
-    rects_overlap(x, y, width, height, center_min_x, center_min_y, center_max_x - center_min_x + 1, center_max_y - center_min_y + 1)
+    rects_overlap(
+        x,
+        y,
+        width,
+        height,
+        center_min_x,
+        center_min_y,
+        center_max_x - center_min_x + 1,
+        center_max_y - center_min_y + 1,
+    )
 }
 
 fn rects_overlap(ax: u32, ay: u32, aw: u32, ah: u32, bx: u32, by: u32, bw: u32, bh: u32) -> bool {
@@ -1815,7 +1918,9 @@ fn natural_object_count(
     );
     if prompt.contains("forest") || prompt.contains("jungle") {
         22
-    } else if prompt.contains("ruin") || matches!(location.category, locations::LocationCategory::Ruin) {
+    } else if prompt.contains("ruin")
+        || matches!(location.category, locations::LocationCategory::Ruin)
+    {
         14
     } else {
         10
@@ -1826,7 +1931,11 @@ fn infer_natural_object_type(
     payload: &GenerateExplorationLocationRequest,
     location: &LocationRecord,
 ) -> String {
-    let prompt = format!("{} {}", payload.prompt.to_lowercase(), location.lore.to_lowercase());
+    let prompt = format!(
+        "{} {}",
+        payload.prompt.to_lowercase(),
+        location.lore.to_lowercase()
+    );
     if prompt.contains("forest") || prompt.contains("jungle") {
         "tree".to_string()
     } else if prompt.contains("desert") {

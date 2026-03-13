@@ -1,4 +1,11 @@
-import { Character, ExplorationMap, ExplorationPawn, GameRegistry } from "@ashtrail/core";
+import {
+    Character,
+    ExplorationChunk,
+    ExplorationManifestDescriptor,
+    ExplorationMap,
+    ExplorationPawn,
+    GameRegistry,
+} from "@ashtrail/core";
 
 export const TEST_EXPLORATION_LOCATION_ID = "__test_exploration__";
 
@@ -32,6 +39,13 @@ export interface ExplorationManifestListItem {
     name: string;
     manifestName?: string | null;
     builtIn: boolean;
+}
+
+export interface ExplorationLaunchConfig {
+    worldId: string;
+    locationId: string;
+    selectedCharIds: string[];
+    jobId?: string | null;
 }
 
 function getPawnType(character: Character | null | undefined): ExplorationPawn["type"] {
@@ -115,7 +129,7 @@ export function attachSelectedPawns(
     };
 }
 
-export async function fetchExplorationManifest(worldId: string, locationId: string): Promise<ExplorationMap | null> {
+export async function fetchExplorationManifest(worldId: string, locationId: string): Promise<ExplorationManifestDescriptor | null> {
     const response = await fetch(`/api/planet/locations/${worldId}/${locationId}/exploration-manifest`);
     if (response.status === 404) {
         return null;
@@ -123,6 +137,25 @@ export async function fetchExplorationManifest(worldId: string, locationId: stri
     if (!response.ok) {
         const details = await response.text().catch(() => "");
         throw new Error(details || `Failed to load exploration manifest (${response.status})`);
+    }
+    return response.json();
+}
+
+export async function fetchExplorationChunk(
+    worldId: string,
+    locationId: string,
+    chunkRow: number,
+    chunkCol: number,
+): Promise<ExplorationChunk | null> {
+    const response = await fetch(
+        `/api/planet/locations/${worldId}/${locationId}/exploration-chunks/${chunkRow}/${chunkCol}`,
+    );
+    if (response.status === 404) {
+        return null;
+    }
+    if (!response.ok) {
+        const details = await response.text().catch(() => "");
+        throw new Error(details || `Failed to load exploration chunk (${response.status})`);
     }
     return response.json();
 }
