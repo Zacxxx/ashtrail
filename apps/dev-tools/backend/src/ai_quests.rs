@@ -1,5 +1,5 @@
 use crate::gemini::{generate_image_bytes, generate_text};
-use crate::jobs::{now_ms as shared_now_ms, JobOutputRef, JobRouteRef, JobStatus};
+use crate::jobs::{JobOutputRef, JobRouteRef, JobStatus};
 use crate::quest_ai::{
     try_reserve_capacity, QuestAiWorkKind, QuestJobAcceptedResponse, QuestJobKind, QuestJobStatus,
 };
@@ -3525,10 +3525,7 @@ pub async fn generate_character_portrait_handler(
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.status = JobStatus::Running;
-                    job.progress = 25.0;
-                    job.current_stage = "Generating portrait".to_string();
-                    job.updated_at = shared_now_ms();
+                    job.transition(JobStatus::Running, 25.0, "Generating portrait".to_string());
                 }
             }
             match generate_image_bytes(&wrapped_prompt, Some(0.7), 512, 512, Some("1:1")).await {
@@ -3540,9 +3537,7 @@ pub async fn generate_character_portrait_handler(
                     let data_url = format!("data:image/png;base64,{encoded}");
                     if let Ok(mut map) = jobs.lock() {
                         if let Some(job) = map.get_mut(&spawned_job_id) {
-                            job.status = JobStatus::Completed;
-                            job.progress = 100.0;
-                            job.current_stage = "Completed".to_string();
+                            job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
                             job.result = Some(json!({ "dataUrl": data_url }));
                             job.output_refs = vec![JobOutputRef {
                                 id: "portrait-output".to_string(),
@@ -3552,18 +3547,14 @@ pub async fn generate_character_portrait_handler(
                                 route: None,
                                 preview_text: Some("Portrait generated successfully.".to_string()),
                             }];
-                            job.updated_at = shared_now_ms();
                         }
                     }
                 }
                 Err((_code, message)) => {
                     if let Ok(mut map) = jobs.lock() {
                         if let Some(job) = map.get_mut(&spawned_job_id) {
-                            job.status = JobStatus::Failed;
-                            job.progress = 100.0;
-                            job.current_stage = "Failed".to_string();
+                            job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
                             job.error = Some(message);
-                            job.updated_at = shared_now_ms();
                         }
                     }
                 }
@@ -3665,34 +3656,29 @@ Return ONLY the description text. Focus on how the ash-filled world has weathere
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.status = JobStatus::Running;
-                    job.progress = 25.0;
-                    job.current_stage = "Enhancing appearance prompt".to_string();
-                    job.updated_at = shared_now_ms();
+                    job.transition(
+                        JobStatus::Running,
+                        25.0,
+                        "Enhancing appearance prompt".to_string(),
+                    );
                 }
             }
             match generate_text(&prompt).await {
                 Ok(text) => {
                     if let Ok(mut map) = jobs.lock() {
                         if let Some(job) = map.get_mut(&spawned_job_id) {
-                            job.status = JobStatus::Completed;
-                            job.progress = 100.0;
-                            job.current_stage = "Completed".to_string();
+                            job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
                             job.result = Some(json!({ "text": text.clone() }));
                             job.output_refs =
                                 vec![build_text_output_ref("Appearance Prompt", &text)];
-                            job.updated_at = shared_now_ms();
                         }
                     }
                 }
                 Err((_code, message)) => {
                     if let Ok(mut map) = jobs.lock() {
                         if let Some(job) = map.get_mut(&spawned_job_id) {
-                            job.status = JobStatus::Failed;
-                            job.progress = 100.0;
-                            job.current_stage = "Failed".to_string();
+                            job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
                             job.error = Some(message);
-                            job.updated_at = shared_now_ms();
                         }
                     }
                 }

@@ -18,6 +18,14 @@
   "name": "Aya Shimizu",
   "occupations": [],
   "progression": {
+    "attributeUpgrades": {
+      "agility": 0,
+      "charisma": 0,
+      "endurance": 0,
+      "intelligence": 0,
+      "strength": 0,
+      "wisdom": 0
+    },
     "availableTalentPoints": 8,
     "occupationStates": [],
     "spentPioneerOccupationPoints": 0,
@@ -37,6 +45,8 @@
     "nextLevelCumulativeXp": 18362,
     "nextLevelXp": 5069,
     "occupationPointsTotal": 8,
+    "occupationTalentPointsSpent": 0,
+    "occupationUnlockPointsSpent": 0,
     "occupations": [],
     "pioneerLevel": 0,
     "pioneerPointsTotal": 0,

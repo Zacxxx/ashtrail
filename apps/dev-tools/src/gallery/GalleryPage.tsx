@@ -54,6 +54,7 @@ interface GalleryInventoryResponse {
         characters: GalleryInventoryItem[];
         isolated: GalleryInventoryItem[];
         sprites: GalleryInventoryItem[];
+        songs: GalleryInventoryItem[];
         packs: GalleryInventoryItem[];
     };
 }
@@ -162,7 +163,7 @@ export function GalleryPage() {
         setIsLoadingCloudBrowser(true);
         setCloudError(null);
         try {
-            const res = await fetch("/api/storage/supabase/browse?imagesOnly=true");
+            const res = await fetch("/api/storage/supabase/browse?imagesOnly=false");
             const payload = await res.json().catch(() => ({}));
             if (!res.ok) {
                 throw new Error(payload?.error || "Failed to browse cloud bucket");
@@ -222,6 +223,9 @@ export function GalleryPage() {
             setIsDeletingPortrait(false);
         }
     };
+
+    const isImageObject = (object: CloudObject) => /\.(png|jpe?g|webp|gif)$/i.test(object.path);
+    const isAudioObject = (object: CloudObject) => /\.(wav|mp3|ogg)$/i.test(object.path);
 
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
@@ -391,24 +395,37 @@ export function GalleryPage() {
                         <p className="text-xs text-gray-400">Loading cloud assets...</p>
                     )}
                     {!isLoadingCloudBrowser && cloudObjects.length === 0 && (
-                        <p className="text-xs text-gray-500">No cloud images found for the configured Supabase prefix.</p>
+                        <p className="text-xs text-gray-500">No cloud assets found for the configured Supabase prefix.</p>
                     )}
                     {!isLoadingCloudBrowser && cloudObjects.length > 0 && (
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                             {cloudObjects.map((obj) => (
-                                <a
+                                <div
                                     key={obj.path}
-                                    href={obj.publicUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
                                     className="group block bg-white/5 border border-white/10 rounded-lg overflow-hidden hover:border-cyan-400/50 transition-colors"
                                 >
-                                    <img src={obj.publicUrl} alt={obj.name} className="w-full h-28 object-cover bg-black/40" />
+                                    {isImageObject(obj) ? (
+                                        <img src={obj.publicUrl} alt={obj.name} className="w-full h-28 object-cover bg-black/40" />
+                                    ) : isAudioObject(obj) ? (
+                                        <div className="bg-black/50 p-3">
+                                            <div className="mb-3 text-[10px] uppercase tracking-widest text-cyan-300">Audio</div>
+                                            <audio controls preload="none" className="w-full">
+                                                <source src={obj.publicUrl} />
+                                            </audio>
+                                        </div>
+                                    ) : (
+                                        <div className="flex h-28 items-center justify-center bg-black/50 text-[10px] uppercase tracking-widest text-gray-500">
+                                            File
+                                        </div>
+                                    )}
                                     <div className="p-2">
                                         <p className="text-[10px] text-gray-200 truncate">{obj.name}</p>
                                         <p className="text-[9px] text-gray-500 truncate">{obj.path}</p>
+                                        <a href={obj.publicUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-[9px] uppercase tracking-widest text-cyan-300 hover:text-cyan-100">
+                                            Open
+                                        </a>
                                     </div>
-                                </a>
+                                </div>
                             ))}
                         </div>
                     )}

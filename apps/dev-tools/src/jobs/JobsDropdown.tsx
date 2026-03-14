@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
+import { DEVTOOLS_ROUTES } from "../lib/routes";
+import { deriveChildLabel } from "./model";
 import { useJobs } from "./useJobs";
 import type { JobListItem, JobOutputRef } from "./types";
 import { isActiveJob } from "./types";
@@ -35,6 +38,7 @@ function questSubtitle(job: JobListItem, worldName?: string | null): string {
 }
 
 export function JobsDropdown() {
+    const navigate = useNavigate();
     const { jobs, cancelJob, openOutput, redoJob, getJobDetail } = useJobs();
     const { history } = useGenerationHistory();
     const [tab, setTab] = useState<"running" | "history">("running");
@@ -88,7 +92,12 @@ export function JobsDropdown() {
     return (
         <div className="absolute right-0 top-12 z-[120] w-[420px] overflow-hidden rounded-3xl border border-white/10 bg-[#071018]/95 shadow-2xl backdrop-blur-xl">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                <div className="text-[10px] font-black uppercase tracking-[0.3em] text-white">Job Center</div>
+                <div className="flex items-center gap-3">
+                    <div className="text-[10px] font-black uppercase tracking-[0.3em] text-white">Job Center</div>
+                    <button type="button" onClick={() => navigate(DEVTOOLS_ROUTES.jobCenter)} className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200 hover:bg-cyan-500/20">
+                        Open Explorer
+                    </button>
+                </div>
                 <div className="flex gap-2 text-[10px] font-bold uppercase tracking-[0.2em]">
                     <button type="button" onClick={() => setTab("running")} className={`rounded-full px-3 py-1 ${tab === "running" ? "bg-cyan-500/20 text-cyan-200" : "bg-white/5 text-gray-400"}`}>Running</button>
                     <button type="button" onClick={() => setTab("history")} className={`rounded-full px-3 py-1 ${tab === "history" ? "bg-cyan-500/20 text-cyan-200" : "bg-white/5 text-gray-400"}`}>History</button>
@@ -138,7 +147,7 @@ export function JobsDropdown() {
                                             <div className="mt-3 space-y-2">
                                                 {children.map((child) => (
                                                     <div key={child.jobId} className="rounded-xl border border-white/5 bg-white/5 px-3 py-2 text-xs text-gray-300">
-                                                        Illustration: {child.status} • {child.currentStage}
+                                                        {deriveChildLabel(child)}: {child.status} • {child.currentStage}
                                                     </div>
                                                 ))}
                                             </div>

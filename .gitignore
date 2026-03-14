@@ -52,6 +52,8 @@ apps/dev-tools/generated/world-cache/hybrid-a74bcbf8-0074-433d-a81f-8a9f86ac4deb
 apps/dev-tools/generated/textures/*
 apps/dev-tools/generated/world-cache/*
 apps/dev-tools/backend/bin/*
+apps/dev-tools/generated/media-audio/*
+!apps/dev-tools/generated/media-audio/.gitkeep
 apps/dev-tools/generated/upscale/*
 apps/dev-tools/generated/planets/*
 apps/dev-tools/generated/characters/portraits/*
@@ -81,5 +83,8 @@ game-assets/assets/Icons/security/005.png
 
 # Gallery-synced textures are stored in Supabase bucket, not in Git
 game-assets/assets/Textures/
+game-assets/assets/Songs/*
+!game-assets/assets/Songs/.gitkeep
 game-assets/assets/IsolatedRegions/
 game-assets/assets/IsolatedRegions/*
+gen-lang-client-0415457494-7d9044b9ea9f.json

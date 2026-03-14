@@ -305,14 +305,11 @@ impl ExplorationGenerationRuntime {
     ) {
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(job) = jobs.get_mut(job_id) {
-                job.status = status;
-                job.progress = progress;
-                job.current_stage = stage.to_string();
+                job.transition(status, progress, stage.to_string());
                 if result.is_some() {
                     job.result = result;
                 }
                 job.error = error;
-                job.updated_at = now_ms();
             }
         }
     }
@@ -340,11 +337,7 @@ impl ExplorationGenerationRuntime {
         let Some(job) = jobs.get_mut(job_id) else {
             return Ok(false);
         };
-        job.cancel_requested = true;
-        if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-            job.current_stage = "Cancellation requested".to_string();
-            job.updated_at = now_ms();
-        }
+        job.set_cancel_requested("Cancellation requested");
         Ok(true)
     }
 

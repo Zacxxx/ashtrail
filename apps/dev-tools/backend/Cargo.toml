@@ -22,3 +22,5 @@ base64 = "0.22.1"
 rayon = "1.10"
 worldgen-core = { path = "../../../packages/worldgen-core" }
 rand = "0.9"
+jsonwebtoken = "9.3"
+serde_urlencoded = "0.7"
