@@ -4,9 +4,14 @@ import * as THREE from "three";
 interface ImageGlobeProps {
     textureUrl: string;
     showHexGrid?: boolean;
+    transparentBackground?: boolean;
 }
 
-export function ImageGlobe({ textureUrl, showHexGrid = false }: ImageGlobeProps) {
+export function ImageGlobe({
+    textureUrl,
+    showHexGrid = false,
+    transparentBackground = false,
+}: ImageGlobeProps) {
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -14,14 +19,15 @@ export function ImageGlobe({ textureUrl, showHexGrid = false }: ImageGlobeProps)
         if (!container) return;
 
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color("#050b14");
+        scene.background = transparentBackground ? null : new THREE.Color("#050b14");
 
         const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
         camera.position.set(0, 0, 3.2);
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: transparentBackground });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.setClearAlpha(transparentBackground ? 0 : 1);
         container.appendChild(renderer.domElement);
 
         const ambient = new THREE.AmbientLight(0xffffff, 0.35);
@@ -177,7 +183,7 @@ export function ImageGlobe({ textureUrl, showHexGrid = false }: ImageGlobeProps)
             }
             scene.clear();
         };
-    }, [textureUrl, showHexGrid]);
+    }, [textureUrl, showHexGrid, transparentBackground]);
 
     return (
         <div
