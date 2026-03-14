@@ -12,6 +12,7 @@ import { HistoryPage } from "./history";
 import { EcologyPage } from "./ecology";
 import { GameMasterPage } from "./game-master";
 import { QuestPage } from "./quests";
+import { StoryLoopPage } from "./story-loop";
 
 const router = createBrowserRouter([
     {
@@ -28,6 +29,7 @@ const router = createBrowserRouter([
             { path: "/history", element: <HistoryPage /> },
             { path: "/ecology", element: <EcologyPage /> },
             { path: "/quests", element: <QuestPage /> },
+            { path: "/story-loop", element: <StoryLoopPage /> },
         ]
     },
 ]);

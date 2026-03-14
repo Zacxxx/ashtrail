@@ -72,6 +72,14 @@ const TOOLS = [
         icon: "🧭",
         status: "STABLE",
         color: "bg-amber-500",
+    },
+    {
+        id: "story-loop",
+        name: "Story Loop",
+        description: "Hackathon-facing hybrid loop planner for quest-driven scenes, inserts, and mixed media.",
+        icon: "LIVE",
+        status: "WIP",
+        color: "bg-cyan-500",
     }
 ];
 

@@ -54,6 +54,17 @@ function matchesLocationJob(job: JobListItem, worldId: string, locationId: strin
         && job.metadata.locationId === locationId;
 }
 
+function dedupeLocations(locations: LocationOption[]) {
+    const deduped = new Map<string, LocationOption>();
+    for (const location of locations) {
+        if (!location.id) continue;
+        if (!deduped.has(location.id)) {
+            deduped.set(location.id, location);
+        }
+    }
+    return [...deduped.values()];
+}
+
 export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
     const [searchParams] = useSearchParams();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
@@ -271,7 +282,7 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                 const data = await response.json();
                 if (cancelled) return;
 
-                const locations: LocationOption[] = [
+                const locations = dedupeLocations([
                     {
                         id: TEST_EXPLORATION_LOCATION_ID,
                         name: "Test Exploration",
@@ -280,14 +291,14 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                         builtIn: true,
                     },
                     ...((Array.isArray(data)
-                    ? data.map((entry: any) => ({
-                        id: String(entry.id || ""),
-                        name: String(entry.name || "Unnamed Location"),
-                        lore: typeof entry.lore === "string" ? entry.lore : "",
-                        type: typeof entry.type === "string" ? entry.type : "",
-                    }))
-                    : []) as LocationOption[]),
-                ];
+                        ? data.map((entry: any) => ({
+                            id: String(entry.id || ""),
+                            name: String(entry.name || "Unnamed Location"),
+                            lore: typeof entry.lore === "string" ? entry.lore : "",
+                            type: typeof entry.type === "string" ? entry.type : "",
+                        }))
+                        : []) as LocationOption[]),
+                ]);
 
                 setAvailableLocations(locations);
                 if (locations.length === 0) {

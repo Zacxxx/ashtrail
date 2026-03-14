@@ -1,6 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { ExplorationChunk, ExplorationManifestDescriptor, ExplorationPawn, MapObject, Tile } from "@ashtrail/core";
-import { TILE_ELEVATION, TILE_HEIGHT, TILE_WIDTH, gridToScreen, screenToGrid } from "./iso/shared";
+import * as THREE from "three";
+import type {
+    ExplorationChunk,
+    ExplorationManifestDescriptor,
+    ExplorationPawn,
+    MapObject,
+    Tile,
+} from "@ashtrail/core";
 import { useExplorationWebSocket } from "./exploration/useExplorationWebSocket";
 import type { ExplorationLaunchConfig } from "./explorationSupport";
 
@@ -10,10 +16,28 @@ interface IsometricLocationExplorationProps {
 }
 
 type HoverCell = { row: number; col: number } | null;
-type Camera = { x: number; y: number };
 
-const MIN_ZOOM = 0.55;
-const MAX_ZOOM = 1.8;
+type ChunkVisual = {
+    group: THREE.Group;
+    roofs: Array<{ groupId: string | null; mesh: THREE.Object3D }>;
+    interiors: Array<{ interiorId: string | null; mesh: THREE.Object3D }>;
+};
+
+const DEFAULT_ZOOM = 1.15;
+const MIN_ZOOM = 0.28;
+const MAX_ZOOM = 4.25;
+const PAN_SPEED = 14;
+const EDGE_THRESHOLD = 72;
+const TILE_HEIGHT = 0.28;
+const WALL_HEIGHT = 1.75;
+const MAX_PIXEL_RATIO = 1.5;
+
+const BOX_GEOMETRY_CACHE = new Map<string, THREE.BoxGeometry>();
+const MATERIAL_CACHE = new Map<string, THREE.MeshLambertMaterial>();
+
+function clamp(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value));
+}
 
 function cellKey(row: number, col: number) {
     return `${row}:${col}`;
@@ -23,8 +47,8 @@ function objectKey(object: MapObject) {
     return object.id;
 }
 
-function clamp(value: number, min: number, max: number) {
-    return Math.min(max, Math.max(min, value));
+function chunkCoordKey(chunk: ExplorationChunk) {
+    return cellKey(chunk.chunkRow, chunk.chunkCol);
 }
 
 function objectFootprintContains(object: MapObject, row: number, col: number) {
@@ -32,18 +56,6 @@ function objectFootprintContains(object: MapObject, row: number, col: number) {
         && row < object.y + object.height
         && col >= object.x
         && col < object.x + object.width;
-}
-
-function isWallTile(tile: Tile | null | undefined) {
-    return tile?.type === "wall" || (!tile?.walkable && tile?.type !== "door");
-}
-
-function isDoorTile(tile: Tile | null | undefined) {
-    return tile?.type === "door" || Boolean(tile?.doorId);
-}
-
-function isInteriorTile(tile: Tile | null | undefined) {
-    return Boolean(tile?.interiorId && (tile.type === "interior-floor" || tile.type === "door" || tile.type === "wall"));
 }
 
 function isRoofObject(object: MapObject) {
@@ -54,36 +66,16 @@ function isDoorObject(object: MapObject) {
     return object.type === "door" || Boolean(object.doorId);
 }
 
-function applyLight(hex: string, factor: number) {
-    const normalized = hex.replace("#", "");
-    const bytes = normalized.length === 3
-        ? normalized.split("").map((value) => parseInt(`${value}${value}`, 16))
-        : [normalized.slice(0, 2), normalized.slice(2, 4), normalized.slice(4, 6)].map((value) => parseInt(value, 16));
-    const [r, g, b] = bytes.map((value) => clamp(Math.round(value * factor), 0, 255));
-    return `rgb(${r}, ${g}, ${b})`;
+function isStructuralObject(object: MapObject) {
+    return isRoofObject(object) || isDoorObject(object) || object.type.includes("wall");
 }
 
-function getPawnSpriteUrl(pawn: ExplorationPawn) {
-    if (pawn.textureUrl) return pawn.textureUrl;
-    if (pawn.sprite?.directions && pawn.facing) {
-        return pawn.sprite.directions[pawn.facing] || null;
-    }
-    return null;
+function isWallTile(tile: Tile | null | undefined) {
+    return tile?.type === "wall" || (!tile?.walkable && tile?.type !== "door");
 }
 
-function getPawnTone(pawn: ExplorationPawn, isSelected: boolean) {
-    if (isSelected) return { fill: "#67e8f9", stroke: "#d1f8ff" };
-    if (pawn.factionId === "player") return { fill: "#60a5fa", stroke: "#dbeafe" };
-    return { fill: "#f59e0b", stroke: "#fde68a" };
-}
-
-function getObjectTone(object: MapObject) {
-    if (isDoorObject(object)) return { top: "#c68a3a", left: "#8f5e24", right: "#73491a" };
-    if (isRoofObject(object)) return { top: "#7a3642", left: "#542430", right: "#451d28" };
-    if (object.type.includes("tree")) return { top: "#355f3a", left: "#244229", right: "#1c3420" };
-    if (object.type.includes("rock")) return { top: "#6b7280", left: "#4b5563", right: "#374151" };
-    if (object.type.includes("ruin")) return { top: "#8b7355", left: "#62513d", right: "#4d4031" };
-    return { top: "#8b5e3c", left: "#5f3f29", right: "#4f3422" };
+function isInteriorContentTile(tile: Tile | null | undefined) {
+    return tile?.type === "interior-floor";
 }
 
 function getTile(
@@ -107,27 +99,317 @@ function getTile(
     return chunk.tiles[localRow * chunk.width + localCol] || null;
 }
 
+function tileColor(tile: Tile, hovered: boolean, inRoute: boolean, interiorVisible: boolean, doorOpen: boolean) {
+    let color = "#27303d";
+    if (hovered) return "#2dd4bf";
+    if (inRoute) return "#22c55e";
+    if (tile.type === "wall") color = "#b1a89a";
+    else if (tile.type === "interior-floor") color = interiorVisible ? "#d6b27a" : "#4f3c2a";
+    else if (tile.type === "door") color = doorOpen ? "#be9660" : "#7e5426";
+    else if (tile.type === "floor") color = "#78ad54";
+    else if (tile.walkable) color = "#5f8248";
+
+    const shaded = new THREE.Color(color);
+    const lightFactor = tile.lightLevel == null
+        ? 1
+        : 0.62 + tile.lightLevel * (tile.type === "interior-floor" ? 0.44 : 0.52);
+    shaded.multiplyScalar(clamp(lightFactor, 0.2, 1.65));
+    return `#${shaded.getHexString()}`;
+}
+
+function objectPalette(object: MapObject) {
+    if (isDoorObject(object)) return { color: "#9b622c", emissive: "#2c1402" };
+    if (isRoofObject(object)) return { color: "#c09155", emissive: "#2b1304" };
+    if (object.type.includes("tree")) return { color: "#5f8e42", emissive: "#10200a" };
+    if (object.type.includes("rock")) return { color: "#7a7f89", emissive: "#0f1014" };
+    return { color: "#93704e", emissive: "#201006" };
+}
+
+function visiblePawnAtCell(
+    pawns: ExplorationPawn[],
+    chunksByCoord: Map<string, ExplorationChunk>,
+    descriptor: ExplorationManifestDescriptor | null,
+    revealedInteriorId: string | null,
+    row: number,
+    col: number,
+) {
+    return pawns.find((pawn) => {
+        const pawnRow = Number.isFinite(pawn.tileRow) ? pawn.tileRow : Math.round(pawn.y);
+        const pawnCol = Number.isFinite(pawn.tileCol) ? pawn.tileCol : Math.round(pawn.x);
+        if (pawnRow !== row || pawnCol !== col) {
+            return false;
+        }
+        if (!pawn.isNpc) {
+            return true;
+        }
+        const tile = getTile(chunksByCoord, descriptor, pawnRow, pawnCol);
+        return !tile?.interiorId || tile.interiorId === revealedInteriorId;
+    }) || null;
+}
+
+function createStandardMaterial(color: string, emissive?: string, opacity = 1) {
+    const key = `${color}:${emissive || ""}:${opacity}`;
+    const cached = MATERIAL_CACHE.get(key);
+    if (cached) {
+        return cached;
+    }
+    const material = new THREE.MeshLambertMaterial({
+        color,
+        emissive: emissive ? new THREE.Color(emissive) : new THREE.Color("#000000"),
+        transparent: opacity < 1,
+        opacity,
+        depthWrite: opacity >= 1,
+    });
+    MATERIAL_CACHE.set(key, material);
+    return material;
+}
+
+function getBoxGeometry(width: number, height: number, depth: number) {
+    const key = `${width}:${height}:${depth}`;
+    const cached = BOX_GEOMETRY_CACHE.get(key);
+    if (cached) {
+        return cached;
+    }
+    const geometry = new THREE.BoxGeometry(width, height, depth);
+    BOX_GEOMETRY_CACHE.set(key, geometry);
+    return geometry;
+}
+
+function createBlock(
+    width: number,
+    height: number,
+    depth: number,
+    color: string,
+    position: THREE.Vector3Like,
+    emissive?: string,
+    opacity = 1,
+) {
+    const mesh = new THREE.Mesh(
+        getBoxGeometry(width, height, depth),
+        createStandardMaterial(color, emissive, opacity),
+    );
+    mesh.position.set(position.x, position.y, position.z);
+    return mesh;
+}
+
+function buildChunkVisual(
+    chunk: ExplorationChunk,
+    chunksByCoord: Map<string, ExplorationChunk>,
+    descriptor: ExplorationManifestDescriptor,
+    visibility: {
+        revealedInteriorId: string | null;
+        revealedRoofGroupIds: string[];
+        openedDoorIds: string[];
+    },
+    showGrid: boolean,
+) {
+    const group = new THREE.Group();
+    group.name = chunk.id;
+    const roofs: ChunkVisual["roofs"] = [];
+    const interiors: ChunkVisual["interiors"] = [];
+
+    for (let localRow = 0; localRow < chunk.height; localRow += 1) {
+        for (let localCol = 0; localCol < chunk.width; localCol += 1) {
+            const row = chunk.originRow + localRow;
+            const col = chunk.originCol + localCol;
+            const tile = chunk.tiles[localRow * chunk.width + localCol];
+            if (!tile) continue;
+
+            const interiorVisible = !tile.interiorId || tile.interiorId === visibility.revealedInteriorId;
+            const doorOpen = Boolean(tile.doorId && visibility.openedDoorIds.includes(tile.doorId));
+            const color = tileColor(
+                tile,
+                false,
+                false,
+                interiorVisible,
+                doorOpen,
+            );
+            const baseHeight = tile.type === "interior-floor" ? 0.18 : TILE_HEIGHT;
+            const floor = createBlock(1, baseHeight, 1, color, {
+                x: col,
+                y: baseHeight / 2,
+                z: row,
+            }, "#050805");
+            if (isInteriorContentTile(tile) && !interiorVisible) {
+                floor.visible = false;
+            }
+            group.add(floor);
+
+            if (showGrid) {
+                const edges = new THREE.LineSegments(
+                    new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 0.01, 1)),
+                    new THREE.LineBasicMaterial({ color: "#17202a", transparent: true, opacity: 0.18 }),
+                );
+                edges.position.set(col, 0.02, row);
+                group.add(edges);
+            }
+
+            if (isWallTile(tile)) {
+                const wall = createBlock(0.92, WALL_HEIGHT, 0.92, "#b3a896", {
+                    x: col,
+                    y: baseHeight + WALL_HEIGHT / 2,
+                    z: row,
+                }, "#0a0804");
+                if (isInteriorContentTile(tile) && !interiorVisible) {
+                    wall.visible = false;
+                }
+                group.add(wall);
+            }
+        }
+    }
+
+    const seen = new Set<string>();
+    for (const object of chunk.objects) {
+        if (seen.has(objectKey(object))) continue;
+        seen.add(objectKey(object));
+
+        const palette = objectPalette(object);
+        const centerX = object.x + (object.width - 1) / 2;
+        const centerZ = object.y + (object.height - 1) / 2;
+        const interiorVisible = !object.interiorId || object.interiorId === visibility.revealedInteriorId;
+        if (object.interiorId && !interiorVisible && !isStructuralObject(object)) {
+            continue;
+        }
+
+        if (isRoofObject(object)) {
+            const roofRevealed = Boolean(
+                object.roofGroupId && visibility.revealedRoofGroupIds.includes(object.roofGroupId),
+            );
+            const roofHeight = 0.38;
+            const roof = createBlock(
+                Math.max(0.92, object.width - 0.08),
+                roofHeight,
+                Math.max(0.92, object.height - 0.08),
+                palette.color,
+                {
+                    x: centerX,
+                    y: TILE_HEIGHT + WALL_HEIGHT + roofHeight / 2 - 0.03,
+                    z: centerZ,
+                },
+                palette.emissive,
+                roofRevealed ? 0.24 : 1,
+            );
+            roof.renderOrder = roofRevealed ? 1 : 0;
+            roofs.push({ groupId: object.roofGroupId || null, mesh: roof });
+            group.add(roof);
+            continue;
+        }
+
+        if (object.type.includes("tree")) {
+            const treeShadow = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.34, 0.42, 0.02, 14),
+                new THREE.MeshBasicMaterial({ color: "#0b1408", transparent: true, opacity: 0.22 }),
+            );
+            treeShadow.position.set(centerX, 0.02, centerZ + 0.04);
+            const trunk = createBlock(0.28, 1.05, 0.28, "#8e5b33", {
+                x: centerX,
+                y: TILE_HEIGHT + 0.52,
+                z: centerZ,
+            });
+            const canopyA = createBlock(0.9, 0.55, 0.9, palette.color, {
+                x: centerX,
+                y: TILE_HEIGHT + 1.18,
+                z: centerZ,
+            }, palette.emissive);
+            const canopyB = createBlock(0.56, 0.46, 0.56, "#6ea24d", {
+                x: centerX + 0.14,
+                y: TILE_HEIGHT + 1.54,
+                z: centerZ - 0.12,
+            }, "#0f1a08");
+            const canopyC = createBlock(0.48, 0.34, 0.48, "#7ab155", {
+                x: centerX - 0.2,
+                y: TILE_HEIGHT + 1.34,
+                z: centerZ + 0.16,
+            }, "#10230a");
+            group.add(treeShadow, trunk, canopyA, canopyB, canopyC);
+            continue;
+        }
+
+        const objectHeight = isDoorObject(object)
+            ? 1.18
+            : (object.heightTiles || Math.max(1, Math.min(3, Math.max(object.width, object.height)))) * 0.6;
+        const mesh = createBlock(
+            Math.max(0.28, object.width * (isDoorObject(object) ? 0.26 : 0.9)),
+            objectHeight,
+            Math.max(0.12, object.height * (isDoorObject(object) ? 0.12 : 0.9)),
+            palette.color,
+            {
+                x: centerX,
+                y: TILE_HEIGHT + objectHeight / 2,
+                z: centerZ,
+            },
+            palette.emissive,
+        );
+        if (isDoorObject(object) && object.doorId && visibility.openedDoorIds.includes(object.doorId)) {
+            mesh.visible = false;
+        }
+        if (object.interiorId) {
+            interiors.push({ interiorId: object.interiorId || null, mesh });
+        }
+        group.add(mesh);
+    }
+
+    return { group, roofs, interiors };
+}
+
+function createPawnMesh(pawn: ExplorationPawn, isSelected: boolean) {
+    const group = new THREE.Group();
+    const baseColor = isSelected ? "#67e8f9" : pawn.factionId === "player" ? "#60a5fa" : "#f59e0b";
+    const shadow = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.24, 0.24, 0.03, 18),
+        new THREE.MeshBasicMaterial({ color: "#0b1120", transparent: true, opacity: isSelected ? 0.45 : 0.28 }),
+    );
+    shadow.position.y = 0.03;
+    group.add(shadow);
+
+    const torso = createBlock(0.42, 0.72, 0.42, baseColor, { x: 0, y: 0.43, z: 0 });
+    const head = createBlock(0.3, 0.3, 0.3, "#f8d4b4", { x: 0, y: 0.93, z: 0 });
+    group.add(torso, head);
+    group.position.set(pawn.x, TILE_HEIGHT, pawn.y);
+    return group;
+}
+
+function applyCameraPose(camera: THREE.OrthographicCamera, targetX: number, targetZ: number, zoom: number) {
+    camera.position.set(targetX + 18, 22, targetZ + 18);
+    camera.lookAt(targetX, 0, targetZ);
+    camera.zoom = zoom;
+    camera.updateProjectionMatrix();
+}
+
 export function IsometricLocationExploration({ session, onExit }: IsometricLocationExplorationProps) {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const dragRef = useRef<{ active: boolean; x: number; y: number; cameraX: number; cameraY: number }>({
+    const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+    const sceneRef = useRef<THREE.Scene | null>(null);
+    const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
+    const hoverMeshRef = useRef<THREE.Mesh | null>(null);
+    const pathLineRef = useRef<THREE.Line | null>(null);
+    const groundPlaneRef = useRef<THREE.Mesh | null>(null);
+    const chunkVisualsRef = useRef<Map<string, ChunkVisual>>(new Map());
+    const pawnMeshesRef = useRef<Map<string, THREE.Group>>(new Map());
+    const animationRef = useRef<number>(0);
+    const dragRef = useRef<{ active: boolean; button: number; x: number; y: number; targetX: number; targetZ: number }>({
         active: false,
+        button: 0,
         x: 0,
         y: 0,
-        cameraX: 0,
-        cameraY: 0,
+        targetX: 0,
+        targetZ: 0,
     });
-    const frameRef = useRef<number>(0);
-    const lastFrameRef = useRef<number>(0);
-    const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+    const raycasterRef = useRef(new THREE.Raycaster());
+    const pointerNdcRef = useRef(new THREE.Vector2());
+    const pointerRef = useRef({ x: 0, y: 0, inside: false });
     const keysPressedRef = useRef<Set<string>>(new Set());
-    const pointerRef = useRef<{ x: number; y: number; inside: boolean }>({ x: 0, y: 0, inside: false });
-    const lastSubscriptionRef = useRef<string>("");
+    const cameraTargetRef = useRef({ x: 0, z: 0, zoom: DEFAULT_ZOOM });
+    const lastFrameRef = useRef(0);
+    const lastSubscriptionRef = useRef("");
+    const latestPawnsRef = useRef<ExplorationPawn[]>([]);
+    const latestDescriptorRef = useRef<ExplorationManifestDescriptor | null>(null);
+    const latestSubscribeChunksRef = useRef<(centerRow: number, centerCol: number, radius: number) => void>(() => {});
 
     const [hoverCell, setHoverCell] = useState<HoverCell>(null);
-    const [camera, setCamera] = useState<Camera>({ x: 0, y: 0 });
-    const [zoom, setZoom] = useState(1);
     const [showGrid, setShowGrid] = useState(false);
+    const [zoomPercent, setZoomPercent] = useState(100);
+
     const {
         descriptor,
         chunks,
@@ -144,8 +426,12 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
         subscribeChunks,
     } = useExplorationWebSocket({ session });
 
+    latestPawnsRef.current = pawns;
+    latestDescriptorRef.current = descriptor;
+    latestSubscribeChunksRef.current = subscribeChunks;
+
     const chunksByCoord = useMemo(
-        () => new Map(chunks.map((chunk) => [cellKey(chunk.chunkRow, chunk.chunkCol), chunk])),
+        () => new Map(chunks.map((chunk) => [chunkCoordKey(chunk), chunk])),
         [chunks],
     );
     const loadedObjects = useMemo(() => {
@@ -159,20 +445,18 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
         }
         return [...deduped.values()];
     }, [chunks]);
-
     const visibleObjects = useMemo(
         () => loadedObjects.filter((object) => {
             if (isRoofObject(object) && object.roofGroupId && visibility.revealedRoofGroupIds.includes(object.roofGroupId)) {
                 return false;
             }
-            if (object.interiorId && object.interiorId !== visibility.revealedInteriorId && !isRoofObject(object) && !isDoorObject(object)) {
+            if (object.interiorId && object.interiorId !== visibility.revealedInteriorId && !isStructuralObject(object)) {
                 return false;
             }
             return true;
         }),
-        [loadedObjects, visibility.openedDoorIds, visibility.revealedInteriorId, visibility.revealedRoofGroupIds],
+        [loadedObjects, visibility.revealedInteriorId, visibility.revealedRoofGroupIds],
     );
-
     const selectedPawn = useMemo(
         () => pawns.find((pawn) => pawn.id === selectedPawnId) || pawns.find((pawn) => pawn.factionId === "player") || pawns[0] || null,
         [pawns, selectedPawnId],
@@ -183,23 +467,22 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
     );
     const hoveredPawn = useMemo(
         () => hoverCell
-            ? pawns.find((pawn) => Math.round(pawn.y) === hoverCell.row && Math.round(pawn.x) === hoverCell.col) || null
+            ? visiblePawnAtCell(
+                pawns,
+                chunksByCoord,
+                descriptor,
+                visibility.revealedInteriorId,
+                hoverCell.row,
+                hoverCell.col,
+            )
             : null,
-        [hoverCell, pawns],
+        [chunksByCoord, descriptor, hoverCell, pawns, visibility.revealedInteriorId],
     );
     const hoveredObject = useMemo(
         () => hoverCell
-            ? visibleObjects.find((object) => objectFootprintContains(object, hoverCell.row, hoverCell.col)) || null
+            ? visibleObjects.find((object) => !isRoofObject(object) && objectFootprintContains(object, hoverCell.row, hoverCell.col)) || null
             : null,
         [hoverCell, visibleObjects],
-    );
-    const sortedObjects = useMemo(
-        () => [...visibleObjects].sort((left, right) => (left.x + left.y + left.height + left.width) - (right.x + right.y + right.height + right.width)),
-        [visibleObjects],
-    );
-    const sortedPawns = useMemo(
-        () => [...pawns].sort((left, right) => (left.x + left.y) - (right.x + right.y)),
-        [pawns],
     );
     const interactionText = useMemo(() => {
         if (lastInteraction) {
@@ -214,26 +497,11 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
         if (hoveredTile?.type === "door") {
             return hoveredTile.doorId && visibility.openedDoorIds.includes(hoveredTile.doorId) ? "Open doorway" : "Closed doorway";
         }
-        if (hoveredObject && !isRoofObject(hoveredObject)) {
+        if (hoveredObject) {
             return hoveredObject.type.replace(/-/g, " ");
         }
         return selectedPawn ? `${selectedPawn.name} ready` : "Connecting exploration session";
     }, [hoveredObject, hoveredPawn, hoveredTile?.doorId, hoveredTile?.type, lastInteraction, selectedPawn, visibility.openedDoorIds]);
-
-    const centerCameraOnPawn = React.useCallback((pawn: ExplorationPawn | null, nextZoom: number) => {
-        if (!pawn) return;
-        const { x, y } = gridToScreen(pawn.y, pawn.x);
-        setCamera({
-            x: -x * nextZoom,
-            y: (-y - TILE_HEIGHT) * nextZoom,
-        });
-    }, []);
-
-    useEffect(() => {
-        if (selectedPawn && containerRef.current) {
-            centerCameraOnPawn(selectedPawn, zoom);
-        }
-    }, [centerCameraOnPawn, selectedPawn?.id, zoom]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -251,396 +519,316 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
     }, []);
 
     useEffect(() => {
-        const urls = new Set<string>();
-        for (const pawn of pawns) {
-            const url = getPawnSpriteUrl(pawn);
-            if (url) urls.add(url);
-        }
-        urls.forEach((url) => {
-            if (imageCacheRef.current.has(url)) return;
-            const image = new Image();
-            image.src = url;
-            image.onload = () => {
-                imageCacheRef.current.set(url, image);
-            };
-        });
-    }, [pawns]);
+        const container = containerRef.current;
+        if (!container) return;
 
-    useEffect(() => {
-        const tick = (timestamp: number) => {
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color("#071018");
+        scene.fog = new THREE.Fog("#071018", 28, 85);
+        sceneRef.current = scene;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.shadowMap.enabled = false;
+        renderer.setClearColor("#071018");
+        rendererRef.current = renderer;
+        container.appendChild(renderer.domElement);
+
+        const camera = new THREE.OrthographicCamera(-20, 20, 15, -15, 0.1, 200);
+        applyCameraPose(camera, cameraTargetRef.current.x, cameraTargetRef.current.z, cameraTargetRef.current.zoom);
+        cameraRef.current = camera;
+        scene.add(camera);
+
+        scene.add(new THREE.HemisphereLight("#dff3ff", "#132012", 1.18));
+        scene.add(new THREE.AmbientLight("#d7e6ff", 0.58));
+        const sun = new THREE.DirectionalLight("#ffe6b5", 1.95);
+        sun.position.set(16, 32, 10);
+        scene.add(sun);
+
+        const rim = new THREE.DirectionalLight("#6bc6ff", 0.48);
+        rim.position.set(-12, 10, -16);
+        scene.add(rim);
+
+        const highlight = new THREE.Mesh(
+            new THREE.BoxGeometry(1.04, 0.06, 1.04),
+            new THREE.MeshBasicMaterial({ color: "#67e8f9", transparent: true, opacity: 0.38 }),
+        );
+        highlight.visible = false;
+        hoverMeshRef.current = highlight;
+        scene.add(highlight);
+
+        const pathLine = new THREE.Line(
+            new THREE.BufferGeometry(),
+            new THREE.LineBasicMaterial({ color: "#34d399", transparent: true, opacity: 0.9 }),
+        );
+        pathLine.visible = false;
+        pathLineRef.current = pathLine;
+        scene.add(pathLine);
+
+        const resize = () => {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            renderer.setSize(width, height);
+            const aspect = Math.max(width / Math.max(height, 1), 1);
+            camera.left = -20 * aspect;
+            camera.right = 20 * aspect;
+            camera.top = 15;
+            camera.bottom = -15;
+            camera.updateProjectionMatrix();
+        };
+
+        const animate = (timestamp: number) => {
             const delta = lastFrameRef.current ? Math.min(0.05, (timestamp - lastFrameRef.current) / 1000) : 0;
             lastFrameRef.current = timestamp;
 
-            if (delta > 0 && containerRef.current) {
-                const EDGE_THRESHOLD = 72;
-                const PAN_SPEED = 840 * delta;
+            const pointer = pointerRef.current;
+            const keys = keysPressedRef.current;
+            if (delta > 0) {
                 let panX = 0;
-                let panY = 0;
-                const keys = keysPressedRef.current;
-                const pointer = pointerRef.current;
-                const width = containerRef.current.clientWidth;
-                const height = containerRef.current.clientHeight;
-
+                let panZ = 0;
                 if (pointer.inside) {
-                    if (pointer.x <= EDGE_THRESHOLD) panX += PAN_SPEED;
-                    if (pointer.x >= width - EDGE_THRESHOLD) panX -= PAN_SPEED;
-                    if (pointer.y <= EDGE_THRESHOLD) panY += PAN_SPEED;
-                    if (pointer.y >= height - EDGE_THRESHOLD) panY -= PAN_SPEED;
+                    if (pointer.x <= EDGE_THRESHOLD) panX -= PAN_SPEED * delta;
+                    if (pointer.x >= container.clientWidth - EDGE_THRESHOLD) panX += PAN_SPEED * delta;
+                    if (pointer.y <= EDGE_THRESHOLD) panZ -= PAN_SPEED * delta;
+                    if (pointer.y >= container.clientHeight - EDGE_THRESHOLD) panZ += PAN_SPEED * delta;
                 }
+                if (keys.has("a") || keys.has("arrowleft")) panX -= PAN_SPEED * delta;
+                if (keys.has("d") || keys.has("arrowright")) panX += PAN_SPEED * delta;
+                if (keys.has("w") || keys.has("arrowup")) panZ -= PAN_SPEED * delta;
+                if (keys.has("s") || keys.has("arrowdown")) panZ += PAN_SPEED * delta;
+                cameraTargetRef.current.x += panX;
+                cameraTargetRef.current.z += panZ;
+            }
 
-                if (keys.has("a") || keys.has("arrowleft")) panX += PAN_SPEED;
-                if (keys.has("d") || keys.has("arrowright")) panX -= PAN_SPEED;
-                if (keys.has("w") || keys.has("arrowup")) panY += PAN_SPEED;
-                if (keys.has("s") || keys.has("arrowdown")) panY -= PAN_SPEED;
+            applyCameraPose(
+                camera,
+                cameraTargetRef.current.x,
+                cameraTargetRef.current.z,
+                cameraTargetRef.current.zoom,
+            );
 
-                if (panX !== 0 || panY !== 0) {
-                    setCamera((previous) => ({
-                        x: previous.x + panX,
-                        y: previous.y + panY,
-                    }));
+            const currentDescriptor = latestDescriptorRef.current;
+            if (currentDescriptor) {
+                const visibleWidth = (camera.right - camera.left) / Math.max(camera.zoom, 1);
+                const visibleHeight = (camera.top - camera.bottom) / Math.max(camera.zoom, 1);
+                const radius = clamp(
+                    Math.ceil(Math.max(visibleWidth, visibleHeight) / Math.max(1, currentDescriptor.chunkSize)) + 1,
+                    0,
+                    2,
+                );
+                const centerRow = clamp(Math.round(cameraTargetRef.current.z), 0, currentDescriptor.height - 1);
+                const centerCol = clamp(Math.round(cameraTargetRef.current.x), 0, currentDescriptor.width - 1);
+                const subscriptionKey = `${centerRow}:${centerCol}:${radius}`;
+                if (lastSubscriptionRef.current !== subscriptionKey) {
+                    lastSubscriptionRef.current = subscriptionKey;
+                    latestSubscribeChunksRef.current(centerRow, centerCol, radius);
                 }
             }
 
-            frameRef.current = window.requestAnimationFrame(tick);
-        };
+            for (const pawn of latestPawnsRef.current) {
+                const mesh = pawnMeshesRef.current.get(pawn.id);
+                if (!mesh) continue;
+                mesh.position.x += (pawn.x - mesh.position.x) * 0.28;
+                mesh.position.z += (pawn.y - mesh.position.z) * 0.28;
+            }
 
-        frameRef.current = window.requestAnimationFrame(tick);
-        return () => {
-            window.cancelAnimationFrame(frameRef.current);
-        };
-    }, []);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        const container = containerRef.current;
-        if (!canvas || !container) return;
-
-        const resize = () => {
-            canvas.width = container.clientWidth;
-            canvas.height = container.clientHeight;
+            renderer.render(scene, camera);
+            animationRef.current = window.requestAnimationFrame(animate);
         };
 
         resize();
         const observer = new ResizeObserver(resize);
         observer.observe(container);
-        return () => observer.disconnect();
+        animationRef.current = window.requestAnimationFrame(animate);
+
+        return () => {
+            observer.disconnect();
+            window.cancelAnimationFrame(animationRef.current);
+            hoverMeshRef.current = null;
+            pathLineRef.current = null;
+            pawnMeshesRef.current.clear();
+            chunkVisualsRef.current.clear();
+            renderer.dispose();
+            container.removeChild(renderer.domElement);
+            rendererRef.current = null;
+            sceneRef.current = null;
+            cameraRef.current = null;
+        };
     }, []);
 
     useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas || !descriptor) return;
+        const scene = sceneRef.current;
+        if (!scene) return;
 
-        const worldX = (-camera.x) / zoom;
-        const worldY = (-camera.y) / zoom;
-        const center = screenToGrid(worldX, worldY);
-        const halfWidth = canvas.width / (2 * zoom);
-        const halfHeight = canvas.height / (2 * zoom);
-        const corners = [
-            screenToGrid(worldX - halfWidth, worldY - halfHeight),
-            screenToGrid(worldX + halfWidth, worldY - halfHeight),
-            screenToGrid(worldX - halfWidth, worldY + halfHeight),
-            screenToGrid(worldX + halfWidth, worldY + halfHeight),
-        ];
-        const centerChunkRow = Math.floor(center.row / descriptor.chunkSize);
-        const centerChunkCol = Math.floor(center.col / descriptor.chunkSize);
-        const chunkRadius = Math.min(2, Math.max(
-            0,
-            ...corners.map((corner) => Math.max(
-                Math.abs(Math.floor(corner.row / descriptor.chunkSize) - centerChunkRow),
-                Math.abs(Math.floor(corner.col / descriptor.chunkSize) - centerChunkCol),
-            )),
-        ) + 1);
-        const subscriptionKey = `${center.row}:${center.col}:${chunkRadius}`;
-        if (lastSubscriptionRef.current !== subscriptionKey) {
-            lastSubscriptionRef.current = subscriptionKey;
-            subscribeChunks(
-                clamp(center.row, 0, descriptor.height - 1),
-                clamp(center.col, 0, descriptor.width - 1),
-                chunkRadius,
-            );
-        }
-    }, [camera.x, camera.y, descriptor, subscribeChunks, zoom]);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas || !descriptor) return;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#081018";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        const originX = canvas.width / 2 + camera.x;
-        const originY = canvas.height / 2 + camera.y;
-        const scaledWidth = TILE_WIDTH * zoom;
-        const scaledHeight = TILE_HEIGHT * zoom;
-        const scaledElevation = TILE_ELEVATION * zoom;
-        const ambientLight = descriptor.ambientLight ?? 0.76;
-
-        const pathCells = new Set<string>();
-        if (selectedPawn?.path) {
-            for (const step of selectedPawn.path) {
-                pathCells.add(cellKey(step.y, step.x));
-            }
+        if (groundPlaneRef.current) {
+            scene.remove(groundPlaneRef.current);
+            groundPlaneRef.current.geometry.dispose();
+            (groundPlaneRef.current.material as THREE.Material).dispose();
         }
 
-        const drawDiamond = (screenX: number, screenY: number, fill: string, stroke = "rgba(0,0,0,0)") => {
-            ctx.beginPath();
-            ctx.moveTo(screenX, screenY);
-            ctx.lineTo(screenX + scaledWidth / 2, screenY + scaledHeight / 2);
-            ctx.lineTo(screenX, screenY + scaledHeight);
-            ctx.lineTo(screenX - scaledWidth / 2, screenY + scaledHeight / 2);
-            ctx.closePath();
-            ctx.fillStyle = fill;
-            ctx.fill();
-            if (stroke !== "rgba(0,0,0,0)") {
-                ctx.strokeStyle = stroke;
-                ctx.lineWidth = 1;
-                ctx.stroke();
-            }
-        };
-
-        for (const chunk of chunks) {
-            for (let localRow = 0; localRow < chunk.height; localRow += 1) {
-                for (let localCol = 0; localCol < chunk.width; localCol += 1) {
-                    const row = chunk.originRow + localRow;
-                    const col = chunk.originCol + localCol;
-                    const tile = chunk.tiles[localRow * chunk.width + localCol];
-                    if (!tile) continue;
-
-                    const { x, y } = gridToScreen(row, col);
-                    const screenX = originX + x * zoom;
-                    const screenY = originY + y * zoom;
-                    const isHovered = hoverCell?.row === row && hoverCell?.col === col;
-                    const inPath = pathCells.has(cellKey(row, col));
-                    const interiorVisible = tile.interiorId && tile.interiorId === visibility.revealedInteriorId;
-                    const interiorHidden = isInteriorTile(tile) && !interiorVisible;
-                    const doorOpen = tile.doorId ? visibility.openedDoorIds.includes(tile.doorId) : false;
-                    const tileLight = clamp((tile.lightLevel ?? 0.82) * ambientLight * (interiorVisible ? 1.18 : 1), 0.18, 1.15);
-
-                    let fill = tile.walkable ? "#273444" : "#1a2230";
-                    let stroke = "rgba(0,0,0,0)";
-                    if (tile.type === "wall") {
-                        fill = "#3b3b45";
-                    }
-                    if (tile.type === "interior-floor") {
-                        fill = "#473a2c";
-                    }
-                    if (tile.type === "door") {
-                        fill = doorOpen ? "#9a7a54" : "#6b5538";
-                    }
-                    if (tile.type === "floor") {
-                        fill = "#314638";
-                    }
-                    if (interiorHidden && tile.type !== "door") {
-                        fill = "#12161f";
-                    }
-                    if (isHovered) {
-                        fill = "#155e75";
-                        stroke = "#67e8f9";
-                    } else if (inPath) {
-                        fill = "#0f766e";
-                        stroke = "#5eead4";
-                    }
-
-                    drawDiamond(screenX, screenY, applyLight(fill, tileLight), stroke);
-
-                    if (isWallTile(tile) && !interiorHidden) {
-                        const southBlocked = isWallTile(getTile(chunksByCoord, descriptor, row + 1, col));
-                        const eastBlocked = isWallTile(getTile(chunksByCoord, descriptor, row, col + 1));
-                        const topVisible = !isWallTile(getTile(chunksByCoord, descriptor, row - 1, col)) || !isWallTile(getTile(chunksByCoord, descriptor, row, col - 1));
-                        if (topVisible) {
-                            drawDiamond(screenX, screenY - scaledElevation, applyLight("#4b5563", tileLight * 1.04), "rgba(255,255,255,0.04)");
-                        }
-                        if (!southBlocked) {
-                            ctx.beginPath();
-                            ctx.moveTo(screenX - scaledWidth / 2, screenY + scaledHeight / 2 - scaledElevation);
-                            ctx.lineTo(screenX, screenY + scaledHeight - scaledElevation);
-                            ctx.lineTo(screenX, screenY + scaledHeight);
-                            ctx.lineTo(screenX - scaledWidth / 2, screenY + scaledHeight / 2);
-                            ctx.closePath();
-                            ctx.fillStyle = applyLight("#374151", tileLight * 0.84);
-                            ctx.fill();
-                        }
-                        if (!eastBlocked) {
-                            ctx.beginPath();
-                            ctx.moveTo(screenX + scaledWidth / 2, screenY + scaledHeight / 2 - scaledElevation);
-                            ctx.lineTo(screenX, screenY + scaledHeight - scaledElevation);
-                            ctx.lineTo(screenX, screenY + scaledHeight);
-                            ctx.lineTo(screenX + scaledWidth / 2, screenY + scaledHeight / 2);
-                            ctx.closePath();
-                            ctx.fillStyle = applyLight("#1f2937", tileLight * 0.72);
-                            ctx.fill();
-                        }
-                    }
-                }
-            }
-        }
-
-        for (const object of sortedObjects) {
-            const { top, left, right } = getObjectTone(object);
-            const alpha = object.isHidden ? 0.24 : isRoofObject(object) ? 0.88 : 0.96;
-            const anchorRow = object.y + (object.height - 1) / 2;
-            const anchorCol = object.x + (object.width - 1) / 2;
-            const { x, y } = gridToScreen(anchorRow, anchorCol);
-            const footprintScale = isRoofObject(object) ? 1 : isDoorObject(object) ? 0.42 : 0.68;
-            const screenX = originX + x * zoom;
-            const screenY = originY + y * zoom - (Math.max(object.heightTiles || 1, 1) * scaledElevation * (isRoofObject(object) ? 0.72 : 0.26));
-            const footprintWidth = scaledWidth * ((object.width + object.height) / 2) * footprintScale;
-            const footprintHeight = scaledHeight * ((object.width + object.height) / 2) * footprintScale;
-            const height = scaledElevation * Math.max(1, object.heightTiles || Math.min(3, Math.max(object.width, object.height)));
-
-            ctx.save();
-            ctx.globalAlpha = alpha;
-
-            ctx.beginPath();
-            ctx.moveTo(screenX, screenY);
-            ctx.lineTo(screenX + footprintWidth / 2, screenY + footprintHeight / 2);
-            ctx.lineTo(screenX, screenY + footprintHeight);
-            ctx.lineTo(screenX - footprintWidth / 2, screenY + footprintHeight / 2);
-            ctx.closePath();
-            ctx.fillStyle = top;
-            ctx.fill();
-            if (isRoofObject(object)) {
-                ctx.strokeStyle = "rgba(255,255,255,0.06)";
-                ctx.stroke();
-            }
-
-            ctx.beginPath();
-            ctx.moveTo(screenX - footprintWidth / 2, screenY + footprintHeight / 2);
-            ctx.lineTo(screenX, screenY + footprintHeight);
-            ctx.lineTo(screenX, screenY + footprintHeight + height);
-            ctx.lineTo(screenX - footprintWidth / 2, screenY + footprintHeight / 2 + height);
-            ctx.closePath();
-            ctx.fillStyle = left;
-            ctx.fill();
-
-            ctx.beginPath();
-            ctx.moveTo(screenX + footprintWidth / 2, screenY + footprintHeight / 2);
-            ctx.lineTo(screenX, screenY + footprintHeight);
-            ctx.lineTo(screenX, screenY + footprintHeight + height);
-            ctx.lineTo(screenX + footprintWidth / 2, screenY + footprintHeight / 2 + height);
-            ctx.closePath();
-            ctx.fillStyle = right;
-            ctx.fill();
-            ctx.restore();
-        }
-
-        for (const pawn of sortedPawns) {
-            if (pawn.homeInteriorId && pawn.homeInteriorId !== visibility.revealedInteriorId && pawn.isNpc) {
-                continue;
-            }
-            const { x, y } = gridToScreen(pawn.y, pawn.x);
-            const screenX = originX + x * zoom;
-            const screenY = originY + y * zoom;
-            const isSelected = pawn.id === selectedPawn?.id;
-            const tone = getPawnTone(pawn, isSelected);
-            const spriteUrl = getPawnSpriteUrl(pawn);
-            const sprite = spriteUrl ? imageCacheRef.current.get(spriteUrl) : null;
-
-            ctx.beginPath();
-            ctx.ellipse(screenX, screenY + scaledHeight * 0.78, scaledWidth * 0.18, scaledHeight * 0.18, 0, 0, Math.PI * 2);
-            ctx.fillStyle = isSelected ? "rgba(34,211,238,0.35)" : "rgba(15,23,42,0.45)";
-            ctx.fill();
-
-            if (sprite) {
-                const spriteWidth = scaledWidth * 0.95;
-                const spriteHeight = scaledWidth * 1.05;
-                ctx.drawImage(sprite, screenX - spriteWidth / 2, screenY - spriteHeight * 0.66, spriteWidth, spriteHeight);
-            } else {
-                ctx.beginPath();
-                ctx.arc(screenX, screenY + scaledHeight * 0.12, scaledWidth * 0.18, 0, Math.PI * 2);
-                ctx.fillStyle = tone.fill;
-                ctx.fill();
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = tone.stroke;
-                ctx.stroke();
-            }
-
-            ctx.fillStyle = "#f8fafc";
-            ctx.font = `${Math.max(10, 11 * zoom)}px sans-serif`;
-            ctx.textAlign = "center";
-            ctx.fillText(pawn.name, screenX, screenY - scaledHeight * 0.18);
-        }
-
-        if (showGrid) {
-            ctx.save();
-            ctx.strokeStyle = "rgba(255,255,255,0.045)";
-            ctx.lineWidth = 1;
-            for (const chunk of chunks) {
-                for (let localRow = 0; localRow < chunk.height; localRow += 1) {
-                    for (let localCol = 0; localCol < chunk.width; localCol += 1) {
-                        const row = chunk.originRow + localRow;
-                        const col = chunk.originCol + localCol;
-                        const { x, y } = gridToScreen(row, col);
-                        const screenX = originX + x * zoom;
-                        const screenY = originY + y * zoom;
-                        ctx.beginPath();
-                        ctx.moveTo(screenX, screenY);
-                        ctx.lineTo(screenX + scaledWidth / 2, screenY + scaledHeight / 2);
-                        ctx.lineTo(screenX, screenY + scaledHeight);
-                        ctx.lineTo(screenX - scaledWidth / 2, screenY + scaledHeight / 2);
-                        ctx.closePath();
-                        ctx.stroke();
-                    }
-                }
-            }
-            ctx.restore();
-        }
-    }, [
-        camera.x,
-        camera.y,
-        chunks,
-        chunksByCoord,
-        descriptor,
-        hoverCell,
-        pawns,
-        selectedPawn,
-        showGrid,
-        sortedObjects,
-        sortedPawns,
-        visibility.openedDoorIds,
-        visibility.revealedInteriorId,
-        visibility.revealedRoofGroupIds,
-        zoom,
-    ]);
-
-    const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-        const canvas = canvasRef.current;
-        if (!canvas || !descriptor) return;
-        const rect = canvas.getBoundingClientRect();
-        const localX = event.clientX - rect.left;
-        const localY = event.clientY - rect.top;
-        pointerRef.current = { x: localX, y: localY, inside: true };
-
-        if (dragRef.current.active) {
-            setCamera({
-                x: dragRef.current.cameraX + (event.clientX - dragRef.current.x),
-                y: dragRef.current.cameraY + (event.clientY - dragRef.current.y),
-            });
+        if (!descriptor) {
+            groundPlaneRef.current = null;
             return;
         }
 
-        const worldX = (localX - canvas.width / 2 - camera.x) / zoom;
-        const worldY = (localY - canvas.height / 2 - camera.y) / zoom;
-        const { row, col } = screenToGrid(worldX, worldY);
+        const plane = new THREE.Mesh(
+            new THREE.PlaneGeometry(descriptor.width + 2, descriptor.height + 2),
+            new THREE.MeshBasicMaterial({ visible: false }),
+        );
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.set((descriptor.width - 1) / 2, 0, (descriptor.height - 1) / 2);
+        groundPlaneRef.current = plane;
+        scene.add(plane);
+    }, [descriptor]);
 
-        if (row >= 0 && col >= 0 && row < descriptor.height && col < descriptor.width) {
-            setHoverCell((previous) => (previous?.row === row && previous?.col === col ? previous : { row, col }));
-        } else {
-            setHoverCell((previous) => (previous === null ? previous : null));
+    useEffect(() => {
+        const scene = sceneRef.current;
+        if (!scene || !descriptor) return;
+
+        for (const visual of chunkVisualsRef.current.values()) {
+            scene.remove(visual.group);
         }
+        chunkVisualsRef.current.clear();
+
+        for (const chunk of chunks) {
+            const visual = buildChunkVisual(
+                chunk,
+                chunksByCoord,
+                descriptor,
+                visibility,
+                showGrid,
+            );
+            chunkVisualsRef.current.set(chunk.id, visual);
+            scene.add(visual.group);
+        }
+    }, [chunks, chunksByCoord, descriptor, showGrid, visibility]);
+
+    useEffect(() => {
+        const scene = sceneRef.current;
+        if (!scene) return;
+
+        const existing = new Set(pawnMeshesRef.current.keys());
+        for (const pawn of pawns) {
+            const isSelected = pawn.id === selectedPawn?.id;
+            const pawnRow = Number.isFinite(pawn.tileRow) ? pawn.tileRow : Math.round(pawn.y);
+            const pawnCol = Number.isFinite(pawn.tileCol) ? pawn.tileCol : Math.round(pawn.x);
+            const pawnTile = getTile(chunksByCoord, descriptor, pawnRow, pawnCol);
+            const pawnVisible = !pawn.isNpc || !pawnTile?.interiorId || pawnTile.interiorId === visibility.revealedInteriorId;
+            const existingMesh = pawnMeshesRef.current.get(pawn.id);
+            if (!existingMesh) {
+                const mesh = createPawnMesh(pawn, isSelected);
+                mesh.visible = pawnVisible;
+                pawnMeshesRef.current.set(pawn.id, mesh);
+                scene.add(mesh);
+            } else {
+                existing.delete(pawn.id);
+                existingMesh.visible = pawnVisible;
+                const material = (existingMesh.children[1] as THREE.Mesh).material;
+                if (material instanceof THREE.MeshLambertMaterial || material instanceof THREE.MeshStandardMaterial) {
+                    material.color.set(isSelected ? "#67e8f9" : pawn.factionId === "player" ? "#60a5fa" : "#f59e0b");
+                }
+            }
+        }
+        for (const pawnId of existing) {
+            const mesh = pawnMeshesRef.current.get(pawnId);
+            if (!mesh) continue;
+            scene.remove(mesh);
+            pawnMeshesRef.current.delete(pawnId);
+        }
+    }, [chunksByCoord, descriptor, pawns, selectedPawn?.id, visibility.revealedInteriorId]);
+
+    useEffect(() => {
+        const highlight = hoverMeshRef.current;
+        if (!highlight || !hoverCell) {
+            if (highlight) highlight.visible = false;
+            return;
+        }
+        highlight.visible = true;
+        highlight.position.set(hoverCell.col, 0.09, hoverCell.row);
+    }, [hoverCell]);
+
+    useEffect(() => {
+        const pathLine = pathLineRef.current;
+        if (!pathLine || !selectedPawn?.route?.length) {
+            if (pathLine) pathLine.visible = false;
+            return;
+        }
+        const points = [
+            new THREE.Vector3(selectedPawn.x, TILE_HEIGHT + 0.04, selectedPawn.y),
+            ...selectedPawn.route.slice(selectedPawn.routeIndex).map((step) => (
+                new THREE.Vector3(step.col, TILE_HEIGHT + 0.04, step.row)
+            )),
+        ];
+        pathLine.geometry.dispose();
+        pathLine.geometry = new THREE.BufferGeometry().setFromPoints(points);
+        pathLine.visible = points.length > 1;
+    }, [selectedPawn]);
+
+    useEffect(() => {
+        if (!selectedPawn || dragRef.current.active) {
+            return;
+        }
+        cameraTargetRef.current.x = selectedPawn.x;
+        cameraTargetRef.current.z = selectedPawn.y;
+    }, [selectedPawn?.id]);
+
+    const updateZoom = (direction: "in" | "out") => {
+        cameraTargetRef.current.zoom = clamp(
+            cameraTargetRef.current.zoom + (direction === "in" ? 0.35 : -0.35),
+            MIN_ZOOM,
+            MAX_ZOOM,
+        );
+        setZoomPercent(Math.round((cameraTargetRef.current.zoom / DEFAULT_ZOOM) * 100));
     };
 
-    const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const updateHoverFromPointer = (clientX: number, clientY: number) => {
+        const camera = cameraRef.current;
+        const renderer = rendererRef.current;
+        const groundPlane = groundPlaneRef.current;
+        if (!camera || !renderer || !groundPlane || !descriptor) {
+            setHoverCell(null);
+            return;
+        }
+
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointerNdcRef.current.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        pointerNdcRef.current.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+        raycasterRef.current.setFromCamera(pointerNdcRef.current, camera);
+        const hits = raycasterRef.current.intersectObject(groundPlane, false);
+        const hit = hits[0];
+        if (!hit) {
+            setHoverCell(null);
+            return;
+        }
+        const row = Math.round(hit.point.z);
+        const col = Math.round(hit.point.x);
+        if (row < 0 || col < 0 || row >= descriptor.height || col >= descriptor.width) {
+            setHoverCell(null);
+            return;
+        }
+        setHoverCell({ row, col });
+    };
+
+    const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+        pointerRef.current = { x: event.nativeEvent.offsetX, y: event.nativeEvent.offsetY, inside: true };
+        if (dragRef.current.active) {
+            cameraTargetRef.current.x = dragRef.current.targetX - (event.clientX - dragRef.current.x) * 0.05;
+            cameraTargetRef.current.z = dragRef.current.targetZ - (event.clientY - dragRef.current.y) * 0.05;
+            return;
+        }
+        updateHoverFromPointer(event.clientX, event.clientY);
+    };
+
+    const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
         if (event.button !== 1 && event.button !== 2) return;
         dragRef.current = {
             active: true,
+            button: event.button,
             x: event.clientX,
             y: event.clientY,
-            cameraX: camera.x,
-            cameraY: camera.y,
+            targetX: cameraTargetRef.current.x,
+            targetZ: cameraTargetRef.current.z,
         };
     };
 
@@ -648,27 +836,17 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
         dragRef.current.active = false;
     };
 
-    const updateZoom = (direction: "in" | "out") => {
-        setZoom((previous) => {
-            const next = clamp(previous + (direction === "in" ? 0.1 : -0.1), MIN_ZOOM, MAX_ZOOM);
-            centerCameraOnPawn(selectedPawn, next);
-            return next;
-        });
-    };
-
-    const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
-        event.preventDefault();
-        if (event.deltaY < 0) {
-            updateZoom("in");
-        } else {
-            updateZoom("out");
-        }
-    };
-
     const handleClick = () => {
         if (!hoverCell || !selectedPawn) return;
 
-        const clickedPawn = pawns.find((pawn) => Math.round(pawn.y) === hoverCell.row && Math.round(pawn.x) === hoverCell.col);
+        const clickedPawn = visiblePawnAtCell(
+            pawns,
+            chunksByCoord,
+            descriptor,
+            visibility.revealedInteriorId,
+            hoverCell.row,
+            hoverCell.col,
+        );
         if (clickedPawn) {
             if (clickedPawn.isNpc) {
                 interact(hoverCell.row, hoverCell.col, undefined, clickedPawn.id);
@@ -678,7 +856,7 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
             return;
         }
 
-        const clickedObject = visibleObjects.find((object) => objectFootprintContains(object, hoverCell.row, hoverCell.col)) || null;
+        const clickedObject = visibleObjects.find((object) => !isRoofObject(object) && objectFootprintContains(object, hoverCell.row, hoverCell.col)) || null;
         const clickedTile = getTile(chunksByCoord, descriptor, hoverCell.row, hoverCell.col);
         const isClosedDoor = Boolean(
             (clickedObject?.doorId && !visibility.openedDoorIds.includes(clickedObject.doorId))
@@ -718,7 +896,7 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
                         -
                     </button>
                     <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-gray-300">
-                        {Math.round(zoom * 100)}%
+                        {zoomPercent}%
                     </div>
                     <button
                         type="button"
@@ -746,7 +924,28 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
                 </div>
             </div>
 
-            <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden">
+            <div
+                ref={containerRef}
+                className="relative min-h-0 flex-1 overflow-hidden cursor-crosshair"
+                onPointerMove={handlePointerMove}
+                onPointerDown={handlePointerDown}
+                onPointerUp={handlePointerUp}
+                onPointerLeave={() => {
+                    dragRef.current.active = false;
+                    pointerRef.current.inside = false;
+                    setHoverCell(null);
+                }}
+                onContextMenu={(event) => event.preventDefault()}
+                onWheel={(event) => {
+                    event.preventDefault();
+                    if (event.deltaY < 0) {
+                        updateZoom("in");
+                    } else {
+                        updateZoom("out");
+                    }
+                }}
+                onClick={handleClick}
+            >
                 {error && (
                     <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-xl border border-red-500/20 bg-red-950/60 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-red-100 backdrop-blur-md">
                         {error}
@@ -757,23 +956,8 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
                         Loading exploration chunks...
                     </div>
                 )}
-                <canvas
-                    ref={canvasRef}
-                    className="h-full w-full cursor-crosshair"
-                    onPointerMove={handlePointerMove}
-                    onPointerDown={handlePointerDown}
-                    onPointerUp={handlePointerUp}
-                    onPointerLeave={() => {
-                        dragRef.current.active = false;
-                        pointerRef.current.inside = false;
-                        setHoverCell(null);
-                    }}
-                    onContextMenu={(event) => event.preventDefault()}
-                    onWheel={handleWheel}
-                    onClick={handleClick}
-                />
 
-                <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full border border-white/10 bg-black/55 px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-gray-300 backdrop-blur-md">
+                <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-white/10 bg-black/55 px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-gray-300 backdrop-blur-md">
                     <span>Click to move</span>
                     <span className="text-white/20">•</span>
                     <span>Click pawn to select</span>
