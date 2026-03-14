@@ -4,6 +4,7 @@ import { useJobs } from "../jobs/useJobs";
 
 interface HistoryGalleryProps {
     history: GenerationHistoryItem[];
+    inventory?: GalleryInventoryResponse | null;
     activePlanetId: string | null;
     deleteFromHistory: (id: string) => void;
     onSelectPlanet: (item: GenerationHistoryItem) => void;
@@ -15,6 +16,40 @@ interface HistoryGalleryProps {
 }
 
 type TabType = "planets" | "textures" | "icons" | "characters" | "isolated";
+
+interface GalleryInventoryItem {
+    id: string;
+    type: string;
+    title: string;
+    category: string;
+    displayUrl: string;
+    localUrl?: string | null;
+    cloudPublicUrl?: string | null;
+    storageKey?: string | null;
+    source?: string;
+    syncState?: string;
+    createdAt?: string | null;
+    worldId?: string | null;
+    metadata?: Record<string, any>;
+}
+
+interface GalleryInventoryResponse {
+    warnings: string[];
+    supabase: {
+        configured: boolean;
+        reachable: boolean;
+        error?: string | null;
+    };
+    tabs: {
+        planets: GalleryInventoryItem[];
+        textures: GalleryInventoryItem[];
+        icons: GalleryInventoryItem[];
+        characters: GalleryInventoryItem[];
+        isolated: GalleryInventoryItem[];
+        sprites: GalleryInventoryItem[];
+        packs: GalleryInventoryItem[];
+    };
+}
 
 interface IconImageItem {
     id: string;
@@ -60,8 +95,19 @@ interface TextureImageItem {
     prompt: string;
 }
 
+function inventoryMetaString(item: GalleryInventoryItem, key: string): string | undefined {
+    const value = item.metadata?.[key];
+    return typeof value === "string" ? value : undefined;
+}
+
+function inventoryMetaNumber(item: GalleryInventoryItem, key: string): number | undefined {
+    const value = item.metadata?.[key];
+    return typeof value === "number" ? value : undefined;
+}
+
 export function HistoryGallery({
     history,
+    inventory,
     activePlanetId,
     deleteFromHistory,
     onSelectPlanet,
@@ -177,6 +223,66 @@ export function HistoryGallery({
     useEffect(() => {
         if (!showExtendedTabs) return;
 
+        if (inventory) {
+            setIsLoadingExtended(false);
+            setExtendedError(null);
+            setIconImages(
+                (inventory.tabs.icons || []).map((item) => ({
+                    id: item.id,
+                    url: item.displayUrl || item.localUrl || item.cloudPublicUrl || "",
+                    batchName: inventoryMetaString(item, "batchName") || inventoryMetaString(item, "batchId") || "Cloud",
+                    createdAt: item.createdAt || "",
+                    prompt: item.title,
+                })),
+            );
+            setTextureImages(
+                (inventory.tabs.textures || []).map((item) => ({
+                    id: item.id,
+                    url: item.displayUrl || item.localUrl || item.cloudPublicUrl || "",
+                    batchName: inventoryMetaString(item, "batchName") || inventoryMetaString(item, "batchId") || item.category || "Texture",
+                    createdAt: item.createdAt || "",
+                    prompt: item.title,
+                })),
+            );
+            setCharacterPortraits(
+                (inventory.tabs.characters || []).map((item, index) => ({
+                    id: item.worldId || item.id || `character-${index}`,
+                    name: item.title || `Character ${index + 1}`,
+                    portraitUrl: item.displayUrl || item.localUrl || item.cloudPublicUrl || "",
+                })),
+            );
+
+            const isolatedItems = (inventory.tabs.isolated || [])
+                .filter((item) => item.category !== "upscaled")
+                .map((item, index) => ({
+                    id: item.id || `isolated-${index}`,
+                    planetId: item.worldId || inventoryMetaString(item, "planetId") || "",
+                    url: item.displayUrl || item.localUrl || item.cloudPublicUrl || "",
+                    entityType: inventoryMetaString(item, "entityType") || "province",
+                    entityId: inventoryMetaNumber(item, "entityId") || 0,
+                    filename: inventoryMetaString(item, "filename") || item.title || `isolated-${index}`,
+                } as IsolatedImageItem));
+
+            const upscaledItems = (inventory.tabs.isolated || [])
+                .filter((item) => item.category === "upscaled")
+                .map((item, index) => ({
+                    id: item.id || `upscaled-${index}`,
+                    planetId: item.worldId || inventoryMetaString(item, "planetId") || "",
+                    url: item.displayUrl || item.localUrl || item.cloudPublicUrl || "",
+                    artifactId: inventoryMetaString(item, "artifactId") || item.title || `artifact-${index}`,
+                    entityType: inventoryMetaString(item, "entityType") || "province",
+                    entityId: inventoryMetaNumber(item, "entityId") || inventoryMetaNumber(item, "provinceId") || 0,
+                    provinceId: inventoryMetaNumber(item, "provinceId") || 0,
+                    provinceIds: Array.isArray(item.metadata?.provinceIds) ? item.metadata?.provinceIds : [],
+                    modelId: inventoryMetaString(item, "modelId") || "",
+                    createdAt: Number(item.createdAt || 0),
+                } as UpscaledIsolatedItem));
+
+            setIsolatedImages(isolatedItems);
+            setUpscaledImages(upscaledItems);
+            return;
+        }
+
         let isCancelled = false;
         setIsLoadingExtended(true);
         setExtendedError(null);
@@ -283,7 +389,7 @@ export function HistoryGallery({
         return () => {
             isCancelled = true;
         };
-    }, [extendedRefreshKey, galleryJobRefreshKey, showExtendedTabs]);
+    }, [extendedRefreshKey, galleryJobRefreshKey, inventory, showExtendedTabs]);
 
     return (
         <div className="flex flex-col h-full bg-black/50 overflow-hidden">

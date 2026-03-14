@@ -12,11 +12,11 @@ use super::grid::{
     remove_entity,
 };
 use super::modifiers::{
-    canonicalize_effect_target, effect_blocks_action, effect_dispel_group, effect_is_buff, effect_is_debuff,
-    effect_is_dispellable, effect_max_stacks, effect_stack_group, effect_stack_mode, effect_tags,
-    is_damage_over_time_effect, is_heal_over_time_effect, is_protection_stance_effect,
-    is_stealth_effect, status_immunity_blocks_effect, tick_phase_for_effect,
-    Phase as ModifierPhase, StackMode,
+    canonicalize_effect_target, effect_blocks_action, effect_dispel_group, effect_is_buff,
+    effect_is_debuff, effect_is_dispellable, effect_max_stacks, effect_stack_group,
+    effect_stack_mode, effect_tags, is_damage_over_time_effect, is_heal_over_time_effect,
+    is_protection_stance_effect, is_stealth_effect, status_immunity_blocks_effect,
+    tick_phase_for_effect, Phase as ModifierPhase, StackMode,
 };
 use super::rules::GameRulesConfig;
 use super::skill_basics::{
@@ -48,6 +48,11 @@ struct EffectApplyResult {
     applied: bool,
     blocked_by_immunity: bool,
     current_stacks: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SkillCastContext {
+    allow_empty_offensive_target: bool,
 }
 
 impl CombatState {
@@ -160,7 +165,7 @@ impl CombatState {
         }
     }
 
-    fn add_log(&mut self, message: &str, log_type: LogType) {
+    pub(crate) fn add_log(&mut self, message: &str, log_type: LogType) {
         self.log_counter += 1;
         self.logs.push(CombatLogMessage {
             id: format!("{}-{}", self.log_counter, rand::rng().random::<u32>()),
@@ -315,6 +320,23 @@ impl CombatState {
         target_col: usize,
         skill_id: &str,
     ) -> Result<Skill, String> {
+        self.validate_skill_cast_with_context(
+            caster_id,
+            target_row,
+            target_col,
+            skill_id,
+            SkillCastContext::default(),
+        )
+    }
+
+    fn validate_skill_cast_with_context(
+        &self,
+        caster_id: &str,
+        target_row: usize,
+        target_col: usize,
+        skill_id: &str,
+        context: SkillCastContext,
+    ) -> Result<Skill, String> {
         let Some(caster) = self.entities.get(caster_id) else {
             return Err("Caster not found".to_string());
         };
@@ -386,12 +408,19 @@ impl CombatState {
 
         let has_valid_target = match skill.target_type {
             SkillTargetType::Cell => true,
-            SkillTargetType::Enemy => cell
-                .occupant_id
-                .as_ref()
-                .and_then(|occ_id| self.entities.get(occ_id))
-                .map(|target| target.is_player != caster.is_player && target.hp > 0)
-                .unwrap_or(false),
+            SkillTargetType::Enemy => {
+                let has_enemy_occupant = cell
+                    .occupant_id
+                    .as_ref()
+                    .and_then(|occ_id| self.entities.get(occ_id))
+                    .map(|target| target.is_player != caster.is_player && target.hp > 0)
+                    .unwrap_or(false);
+                has_enemy_occupant
+                    || (context.allow_empty_offensive_target
+                        && cell.occupant_id.is_none()
+                        && skill.damage.is_some()
+                        && skill.area_type != SkillAreaType::Single)
+            }
             SkillTargetType::Ally => cell
                 .occupant_id
                 .as_ref()
@@ -420,7 +449,25 @@ impl CombatState {
         Ok(skill.clone())
     }
 
-    fn skill_affected_cells(
+    pub(crate) fn validate_ai_search_skill_cast(
+        &self,
+        caster_id: &str,
+        target_row: usize,
+        target_col: usize,
+        skill_id: &str,
+    ) -> Result<Skill, String> {
+        self.validate_skill_cast_with_context(
+            caster_id,
+            target_row,
+            target_col,
+            skill_id,
+            SkillCastContext {
+                allow_empty_offensive_target: true,
+            },
+        )
+    }
+
+    pub(crate) fn skill_affected_cells(
         &self,
         caster_pos: &GridPos,
         target_row: usize,
@@ -490,7 +537,10 @@ impl CombatState {
         effect.instance_id = effect.instance_id.or_else(|| {
             Some(format!(
                 "{}:{}:{}",
-                effect.id.clone().unwrap_or_else(|| "runtime-effect".to_string()),
+                effect
+                    .id
+                    .clone()
+                    .unwrap_or_else(|| "runtime-effect".to_string()),
                 entity.id,
                 effects.len()
             ))
@@ -503,10 +553,15 @@ impl CombatState {
         effect.applier_id = effect
             .applier_id
             .or_else(|| applier_id.map(ToString::to_string));
-        effect.skill_id = effect.skill_id.or_else(|| skill_id.map(ToString::to_string));
+        effect.skill_id = effect
+            .skill_id
+            .or_else(|| skill_id.map(ToString::to_string));
         effect.item_id = effect.item_id.or_else(|| item_id.map(ToString::to_string));
         effect.dispellable = Some(effect_is_dispellable(&effect));
-        effect.dispel_group = effect.dispel_group.clone().or_else(|| effect_dispel_group(&effect));
+        effect.dispel_group = effect
+            .dispel_group
+            .clone()
+            .or_else(|| effect_dispel_group(&effect));
 
         let stack_group = effect_stack_group(&effect);
         let stack_mode = effect_stack_mode(&effect);
@@ -549,8 +604,12 @@ impl CombatState {
                     .collect();
                 effects.push(effect);
             }
-            Some(StackMode::RefreshDuration) | Some(StackMode::Stack) | Some(StackMode::MaxValue)
-            | Some(StackMode::MinValue) if !matching_indices.is_empty() => {
+            Some(StackMode::RefreshDuration)
+            | Some(StackMode::Stack)
+            | Some(StackMode::MaxValue)
+            | Some(StackMode::MinValue)
+                if !matching_indices.is_empty() =>
+            {
                 let first_index = matching_indices[0];
                 let mut merged = effects[first_index].clone();
                 for duplicate_index in matching_indices.iter().skip(1).rev() {
@@ -576,7 +635,8 @@ impl CombatState {
                 match stack_mode {
                     Some(StackMode::RefreshDuration) => {
                         if let Some(duration) = effect.duration {
-                            merged.duration = Some(merged.duration.unwrap_or(duration).max(duration));
+                            merged.duration =
+                                Some(merged.duration.unwrap_or(duration).max(duration));
                         }
                         if effect.value.abs() >= merged.value.abs() {
                             merged.value = effect.value;
@@ -588,26 +648,32 @@ impl CombatState {
                             merged.current_stacks = Some((current + 1).min(max_stacks));
                             merged.value += effect.value;
                         } else if let Some(duration) = effect.duration {
-                            merged.duration = Some(merged.duration.unwrap_or(duration).max(duration));
+                            merged.duration =
+                                Some(merged.duration.unwrap_or(duration).max(duration));
                         }
                     }
                     Some(StackMode::MaxValue) => {
                         merged.value = merged.value.max(effect.value);
                         if let Some(duration) = effect.duration {
-                            merged.duration = Some(merged.duration.unwrap_or(duration).max(duration));
+                            merged.duration =
+                                Some(merged.duration.unwrap_or(duration).max(duration));
                         }
                     }
                     Some(StackMode::MinValue) => {
                         merged.value = merged.value.min(effect.value);
                         if let Some(duration) = effect.duration {
-                            merged.duration = Some(merged.duration.unwrap_or(duration).max(duration));
+                            merged.duration =
+                                Some(merged.duration.unwrap_or(duration).max(duration));
                         }
                     }
                     _ => {}
                 }
 
                 merged.dispellable = Some(effect_is_dispellable(&merged));
-                merged.dispel_group = merged.dispel_group.clone().or_else(|| effect_dispel_group(&merged));
+                merged.dispel_group = merged
+                    .dispel_group
+                    .clone()
+                    .or_else(|| effect_dispel_group(&merged));
                 result.current_stacks = merged.current_stacks.unwrap_or(1);
                 effects[first_index] = merged;
             }
@@ -617,27 +683,29 @@ impl CombatState {
             }
         }
 
-        entity.active_effects = if effects.is_empty() { None } else { Some(effects) };
+        entity.active_effects = if effects.is_empty() {
+            None
+        } else {
+            Some(effects)
+        };
         Self::refresh_entity_state(entity, rules, true);
         result
     }
 
     fn is_effect_blocked_by_immunity(entity: &TacticalEntity, incoming: &GameplayEffect) -> bool {
-        entity
-            .active_effects
-            .as_ref()
-            .is_some_and(|effects| {
-                effects
-                    .iter()
-                    .any(|active| status_immunity_blocks_effect(active, incoming))
-            })
+        entity.active_effects.as_ref().is_some_and(|effects| {
+            effects
+                .iter()
+                .any(|active| status_immunity_blocks_effect(active, incoming))
+        })
     }
 
     fn entity_has_action_lock(entity: &TacticalEntity, action: &str) -> bool {
-        entity
-            .active_effects
-            .as_ref()
-            .is_some_and(|effects| effects.iter().any(|effect| effect_blocks_action(effect, action)))
+        entity.active_effects.as_ref().is_some_and(|effects| {
+            effects
+                .iter()
+                .any(|effect| effect_blocks_action(effect, action))
+        })
     }
 
     fn refresh_entity_state(
@@ -715,8 +783,8 @@ impl CombatState {
         if let Some(entity) = self.entities.get_mut(entity_id) {
             let mut effects = entity.active_effects.take().unwrap_or_default();
             effects.retain(|effect| {
-                let should_remove = predicate(effect)
-                    && (!only_dispellable || effect_is_dispellable(effect));
+                let should_remove =
+                    predicate(effect) && (!only_dispellable || effect_is_dispellable(effect));
                 if should_remove {
                     removed += 1;
                     false
@@ -724,7 +792,11 @@ impl CombatState {
                     true
                 }
             });
-            entity.active_effects = if effects.is_empty() { None } else { Some(effects) };
+            entity.active_effects = if effects.is_empty() {
+                None
+            } else {
+                Some(effects)
+            };
             if removed > 0 {
                 Self::refresh_entity_state(entity, &self.rules, false);
             }
@@ -770,7 +842,9 @@ impl CombatState {
         only_dispellable: bool,
     ) -> usize {
         self.dispel_entity_effects_with_predicate(entity_id, only_dispellable, |effect| {
-            effect_tags(effect).iter().any(|effect_tag| effect_tag == tag)
+            effect_tags(effect)
+                .iter()
+                .any(|effect_tag| effect_tag == tag)
         })
     }
 
@@ -918,7 +992,11 @@ impl CombatState {
 
                 if new_hp <= 0 {
                     if let Some(entity) = self.entities.get(entity_id) {
-                        defeated.push((entity.id.clone(), entity.grid_pos.clone(), entity.name.clone()));
+                        defeated.push((
+                            entity.id.clone(),
+                            entity.grid_pos.clone(),
+                            entity.name.clone(),
+                        ));
                     }
                 }
             } else if is_heal_over_time_effect(&effect) {
@@ -1161,33 +1239,32 @@ impl CombatState {
         let mut resist_modifier = NumericModifier::default();
         let mut social_modifier = NumericModifier::default();
 
-        let apply_effect = |target: &str, value: f64, is_percentage: bool, modifier: &mut NumericModifier| {
-            if is_percentage {
-                modifier.percent += value;
-            } else {
-                modifier.flat += value;
-            }
-            let _ = target;
-        };
+        let apply_effect =
+            |target: &str, value: f64, is_percentage: bool, modifier: &mut NumericModifier| {
+                if is_percentage {
+                    modifier.percent += value;
+                } else {
+                    modifier.flat += value;
+                }
+                let _ = target;
+            };
 
-        let mut collect_effect = |target: &str, value: f64, is_percentage: bool| {
-            match target {
-                "maxHp" => apply_effect(target, value, is_percentage, &mut hp_modifier),
-                "maxAp" => apply_effect(target, value, is_percentage, &mut ap_modifier),
-                "maxMp" => apply_effect(target, value, is_percentage, &mut mp_modifier),
-                "strength" => apply_effect(target, value, is_percentage, &mut str_modifier),
-                "agility" => apply_effect(target, value, is_percentage, &mut agi_modifier),
-                "intelligence" => apply_effect(target, value, is_percentage, &mut int_modifier),
-                "wisdom" => apply_effect(target, value, is_percentage, &mut wis_modifier),
-                "endurance" => apply_effect(target, value, is_percentage, &mut endu_modifier),
-                "charisma" => apply_effect(target, value, is_percentage, &mut cha_modifier),
-                "evasion" => apply_effect(target, value, is_percentage, &mut eva_modifier),
-                "defense" => apply_effect(target, value, is_percentage, &mut def_modifier),
-                "critChance" => apply_effect(target, value, is_percentage, &mut crit_modifier),
-                "resistance" => apply_effect(target, value, is_percentage, &mut resist_modifier),
-                "socialBonus" => apply_effect(target, value, is_percentage, &mut social_modifier),
-                _ => {}
-            }
+        let mut collect_effect = |target: &str, value: f64, is_percentage: bool| match target {
+            "maxHp" => apply_effect(target, value, is_percentage, &mut hp_modifier),
+            "maxAp" => apply_effect(target, value, is_percentage, &mut ap_modifier),
+            "maxMp" => apply_effect(target, value, is_percentage, &mut mp_modifier),
+            "strength" => apply_effect(target, value, is_percentage, &mut str_modifier),
+            "agility" => apply_effect(target, value, is_percentage, &mut agi_modifier),
+            "intelligence" => apply_effect(target, value, is_percentage, &mut int_modifier),
+            "wisdom" => apply_effect(target, value, is_percentage, &mut wis_modifier),
+            "endurance" => apply_effect(target, value, is_percentage, &mut endu_modifier),
+            "charisma" => apply_effect(target, value, is_percentage, &mut cha_modifier),
+            "evasion" => apply_effect(target, value, is_percentage, &mut eva_modifier),
+            "defense" => apply_effect(target, value, is_percentage, &mut def_modifier),
+            "critChance" => apply_effect(target, value, is_percentage, &mut crit_modifier),
+            "resistance" => apply_effect(target, value, is_percentage, &mut resist_modifier),
+            "socialBonus" => apply_effect(target, value, is_percentage, &mut social_modifier),
+            _ => {}
         };
 
         for tr in &base.traits {
@@ -1200,8 +1277,14 @@ impl CombatState {
                         || eff.effect_type == EffectType::CombatBonus
                     {
                         if let Some(target) = &eff.target {
-                            if let Some(canonical_target) = canonicalize_effect_target(Some(target.as_str())) {
-                                collect_effect(&canonical_target, eff.value, eff.is_percentage.unwrap_or(false));
+                            if let Some(canonical_target) =
+                                canonicalize_effect_target(Some(target.as_str()))
+                            {
+                                collect_effect(
+                                    &canonical_target,
+                                    eff.value,
+                                    eff.is_percentage.unwrap_or(false),
+                                );
                             }
                         }
                     }
@@ -1224,9 +1307,7 @@ impl CombatState {
                                 .get("isPercentage")
                                 .and_then(|v| v.as_bool())
                                 .unwrap_or(false)
-                                || eff
-                                    .get("stacking")
-                                    .and_then(|v| v.as_str())
+                                || eff.get("stacking").and_then(|v| v.as_str())
                                     == Some("multiplicative");
                             if e_type == "STAT_MODIFIER" || e_type == "COMBAT_BONUS" {
                                 if let Some(canonical_target) = canonicalize_effect_target(target) {
@@ -1245,7 +1326,9 @@ impl CombatState {
                     || eff.effect_type == EffectType::CombatBonus
                 {
                     if let Some(target) = &eff.target {
-                        if let Some(canonical_target) = canonicalize_effect_target(Some(target.as_str())) {
+                        if let Some(canonical_target) =
+                            canonicalize_effect_target(Some(target.as_str()))
+                        {
                             collect_effect(
                                 &canonical_target,
                                 eff.value,
@@ -1258,13 +1341,22 @@ impl CombatState {
             }
         }
 
-        base.strength = str_modifier.apply(base.base_stats.strength as f64).floor().max(0.0) as i32;
-        base.agility = agi_modifier.apply(base.base_stats.agility as f64).floor().max(0.0) as i32;
+        base.strength = str_modifier
+            .apply(base.base_stats.strength as f64)
+            .floor()
+            .max(0.0) as i32;
+        base.agility = agi_modifier
+            .apply(base.base_stats.agility as f64)
+            .floor()
+            .max(0.0) as i32;
         base.intelligence = int_modifier
             .apply(base.base_stats.intelligence as f64)
             .floor()
             .max(0.0) as i32;
-        base.wisdom = wis_modifier.apply(base.base_stats.wisdom as f64).floor().max(0.0) as i32;
+        base.wisdom = wis_modifier
+            .apply(base.base_stats.wisdom as f64)
+            .floor()
+            .max(0.0) as i32;
         base.endurance = endu_modifier
             .apply(base.base_stats.endurance as f64)
             .floor()
@@ -1273,7 +1365,10 @@ impl CombatState {
             .apply(base.base_stats.charisma as f64)
             .floor()
             .max(0.0) as i32;
-        base.evasion = eva_modifier.apply(base.base_stats.evasion as f64).floor().max(0.0) as i32;
+        base.evasion = eva_modifier
+            .apply(base.base_stats.evasion as f64)
+            .floor()
+            .max(0.0) as i32;
 
         let agi_scale = rules.core.armor_agi_scale;
         let endu_scale = rules.core.armor_endu_scale;
@@ -1310,10 +1405,9 @@ impl CombatState {
 
         base.crit_chance =
             crit_modifier.apply(base.intelligence as f64 * rules.core.crit_per_intelligence);
-        base.resistance =
-            resist_modifier.apply(base.wisdom as f64 * rules.core.resist_per_wisdom);
-        base.social_bonus = social_modifier
-            .apply(base.charisma as f64 * rules.core.charisma_bonus_per_charisma);
+        base.resistance = resist_modifier.apply(base.wisdom as f64 * rules.core.resist_per_wisdom);
+        base.social_bonus =
+            social_modifier.apply(base.charisma as f64 * rules.core.charisma_bonus_per_charisma);
     }
 
     // ── Tackle Cost ─────────────────────────────────────────
@@ -1590,10 +1684,47 @@ impl CombatState {
         target_col: usize,
         skill_id: &str,
     ) -> Vec<CombatEvent> {
+        self.execute_skill_with_context(
+            caster_id,
+            target_row,
+            target_col,
+            skill_id,
+            SkillCastContext::default(),
+        )
+    }
+
+    pub(crate) fn execute_ai_search_skill(
+        &mut self,
+        caster_id: &str,
+        target_row: usize,
+        target_col: usize,
+        skill_id: &str,
+    ) -> Vec<CombatEvent> {
+        self.execute_skill_with_context(
+            caster_id,
+            target_row,
+            target_col,
+            skill_id,
+            SkillCastContext {
+                allow_empty_offensive_target: true,
+            },
+        )
+    }
+
+    fn execute_skill_with_context(
+        &mut self,
+        caster_id: &str,
+        target_row: usize,
+        target_col: usize,
+        skill_id: &str,
+        context: SkillCastContext,
+    ) -> Vec<CombatEvent> {
         let mut events = Vec::new();
         let mut rng = rand::rng();
 
-        let skill = match self.validate_skill_cast(caster_id, target_row, target_col, skill_id) {
+        let skill = match self
+            .validate_skill_cast_with_context(caster_id, target_row, target_col, skill_id, context)
+        {
             Ok(skill) => skill,
             Err(message) => {
                 events.push(CombatEvent::Error { message });
@@ -1851,9 +1982,9 @@ impl CombatState {
 
                         if let Some(protection) =
                             target.active_effects.as_ref().and_then(|effects| {
-                                effects.iter().find(|effect| {
-                                    is_protection_stance_effect(effect)
-                                })
+                                effects
+                                    .iter()
+                                    .find(|effect| is_protection_stance_effect(effect))
                             })
                         {
                             if let Some(protector_id) = protection.protector_id.as_ref() {
@@ -2323,7 +2454,11 @@ impl CombatState {
                         let _ = t_ref;
                         if blocked_by_immunity {
                             self.add_log(
-                                &format!("🛡️ {} resists {}.", target.name, eff.name.clone().unwrap_or_else(|| "the effect".to_string())),
+                                &format!(
+                                    "🛡️ {} resists {}.",
+                                    target.name,
+                                    eff.name.clone().unwrap_or_else(|| "the effect".to_string())
+                                ),
                                 LogType::Info,
                             );
                         }
@@ -2386,8 +2521,8 @@ impl CombatState {
         }
 
         if let Some(current_entity_id) = self.get_active_entity_id().map(str::to_string) {
-            let defeated =
-                self.process_periodic_effects_for_entity(&current_entity_id, ModifierPhase::EndTurn);
+            let defeated = self
+                .process_periodic_effects_for_entity(&current_entity_id, ModifierPhase::EndTurn);
             if !defeated.is_empty() {
                 self.resolve_defeated_entities(&defeated, &mut events);
                 if self.phase != CombatPhase::Combat {
@@ -3136,6 +3271,50 @@ mod tests {
         }
     }
 
+    fn make_cell_damage_skill(id: &str) -> Skill {
+        Skill {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: "Damage a targeted cell".to_string(),
+            category: SkillCategory::Base,
+            ap_cost: 3,
+            min_range: 1,
+            max_range: 4,
+            area_type: SkillAreaType::Single,
+            area_size: 0,
+            target_type: SkillTargetType::Cell,
+            damage: Some(10),
+            healing: None,
+            cooldown: 1,
+            effect_type: Some(SkillEffectType::Physical),
+            push_distance: None,
+            icon: None,
+            effects: None,
+        }
+    }
+
+    fn make_enemy_aoe_skill(id: &str) -> Skill {
+        Skill {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: "Damage around a targeted enemy cell".to_string(),
+            category: SkillCategory::Base,
+            ap_cost: 4,
+            min_range: 1,
+            max_range: 4,
+            area_type: SkillAreaType::Circle,
+            area_size: 1,
+            target_type: SkillTargetType::Enemy,
+            damage: Some(12),
+            healing: None,
+            cooldown: 2,
+            effect_type: Some(SkillEffectType::Physical),
+            push_distance: None,
+            icon: None,
+            effects: None,
+        }
+    }
+
     #[test]
     fn test_end_turn_advances() {
         let mut state = make_combat_state();
@@ -3354,7 +3533,8 @@ mod tests {
     #[test]
     fn test_damage_over_time_ticks_on_start_turn() {
         let mut state = make_combat_state();
-        state.entities.get_mut("e1").unwrap().active_effects = Some(vec![dot_effect(EffectTrigger::OnTurnStart)]);
+        state.entities.get_mut("e1").unwrap().active_effects =
+            Some(vec![dot_effect(EffectTrigger::OnTurnStart)]);
         let initial_hp = state.entities.get("e1").unwrap().hp;
 
         state.end_turn();
@@ -3379,7 +3559,8 @@ mod tests {
     #[test]
     fn test_damage_over_time_ticks_on_end_turn_for_owner() {
         let mut state = make_combat_state();
-        state.entities.get_mut("p1").unwrap().active_effects = Some(vec![dot_effect(EffectTrigger::OnTurnEnd)]);
+        state.entities.get_mut("p1").unwrap().active_effects =
+            Some(vec![dot_effect(EffectTrigger::OnTurnEnd)]);
         let initial_hp = state.entities.get("p1").unwrap().hp;
 
         state.end_turn();
@@ -3595,7 +3776,17 @@ mod tests {
 
         let removed_debuffs = state.dispel_entity_debuffs("p1", true);
         assert_eq!(removed_debuffs, 1);
-        assert_eq!(state.entities.get("p1").unwrap().active_effects.as_ref().unwrap().len(), 2);
+        assert_eq!(
+            state
+                .entities
+                .get("p1")
+                .unwrap()
+                .active_effects
+                .as_ref()
+                .unwrap()
+                .len(),
+            2
+        );
 
         let removed_stealth = state.dispel_entity_effects_by_tag("p1", "stealth", true);
         assert_eq!(removed_stealth, 1);
@@ -3614,7 +3805,13 @@ mod tests {
 
         state.execute_skill("p1", 10, 2, "analyze");
 
-        let effect = &state.entities.get("e1").unwrap().active_effects.as_ref().unwrap()[0];
+        let effect = &state
+            .entities
+            .get("e1")
+            .unwrap()
+            .active_effects
+            .as_ref()
+            .unwrap()[0];
         assert_eq!(effect.source_entity_id.as_deref(), Some("p1"));
         assert_eq!(effect.applier_id.as_deref(), Some("p1"));
         assert_eq!(effect.skill_id.as_deref(), Some("analyze"));
@@ -3626,7 +3823,8 @@ mod tests {
     #[test]
     fn test_action_lock_blocks_move_and_attack() {
         let mut state = make_combat_state();
-        state.entities.get_mut("p1").unwrap().active_effects = Some(vec![action_lock_effect("cannotMove")]);
+        state.entities.get_mut("p1").unwrap().active_effects =
+            Some(vec![action_lock_effect("cannotMove")]);
 
         let move_events = state.perform_move("p1", 9, 1);
         assert!(matches!(
@@ -3634,7 +3832,8 @@ mod tests {
             Some(CombatEvent::Error { message }) if message.contains("Movement is blocked")
         ));
 
-        state.entities.get_mut("p1").unwrap().active_effects = Some(vec![action_lock_effect("cannotAttack")]);
+        state.entities.get_mut("p1").unwrap().active_effects =
+            Some(vec![action_lock_effect("cannotAttack")]);
         move_entity_on_grid(&mut state.grid, "e1", 1, 10, 10, 2);
         state.entities.get_mut("e1").unwrap().grid_pos = GridPos { row: 10, col: 2 };
         state.entities.get_mut("e1").unwrap().evasion = 0;
@@ -3644,5 +3843,108 @@ mod tests {
             attack_events.first(),
             Some(CombatEvent::Error { message }) if message.contains("blocked")
         ));
+    }
+
+    #[test]
+    fn test_execute_ai_search_skill_allows_empty_cell_for_cell_damage_skill() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().skills = vec![make_cell_damage_skill("blind-shot")];
+
+        let events = state.execute_ai_search_skill("p1", 9, 1, "blind-shot");
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            CombatEvent::SkillUsed { skill_id, targets, .. } if skill_id == "blind-shot" && targets.is_empty()
+        )));
+    }
+
+    #[test]
+    fn test_execute_ai_search_skill_allows_empty_cell_for_enemy_aoe_damage_skill() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().skills = vec![make_enemy_aoe_skill("shockwave")];
+
+        let events = state.execute_ai_search_skill("p1", 8, 1, "shockwave");
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            CombatEvent::SkillUsed { skill_id, targets, .. } if skill_id == "shockwave" && targets.is_empty()
+        )));
+    }
+
+    #[test]
+    fn test_execute_skill_standard_still_rejects_empty_cell_for_enemy_single_target_skill() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().skills = vec![make_skill("analyze")];
+
+        let events = state.execute_skill("p1", 8, 1, "analyze");
+
+        assert!(matches!(
+            events.first(),
+            Some(CombatEvent::Error { message }) if message.contains("Invalid target")
+        ));
+    }
+
+    #[test]
+    fn test_player_use_skill_path_still_rejects_empty_enemy_aoe_target() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().skills = vec![make_enemy_aoe_skill("shockwave")];
+
+        let events = state.execute_skill("p1", 8, 1, "shockwave");
+
+        assert!(matches!(
+            events.first(),
+            Some(CombatEvent::Error { message }) if message.contains("Invalid target")
+        ));
+    }
+
+    #[test]
+    fn test_skill_used_event_can_have_empty_targets_without_error() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().skills = vec![make_cell_damage_skill("blind-shot")];
+
+        let events = state.execute_ai_search_skill("p1", 9, 1, "blind-shot");
+
+        let used_event = events.iter().find_map(|event| match event {
+            CombatEvent::SkillUsed { targets, .. } => Some(targets),
+            _ => None,
+        });
+        assert_eq!(used_event.map(Vec::len), Some(0));
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, CombatEvent::Error { .. })));
+    }
+
+    #[test]
+    fn test_blind_fire_hits_hidden_target_if_target_is_in_affected_cells() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().skills = vec![make_enemy_aoe_skill("shockwave")];
+        move_entity_on_grid(&mut state.grid, "e1", 1, 10, 9, 1);
+        let initial_hp = {
+            let target = state.entities.get_mut("e1").unwrap();
+            target.grid_pos = GridPos { row: 9, col: 1 };
+            target.evasion = 0;
+            target.defense = 0;
+            target.active_effects = Some(vec![GameplayEffect {
+                last_known_position: Some(GridPos { row: 9, col: 1 }),
+                ..make_skill("hide").effects.unwrap()[0].clone()
+            }]);
+            target.hp
+        };
+
+        state.execute_ai_search_skill("p1", 9, 1, "shockwave");
+
+        assert!(state.entities.get("e1").unwrap().hp < initial_hp);
+    }
+
+    #[test]
+    fn test_blind_fire_spends_ap_and_starts_cooldown_even_if_no_target_hit() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().skills = vec![make_enemy_aoe_skill("shockwave")];
+
+        state.execute_ai_search_skill("p1", 8, 1, "shockwave");
+
+        let caster = state.entities.get("p1").unwrap();
+        assert_eq!(caster.ap, 2);
+        assert_eq!(caster.skill_cooldowns.get("shockwave"), Some(&3));
     }
 }
