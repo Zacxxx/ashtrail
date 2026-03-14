@@ -37,7 +37,7 @@ use crate::{
 const DEFAULT_ROWS: u32 = 64;
 const DEFAULT_COLS: u32 = 64;
 pub const TEST_EXPLORATION_LOCATION_ID: &str = "__test_exploration__";
-const TEST_EXPLORATION_LAYOUT_VERSION: u64 = 2;
+const TEST_EXPLORATION_LAYOUT_VERSION: u64 = 3;
 
 #[derive(Clone)]
 pub struct ExplorationGenerationRuntime {
@@ -1331,6 +1331,16 @@ fn build_manifest(
         }
     }
 
+    carve_river(
+        &mut tiles,
+        width,
+        height,
+        &objects,
+        center_clear_x,
+        center_clear_y,
+        &mut rng,
+    );
+
     clear_spawn_zone(&mut tiles, width, height, center_clear_x, center_clear_y);
 
     let natural_count = natural_object_count(payload, location, semantics_summary);
@@ -1338,7 +1348,11 @@ fn build_manifest(
         let x = rng.random_range(2..width.saturating_sub(2));
         let y = rng.random_range(2..height.saturating_sub(2));
         let idx = tile_index(width, x, y);
-        if !tiles[idx].walkable || tiles[idx].interior_id.is_some() || tiles[idx].is_spawn_zone.is_some() {
+        if !tiles[idx].walkable
+            || tiles[idx].interior_id.is_some()
+            || tiles[idx].is_spawn_zone.is_some()
+            || tiles[idx].r#type != "floor"
+        {
             continue;
         }
         objects.push(ExplorationObject {
@@ -1884,6 +1898,116 @@ fn clear_spawn_zone(
     }
 }
 
+fn set_sand_tile(tile: &mut ExplorationTile) {
+    tile.r#type = "sand".to_string();
+    tile.walkable = true;
+    tile.move_cost = 1.2;
+    tile.light_level = Some(0.86);
+    tile.blocks_light = Some(false);
+    tile.door_id = None;
+}
+
+fn set_water_tile(tile: &mut ExplorationTile) {
+    tile.r#type = "water".to_string();
+    tile.walkable = true;
+    tile.move_cost = 1.95;
+    tile.light_level = Some(0.7);
+    tile.blocks_light = Some(false);
+    tile.door_id = None;
+}
+
+fn can_overwrite_outdoor_tile(tile: &ExplorationTile) -> bool {
+    tile.interior_id.is_none()
+        && tile.is_spawn_zone.is_none()
+        && tile.r#type != "wall"
+        && tile.r#type != "door"
+}
+
+fn carve_river(
+    tiles: &mut [ExplorationTile],
+    width: u32,
+    height: u32,
+    objects: &[ExplorationObject],
+    center_x: u32,
+    center_y: u32,
+    rng: &mut StdRng,
+) {
+    if width < 18 || height < 18 {
+        return;
+    }
+
+    let mut river_center_y = if rng.random_bool(0.5) {
+        (height / 3).max(3)
+    } else {
+        ((height * 2) / 3).min(height.saturating_sub(4))
+    };
+    if river_center_y.abs_diff(center_y) < 7 {
+        river_center_y = (height / 4).max(3);
+    }
+
+    for x in 1..width.saturating_sub(1) {
+        if x > 2 && x % 4 == 0 {
+            let next_center = river_center_y as i32 + rng.random_range(-1..=1);
+            river_center_y = next_center.clamp(2, height as i32 - 3) as u32;
+        }
+
+        for offset in -2..=2 {
+            let y = river_center_y as i32 + offset;
+            if y <= 0 || y >= height as i32 - 1 {
+                continue;
+            }
+            let idx = tile_index(width, x, y as u32);
+            if !can_overwrite_outdoor_tile(&tiles[idx]) || object_occupies_cell(objects, x, y as u32) {
+                continue;
+            }
+            if offset.abs() <= 1 {
+                set_water_tile(&mut tiles[idx]);
+            } else if tiles[idx].r#type == "floor" {
+                set_sand_tile(&mut tiles[idx]);
+            }
+        }
+
+        for bank_offset in -4..=4 {
+            let y = river_center_y as i32 + bank_offset;
+            if y <= 0 || y >= height as i32 - 1 {
+                continue;
+            }
+            let idx = tile_index(width, x, y as u32);
+            if !can_overwrite_outdoor_tile(&tiles[idx]) || object_occupies_cell(objects, x, y as u32) {
+                continue;
+            }
+            if tiles[idx].r#type == "floor" && bank_offset.abs() >= 2 {
+                set_sand_tile(&mut tiles[idx]);
+            }
+        }
+    }
+
+    for y in 1..height.saturating_sub(1) {
+        for x in 1..width.saturating_sub(1) {
+            let idx = tile_index(width, x, y);
+            if tiles[idx].r#type != "floor" || !can_overwrite_outdoor_tile(&tiles[idx]) {
+                continue;
+            }
+            let mut adjacent_water = false;
+            for (dx, dy) in [(-1_i32, 0_i32), (1, 0), (0, -1), (0, 1)] {
+                let nx = x as i32 + dx;
+                let ny = y as i32 + dy;
+                if nx < 1 || ny < 1 || nx >= width as i32 - 1 || ny >= height as i32 - 1 {
+                    continue;
+                }
+                let neighbor = &tiles[tile_index(width, nx as u32, ny as u32)];
+                if neighbor.r#type == "water" {
+                    adjacent_water = true;
+                    break;
+                }
+            }
+            if adjacent_water && x.abs_diff(center_x) > 2 && y.abs_diff(center_y) > 2 {
+                set_sand_tile(&mut tiles[idx]);
+            }
+        }
+    }
+}
+
 fn object_occupies_cell(objects: &[ExplorationObject], x: u32, y: u32) -> bool {
     objects.iter().any(|object| {
         x >= object.x && x < object.x + object.width && y >= object.y && y < object.y + object.height
@@ -1910,6 +2034,7 @@ fn is_valid_outdoor_position(
     tile.walkable
         && tile.interior_id.is_none()
         && tile.r#type != "door"
+        && tile.r#type != "water"
         && tile.is_spawn_zone.is_none()
         && !object_occupies_cell(objects, x, y)
 }

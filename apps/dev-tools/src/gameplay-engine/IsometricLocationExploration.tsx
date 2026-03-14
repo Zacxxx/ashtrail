@@ -31,6 +31,8 @@ const EDGE_THRESHOLD = 72;
 const TILE_HEIGHT = 0.28;
 const WALL_HEIGHT = 1.75;
 const MAX_PIXEL_RATIO = 1.5;
+const CAMERA_OFFSET = 24;
+const TERRAIN_BLOCK_HEIGHT = 0.46;
 
 const BOX_GEOMETRY_CACHE = new Map<string, THREE.BoxGeometry>();
 const MATERIAL_CACHE = new Map<string, THREE.MeshLambertMaterial>();
@@ -99,6 +101,82 @@ function getTile(
     return chunk.tiles[localRow * chunk.width + localCol] || null;
 }
 
+function getTerrainElevation(tile: Tile | null | undefined, row: number, col: number) {
+    if (!tile || tile.interiorId || tile.type === "door" || tile.isSpawnZone) {
+        return 0;
+    }
+    if (tile.type === "water") {
+        return 0;
+    }
+    if (tile.type === "sand") {
+        return TERRAIN_BLOCK_HEIGHT;
+    }
+    if (tile.type !== "floor" && tile.type !== "wall") {
+        return 0;
+    }
+
+    const sample = Math.sin((row + 2) * 0.16) + Math.cos((col + 5) * 0.18) + Math.sin((row - col) * 0.08);
+    if (sample > 1.05) return TERRAIN_BLOCK_HEIGHT * 3;
+    if (sample > 0.15) return TERRAIN_BLOCK_HEIGHT * 2;
+    return TERRAIN_BLOCK_HEIGHT;
+}
+
+function getCellElevation(
+    chunksByCoord: Map<string, ExplorationChunk>,
+    descriptor: ExplorationManifestDescriptor | null,
+    row: number,
+    col: number,
+) {
+    return getTerrainElevation(getTile(chunksByCoord, descriptor, row, col), row, col);
+}
+
+function getObjectBaseElevation(
+    object: MapObject,
+    chunksByCoord: Map<string, ExplorationChunk>,
+    descriptor: ExplorationManifestDescriptor | null,
+) {
+    let maxElevation = 0;
+    for (let row = object.y; row < object.y + object.height; row += 1) {
+        for (let col = object.x; col < object.x + object.width; col += 1) {
+            maxElevation = Math.max(maxElevation, getCellElevation(chunksByCoord, descriptor, row, col));
+        }
+    }
+    return maxElevation;
+}
+
+function getDoorPlacement(
+    object: MapObject,
+    chunksByCoord: Map<string, ExplorationChunk>,
+    descriptor: ExplorationManifestDescriptor | null,
+) {
+    const row = object.y;
+    const col = object.x;
+    const interiorId = object.interiorId || getTile(chunksByCoord, descriptor, row, col)?.interiorId || null;
+    if (!interiorId) {
+        return { offsetX: 0, offsetZ: 0, width: Math.max(0.24, object.width * 0.22), depth: Math.max(0.12, object.height * 0.12) };
+    }
+
+    const north = getTile(chunksByCoord, descriptor, row - 1, col);
+    const south = getTile(chunksByCoord, descriptor, row + 1, col);
+    const west = getTile(chunksByCoord, descriptor, row, col - 1);
+    const east = getTile(chunksByCoord, descriptor, row, col + 1);
+
+    if (north?.interiorId === interiorId && north.type === "interior-floor") {
+        return { offsetX: 0, offsetZ: 0.2, width: 0.26, depth: 0.1 };
+    }
+    if (south?.interiorId === interiorId && south.type === "interior-floor") {
+        return { offsetX: 0, offsetZ: -0.2, width: 0.26, depth: 0.1 };
+    }
+    if (west?.interiorId === interiorId && west.type === "interior-floor") {
+        return { offsetX: 0.2, offsetZ: 0, width: 0.1, depth: 0.26 };
+    }
+    if (east?.interiorId === interiorId && east.type === "interior-floor") {
+        return { offsetX: -0.2, offsetZ: 0, width: 0.1, depth: 0.26 };
+    }
+
+    return { offsetX: 0, offsetZ: 0, width: Math.max(0.24, object.width * 0.22), depth: Math.max(0.12, object.height * 0.12) };
+}
+
 function tileColor(tile: Tile, hovered: boolean, inRoute: boolean, interiorVisible: boolean, doorOpen: boolean) {
     let color = "#27303d";
     if (hovered) return "#2dd4bf";
@@ -106,6 +184,8 @@ function tileColor(tile: Tile, hovered: boolean, inRoute: boolean, interiorVisib
     if (tile.type === "wall") color = "#b1a89a";
     else if (tile.type === "interior-floor") color = interiorVisible ? "#d6b27a" : "#4f3c2a";
     else if (tile.type === "door") color = doorOpen ? "#be9660" : "#7e5426";
+    else if (tile.type === "water") color = "#3f8fbe";
+    else if (tile.type === "sand") color = "#cfb571";
     else if (tile.type === "floor") color = "#78ad54";
     else if (tile.walkable) color = "#5f8248";
 
@@ -224,12 +304,18 @@ function buildChunkVisual(
                 interiorVisible,
                 doorOpen,
             );
-            const baseHeight = tile.type === "interior-floor" ? 0.18 : TILE_HEIGHT;
-            const floor = createBlock(1, baseHeight, 1, color, {
+            const terrainElevation = getTerrainElevation(tile, row, col);
+            const surfaceThickness = tile.type === "interior-floor"
+                ? 0.18
+                : tile.type === "water"
+                    ? 0.2
+                    : TILE_HEIGHT;
+            const floorHeight = surfaceThickness + terrainElevation;
+            const floor = createBlock(1, floorHeight, 1, color, {
                 x: col,
-                y: baseHeight / 2,
+                y: floorHeight / 2,
                 z: row,
-            }, "#050805");
+            }, tile.type === "water" ? "#0b2230" : "#050805", tile.type === "water" ? 0.9 : 1);
             if (isInteriorContentTile(tile) && !interiorVisible) {
                 floor.visible = false;
             }
@@ -247,7 +333,7 @@ function buildChunkVisual(
             if (isWallTile(tile)) {
                 const wall = createBlock(0.92, WALL_HEIGHT, 0.92, "#b3a896", {
                     x: col,
-                    y: baseHeight + WALL_HEIGHT / 2,
+                    y: surfaceThickness + terrainElevation + WALL_HEIGHT / 2,
                     z: row,
                 }, "#0a0804");
                 if (isInteriorContentTile(tile) && !interiorVisible) {
@@ -266,6 +352,7 @@ function buildChunkVisual(
         const palette = objectPalette(object);
         const centerX = object.x + (object.width - 1) / 2;
         const centerZ = object.y + (object.height - 1) / 2;
+        const objectBaseElevation = getObjectBaseElevation(object, chunksByCoord, descriptor);
         const interiorVisible = !object.interiorId || object.interiorId === visibility.revealedInteriorId;
         if (object.interiorId && !interiorVisible && !isStructuralObject(object)) {
             continue;
@@ -283,7 +370,7 @@ function buildChunkVisual(
                 palette.color,
                 {
                     x: centerX,
-                    y: TILE_HEIGHT + WALL_HEIGHT + roofHeight / 2 - 0.03,
+                    y: objectBaseElevation + TILE_HEIGHT + WALL_HEIGHT + roofHeight / 2 - 0.02,
                     z: centerZ,
                 },
                 palette.emissive,
@@ -300,43 +387,50 @@ function buildChunkVisual(
                 new THREE.CylinderGeometry(0.34, 0.42, 0.02, 14),
                 new THREE.MeshBasicMaterial({ color: "#0b1408", transparent: true, opacity: 0.22 }),
             );
-            treeShadow.position.set(centerX, 0.02, centerZ + 0.04);
+            treeShadow.position.set(centerX, objectBaseElevation + 0.02, centerZ + 0.04);
             const trunk = createBlock(0.28, 1.05, 0.28, "#8e5b33", {
                 x: centerX,
-                y: TILE_HEIGHT + 0.52,
+                y: objectBaseElevation + TILE_HEIGHT + 0.52,
                 z: centerZ,
             });
             const canopyA = createBlock(0.9, 0.55, 0.9, palette.color, {
                 x: centerX,
-                y: TILE_HEIGHT + 1.18,
+                y: objectBaseElevation + TILE_HEIGHT + 1.18,
                 z: centerZ,
             }, palette.emissive);
             const canopyB = createBlock(0.56, 0.46, 0.56, "#6ea24d", {
                 x: centerX + 0.14,
-                y: TILE_HEIGHT + 1.54,
+                y: objectBaseElevation + TILE_HEIGHT + 1.54,
                 z: centerZ - 0.12,
             }, "#0f1a08");
             const canopyC = createBlock(0.48, 0.34, 0.48, "#7ab155", {
                 x: centerX - 0.2,
-                y: TILE_HEIGHT + 1.34,
+                y: objectBaseElevation + TILE_HEIGHT + 1.34,
                 z: centerZ + 0.16,
             }, "#10230a");
             group.add(treeShadow, trunk, canopyA, canopyB, canopyC);
             continue;
         }
 
+        const doorPlacement = isDoorObject(object)
+            ? getDoorPlacement(object, chunksByCoord, descriptor)
+            : null;
         const objectHeight = isDoorObject(object)
-            ? 1.18
+            ? 0.88
             : (object.heightTiles || Math.max(1, Math.min(3, Math.max(object.width, object.height)))) * 0.6;
         const mesh = createBlock(
-            Math.max(0.28, object.width * (isDoorObject(object) ? 0.26 : 0.9)),
+            isDoorObject(object)
+                ? doorPlacement?.width || 0.24
+                : Math.max(0.28, object.width * 0.9),
             objectHeight,
-            Math.max(0.12, object.height * (isDoorObject(object) ? 0.12 : 0.9)),
+            isDoorObject(object)
+                ? doorPlacement?.depth || 0.12
+                : Math.max(0.12, object.height * 0.9),
             palette.color,
             {
-                x: centerX,
-                y: TILE_HEIGHT + objectHeight / 2,
-                z: centerZ,
+                x: centerX + (doorPlacement?.offsetX || 0),
+                y: objectBaseElevation + TILE_HEIGHT + objectHeight / 2 - (isDoorObject(object) ? 0.1 : 0),
+                z: centerZ + (doorPlacement?.offsetZ || 0),
             },
             palette.emissive,
         );
@@ -365,12 +459,11 @@ function createPawnMesh(pawn: ExplorationPawn, isSelected: boolean) {
     const torso = createBlock(0.42, 0.72, 0.42, baseColor, { x: 0, y: 0.43, z: 0 });
     const head = createBlock(0.3, 0.3, 0.3, "#f8d4b4", { x: 0, y: 0.93, z: 0 });
     group.add(torso, head);
-    group.position.set(pawn.x, TILE_HEIGHT, pawn.y);
     return group;
 }
 
 function applyCameraPose(camera: THREE.OrthographicCamera, targetX: number, targetZ: number, zoom: number) {
-    camera.position.set(targetX + 18, 22, targetZ + 18);
+    camera.position.set(targetX + CAMERA_OFFSET, CAMERA_OFFSET, targetZ + CAMERA_OFFSET);
     camera.lookAt(targetX, 0, targetZ);
     camera.zoom = zoom;
     camera.updateProjectionMatrix();
@@ -404,6 +497,7 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
     const lastSubscriptionRef = useRef("");
     const latestPawnsRef = useRef<ExplorationPawn[]>([]);
     const latestDescriptorRef = useRef<ExplorationManifestDescriptor | null>(null);
+    const latestChunksByCoordRef = useRef<Map<string, ExplorationChunk>>(new Map());
     const latestSubscribeChunksRef = useRef<(centerRow: number, centerCol: number, radius: number) => void>(() => {});
 
     const [hoverCell, setHoverCell] = useState<HoverCell>(null);
@@ -426,14 +520,15 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
         subscribeChunks,
     } = useExplorationWebSocket({ session });
 
-    latestPawnsRef.current = pawns;
-    latestDescriptorRef.current = descriptor;
-    latestSubscribeChunksRef.current = subscribeChunks;
-
     const chunksByCoord = useMemo(
         () => new Map(chunks.map((chunk) => [chunkCoordKey(chunk), chunk])),
         [chunks],
     );
+    latestPawnsRef.current = pawns;
+    latestDescriptorRef.current = descriptor;
+    latestChunksByCoordRef.current = chunksByCoord;
+    latestSubscribeChunksRef.current = subscribeChunks;
+
     const loadedObjects = useMemo(() => {
         const deduped = new Map<string, MapObject>();
         for (const chunk of chunks) {
@@ -626,11 +721,16 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
                 }
             }
 
+            const currentChunksByCoord = latestChunksByCoordRef.current;
             for (const pawn of latestPawnsRef.current) {
                 const mesh = pawnMeshesRef.current.get(pawn.id);
                 if (!mesh) continue;
+                const pawnRow = Number.isFinite(pawn.tileRow) ? pawn.tileRow : Math.round(pawn.y);
+                const pawnCol = Number.isFinite(pawn.tileCol) ? pawn.tileCol : Math.round(pawn.x);
+                const targetY = getCellElevation(currentChunksByCoord, currentDescriptor, pawnRow, pawnCol) + TILE_HEIGHT;
                 mesh.position.x += (pawn.x - mesh.position.x) * 0.28;
                 mesh.position.z += (pawn.y - mesh.position.z) * 0.28;
+                mesh.position.y += (targetY - mesh.position.y) * 0.34;
             }
 
             renderer.render(scene, camera);
@@ -719,6 +819,11 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
             if (!existingMesh) {
                 const mesh = createPawnMesh(pawn, isSelected);
                 mesh.visible = pawnVisible;
+                mesh.position.set(
+                    pawn.x,
+                    getCellElevation(chunksByCoord, descriptor, pawnRow, pawnCol) + TILE_HEIGHT,
+                    pawn.y,
+                );
                 pawnMeshesRef.current.set(pawn.id, mesh);
                 scene.add(mesh);
             } else {
@@ -745,8 +850,12 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
             return;
         }
         highlight.visible = true;
-        highlight.position.set(hoverCell.col, 0.09, hoverCell.row);
-    }, [hoverCell]);
+        highlight.position.set(
+            hoverCell.col,
+            getCellElevation(chunksByCoord, descriptor, hoverCell.row, hoverCell.col) + 0.09,
+            hoverCell.row,
+        );
+    }, [chunksByCoord, descriptor, hoverCell]);
 
     useEffect(() => {
         const pathLine = pathLineRef.current;
@@ -755,15 +864,28 @@ export function IsometricLocationExploration({ session, onExit }: IsometricLocat
             return;
         }
         const points = [
-            new THREE.Vector3(selectedPawn.x, TILE_HEIGHT + 0.04, selectedPawn.y),
+            new THREE.Vector3(
+                selectedPawn.x,
+                getCellElevation(
+                    chunksByCoord,
+                    descriptor,
+                    Number.isFinite(selectedPawn.tileRow) ? selectedPawn.tileRow : Math.round(selectedPawn.y),
+                    Number.isFinite(selectedPawn.tileCol) ? selectedPawn.tileCol : Math.round(selectedPawn.x),
+                ) + TILE_HEIGHT + 0.04,
+                selectedPawn.y,
+            ),
             ...selectedPawn.route.slice(selectedPawn.routeIndex).map((step) => (
-                new THREE.Vector3(step.col, TILE_HEIGHT + 0.04, step.row)
+                new THREE.Vector3(
+                    step.col,
+                    getCellElevation(chunksByCoord, descriptor, step.row, step.col) + TILE_HEIGHT + 0.04,
+                    step.row,
+                )
             )),
         ];
         pathLine.geometry.dispose();
         pathLine.geometry = new THREE.BufferGeometry().setFromPoints(points);
         pathLine.visible = points.length > 1;
-    }, [selectedPawn]);
+    }, [chunksByCoord, descriptor, selectedPawn]);
 
     useEffect(() => {
         if (!selectedPawn || dragRef.current.active) {
