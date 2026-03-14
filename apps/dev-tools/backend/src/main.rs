@@ -41,6 +41,7 @@ use std::{
     path::PathBuf,
     sync::atomic::AtomicUsize,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use tokio::sync::Semaphore;
 use tower_http::cors::{Any, CorsLayer};
@@ -556,6 +557,56 @@ struct SupabaseSyncResponse {
     failed: usize,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupabaseHealthResponse {
+    configured: bool,
+    reachable: bool,
+    bucket: Option<String>,
+    prefix: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GalleryInventoryItem {
+    id: String,
+    #[serde(rename = "type")]
+    item_type: String,
+    title: String,
+    category: String,
+    display_url: String,
+    local_url: Option<String>,
+    cloud_public_url: Option<String>,
+    storage_key: Option<String>,
+    source: String,
+    sync_state: String,
+    created_at: Option<String>,
+    world_id: Option<String>,
+    #[serde(default)]
+    metadata: serde_json::Value,
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GalleryInventoryTabs {
+    planets: Vec<GalleryInventoryItem>,
+    textures: Vec<GalleryInventoryItem>,
+    icons: Vec<GalleryInventoryItem>,
+    characters: Vec<GalleryInventoryItem>,
+    isolated: Vec<GalleryInventoryItem>,
+    sprites: Vec<GalleryInventoryItem>,
+    packs: Vec<GalleryInventoryItem>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GalleryInventoryResponse {
+    warnings: Vec<String>,
+    supabase: SupabaseHealthResponse,
+    tabs: GalleryInventoryTabs,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct HierarchyReassignRequest {
@@ -599,6 +650,12 @@ struct RemoteObject {
     path: String,
     updated_at: Option<String>,
     size_bytes: Option<u64>,
+}
+
+struct GalleryInventoryDraft {
+    tab: &'static str,
+    item: GalleryInventoryItem,
+    local_path: Option<PathBuf>,
 }
 
 /// List saved planet cache entries.
@@ -973,6 +1030,8 @@ async fn main() {
             axum::routing::put(rename_sprite_batch),
         )
         .route("/api/ai/image-models", get(get_ai_image_models))
+        .route("/api/gallery/inventory", get(get_gallery_inventory))
+        .route("/api/storage/supabase/health", get(get_supabase_storage_health))
         .route("/api/storage/supabase/browse", get(browse_supabase_objects))
         .route("/api/storage/supabase/sync", post(sync_supabase_storage))
         // ── Worldgen Pipeline ──
@@ -7163,12 +7222,29 @@ fn local_to_cloud_key(
     if let Ok(rel) = local_path.strip_prefix(&state.icons_dir) {
         return Some(format!("{}/icons/{}", cfg.prefix, normalize_slashes(rel)));
     }
+    if let Ok(rel) = local_path.strip_prefix(&state.textures_dir) {
+        return Some(format!(
+            "{}/textures/{}",
+            cfg.prefix,
+            normalize_slashes(rel)
+        ));
+    }
+    if let Ok(rel) = local_path.strip_prefix(&state.sprites_dir) {
+        return Some(format!(
+            "{}/sprites/{}",
+            cfg.prefix,
+            normalize_slashes(rel)
+        ));
+    }
     if let Ok(rel) = local_path.strip_prefix(&state.isolated_dir) {
         return Some(format!(
             "{}/isolated/{}",
             cfg.prefix,
             normalize_slashes(rel)
         ));
+    }
+    if let Ok(rel) = local_path.strip_prefix(&state.packs_dir) {
+        return Some(format!("{}/packs/{}", cfg.prefix, normalize_slashes(rel)));
     }
     None
 }
@@ -7177,7 +7253,10 @@ fn cloud_key_to_local(state: &AppState, cfg: &SupabaseStorageConfig, key: &str) 
     let planets_prefix = format!("{}/planets/", cfg.prefix);
     let characters_prefix = format!("{}/characters/", cfg.prefix);
     let icons_prefix = format!("{}/icons/", cfg.prefix);
+    let textures_prefix = format!("{}/textures/", cfg.prefix);
+    let sprites_prefix = format!("{}/sprites/", cfg.prefix);
     let isolated_prefix = format!("{}/isolated/", cfg.prefix);
+    let packs_prefix = format!("{}/packs/", cfg.prefix);
     if let Some(rel) = key.strip_prefix(&planets_prefix) {
         return Some(state.planets_dir.join(rel));
     }
@@ -7187,8 +7266,17 @@ fn cloud_key_to_local(state: &AppState, cfg: &SupabaseStorageConfig, key: &str) 
     if let Some(rel) = key.strip_prefix(&icons_prefix) {
         return Some(state.icons_dir.join(rel));
     }
+    if let Some(rel) = key.strip_prefix(&textures_prefix) {
+        return Some(state.textures_dir.join(rel));
+    }
+    if let Some(rel) = key.strip_prefix(&sprites_prefix) {
+        return Some(state.sprites_dir.join(rel));
+    }
     if let Some(rel) = key.strip_prefix(&isolated_prefix) {
         return Some(state.isolated_dir.join(rel));
+    }
+    if let Some(rel) = key.strip_prefix(&packs_prefix) {
+        return Some(state.packs_dir.join(rel));
     }
     None
 }
@@ -7203,6 +7291,894 @@ fn remote_updated_at(updated_at: Option<&str>) -> Option<chrono::DateTime<chrono
     chrono::DateTime::parse_from_rfc3339(raw)
         .ok()
         .map(|dt| dt.with_timezone(&chrono::Utc))
+}
+
+fn supabase_public_url(cfg: &SupabaseStorageConfig, key: &str) -> String {
+    format!("{}/storage/v1/object/public/{}/{}", cfg.url, cfg.bucket, key)
+}
+
+fn build_supabase_client(timeout_secs: u64) -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+async fn check_supabase_bucket_access(
+    client: &reqwest::Client,
+    cfg: &SupabaseStorageConfig,
+) -> Result<(), String> {
+    let get_url = format!("{}/storage/v1/bucket/{}", cfg.url, cfg.bucket);
+    let response = client
+        .get(get_url)
+        .header("Authorization", format!("Bearer {}", cfg.service_role_key))
+        .header("apikey", &cfg.service_role_key)
+        .send()
+        .await
+        .map_err(|e| format!("bucket access check failed: {e}"))?;
+
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+
+    let body = response.text().await.unwrap_or_default();
+    Err(format!("bucket check failed ({}): {}", status, body))
+}
+
+async fn check_supabase_prefix_access(
+    client: &reqwest::Client,
+    cfg: &SupabaseStorageConfig,
+    prefix: &str,
+) -> Result<(), String> {
+    let list_url = format!("{}/storage/v1/object/list/{}", cfg.url, cfg.bucket);
+    let response = client
+        .post(list_url)
+        .header("Authorization", format!("Bearer {}", cfg.service_role_key))
+        .header("apikey", &cfg.service_role_key)
+        .json(&serde_json::json!({
+            "prefix": prefix.trim_matches('/'),
+            "limit": 1,
+            "offset": 0,
+            "sortBy": { "column": "name", "order": "asc" }
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("prefix access check failed: {e}"))?;
+
+    let status = response.status();
+    if status.is_success() {
+        Ok(())
+    } else {
+        let body = response.text().await.unwrap_or_default();
+        Err(format!("prefix check failed ({}): {}", status, body))
+    }
+}
+
+async fn build_supabase_health_snapshot(
+    cfg: Option<&SupabaseStorageConfig>,
+) -> SupabaseHealthResponse {
+    let Some(cfg) = cfg else {
+        return SupabaseHealthResponse {
+            configured: false,
+            reachable: false,
+            bucket: None,
+            prefix: None,
+            error: None,
+        };
+    };
+
+    let client = build_supabase_client(5);
+
+    let status = match check_supabase_bucket_access(&client, cfg).await {
+        Ok(()) => check_supabase_prefix_access(&client, cfg, &cfg.prefix).await,
+        Err(error) => Err(error),
+    };
+
+    match status {
+        Ok(()) => SupabaseHealthResponse {
+            configured: true,
+            reachable: true,
+            bucket: Some(cfg.bucket.clone()),
+            prefix: Some(cfg.prefix.clone()),
+            error: None,
+        },
+        Err(error) => SupabaseHealthResponse {
+            configured: true,
+            reachable: false,
+            bucket: Some(cfg.bucket.clone()),
+            prefix: Some(cfg.prefix.clone()),
+            error: Some(error),
+        },
+    }
+}
+
+fn build_gallery_item(
+    id: String,
+    item_type: &str,
+    title: String,
+    category: String,
+    local_url: Option<String>,
+    created_at: Option<String>,
+    world_id: Option<String>,
+    metadata: serde_json::Value,
+) -> GalleryInventoryItem {
+    GalleryInventoryItem {
+        id,
+        item_type: item_type.to_string(),
+        title,
+        category,
+        display_url: local_url.clone().unwrap_or_default(),
+        local_url,
+        cloud_public_url: None,
+        storage_key: None,
+        source: "local".to_string(),
+        sync_state: "local_only".to_string(),
+        created_at,
+        world_id,
+        metadata,
+    }
+}
+
+fn append_inventory_item(tabs: &mut GalleryInventoryTabs, tab: &str, item: GalleryInventoryItem) {
+    match tab {
+        "planets" => tabs.planets.push(item),
+        "textures" => tabs.textures.push(item),
+        "icons" => tabs.icons.push(item),
+        "characters" => tabs.characters.push(item),
+        "isolated" => tabs.isolated.push(item),
+        "sprites" => tabs.sprites.push(item),
+        "packs" => tabs.packs.push(item),
+        _ => {}
+    }
+}
+
+fn sort_inventory_items(items: &mut [GalleryInventoryItem]) {
+    items.sort_by(|a, b| {
+        b.created_at
+            .as_deref()
+            .unwrap_or("")
+            .cmp(a.created_at.as_deref().unwrap_or(""))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+}
+
+fn parse_api_asset_path(url: &str, asset_root: &str, base_dir: &std::path::Path) -> Option<PathBuf> {
+    let cleaned = url.split('?').next()?.trim_matches('/');
+    let parts = cleaned.split('/').collect::<Vec<_>>();
+    if parts.len() < 4 || parts[0] != "api" || parts[1] != asset_root {
+        return None;
+    }
+
+    let relative = parts[2..].join("/");
+    Some(base_dir.join(relative))
+}
+
+fn parse_planet_texture_path(state: &AppState, texture_url: &str) -> Option<PathBuf> {
+    let cleaned = texture_url.split('?').next()?.trim_matches('/');
+    let parts = cleaned.split('/').collect::<Vec<_>>();
+    if parts.len() < 5 || parts[0] != "api" || parts[1] != "planets" || parts[3] != "textures" {
+        return None;
+    }
+
+    Some(
+        state
+            .planets_dir
+            .join(parts[2])
+            .join("textures")
+            .join(parts[4]),
+    )
+}
+
+fn extract_file_name_from_url(url: &str) -> Option<String> {
+    let cleaned = url.split('?').next()?.trim_end_matches('/');
+    cleaned.rsplit('/').next().map(|part| part.to_string())
+}
+
+fn read_local_history_values(state: &AppState) -> Vec<serde_json::Value> {
+    let mut history: Vec<serde_json::Value> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&state.planets_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let metadata_file = path.join("metadata.json");
+            if let Ok(data) = std::fs::read_to_string(&metadata_file) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+                    history.push(json);
+                }
+            }
+        }
+    }
+
+    history.sort_by(|a, b| {
+        let t_a = a.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0);
+        let t_b = b.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0);
+        t_b.cmp(&t_a)
+    });
+
+    history
+}
+
+fn load_local_planet_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
+    read_local_history_values(state)
+        .into_iter()
+        .filter(|item| item.get("parentId").is_none())
+        .filter_map(|item| {
+            let id = item.get("id").and_then(|value| value.as_str())?.to_string();
+            let local_url = item
+                .get("textureUrl")
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string());
+            let title = item
+                .get("name")
+                .and_then(|value| value.as_str())
+                .or_else(|| item.get("prompt").and_then(|value| value.as_str()))
+                .unwrap_or(&id)
+                .to_string();
+            let local_path = local_url
+                .as_deref()
+                .and_then(|value| parse_planet_texture_path(state, value));
+
+            Some(GalleryInventoryDraft {
+                tab: "planets",
+                item: build_gallery_item(
+                    id.clone(),
+                    "planet",
+                    title,
+                    "planets".to_string(),
+                    local_url,
+                    item.get("timestamp").map(|value| value.to_string()),
+                    Some(id),
+                    item,
+                ),
+                local_path,
+            })
+        })
+        .collect()
+}
+
+fn load_local_icon_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
+    let mut drafts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&state.icons_dir) {
+        for entry in entries.flatten() {
+            let manifest_path = entry.path().join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let Ok(data) = std::fs::read_to_string(&manifest_path) else {
+                continue;
+            };
+            let Ok(manifest) = serde_json::from_str::<BatchManifest>(&data) else {
+                continue;
+            };
+            for icon in manifest.icons {
+                let local_path = parse_api_asset_path(&icon.url, "icons", &state.icons_dir)
+                    .or_else(|| Some(state.icons_dir.join(&manifest.batch_id).join(&icon.filename)));
+                drafts.push(GalleryInventoryDraft {
+                    tab: "icons",
+                    item: build_gallery_item(
+                        format!("icon-{}-{}", manifest.batch_id, icon.filename),
+                        "icon",
+                        if icon.item_prompt.is_empty() {
+                            icon.prompt.clone()
+                        } else {
+                            icon.item_prompt.clone()
+                        },
+                        "icons".to_string(),
+                        Some(icon.url.clone()),
+                        Some(manifest.created_at.clone()),
+                        None,
+                        serde_json::json!({
+                            "batchId": manifest.batch_id,
+                            "batchName": manifest.batch_name,
+                            "filename": icon.filename,
+                            "prompt": icon.prompt,
+                            "itemPrompt": icon.item_prompt,
+                        }),
+                    ),
+                    local_path,
+                });
+            }
+        }
+    }
+    drafts
+}
+
+fn load_local_texture_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
+    let mut drafts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&state.textures_dir) {
+        for entry in entries.flatten() {
+            let manifest_path = entry.path().join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let Ok(data) = std::fs::read_to_string(&manifest_path) else {
+                continue;
+            };
+            let Ok(manifest) = serde_json::from_str::<TextureBatchManifest>(&data) else {
+                continue;
+            };
+            for texture in manifest.textures {
+                let local_path = parse_api_asset_path(&texture.url, "textures", &state.textures_dir)
+                    .or_else(|| Some(state.textures_dir.join(&manifest.batch_id).join(&texture.filename)));
+                drafts.push(GalleryInventoryDraft {
+                    tab: "textures",
+                    item: build_gallery_item(
+                        format!("tex-{}-{}", manifest.batch_id, texture.filename),
+                        "texture",
+                        if texture.item_prompt.is_empty() {
+                            texture.prompt.clone()
+                        } else {
+                            texture.item_prompt.clone()
+                        },
+                        manifest.category.clone(),
+                        Some(texture.url.clone()),
+                        Some(manifest.created_at.clone()),
+                        None,
+                        serde_json::json!({
+                            "batchId": manifest.batch_id,
+                            "batchName": manifest.batch_name,
+                            "filename": texture.filename,
+                            "prompt": texture.prompt,
+                            "itemPrompt": texture.item_prompt,
+                            "subCategory": manifest.sub_category,
+                            "gameAsset": manifest.game_asset,
+                            "metadata": texture.metadata,
+                        }),
+                    ),
+                    local_path,
+                });
+            }
+        }
+    }
+    drafts
+}
+
+fn load_local_sprite_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
+    let mut drafts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&state.sprites_dir) {
+        for entry in entries.flatten() {
+            let manifest_path = entry.path().join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let Ok(data) = std::fs::read_to_string(&manifest_path) else {
+                continue;
+            };
+            let Ok(manifest) = serde_json::from_str::<SpriteBatchManifest>(&data) else {
+                continue;
+            };
+            for sprite in manifest.sprites {
+                let local_path =
+                    parse_api_asset_path(&sprite.preview_url, "sprites", &state.sprites_dir);
+                drafts.push(GalleryInventoryDraft {
+                    tab: "sprites",
+                    item: build_gallery_item(
+                        format!("sprite-{}-{}", manifest.batch_id, sprite.sprite_id),
+                        "sprite",
+                        if sprite.item_prompt.is_empty() {
+                            sprite.prompt.clone()
+                        } else {
+                            sprite.item_prompt.clone()
+                        },
+                        "sprites".to_string(),
+                        Some(sprite.preview_url.clone()),
+                        Some(manifest.created_at.clone()),
+                        sprite.target.as_ref().map(|target| target.id.clone()),
+                        serde_json::json!({
+                            "batchId": manifest.batch_id,
+                            "batchName": manifest.batch_name,
+                            "spriteId": sprite.sprite_id,
+                            "actorType": sprite.actor_type,
+                            "mode": sprite.mode,
+                            "directions": sprite.directions,
+                            "illustrationUrl": sprite.illustration_url,
+                            "target": sprite.target,
+                        }),
+                    ),
+                    local_path,
+                });
+            }
+        }
+    }
+    drafts
+}
+
+fn load_local_character_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
+    let mut drafts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&state.characters_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+
+            let Ok(data) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(payload) = serde_json::from_str::<serde_json::Value>(&data) else {
+                continue;
+            };
+            let Some(local_url) = payload
+                .get("portraitUrl")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+            else {
+                continue;
+            };
+
+            let local_path = extract_file_name_from_url(&local_url)
+                .map(|file_name| state.character_portraits_dir.join(file_name));
+            let id = payload
+                .get("id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("character")
+                .to_string();
+            let title = payload
+                .get("portraitName")
+                .and_then(|value| value.as_str())
+                .or_else(|| payload.get("name").and_then(|value| value.as_str()))
+                .unwrap_or(&id)
+                .to_string();
+
+            drafts.push(GalleryInventoryDraft {
+                tab: "characters",
+                item: build_gallery_item(
+                    format!("character-{}", id),
+                    "character",
+                    title,
+                    "characters".to_string(),
+                    Some(local_url),
+                    None,
+                    Some(id),
+                    payload,
+                ),
+                local_path,
+            });
+        }
+    }
+    drafts
+}
+
+fn load_local_isolated_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
+    let mut drafts = Vec::new();
+    if let Ok(planets) = std::fs::read_dir(&state.isolated_dir) {
+        for planet_entry in planets.flatten() {
+            let planet_id = planet_entry.file_name().to_string_lossy().to_string();
+            let planet_dir = planet_entry.path();
+            if !planet_dir.is_dir() {
+                continue;
+            }
+
+            if let Ok(entries) = std::fs::read_dir(&planet_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_file()
+                        || path.extension().and_then(|value| value.to_str()) != Some("png")
+                    {
+                        continue;
+                    }
+                    let Some(filename) = path
+                        .file_name()
+                        .and_then(|value| value.to_str())
+                        .map(|value| value.to_string())
+                    else {
+                        continue;
+                    };
+                    let parts = filename.trim_end_matches(".png").split('_').collect::<Vec<_>>();
+                    if parts.len() != 2 {
+                        continue;
+                    }
+                    let Ok(entity_id) = parts[1].parse::<u32>() else {
+                        continue;
+                    };
+
+                    drafts.push(GalleryInventoryDraft {
+                        tab: "isolated",
+                        item: build_gallery_item(
+                            format!("isolated-{}-{}", planet_id, filename),
+                            "isolated",
+                            filename.clone(),
+                            "isolated".to_string(),
+                            Some(format!("/api/isolated-assets/{}/{}", planet_id, filename)),
+                            None,
+                            Some(planet_id.clone()),
+                            serde_json::json!({
+                                "planetId": planet_id,
+                                "filename": filename,
+                                "entityType": parts[0],
+                                "entityId": entity_id,
+                                "section": "isolated",
+                            }),
+                        ),
+                        local_path: Some(path),
+                    });
+                }
+            }
+
+            let upscaled_dir = planet_dir.join("upscaled");
+            if let Ok(entries) = std::fs::read_dir(&upscaled_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_file()
+                        || path.extension().and_then(|value| value.to_str()) != Some("json")
+                    {
+                        continue;
+                    }
+                    let Ok(data) = std::fs::read_to_string(&path) else {
+                        continue;
+                    };
+                    let Ok(meta) =
+                        serde_json::from_str::<worldgen_pipeline::UpscaledProvinceMetadata>(&data)
+                    else {
+                        continue;
+                    };
+                    let png_path = upscaled_dir.join(format!("{}.png", meta.artifact_id));
+                    if !png_path.exists() {
+                        continue;
+                    }
+
+                    drafts.push(GalleryInventoryDraft {
+                        tab: "isolated",
+                        item: build_gallery_item(
+                            format!("upscaled-{}", meta.artifact_id),
+                            "isolated",
+                            meta.artifact_id.clone(),
+                            "upscaled".to_string(),
+                            Some(format!(
+                                "/api/isolated-assets/{}/upscaled/{}.png",
+                                planet_id, meta.artifact_id
+                            )),
+                            Some(meta.created_at.to_string()),
+                            Some(planet_id.clone()),
+                            serde_json::json!({
+                                "planetId": planet_id,
+                                "artifactId": meta.artifact_id,
+                                "entityType": if meta.entity_type.trim().is_empty() { "province" } else { meta.entity_type.as_str() },
+                                "entityId": if meta.entity_id == 0 { meta.province_id } else { meta.entity_id },
+                                "provinceId": meta.province_id,
+                                "provinceIds": meta.province_ids,
+                                "modelId": meta.model_id,
+                                "section": "upscaled",
+                            }),
+                        ),
+                        local_path: Some(png_path),
+                    });
+                }
+            }
+        }
+    }
+
+    drafts
+}
+
+fn load_local_pack_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
+    let mut drafts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&state.packs_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(data) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(manifest) = serde_json::from_str::<asset_packs::AssetPackManifest>(&data) else {
+                continue;
+            };
+            let preview_url = manifest
+                .textures
+                .first()
+                .map(|texture| texture.url.clone())
+                .or_else(|| manifest.sprites.first().map(|sprite| sprite.url.clone()));
+
+            drafts.push(GalleryInventoryDraft {
+                tab: "packs",
+                item: build_gallery_item(
+                    format!("pack-{}", manifest.pack_id),
+                    "pack",
+                    manifest.name.clone(),
+                    "packs".to_string(),
+                    preview_url,
+                    Some(manifest.created_at.clone()),
+                    None,
+                    serde_json::json!({
+                        "packId": manifest.pack_id,
+                        "description": manifest.description,
+                        "grouping": manifest.grouping,
+                        "textureCount": manifest.textures.len(),
+                        "spriteCount": manifest.sprites.len(),
+                    }),
+                ),
+                local_path: Some(path),
+            });
+        }
+    }
+    drafts
+}
+
+async fn list_supabase_inventory_objects(
+    client: &reqwest::Client,
+    cfg: &SupabaseStorageConfig,
+) -> Result<Vec<RemoteObject>, String> {
+    let prefixes = [
+        "planets",
+        "characters",
+        "icons",
+        "textures",
+        "sprites",
+        "isolated",
+        "packs",
+    ];
+
+    let mut remote_objects = Vec::new();
+    for prefix in prefixes {
+        let full_prefix = format!("{}/{}", cfg.prefix, prefix);
+        remote_objects.extend(list_supabase_objects_recursive(client, cfg, &full_prefix).await?);
+    }
+
+    Ok(remote_objects)
+}
+
+fn build_cloud_only_inventory_draft(
+    cfg: &SupabaseStorageConfig,
+    remote: &RemoteObject,
+) -> Option<GalleryInventoryDraft> {
+    let prefix_root = format!("{}/", cfg.prefix);
+    let relative = remote.path.strip_prefix(&prefix_root)?;
+    let segments = relative.split('/').collect::<Vec<_>>();
+    let family = *segments.first()?;
+    let public_url = supabase_public_url(cfg, &remote.path);
+    let file_name = remote.path.rsplit('/').next()?.to_string();
+
+    let mut item = match family {
+        "icons" if is_image_file(&remote.path) && segments.len() >= 3 => build_gallery_item(
+            format!("icon-cloud-{}", remote.path),
+            "icon",
+            file_name.clone(),
+            "icons".to_string(),
+            None,
+            remote.updated_at.clone(),
+            None,
+            serde_json::json!({
+                "batchId": segments.get(1).copied().unwrap_or_default(),
+                "filename": file_name,
+            }),
+        ),
+        "textures" if is_image_file(&remote.path) && segments.len() >= 3 => build_gallery_item(
+            format!("texture-cloud-{}", remote.path),
+            "texture",
+            file_name.clone(),
+            "textures".to_string(),
+            None,
+            remote.updated_at.clone(),
+            None,
+            serde_json::json!({
+                "batchId": segments.get(1).copied().unwrap_or_default(),
+                "filename": file_name,
+            }),
+        ),
+        "sprites" if is_image_file(&remote.path) && segments.len() >= 3 => build_gallery_item(
+            format!("sprite-cloud-{}", remote.path),
+            "sprite",
+            file_name.clone(),
+            "sprites".to_string(),
+            None,
+            remote.updated_at.clone(),
+            None,
+            serde_json::json!({
+                "batchId": segments.get(1).copied().unwrap_or_default(),
+                "filename": file_name,
+            }),
+        ),
+        "characters"
+            if is_image_file(&remote.path) && segments.get(1).copied() == Some("portraits") =>
+        {
+            build_gallery_item(
+                format!("character-cloud-{}", remote.path),
+                "character",
+                file_name.clone(),
+                "characters".to_string(),
+                None,
+                remote.updated_at.clone(),
+                None,
+                serde_json::json!({
+                    "filename": file_name,
+                }),
+            )
+        }
+        "isolated" if is_image_file(&remote.path) && segments.len() >= 3 => {
+            let category = if segments.get(2).copied() == Some("upscaled") {
+                "upscaled"
+            } else {
+                "isolated"
+            };
+            build_gallery_item(
+                format!("isolated-cloud-{}", remote.path),
+                "isolated",
+                file_name.clone(),
+                category.to_string(),
+                None,
+                remote.updated_at.clone(),
+                segments.get(1).map(|value| value.to_string()),
+                serde_json::json!({
+                    "planetId": segments.get(1).copied(),
+                    "filename": file_name,
+                    "section": category,
+                }),
+            )
+        }
+        "planets"
+            if is_image_file(&remote.path)
+                && segments.len() >= 4
+                && segments.get(2).copied() == Some("textures") =>
+        {
+            let world_id = segments[1].to_string();
+            build_gallery_item(
+                format!("planet-cloud-{}", remote.path),
+                "planet",
+                world_id.clone(),
+                "planets".to_string(),
+                None,
+                remote.updated_at.clone(),
+                Some(world_id.clone()),
+                serde_json::json!({
+                    "planetId": world_id,
+                    "filename": file_name,
+                }),
+            )
+        }
+        "packs" if remote.path.ends_with(".json") => build_gallery_item(
+            format!("pack-cloud-{}", remote.path),
+            "pack",
+            file_name.trim_end_matches(".json").to_string(),
+            "packs".to_string(),
+            None,
+            remote.updated_at.clone(),
+            None,
+            serde_json::json!({
+                "filename": file_name,
+            }),
+        ),
+        _ => return None,
+    };
+
+    item.display_url = public_url.clone();
+    item.cloud_public_url = Some(public_url);
+    item.storage_key = Some(remote.path.clone());
+    item.source = "cloud".to_string();
+    item.sync_state = "cloud_only".to_string();
+
+    Some(GalleryInventoryDraft {
+        tab: match family {
+            "icons" => "icons",
+            "textures" => "textures",
+            "sprites" => "sprites",
+            "characters" => "characters",
+            "isolated" => "isolated",
+            "planets" => "planets",
+            "packs" => "packs",
+            _ => return None,
+        },
+        item,
+        local_path: None,
+    })
+}
+
+async fn get_supabase_storage_health(State(state): State<AppState>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(build_supabase_health_snapshot(state.supabase.as_ref()).await),
+    )
+        .into_response()
+}
+
+async fn get_gallery_inventory(State(state): State<AppState>) -> impl IntoResponse {
+    let mut warnings = Vec::new();
+    let mut drafts = Vec::new();
+    drafts.extend(load_local_planet_drafts(&state));
+    drafts.extend(load_local_texture_drafts(&state));
+    drafts.extend(load_local_icon_drafts(&state));
+    drafts.extend(load_local_character_drafts(&state));
+    drafts.extend(load_local_isolated_drafts(&state));
+    drafts.extend(load_local_sprite_drafts(&state));
+    drafts.extend(load_local_pack_drafts(&state));
+
+    let mut supabase = build_supabase_health_snapshot(state.supabase.as_ref()).await;
+    let mut remote_objects = Vec::new();
+    let mut remote_map: HashMap<String, RemoteObject> = HashMap::new();
+
+    if let Some(cfg) = state.supabase.as_ref() {
+        if supabase.reachable {
+            let client = build_supabase_client(5);
+            match list_supabase_inventory_objects(&client, cfg).await {
+                Ok(objects) => {
+                    remote_map = objects
+                        .iter()
+                        .map(|object| (object.path.clone(), object.clone()))
+                        .collect();
+                    remote_objects = objects;
+                }
+                Err(error) => {
+                    warnings.push(format!("Supabase inventory unavailable: {error}"));
+                    supabase.reachable = false;
+                    supabase.error = Some(error);
+                }
+            }
+        } else if let Some(error) = supabase.error.clone() {
+            warnings.push(format!("Supabase inventory unavailable: {error}"));
+        }
+
+        let mut matched_remote_keys = HashSet::new();
+        for draft in &mut drafts {
+            if let Some(local_path) = draft.local_path.as_ref() {
+                if let Some(storage_key) = local_to_cloud_key(&state, cfg, local_path) {
+                    draft.item.storage_key = Some(storage_key.clone());
+                    if let Some(remote) = remote_map.get(&storage_key) {
+                        let public_url = supabase_public_url(cfg, &remote.path);
+                        draft.item.cloud_public_url = Some(public_url.clone());
+                        if draft.item.display_url.is_empty() {
+                            draft.item.display_url = public_url;
+                        }
+                        draft.item.source = "hybrid".to_string();
+                        draft.item.sync_state = "synced".to_string();
+                        matched_remote_keys.insert(storage_key);
+                    } else if supabase.configured && !supabase.reachable {
+                        draft.item.sync_state = "cloud_error".to_string();
+                    }
+                }
+            } else if supabase.configured && !supabase.reachable {
+                draft.item.sync_state = "cloud_error".to_string();
+            }
+
+            if draft.item.display_url.is_empty() {
+                draft.item.display_url = draft
+                    .item
+                    .local_url
+                    .clone()
+                    .or_else(|| draft.item.cloud_public_url.clone())
+                    .unwrap_or_default();
+            }
+        }
+
+        if supabase.reachable {
+            for remote in remote_objects {
+                if matched_remote_keys.contains(&remote.path) {
+                    continue;
+                }
+                if let Some(draft) = build_cloud_only_inventory_draft(cfg, &remote) {
+                    drafts.push(draft);
+                }
+            }
+        }
+    }
+
+    let mut tabs = GalleryInventoryTabs::default();
+    for draft in drafts {
+        append_inventory_item(&mut tabs, draft.tab, draft.item);
+    }
+
+    sort_inventory_items(&mut tabs.planets);
+    sort_inventory_items(&mut tabs.textures);
+    sort_inventory_items(&mut tabs.icons);
+    sort_inventory_items(&mut tabs.characters);
+    sort_inventory_items(&mut tabs.isolated);
+    sort_inventory_items(&mut tabs.sprites);
+    sort_inventory_items(&mut tabs.packs);
+
+    (
+        StatusCode::OK,
+        Json(GalleryInventoryResponse {
+            warnings,
+            supabase,
+            tabs,
+        }),
+    )
+        .into_response()
 }
 
 async fn list_supabase_objects_recursive(
@@ -7484,7 +8460,10 @@ async fn sync_supabase_storage(
     let planets_prefix = format!("{}/planets", cfg.prefix);
     let characters_prefix = format!("{}/characters", cfg.prefix);
     let icons_prefix = format!("{}/icons", cfg.prefix);
+    let textures_prefix = format!("{}/textures", cfg.prefix);
+    let sprites_prefix = format!("{}/sprites", cfg.prefix);
     let isolated_prefix = format!("{}/isolated", cfg.prefix);
+    let packs_prefix = format!("{}/packs", cfg.prefix);
     let remote_planets = match list_supabase_objects_recursive(&client, cfg, &planets_prefix).await
     {
         Ok(v) => v,
@@ -7497,6 +8476,28 @@ async fn sync_supabase_storage(
         }
     };
     let remote_icons = match list_supabase_objects_recursive(&client, cfg, &icons_prefix).await {
+        Ok(v) => v,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": err })),
+                )
+                    .into_response();
+            }
+        };
+    let remote_textures =
+        match list_supabase_objects_recursive(&client, cfg, &textures_prefix).await {
+            Ok(v) => v,
+            Err(err) => {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({ "error": err })),
+                )
+                    .into_response();
+            }
+        };
+    let remote_sprites = match list_supabase_objects_recursive(&client, cfg, &sprites_prefix).await
+    {
         Ok(v) => v,
         Err(err) => {
             return (
@@ -7528,11 +8529,24 @@ async fn sync_supabase_storage(
                     .into_response();
             }
         };
+    let remote_packs = match list_supabase_objects_recursive(&client, cfg, &packs_prefix).await {
+        Ok(v) => v,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": err })),
+            )
+                .into_response();
+        }
+    };
     let remote_files = remote_planets
         .into_iter()
         .chain(remote_characters.into_iter())
         .chain(remote_icons.into_iter())
+        .chain(remote_textures.into_iter())
+        .chain(remote_sprites.into_iter())
         .chain(remote_isolated.into_iter())
+        .chain(remote_packs.into_iter())
         .collect::<Vec<_>>();
     let remote_map = remote_files
         .iter()
@@ -7543,7 +8557,10 @@ async fn sync_supabase_storage(
     collect_files_recursive(&state.planets_dir, &mut local_files);
     collect_files_recursive(&state.characters_dir, &mut local_files);
     collect_files_recursive(&state.icons_dir, &mut local_files);
+    collect_files_recursive(&state.textures_dir, &mut local_files);
+    collect_files_recursive(&state.sprites_dir, &mut local_files);
     collect_files_recursive(&state.isolated_dir, &mut local_files);
+    collect_files_recursive(&state.packs_dir, &mut local_files);
 
     if direction == "push" || direction == "both" {
         for local_path in &local_files {

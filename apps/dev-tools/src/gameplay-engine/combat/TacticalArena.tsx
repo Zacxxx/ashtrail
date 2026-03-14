@@ -3,8 +3,8 @@
 // ═══════════════════════════════════════════════════════════
 
 import React, { useRef, useEffect, useMemo, useState } from 'react';
-import { Skill } from '@ashtrail/core';
-import type { TacticalEntity, CombatPhase, CombatLogMessage, CombatPreviewState, DamagePreview } from '@ashtrail/core';
+import { Skill, TacticalEntity, buildActiveModifierInstanceFromLegacyEffect } from '@ashtrail/core';
+import type { CombatPhase, CombatLogMessage, CombatPreviewState, DamagePreview } from '@ashtrail/core';
 import { Modal } from '@ashtrail/ui';
 import { Grid, GridCell, TILE_WIDTH, TILE_HEIGHT, gridToScreen, findPath } from './tacticalGrid';
 import type { PlayerAction } from './useCombatWebSocket';
@@ -40,6 +40,33 @@ interface TacticalArenaProps {
     onPreviewMove: (entityId: string, hoverRow?: number, hoverCol?: number) => void;
     onPreviewBasicAttack: (attackerId: string, hoverRow?: number, hoverCol?: number) => void;
     onPreviewSkill: (casterId: string, skillId: string, hoverRow?: number, hoverCol?: number) => void;
+}
+
+function getEntityModifierInstances(entity?: TacticalEntity | null) {
+    if (!entity?.activeEffects?.length) return [];
+    return entity.activeEffects.map((effect, index) => buildActiveModifierInstanceFromLegacyEffect(effect, {
+        appliedTurn: effect.appliedTurn,
+        index,
+        source: {
+            sourceEntityId: effect.sourceEntityId,
+            applierId: effect.applierId,
+            skillId: effect.skillId,
+            itemId: effect.itemId,
+            instanceId: effect.instanceId,
+        },
+    }));
+}
+
+function entityHasStateTag(entity: TacticalEntity | undefined, tag: string) {
+    return getEntityModifierInstances(entity).some((instance) => (
+        instance.definition.kind === 'state' && instance.definition.state.tags.includes(tag)
+    ));
+}
+
+function entityHasProc(entity: TacticalEntity | undefined, procType: string) {
+    return getEntityModifierInstances(entity).some((instance) => (
+        instance.definition.kind === 'proc' && instance.definition.proc.type === procType
+    ));
 }
 
 export function TacticalArena({
@@ -177,6 +204,20 @@ export function TacticalArena({
         danger: 'border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20',
     };
 
+    const activeModifierInstances = useMemo(() => {
+        return getEntityModifierInstances(activeEntity).map((instance) => ({
+            ...instance,
+            appliedTurn: instance.appliedTurn ?? turnNumber,
+            source: {
+                sourceEntityId: instance.source?.sourceEntityId || activeEntity?.id,
+                applierId: instance.source?.applierId || instance.protectorId,
+                skillId: instance.source?.skillId,
+                itemId: instance.source?.itemId,
+                instanceId: instance.source?.instanceId || instance.instanceId,
+            },
+        }));
+    }, [activeEntity, turnNumber]);
+
     return (
         <>
         <div className="w-full h-full flex flex-col gap-0 overflow-hidden bg-[#04070d]">
@@ -237,17 +278,67 @@ export function TacticalArena({
             </div>
 
             {activeEntity && phase === 'combat' && (
-                <div className="shrink-0 flex items-center justify-between gap-4 px-4 py-2 border-b border-white/5 bg-[linear-gradient(90deg,rgba(14,20,28,0.95),rgba(4,7,13,0.85))]">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-2 h-2 rounded-full ${activeEntity.isPlayer ? 'bg-blue-500' : 'bg-red-500'}`} />
-                        <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest truncate">{activeEntity.name}</span>
-                        {!isPlayerTurn && <span className="text-[9px] text-gray-500 italic">(AI thinking...)</span>}
+                <div className="shrink-0 px-4 py-2 border-b border-white/5 bg-[linear-gradient(90deg,rgba(14,20,28,0.95),rgba(4,7,13,0.85))]">
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-2 h-2 rounded-full ${activeEntity.isPlayer ? 'bg-blue-500' : 'bg-red-500'}`} />
+                            <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest truncate">{activeEntity.name}</span>
+                            {!isPlayerTurn && <span className="text-[9px] text-gray-500 italic">(AI thinking...)</span>}
+                        </div>
+                        <div className="flex gap-3 text-xs font-mono">
+                            <span className="text-blue-400">AP: {activeEntity.ap}/{activeEntity.maxAp}</span>
+                            <span className="text-green-400">MP: {activeEntity.mp}/{activeEntity.maxMp}</span>
+                            <span className="text-red-400">HP: {activeEntity.hp}/{activeEntity.maxHp}</span>
+                        </div>
                     </div>
-                    <div className="flex gap-3 text-xs font-mono">
-                        <span className="text-blue-400">AP: {activeEntity.ap}/{activeEntity.maxAp}</span>
-                        <span className="text-green-400">MP: {activeEntity.mp}/{activeEntity.maxMp}</span>
-                        <span className="text-red-400">HP: {activeEntity.hp}/{activeEntity.maxHp}</span>
-                    </div>
+                    {activeModifierInstances.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {activeModifierInstances.map((instance) => (
+                                <div
+                                    key={instance.instanceId}
+                                    className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1 text-[9px] font-mono text-cyan-100"
+                                    title={`${instance.definition.name} | kind=${instance.definition.kind}${instance.definition.kind === 'proc' ? ` | phase=${instance.definition.phase}` : ''}`}
+                                >
+                                    <span className="font-black uppercase tracking-widest text-cyan-300 mr-2">
+                                        {instance.definition.visibility?.label || instance.definition.name}
+                                    </span>
+                                    <span className="text-gray-300">{instance.definition.kind}</span>
+                                    {instance.definition.visibility?.isBuff && (
+                                        <span className="ml-2 text-emerald-300">buff</span>
+                                    )}
+                                    {instance.definition.visibility?.isDebuff && (
+                                        <span className="ml-2 text-rose-300">debuff</span>
+                                    )}
+                                    {typeof instance.remainingDuration === 'number' && (
+                                        <span className="ml-2 text-amber-300">t{instance.remainingDuration}</span>
+                                    )}
+                                    {instance.currentStacks > 1 && (
+                                        <span className="ml-2 text-fuchsia-300">x{instance.currentStacks}</span>
+                                    )}
+                                    {instance.definition.kind === 'state' && instance.definition.state.tags.length > 0 && (
+                                        <span className="ml-2 text-gray-400">{instance.definition.state.tags.join(',')}</span>
+                                    )}
+                                    {instance.definition.kind === 'proc' && (
+                                        <span className="ml-2 text-orange-300">{instance.definition.phase}</span>
+                                    )}
+                                    {instance.source?.skillId && (
+                                        <span className="ml-2 text-violet-300">skill:{instance.source.skillId}</span>
+                                    )}
+                                    {(instance.source?.applierId || instance.protectorId) && (
+                                        <span className="ml-2 text-sky-300">src:{instance.source?.applierId || instance.protectorId}</span>
+                                    )}
+                                    {instance.definition.dispel?.dispellable === false && (
+                                        <span className="ml-2 text-gray-500">fixed</span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {activeModifierInstances.length === 0 && (
+                        <div className="mt-2 text-[9px] uppercase tracking-widest text-gray-600">
+                            No active runtime modifiers
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -764,8 +855,6 @@ function IsometricTile({ cell, x, y, entity, isActive, isAoe, hasBattlemap, onCl
         }
     }
 
-    const showAnalyzed = entity?.activeEffects?.some(e => e.type === 'ANALYZED' as any);
-
     return (
         <div
             className="absolute transition-all duration-200"
@@ -896,7 +985,7 @@ function TacticalEntityView({ entity, grid, isActive }: TacticalEntityViewProps)
             className={`
                 absolute flex items-center justify-center pointer-events-none 
                 transition-all duration-200 ease-linear
-                ${entity.activeEffects?.some((e: any) => e.type === 'STEALTH' as any) ? 'opacity-30 grayscale-[50%] blur-[0.5px]' : 'opacity-100'}
+                ${entityHasStateTag(entity, 'stealth') ? 'opacity-30 grayscale-[50%] blur-[0.5px]' : 'opacity-100'}
             `}
             style={{
                 left: x,
@@ -907,13 +996,13 @@ function TacticalEntityView({ entity, grid, isActive }: TacticalEntityViewProps)
             }}
         >
             <div className="absolute -top-5 flex gap-1 z-10">
-                {entity.activeEffects?.some((e: any) => e.type === 'PROTECTION_STANCE' as any) && (
+                {entityHasProc(entity, 'protectionRedirect') && (
                     <span className="text-[10px] drop-shadow-[0_0_5px_rgba(255,255,255,0.8)] animate-pulse">🛡️</span>
                 )}
-                {entity.activeEffects?.some((e: any) => e.type === 'STEALTH' as any) && (
+                {entityHasStateTag(entity, 'stealth') && (
                     <span className="text-[10px] drop-shadow-[0_0_5px_rgba(99,102,241,0.8)] animate-bounce">👤</span>
                 )}
-                {entity.activeEffects?.some((e: any) => e.type === 'ANALYZED' as any) && (
+                {entityHasStateTag(entity, 'analyzed') && (
                     <span className="text-[10px] drop-shadow-[0_0_5px_rgba(234,179,8,0.8)] animate-[pulse_1s_infinite]">🔍</span>
                 )}
             </div>

@@ -14,6 +14,7 @@ import {
   Trait,
 } from '../../types';
 import { isSupportedEffectTarget } from './catalog';
+import { canonicalizeEffectTarget } from '../modifiers';
 
 export interface EffectResolutionContext {
   scope?: 'combat' | 'travel' | 'exploration' | 'camp' | 'economy' | 'social' | 'global';
@@ -356,8 +357,9 @@ export function resolveCharacterEffects(source: EffectSource, context: EffectRes
 
   const modifiers: Record<string, ResolvedModifier> = {};
   matchedEffects.forEach((effect) => {
-    if (!effect.target || !isSupportedEffectTarget(effect.target)) return;
-    const modifier = modifiers[effect.target] || (modifiers[effect.target] = createModifier());
+    const target = canonicalizeEffectTarget(effect.target);
+    if (!target || !isSupportedEffectTarget(target)) return;
+    const modifier = modifiers[target] || (modifiers[target] = createModifier());
     const value = Number(effect.value || 0);
     if (effect.isPercentage || effect.stacking === 'multiplicative') {
       modifier.multiplier *= 1 + (value / 100);

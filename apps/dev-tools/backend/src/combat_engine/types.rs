@@ -102,6 +102,17 @@ pub struct BaseStats {
     pub defense: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AttributeUpgrades {
+    pub strength: i32,
+    pub agility: i32,
+    pub intelligence: i32,
+    pub wisdom: i32,
+    pub endurance: i32,
+    pub charisma: i32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DamagePreview {
@@ -266,6 +277,26 @@ pub struct GameplayEffect {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_stacks: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub applied_turn: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_entity_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub applier_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skill_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispellable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispel_priority: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispel_group: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub protector_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_known_position: Option<GridPos>,
@@ -334,6 +365,10 @@ pub struct CharacterOccupationProgress {
     #[serde(default)]
     pub spent_talent_points: i32,
     #[serde(default)]
+    pub spent_pioneer_points: i32,
+    #[serde(default = "default_unlock_point_cost")]
+    pub unlock_point_cost: i32,
+    #[serde(default)]
     pub available_talent_points: i32,
     #[serde(default = "default_occupation_level")]
     pub level: i32,
@@ -342,6 +377,10 @@ pub struct CharacterOccupationProgress {
 }
 
 fn default_occupation_level() -> i32 {
+    1
+}
+
+fn default_unlock_point_cost() -> i32 {
     1
 }
 
@@ -356,6 +395,8 @@ pub struct CharacterProgression {
     pub available_talent_points: i32,
     #[serde(default)]
     pub spent_talent_points: i32,
+    #[serde(default)]
+    pub attribute_upgrades: AttributeUpgrades,
     #[serde(default)]
     pub spent_stat_points: i32,
     #[serde(default)]

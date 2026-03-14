@@ -56,6 +56,14 @@
     "worldId": "665774da-472d-4570-adfb-1242ceefdfd9"
   },
   "progression": {
+    "attributeUpgrades": {
+      "agility": 0,
+      "charisma": 0,
+      "endurance": 0,
+      "intelligence": 0,
+      "strength": 0,
+      "wisdom": 0
+    },
     "availableTalentPoints": 2,
     "occupationStates": [],
     "spentPioneerOccupationPoints": 0,
@@ -76,6 +84,8 @@
     "nextLevelCumulativeXp": 642,
     "nextLevelXp": 522,
     "occupationPointsTotal": 2,
+    "occupationTalentPointsSpent": 0,
+    "occupationUnlockPointsSpent": 0,
     "occupations": [],
     "pioneerLevel": 0,
     "pioneerPointsTotal": 0,

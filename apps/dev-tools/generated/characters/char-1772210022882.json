@@ -131,7 +131,7 @@
   },
   "occupations": [
     {
-      "availableTalentPoints": 12,
+      "availableTalentPoints": 11,
       "isPrimary": true,
       "level": 1,
       "occupation": {
@@ -147,7 +147,9 @@
         "shortDescription": "Civilian fighter defending the community."
       },
       "occupationId": "occ-militia",
+      "spentPioneerPoints": 0,
       "spentTalentPoints": 0,
+      "unlockPointCost": 1,
       "unlockedTalentNodeIds": []
     }
   ],
@@ -156,10 +158,18 @@
     "mother": null
   },
   "progression": {
-    "availableTalentPoints": 12,
+    "attributeUpgrades": {
+      "agility": 0,
+      "charisma": 0,
+      "endurance": 0,
+      "intelligence": 0,
+      "strength": 0,
+      "wisdom": 0
+    },
+    "availableTalentPoints": 11,
     "occupationStates": [
       {
-        "availableTalentPoints": 12,
+        "availableTalentPoints": 11,
         "isPrimary": true,
         "level": 1,
         "occupation": {
@@ -175,7 +185,9 @@
           "shortDescription": "Civilian fighter defending the community."
         },
         "occupationId": "occ-militia",
+        "spentPioneerPoints": 0,
         "spentTalentPoints": 0,
+        "unlockPointCost": 1,
         "unlockedTalentNodeIds": []
       }
     ],
@@ -190,7 +202,7 @@
   "resolvedProgression": {
     "availablePioneerPoints": 0,
     "availableStatPoints": 4,
-    "availableTalentPoints": 12,
+    "availableTalentPoints": 11,
     "currentLevelCumulativeXp": 39671,
     "isMaxLevel": false,
     "level": 12,
@@ -198,9 +210,11 @@
     "nextLevelCumulativeXp": 48959,
     "nextLevelXp": 9288,
     "occupationPointsTotal": 12,
+    "occupationTalentPointsSpent": 0,
+    "occupationUnlockPointsSpent": 1,
     "occupations": [
       {
-        "availableTalentPoints": 12,
+        "availableTalentPoints": 11,
         "isPrimary": true,
         "level": 1,
         "occupation": {
@@ -216,7 +230,9 @@
           "shortDescription": "Civilian fighter defending the community."
         },
         "occupationId": "occ-militia",
+        "spentPioneerPoints": 0,
         "spentTalentPoints": 0,
+        "unlockPointCost": 1,
         "unlockedTalentNodeIds": []
       }
     ],
