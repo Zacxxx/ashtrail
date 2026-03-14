@@ -10,6 +10,7 @@ import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useJobs } from "../jobs/useJobs";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
+import { buildAssetGeneratorRoute, DEVTOOLS_ROUTES } from "../lib/routes";
 import { CharacterGeneratorModal } from "./CharacterGeneratorModal";
 import {
     CharacterAppearanceSection,
@@ -390,7 +391,7 @@ export function CharacterBuilderPage() {
                     characterName: name || "Unnamed Character",
                 },
                 restore: {
-                    route: "/character-builder",
+                    route: DEVTOOLS_ROUTES.characterBuilder,
                     payload: {
                         worldId,
                         charId,
@@ -455,7 +456,7 @@ export function CharacterBuilderPage() {
                     characterName: name || "Unnamed Character",
                 },
                 restore: {
-                    route: "/character-builder",
+                    route: DEVTOOLS_ROUTES.characterBuilder,
                     payload: {
                         worldId,
                         charId,
@@ -535,7 +536,7 @@ export function CharacterBuilderPage() {
                     characterName: name || "Unnamed Character",
                 },
                 restore: {
-                    route: "/character-builder",
+                    route: DEVTOOLS_ROUTES.characterBuilder,
                     payload: {
                         worldId,
                         charId,
@@ -752,7 +753,13 @@ export function CharacterBuilderPage() {
     const visibleTabs = useMemo(() => injectAppearanceTab(activeRules.allowedTabs as BuilderTab[]), [activeRules.allowedTabs]);
     const supportsExplorationSprite = SPRITE_ENABLED_TYPES.has(characterType);
     const spriteActorType = CHARACTER_SPRITE_TYPE_MAP[characterType] ?? "human";
-    const spriteGeneratorLink = `/asset-generator?tab=sprites&mode=directional-set&spriteType=${spriteActorType}&targetKind=character&targetId=${charId}`;
+    const spriteGeneratorLink = buildAssetGeneratorRoute({
+        tab: "sprites",
+        mode: "directional-set",
+        spriteType: spriteActorType,
+        targetKind: "character",
+        targetId: charId,
+    });
 
     const selectedWorld = generationHistory.find(h => h.id === worldId);
 

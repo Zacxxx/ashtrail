@@ -9,6 +9,14 @@ import {
     fetchExplorationManifestIndex,
     type ExplorationManifestListItem,
 } from "../gameplay-engine/explorationSupport";
+import {
+    buildAssetGeneratorRoute,
+    buildExplorationRoute,
+    buildGameMasterRoute,
+    buildGameplayEngineRoute,
+    buildQuestsRoute,
+    DEVTOOLS_ROUTES,
+} from "../lib/routes";
 
 const API_BASE = "/api";
 
@@ -72,19 +80,6 @@ function SummaryCard({
             <div className="mt-2 text-sm leading-relaxed text-gray-500">{hint}</div>
         </Card>
     );
-}
-
-function buildExplorationHref(worldId: string, locationId?: string | null) {
-    const params = new URLSearchParams({
-        step: "EXPLORATION",
-        explorationTab: "location",
-    });
-    if (locationId) {
-        params.set("mode", "manifest");
-        params.set("worldId", worldId);
-        params.set("locationId", locationId);
-    }
-    return `/gameplay-engine?${params.toString()}`;
 }
 
 function summarizeQuestNodeText(text?: string | null): string {
@@ -174,8 +169,8 @@ export function StoryLoopPage() {
         : null;
 
     const loopSteps = useMemo<LoopStep[]>(() => {
-        const questHref = activeRun ? "/quests?tab=run" : "/quests?tab=seed";
-        const explorationHref = activeWorldId ? buildExplorationHref(activeWorldId, activeManifest?.locationId) : "/gameplay-engine?step=EXPLORATION";
+        const questHref = activeRun ? buildQuestsRoute("run") : buildQuestsRoute("seed");
+        const explorationHref = activeWorldId ? buildExplorationRoute(activeWorldId, activeManifest?.locationId) : buildGameplayEngineRoute({ step: "EXPLORATION" });
 
         if (mode === "exploration-led") {
             return [
@@ -186,7 +181,7 @@ export function StoryLoopPage() {
                     title: "Assemble the current world brief",
                     description: "Load the canonical world prompt, active tones, and regional lore before any scene generation happens.",
                     signal: gmContext?.worldPrompt?.trim() || "Write the canonical world prompt in Game Master first.",
-                    href: "/game-master?tab=directives",
+                    href: buildGameMasterRoute({ tab: "directives" }),
                     ctaLabel: "Open Game Master",
                 },
                 {
@@ -214,7 +209,7 @@ export function StoryLoopPage() {
                     title: "Resolve player action inside the location beat",
                     description: "After the scene package lands, drop into a short playable exploration beat before resuming the story stream.",
                     signal: "Reuse the existing exploration runtime for locomotion and interactions.",
-                    href: "/gameplay-engine?step=EXPLORATION&explorationTab=location",
+                    href: buildGameplayEngineRoute({ step: "EXPLORATION", explorationTab: "location" }),
                     ctaLabel: "Open Gameplay Engine",
                 },
             ];
@@ -257,7 +252,7 @@ export function StoryLoopPage() {
                     title: "Write consequences back into canon",
                     description: "After the choice or exploration beat, persist the result into the quest archive, glossary, or world context so the next scene is grounded.",
                     signal: `${questArchive.length} saved quest runs already persist this shape.`,
-                    href: "/quests?tab=archive",
+                    href: buildQuestsRoute("archive"),
                     ctaLabel: "Open Quest Archive",
                 },
             ];
@@ -271,7 +266,7 @@ export function StoryLoopPage() {
                 title: "Compile the world canon into a quest-ready brief",
                 description: "The architect agent reduces world canon into a compact prompt block and target tensions for the runtime.",
                 signal: gmContext?.worldPrompt?.trim() || "Canonical world prompt missing.",
-                href: "/game-master?tab=directives",
+                href: buildGameMasterRoute({ tab: "directives" }),
                 ctaLabel: "Write World Prompt",
             },
             {
@@ -375,13 +370,13 @@ export function StoryLoopPage() {
                             This loop frontend is intentionally built on the existing dev-tools stack. Pick an active world, then use the page to drive a quest-first hybrid demo that interleaves canon, media generation, and optional exploration inserts.
                         </p>
                         <div className="mt-8 flex flex-wrap gap-3">
-                            <Link className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] text-cyan-200 transition-colors hover:bg-cyan-500/20" to="/worldgen">
+                            <Link className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] text-cyan-200 transition-colors hover:bg-cyan-500/20" to={DEVTOOLS_ROUTES.worldgen}>
                                 Open World Generator
                             </Link>
-                            <Link className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] text-gray-200 transition-colors hover:bg-white/10" to="/game-master">
+                            <Link className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] text-gray-200 transition-colors hover:bg-white/10" to={buildGameMasterRoute()}>
                                 Open Game Master
                             </Link>
-                            <Link className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] text-gray-200 transition-colors hover:bg-white/10" to="/quests?tab=seed">
+                            <Link className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] text-gray-200 transition-colors hover:bg-white/10" to={buildQuestsRoute("seed")}>
                                 Open Quests
                             </Link>
                         </div>
@@ -485,7 +480,7 @@ export function StoryLoopPage() {
                                 </p>
                             </div>
                             <Link
-                                to="/game-master?tab=integrations"
+                                to={buildGameMasterRoute({ tab: "integrations" })}
                                 className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.24em] text-gray-200 transition-colors hover:bg-white/10"
                             >
                                 Open Integrations
@@ -613,16 +608,16 @@ export function StoryLoopPage() {
                         <div className="rounded-[26px] border border-white/6 bg-black/20 p-5">
                             <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-gray-500">Launch Surfaces</div>
                             <div className="mt-4 flex flex-col gap-3">
-                                <Link className="rounded-full border border-white/10 bg-white/5 px-4 py-3 text-center text-[10px] font-bold uppercase tracking-[0.24em] text-gray-200 transition-colors hover:bg-white/10" to="/game-master?tab=directives">
+                                <Link className="rounded-full border border-white/10 bg-white/5 px-4 py-3 text-center text-[10px] font-bold uppercase tracking-[0.24em] text-gray-200 transition-colors hover:bg-white/10" to={buildGameMasterRoute({ tab: "directives" })}>
                                     Canon + GM directives
                                 </Link>
-                                <Link className="rounded-full border border-white/10 bg-white/5 px-4 py-3 text-center text-[10px] font-bold uppercase tracking-[0.24em] text-gray-200 transition-colors hover:bg-white/10" to={activeRun ? "/quests?tab=run" : "/quests?tab=seed"}>
+                                <Link className="rounded-full border border-white/10 bg-white/5 px-4 py-3 text-center text-[10px] font-bold uppercase tracking-[0.24em] text-gray-200 transition-colors hover:bg-white/10" to={activeRun ? buildQuestsRoute("run") : buildQuestsRoute("seed")}>
                                     Quest backbone
                                 </Link>
-                                <Link className="rounded-full border border-white/10 bg-white/5 px-4 py-3 text-center text-[10px] font-bold uppercase tracking-[0.24em] text-gray-200 transition-colors hover:bg-white/10" to={activeWorldId ? buildExplorationHref(activeWorldId, activeManifest?.locationId) : "/gameplay-engine?step=EXPLORATION"}>
+                                <Link className="rounded-full border border-white/10 bg-white/5 px-4 py-3 text-center text-[10px] font-bold uppercase tracking-[0.24em] text-gray-200 transition-colors hover:bg-white/10" to={activeWorldId ? buildExplorationRoute(activeWorldId, activeManifest?.locationId) : buildGameplayEngineRoute({ step: "EXPLORATION" })}>
                                     Exploration insert
                                 </Link>
-                                <Link className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-center text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-100 transition-colors hover:bg-cyan-500/20" to="/asset-generator">
+                                <Link className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-center text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-100 transition-colors hover:bg-cyan-500/20" to={buildAssetGeneratorRoute()}>
                                     Asset generation follow-up
                                 </Link>
                             </div>

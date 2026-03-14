@@ -4,6 +4,7 @@ import { Button, Slider, Card, CardHeader, CardContent, Modal } from "@ashtrail/
 import { GameRegistry, type Character, type DirectionalSpriteBinding } from "@ashtrail/core";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useEcologyData } from "../ecology/useEcologyData";
+import { buildCharacterBuilderRoute, buildEcologyRoute } from "../lib/routes";
 
 // Presets removed; reference image serves as style
 const API_BASE = "http://127.0.0.1:8787";
@@ -2419,7 +2420,7 @@ export function AssetGeneratorPage() {
                                 <div className="flex items-center gap-3">
                                     {(activeSpriteBatch.target?.kind === "fauna" || spriteTargetKind === "fauna") && (activeSpriteBatch.target?.id || spriteTargetId) && (
                                         <Link
-                                            to={`/ecology?tab=fauna&id=${activeSpriteBatch.target?.id || spriteTargetId}`}
+                                            to={buildEcologyRoute({ tab: "fauna", id: activeSpriteBatch.target?.id || spriteTargetId })}
                                             className="text-[10px] tracking-wider text-emerald-400 hover:text-emerald-300 transition-colors"
                                         >
                                             OPEN IN ECOLOGY
@@ -2427,7 +2428,7 @@ export function AssetGeneratorPage() {
                                     )}
                                     {(activeSpriteBatch.target?.kind === "character" || spriteTargetKind === "character") && (activeSpriteBatch.target?.id || spriteTargetId) && (
                                         <Link
-                                            to={`/character-builder?id=${activeSpriteBatch.target?.id || spriteTargetId}&focus=sprite`}
+                                            to={buildCharacterBuilderRoute({ id: activeSpriteBatch.target?.id || spriteTargetId, focus: "sprite" })}
                                             className="text-[10px] tracking-wider text-emerald-400 hover:text-emerald-300 transition-colors"
                                         >
                                             OPEN IN CHARACTER BUILDER

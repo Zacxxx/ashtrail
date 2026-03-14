@@ -1,7 +1,7 @@
 
 import React, { useRef, useEffect } from 'react';
 import { GameState } from '@ashtrail/core';
-import { Button } from '../../UI/Primitives';
+import { Button } from '@ashtrail/ui';
 
 interface InteractionScreenProps {
   state: GameState;

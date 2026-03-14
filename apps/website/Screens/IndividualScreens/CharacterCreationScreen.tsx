@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Button, Card, ProgressBar, Stack, Badge, Container, Input, Select, Tooltip } from '../../UI/Primitives';
+import { Button, Card, ProgressBar, Stack, Badge, Container, Input, Select, Tooltip } from '@ashtrail/ui';
 import {
   Player,
   Stats,

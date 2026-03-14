@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Button } from '../../UI/Primitives';
+import { Button } from '@ashtrail/ui';
 import { WORLD_LORE } from '@ashtrail/core';
 
 interface LoreIntroScreenProps {

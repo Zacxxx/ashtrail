@@ -9,6 +9,7 @@ import { useActiveWorld } from '../../hooks/useActiveWorld';
 import { useEcologyData } from '../../ecology/useEcologyData';
 import { useJobs } from '../../jobs/useJobs';
 import { useTrackedJobLauncher } from '../../jobs/useTrackedJobLauncher';
+import { DEVTOOLS_ROUTES } from '../../lib/routes';
 import type { EcologyBundle, FaunaEntry } from '../../ecology/types';
 
 // ── Default skills given to characters without their own ──
@@ -412,7 +413,7 @@ export function CombatSimulator({
                     cols: gridCols,
                 },
                 restore: {
-                    route: '/gameplay-engine',
+                    route: DEVTOOLS_ROUTES.gameplayEngine,
                     payload: {
                         tab: 'combat',
                         mapPrompt,

@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { GameState } from '@ashtrail/core';
-import { Card, ProgressBar, Badge, Stack } from '../../UI/Primitives';
+import { Card, ProgressBar, Badge, Stack } from '@ashtrail/ui';
 
 export const CharacterSheet: React.FC<{ state: GameState }> = ({ state }) => {
   const { player } = state;

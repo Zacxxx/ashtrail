@@ -13,6 +13,7 @@ import type { LoreSnippet } from "../types/lore";
 import { useJobs } from "../jobs/useJobs";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import { formatAshtrailDate } from "../lib/calendar";
+import { buildGameMasterRoute } from "../lib/routes";
 
 interface EventChoice {
     id: string;
@@ -613,7 +614,7 @@ export function EventsView({
         return (
             <div className="flex flex-col items-center justify-center p-12 text-gray-500 border border-dashed border-white/10 rounded-xl bg-white/[0.02]">
                 <p className="text-sm uppercase tracking-widest font-bold text-gray-400">Select a world to run events</p>
-                <Link to="/game-master?tab=context" className="mt-4 px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
+                <Link to={buildGameMasterRoute({ tab: "context" })} className="mt-4 px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
                     Open Game Master
                 </Link>
             </div>
@@ -635,7 +636,7 @@ export function EventsView({
                 <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/10 p-3">
                     <div className="flex items-center justify-between gap-2">
                         <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-300">GM Context Active</span>
-                        <Link to="/game-master?tab=context" className="text-[10px] font-bold uppercase tracking-widest text-indigo-200 hover:text-white">
+                        <Link to={buildGameMasterRoute({ tab: "context" })} className="text-[10px] font-bold uppercase tracking-widest text-indigo-200 hover:text-white">
                             Tune
                         </Link>
                     </div>

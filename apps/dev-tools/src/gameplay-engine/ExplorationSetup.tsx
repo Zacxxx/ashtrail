@@ -5,6 +5,7 @@ import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useJobs } from "../jobs/useJobs";
 import type { JobListItem } from "../jobs/types";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
+import { DEVTOOLS_ROUTES } from "../lib/routes";
 import {
     type ExplorationJobAcceptedResponse,
     type ExplorationLaunchConfig,
@@ -470,7 +471,7 @@ export function ExplorationSetup({ onStart }: ExplorationSetupProps) {
                 url: "/api/exploration/generate-location",
                 request,
                 restore: {
-                    route: "/gameplay-engine",
+                    route: DEVTOOLS_ROUTES.gameplayEngine,
                     search: {
                         step: "EXPLORATION",
                         mode: "setup",

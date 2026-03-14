@@ -17,7 +17,7 @@ Instead, it composes the current dev-tools surfaces into one operator view that 
 
 New route:
 
-- `/story-loop`
+- `/devtools/story-loop`
 
 This route is meant to be a director console for the hackathon slice rather than a player-facing game screen.
 

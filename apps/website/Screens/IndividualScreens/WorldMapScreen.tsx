@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Node, GameState, MAP_NODES } from '@ashtrail/core';
-import { Card, Button, Badge } from '../../UI/Primitives';
+import { Card, Button, Badge } from '@ashtrail/ui';
 
 interface WorldMapScreenProps {
   state: GameState;

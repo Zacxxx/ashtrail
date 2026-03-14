@@ -5,6 +5,7 @@ import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { BIOME_META } from "../modules/geo/biomes";
 import { useJobs } from "../jobs/useJobs";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
+import { DEVTOOLS_ROUTES } from "../lib/routes";
 
 interface UseWorldGenerationParams {
     activeWorldId: string | null;
@@ -312,7 +313,7 @@ Parameters: Vegetation Density: ${ecoVegetation}, Fauna Hotspots: ${ecoFauna}${r
                     redoMode: "replace_scope",
                 },
                 restore: {
-                    route: "/worldgen",
+                    route: DEVTOOLS_ROUTES.worldgen,
                     search: { step: "HUMANITY" },
                     payload: {
                         worldId: activeWorldId,

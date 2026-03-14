@@ -63,7 +63,7 @@ graph TD
 
 - **`apps/website`**: The player-facing portal. High-immersion survival console.
 - **`apps/server`**: The "Brain." Handles the deterministic state machine and wraps the AI GM.
-- **`apps/dev-tools`**: Visualization tools for map generation research and AI-driven asset spawning.
+- **`apps/dev-tools`**: Visualization tools for map generation research and AI-driven asset spawning, now also serving the cinematic demo landing at `/`.
 - **`packages/ui`**: A strict Design-System-first library using Tailwind CSS.
 - **`packages/core`**: Shared schemas and game logic ensure consistency between client and server.
 
@@ -94,7 +94,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 # Used by other app surfaces still reading the legacy key name
 GOOGLE_GENAI_API_KEY=your_gemini_api_key_here
 
-# Optional: image model catalog shown in /worldgen refinement UI
+# Optional: image model catalog shown in /devtools/worldgen refinement UI
 # Format: model_id|Display Label,model_id|Display Label
 AI_IMAGE_MODELS=gemini-3.1-flash-image-preview|Nano Banana 2,gemini-3-pro-image-preview|Gemini 3 Pro Image Preview,gemini-2.5-flash-image|Gemini 2.5 Flash Image
 
@@ -115,13 +115,16 @@ WORLDGEN_REFINE_MAX_QUEUE=3
 # Run the main game client
 bun run dev:website
 
+# Run the cinematic demo landing via dev-tools frontend (`/`)
+bun run dev:demo
+
 # Run dev-tools frontend + Rust backend together
 bun run dev:dev-tools
 
 # Run only the dev-tools Rust backend (http://127.0.0.1:8787)
 bun run dev:dev-tools:backend
 
-# Run only the dev-tools frontend (http://127.0.0.1:3000)
+# Run only the unified frontend (demo at `/`, dev-tools at `/devtools`)
 bun run dev:dev-tools:frontend
 ```
 
