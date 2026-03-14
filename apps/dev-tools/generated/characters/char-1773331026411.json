@@ -57,6 +57,8 @@
     "nextLevelCumulativeXp": 120,
     "nextLevelXp": 120,
     "occupationPointsTotal": 1,
+    "occupationTalentPointsSpent": 0,
+    "occupationUnlockPointsSpent": 0,
     "occupations": [],
     "pioneerLevel": 0,
     "pioneerPointsTotal": 0,

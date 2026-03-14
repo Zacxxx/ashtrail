@@ -61,7 +61,7 @@
   },
   "occupations": [
     {
-      "availableTalentPoints": 12,
+      "availableTalentPoints": 11,
       "isPrimary": true,
       "level": 1,
       "occupation": {
@@ -77,15 +77,17 @@
         "shortDescription": "Trained combatant with military discipline."
       },
       "occupationId": "occ-soldier",
+      "spentPioneerPoints": 0,
       "spentTalentPoints": 0,
+      "unlockPointCost": 1,
       "unlockedTalentNodeIds": []
     }
   ],
   "progression": {
-    "availableTalentPoints": 12,
+    "availableTalentPoints": 11,
     "occupationStates": [
       {
-        "availableTalentPoints": 12,
+        "availableTalentPoints": 11,
         "isPrimary": true,
         "level": 1,
         "occupation": {
@@ -101,7 +103,9 @@
           "shortDescription": "Trained combatant with military discipline."
         },
         "occupationId": "occ-soldier",
+        "spentPioneerPoints": 0,
         "spentTalentPoints": 0,
+        "unlockPointCost": 1,
         "unlockedTalentNodeIds": []
       }
     ],
@@ -115,7 +119,7 @@
   "resolvedProgression": {
     "availablePioneerPoints": 0,
     "availableStatPoints": 4,
-    "availableTalentPoints": 12,
+    "availableTalentPoints": 11,
     "currentLevelCumulativeXp": 39671,
     "isMaxLevel": false,
     "level": 12,
@@ -123,9 +127,11 @@
     "nextLevelCumulativeXp": 48959,
     "nextLevelXp": 9288,
     "occupationPointsTotal": 12,
+    "occupationTalentPointsSpent": 0,
+    "occupationUnlockPointsSpent": 1,
     "occupations": [
       {
-        "availableTalentPoints": 12,
+        "availableTalentPoints": 11,
         "isPrimary": true,
         "level": 1,
         "occupation": {
@@ -141,7 +147,9 @@
           "shortDescription": "Trained combatant with military discipline."
         },
         "occupationId": "occ-soldier",
+        "spentPioneerPoints": 0,
         "spentTalentPoints": 0,
+        "unlockPointCost": 1,
         "unlockedTalentNodeIds": []
       }
     ],

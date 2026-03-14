@@ -334,6 +334,10 @@ pub struct CharacterOccupationProgress {
     #[serde(default)]
     pub spent_talent_points: i32,
     #[serde(default)]
+    pub spent_pioneer_points: i32,
+    #[serde(default = "default_unlock_point_cost")]
+    pub unlock_point_cost: i32,
+    #[serde(default)]
     pub available_talent_points: i32,
     #[serde(default = "default_occupation_level")]
     pub level: i32,
@@ -342,6 +346,10 @@ pub struct CharacterOccupationProgress {
 }
 
 fn default_occupation_level() -> i32 {
+    1
+}
+
+fn default_unlock_point_cost() -> i32 {
     1
 }
 

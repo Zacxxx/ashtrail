@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, CharacterOccupationProgress, ResolvedProgression, getDefaultTalentPointsForLevel, isOccupationLinkedTrait, resolveOccupationTree, sanitizeSkillLoadout } from "@ashtrail/core";
+import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, Item, ItemRarity, ItemCategory, EquipSlot, Skill, SkillCategory, CharacterType, WorldSettings, CustomBaseType, CharacterRelationship, RelationshipType, DirectionalSpriteBinding, CharacterCredits, DEFAULT_CHARACTER_CREDITS, getCharacterCreditsTotal, normalizeCharacterCredits, TalentNode, CharacterOccupationProgress, ResolvedProgression, isOccupationLinkedTrait, resolveOccupationTree, sanitizeSkillLoadout } from "@ashtrail/core";
 import { TabBar, Modal } from "@ashtrail/ui";
 import { Background, ConnectionLineType, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge as RFEdge, type Node as RFNode } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -58,6 +58,147 @@ function getEquipSlot(item: Item): EquipSlot | null {
 
 function isEquipable(item: Item): boolean {
     return getEquipSlot(item) !== null;
+}
+
+function normalizeOccupationState(state: Partial<CharacterOccupationProgress> & { occupationId: string }, fallbackOccupation?: Occupation | null): CharacterOccupationProgress {
+    const spentTalentPoints = Math.max(0, state.spentTalentPoints ?? 0);
+    return {
+        occupationId: state.occupationId,
+        occupation: state.occupation ?? fallbackOccupation ?? undefined,
+        unlockedTalentNodeIds: [...(state.unlockedTalentNodeIds ?? [])],
+        spentTalentPoints,
+        spentPioneerPoints: Math.max(0, state.spentPioneerPoints ?? 0),
+        unlockPointCost: Math.max(0, state.unlockPointCost ?? 1),
+        availableTalentPoints: Math.max(0, state.availableTalentPoints ?? 0),
+        level: Math.max(1, state.level ?? (1 + spentTalentPoints)),
+        isPrimary: !!state.isPrimary,
+    };
+}
+
+function ensureSinglePrimaryOccupation(states: CharacterOccupationProgress[]): CharacterOccupationProgress[] {
+    if (states.length === 0) return [];
+    const primaryIndex = states.findIndex((state) => state.isPrimary);
+    const resolvedPrimaryIndex = primaryIndex >= 0 ? primaryIndex : 0;
+    return states.map((state, index) => ({
+        ...state,
+        isPrimary: index === resolvedPrimaryIndex,
+    }));
+}
+
+interface PrimaryOccupationDropdownProps {
+    occupations: CharacterOccupationProgress[];
+    primaryOccupationId?: string;
+    onSelect: (occupationId: string) => void;
+    variant?: "overlay" | "sheet";
+}
+
+function PrimaryOccupationDropdown({
+    occupations,
+    primaryOccupationId,
+    onSelect,
+    variant = "sheet",
+}: PrimaryOccupationDropdownProps) {
+    const [open, setOpen] = useState(false);
+    const rootRef = useRef<HTMLDivElement | null>(null);
+    const primaryOccupation = occupations.find((occupation) => occupation.occupationId === primaryOccupationId) ?? occupations[0];
+
+    useEffect(() => {
+        if (!open) return;
+        const handlePointerDown = (event: MouseEvent) => {
+            if (!rootRef.current?.contains(event.target as Node)) {
+                setOpen(false);
+            }
+        };
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                setOpen(false);
+            }
+        };
+        window.addEventListener("mousedown", handlePointerDown);
+        window.addEventListener("keydown", handleEscape);
+        return () => {
+            window.removeEventListener("mousedown", handlePointerDown);
+            window.removeEventListener("keydown", handleEscape);
+        };
+    }, [open]);
+
+    if (!primaryOccupation) {
+        return null;
+    }
+
+    const isOverlay = variant === "overlay";
+    const triggerClassName = isOverlay
+        ? "min-w-[150px] rounded-full border border-[#c2410c]/25 bg-black/45 px-3 py-1.5 text-[8px] font-black uppercase tracking-[0.22em] text-orange-100 shadow-[0_8px_24px_rgba(0,0,0,0.28)] transition-all hover:border-[#c2410c]/45 hover:bg-black/60"
+        : "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-left text-[9px] font-black uppercase tracking-[0.18em] text-white transition-all hover:border-[#c2410c]/35 hover:bg-black/45";
+    const panelClassName = isOverlay
+        ? "absolute left-1/2 top-full z-30 mt-2 w-[220px] -translate-x-1/2 rounded-2xl border border-[#c2410c]/20 bg-[#07090c]/95 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl"
+        : "absolute left-0 top-full z-30 mt-2 w-full rounded-xl border border-white/10 bg-[#07090c]/95 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl";
+
+    if (occupations.length <= 1) {
+        return (
+            <div className={isOverlay
+                ? "text-[8px] text-orange-500/80 font-black tracking-[0.3em] uppercase"
+                : "pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.18em] text-gray-400"
+            }>
+                {(primaryOccupation.occupation?.name || primaryOccupation.occupationId)} Lv. {primaryOccupation.level}
+            </div>
+        );
+    }
+
+    return (
+        <div ref={rootRef} className={`relative ${isOverlay ? "" : "w-full"}`}>
+            <button
+                type="button"
+                onClick={() => setOpen((current) => !current)}
+                className={`flex items-center justify-between gap-3 ${triggerClassName}`}
+            >
+                <span className="truncate">
+                    {(primaryOccupation.occupation?.name || primaryOccupation.occupationId)} Lv. {primaryOccupation.level}
+                </span>
+                <span className={`text-[10px] transition-transform ${open ? "rotate-180" : ""}`}>▼</span>
+            </button>
+            {open && (
+                <div className={panelClassName}>
+                    <div className="mb-1 px-2 text-[7px] font-black uppercase tracking-[0.24em] text-gray-500">
+                        Primary Occupation
+                    </div>
+                    <div className="space-y-1">
+                        {occupations.map((occupation) => {
+                            const isActive = occupation.occupationId === primaryOccupation.occupationId;
+                            return (
+                                <button
+                                    key={occupation.occupationId}
+                                    type="button"
+                                    onClick={() => {
+                                        setOpen(false);
+                                        onSelect(occupation.occupationId);
+                                    }}
+                                    className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left transition-all ${isActive
+                                        ? "border-[#c2410c]/35 bg-[#c2410c]/10 text-white"
+                                        : "border-white/5 bg-black/30 text-gray-300 hover:border-white/15 hover:bg-black/45"
+                                        }`}
+                                >
+                                    <div className="min-w-0">
+                                        <div className="truncate text-[9px] font-black uppercase tracking-[0.16em]">
+                                            {occupation.occupation?.name || occupation.occupationId}
+                                        </div>
+                                        <div className="mt-1 text-[7px] font-bold uppercase tracking-[0.18em] text-gray-500">
+                                            Lv. {occupation.level}
+                                        </div>
+                                    </div>
+                                    {isActive && (
+                                        <span className="rounded-full border border-[#c2410c]/30 bg-[#c2410c]/10 px-2 py-1 text-[7px] font-black uppercase tracking-[0.18em] text-[#f59e0b]">
+                                            Primary
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 }
 
 type BuilderTab = "IDENTITY" | "APPEARANCE" | "LORE" | "TRAITS" | "STATS" | "OCCUPATION" | "SKILLS" | "EQUIPEMENT" | "CHARACTER_SHEET" | "INVENTORY" | "SAVE";
@@ -686,6 +827,8 @@ export function CharacterBuilderPage() {
     const [availableTalentPoints, setAvailableTalentPoints] = useState(0);
     const [occupationStates, setOccupationStates] = useState<CharacterOccupationProgress[]>([]);
     const [resolvedProgression, setResolvedProgression] = useState<ResolvedProgression | undefined>(undefined);
+    const [activeOccupationIdForTree, setActiveOccupationIdForTree] = useState<string | null>(null);
+    const draftMutationQueueRef = useRef<Promise<Character | null>>(Promise.resolve(null));
 
     // Load character for editing
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -930,7 +1073,27 @@ export function CharacterBuilderPage() {
         };
     }, [effectiveStats, equippedItems]);
 
-    const buildCharacterPayload = (overrides: Partial<Character> = {}): Character => ({
+    const buildCharacterPayload = (overrides: Partial<Character> = {}): Character => {
+        const fallbackSpentTalentPoints = resolveOccupationTree(selectedOccupation?.id, unlockedTalentNodeIds)
+            .unlockedNodes
+            .reduce((sum, node) => sum + (node.cost || 1), 0);
+        const snapshotOccupationStates = ensureSinglePrimaryOccupation(
+            (occupationStates.length > 0
+                ? occupationStates
+                : (selectedOccupation ? [normalizeOccupationState({
+                    occupationId: selectedOccupation.id,
+                    occupation: selectedOccupation,
+                    unlockedTalentNodeIds,
+                    spentTalentPoints: fallbackSpentTalentPoints,
+                    availableTalentPoints,
+                    level: resolvedProgression?.occupations?.[0]?.level ?? (1 + fallbackSpentTalentPoints),
+                    isPrimary: true,
+                }, selectedOccupation)] : []))
+                .map((state) => normalizeOccupationState(state, state.occupation)),
+        );
+        const primaryOccupationState = snapshotOccupationStates.find((state) => state.isPrimary) ?? snapshotOccupationStates[0];
+
+        return {
         id: charId,
         isNPC,
         type: characterType,
@@ -947,12 +1110,21 @@ export function CharacterBuilderPage() {
         portraitName: name.trim() || charId,
         stats: { ...stats },
         traits: selectedTraits,
-        occupation: selectedOccupation || undefined,
-        progression: selectedOccupation ? {
-            treeOccupationId: selectedOccupation.id,
-            unlockedTalentNodeIds,
+        occupation: primaryOccupationState?.occupation || selectedOccupation || undefined,
+        occupations: snapshotOccupationStates.length > 0 ? snapshotOccupationStates : undefined,
+        progression: snapshotOccupationStates.length > 0 ? {
+            treeOccupationId: primaryOccupationState?.occupationId,
+            unlockedTalentNodeIds: primaryOccupationState?.unlockedTalentNodeIds ?? [],
             availableTalentPoints,
-            spentTalentPoints,
+            spentTalentPoints: primaryOccupationState?.spentTalentPoints ?? 0,
+            spentStatPoints: resolvedProgression?.statPointsTotal !== undefined
+                ? Math.max(0, resolvedProgression.statPointsTotal - attributePoints)
+                : undefined,
+            spentPioneerOccupationPoints: resolvedProgression
+                ? Math.max(0, resolvedProgression.pioneerPointsTotal - resolvedProgression.availablePioneerPoints)
+                : undefined,
+            spentPioneerStatPoints: 0,
+            occupationStates: snapshotOccupationStates,
         } : undefined,
         hp: derivedStats.hp,
         maxHp: derivedStats.hp,
@@ -984,19 +1156,30 @@ export function CharacterBuilderPage() {
         },
         relationships,
         ...overrides,
-    });
+        };
+    };
 
     const applyResolvedCharacter = (resolvedCharacter: Character) => {
         setXp(resolvedCharacter.xp || 0);
         setLevel(resolvedCharacter.level || 1);
         setResolvedProgression(resolvedCharacter.resolvedProgression);
-        setOccupationStates(resolvedCharacter.occupations || []);
-        setSelectedOccupation(
-            resolvedCharacter.occupations?.find((entry) => entry.isPrimary)?.occupation ||
-            resolvedCharacter.occupation ||
-            null,
+        const nextOccupationStates = ensureSinglePrimaryOccupation(
+            (resolvedCharacter.occupations || []).map((state) => normalizeOccupationState(state, state.occupation)),
         );
-        setUnlockedTalentNodeIds(resolvedCharacter.progression?.unlockedTalentNodeIds || []);
+        const nextPrimaryOccupation = nextOccupationStates.find((entry) => entry.isPrimary) ?? nextOccupationStates[0];
+        const nextActiveOccupationId = nextOccupationStates.some((entry) => entry.occupationId === activeOccupationIdForTree)
+            ? activeOccupationIdForTree
+            : nextPrimaryOccupation?.occupationId ?? null;
+
+        setOccupationStates(nextOccupationStates);
+        setSelectedOccupation(nextPrimaryOccupation?.occupation || resolvedCharacter.occupation || null);
+        setActiveOccupationIdForTree(nextActiveOccupationId);
+        setUnlockedTalentNodeIds(
+            nextOccupationStates.find((entry) => entry.occupationId === nextActiveOccupationId)?.unlockedTalentNodeIds ||
+            nextPrimaryOccupation?.unlockedTalentNodeIds ||
+            resolvedCharacter.progression?.unlockedTalentNodeIds ||
+            [],
+        );
         setAvailableTalentPoints(
             resolvedCharacter.resolvedProgression?.availableTalentPoints ??
             resolvedCharacter.progression?.availableTalentPoints ??
@@ -1024,6 +1207,26 @@ export function CharacterBuilderPage() {
             console.error("Failed to resolve character draft:", error);
             return null;
         }
+    };
+
+    const resolveAndPersistCharacterDraft = async (overrides: Partial<Character> = {}, markEditing = true) => {
+        const runMutation = async () => {
+            const resolved = await resolveCharacterDraft(overrides);
+            if (!resolved) return null;
+            try {
+                await persistCharacterRecord(resolved, markEditing);
+            } catch (error) {
+                console.error("Failed to persist resolved character draft:", error);
+            }
+            return resolved;
+        };
+
+        const queuedMutation = draftMutationQueueRef.current.then(runMutation, runMutation);
+        draftMutationQueueRef.current = queuedMutation.then(
+            () => null,
+            () => null,
+        );
+        return queuedMutation;
     };
 
     const refreshSavedCharacters = async () => {
@@ -1198,36 +1401,64 @@ export function CharacterBuilderPage() {
         return allOccupations.filter(o => occCategory === "ALL" || o.category === occCategory);
     }, [occCategory, allOccupations]);
 
-    const selectedTreeState = useMemo(
-        () => resolveOccupationTree(selectedOccupation?.id, unlockedTalentNodeIds),
-        [selectedOccupation?.id, unlockedTalentNodeIds],
-    );
-
-    const spentTalentPoints = useMemo(
-        () => selectedTreeState.unlockedNodes.reduce((sum, node) => sum + (node.cost || 1), 0),
-        [selectedTreeState.unlockedNodes],
-    );
     const displayOccupationStates = useMemo(() => {
         if (occupationStates.length > 0) {
-            return occupationStates;
+            return ensureSinglePrimaryOccupation(
+                occupationStates.map((state) => normalizeOccupationState(state, state.occupation)),
+            );
         }
         if (!selectedOccupation) {
             return [];
         }
-        return [{
+        const fallbackSpentTalentPoints = resolveOccupationTree(selectedOccupation.id, unlockedTalentNodeIds)
+            .unlockedNodes
+            .reduce((sum, node) => sum + (node.cost || 1), 0);
+        return [normalizeOccupationState({
             occupationId: selectedOccupation.id,
             occupation: selectedOccupation,
             unlockedTalentNodeIds,
-            spentTalentPoints,
+            spentTalentPoints: fallbackSpentTalentPoints,
             availableTalentPoints,
-            level: resolvedProgression?.occupations?.[0]?.level ?? 1,
+            level: resolvedProgression?.occupations?.[0]?.level ?? (1 + fallbackSpentTalentPoints),
             isPrimary: true,
-        }];
-    }, [availableTalentPoints, occupationStates, resolvedProgression?.occupations, selectedOccupation, spentTalentPoints, unlockedTalentNodeIds]);
+        }, selectedOccupation)];
+    }, [availableTalentPoints, occupationStates, resolvedProgression?.occupations, selectedOccupation, unlockedTalentNodeIds]);
     const primaryOccupationState = displayOccupationStates.find((entry) => entry.isPrimary) ?? displayOccupationStates[0];
+    const activeOccupationState = displayOccupationStates.find((entry) => entry.occupationId === activeOccupationIdForTree) ?? primaryOccupationState;
+    const activeOccupation = activeOccupationState?.occupation ?? null;
+    const selectedTreeState = useMemo(
+        () => resolveOccupationTree(activeOccupation?.id, activeOccupationState?.unlockedTalentNodeIds ?? []),
+        [activeOccupation?.id, activeOccupationState?.unlockedTalentNodeIds],
+    );
+
+    const spentTalentPoints = useMemo(
+        () => activeOccupationState?.spentTalentPoints ?? selectedTreeState.unlockedNodes.reduce((sum, node) => sum + (node.cost || 1), 0),
+        [activeOccupationState?.spentTalentPoints, selectedTreeState.unlockedNodes],
+    );
     const primaryOccupationLabel = primaryOccupationState?.occupation?.name
         ? `${primaryOccupationState.occupation.name} Lv. ${primaryOccupationState.level}`
         : "No Occupation";
+    const activeUnlockedTalentKey = (activeOccupationState?.unlockedTalentNodeIds ?? []).join("|");
+
+    useEffect(() => {
+        if (!displayOccupationStates.length) {
+            if (activeOccupationIdForTree !== null) {
+                setActiveOccupationIdForTree(null);
+            }
+            return;
+        }
+        if (!activeOccupationIdForTree || !displayOccupationStates.some((entry) => entry.occupationId === activeOccupationIdForTree)) {
+            setActiveOccupationIdForTree(primaryOccupationState?.occupationId ?? displayOccupationStates[0].occupationId);
+        }
+    }, [activeOccupationIdForTree, displayOccupationStates, primaryOccupationState?.occupationId]);
+
+    useEffect(() => {
+        setSelectedOccupation(primaryOccupationState?.occupation || null);
+    }, [primaryOccupationState?.occupation]);
+
+    useEffect(() => {
+        setUnlockedTalentNodeIds([...(activeOccupationState?.unlockedTalentNodeIds ?? [])]);
+    }, [activeOccupationState?.occupationId, activeUnlockedTalentKey]);
 
     const toggleTrait = (trait: Trait) => {
         const isSelected = selectedTraits.find(t => t.id === trait.id);
@@ -1277,38 +1508,109 @@ export function CharacterBuilderPage() {
         void resolveCharacterDraft({ level: normalizedLevel, xp: 0 });
     };
 
+    const buildOccupationOverrides = (states: CharacterOccupationProgress[]): Partial<Character> => {
+        const normalizedStates = ensureSinglePrimaryOccupation(
+            states.map((state) => normalizeOccupationState(state, state.occupation)),
+        );
+        const primaryState = normalizedStates.find((state) => state.isPrimary) ?? normalizedStates[0];
+        return {
+            occupation: primaryState?.occupation,
+            occupations: normalizedStates.length > 0 ? normalizedStates : undefined,
+            progression: normalizedStates.length > 0 ? {
+                treeOccupationId: primaryState?.occupationId,
+                unlockedTalentNodeIds: primaryState?.unlockedTalentNodeIds ?? [],
+                availableTalentPoints,
+                spentTalentPoints: primaryState?.spentTalentPoints ?? 0,
+                spentStatPoints: resolvedProgression?.statPointsTotal !== undefined
+                    ? Math.max(0, resolvedProgression.statPointsTotal - attributePoints)
+                    : 0,
+                spentPioneerOccupationPoints: resolvedProgression
+                    ? Math.max(0, resolvedProgression.pioneerPointsTotal - resolvedProgression.availablePioneerPoints)
+                    : 0,
+                spentPioneerStatPoints: 0,
+                occupationStates: normalizedStates,
+            } : undefined,
+        };
+    };
+
     const handleOccupationSelect = (occupation: Occupation | null) => {
         if (!occupation) {
             setSelectedOccupation(null);
             setUnlockedTalentNodeIds([]);
             setOccupationStates([]);
-            setResolvedProgression(undefined);
-            void resolveCharacterDraft({
+            setActiveOccupationIdForTree(null);
+            void resolveAndPersistCharacterDraft({
                 occupation: undefined,
+                occupations: undefined,
                 progression: undefined,
             });
             return;
         }
 
-        const changedOccupation = selectedOccupation?.id !== occupation.id;
-        setSelectedOccupation(occupation);
-        if (changedOccupation) {
-            setUnlockedTalentNodeIds([]);
-            void resolveCharacterDraft({
-                occupation,
-                progression: {
-                    treeOccupationId: occupation.id,
-                    unlockedTalentNodeIds: [],
-                    availableTalentPoints: 0,
-                    spentTalentPoints: 0,
-                },
-            });
+        const existingState = displayOccupationStates.find((state) => state.occupationId === occupation.id);
+        if (existingState) {
+            const nextStates = displayOccupationStates.map((state) => ({
+                ...state,
+                isPrimary: state.occupationId === occupation.id,
+            }));
+            setActiveOccupationIdForTree(occupation.id);
+            void resolveAndPersistCharacterDraft(buildOccupationOverrides(nextStates));
+            return;
         }
+
+        if (availableTalentPoints <= 0) {
+            return;
+        }
+
+        const nextStates = ensureSinglePrimaryOccupation([
+            ...displayOccupationStates.map((state) => ({ ...state, isPrimary: false })),
+            normalizeOccupationState({
+                occupationId: occupation.id,
+                occupation,
+                unlockedTalentNodeIds: [],
+                spentTalentPoints: 0,
+                spentPioneerPoints: 0,
+                unlockPointCost: 1,
+                availableTalentPoints,
+                level: 1,
+                isPrimary: true,
+            }, occupation),
+        ]);
+        setActiveOccupationIdForTree(occupation.id);
+        void resolveAndPersistCharacterDraft(buildOccupationOverrides(nextStates));
+    };
+
+    const handleOccupationRemove = (occupationId: string) => {
+        const occupationState = displayOccupationStates.find((state) => state.occupationId === occupationId);
+        if (!occupationState) {
+            return;
+        }
+        const occupationName = occupationState.occupation?.name || occupationId;
+        if (!window.confirm(`Remove ${occupationName} and reset its talent tree?`)) {
+            return;
+        }
+
+        const remainingStates = displayOccupationStates.filter((state) => state.occupationId !== occupationId);
+        const nextStates = ensureSinglePrimaryOccupation(
+            remainingStates.map((state, index) => ({
+                ...state,
+                isPrimary: state.isPrimary && index === 0 ? true : state.isPrimary,
+            })),
+        );
+        setActiveOccupationIdForTree(nextStates.find((state) => state.isPrimary)?.occupationId ?? nextStates[0]?.occupationId ?? null);
+        void resolveAndPersistCharacterDraft(
+            nextStates.length > 0
+                ? buildOccupationOverrides(nextStates)
+                : { occupation: undefined, occupations: undefined, progression: undefined },
+        );
     };
 
     const handleOpenTalentTree = (occupation?: Occupation | null) => {
         if (!occupation) return;
-        handleOccupationSelect(occupation);
+        if (!displayOccupationStates.some((state) => state.occupationId === occupation.id)) {
+            return;
+        }
+        setActiveOccupationIdForTree(occupation.id);
         setShowTalentTreeModal(true);
     };
 
@@ -1419,7 +1721,12 @@ export function CharacterBuilderPage() {
         setSelectedOccupation(char.occupation || null);
         setUnlockedTalentNodeIds(char.progression?.unlockedTalentNodeIds || []);
         setXp(char.xp || 0);
-        setOccupationStates(char.occupations || []);
+        setOccupationStates(ensureSinglePrimaryOccupation((char.occupations || []).map((state) => normalizeOccupationState(state, state.occupation))));
+        setActiveOccupationIdForTree(
+            (char.occupations || []).find((state) => state.isPrimary)?.occupationId ||
+            char.progression?.treeOccupationId ||
+            null,
+        );
         setResolvedProgression(char.resolvedProgression);
         setAvailableTalentPoints(char.resolvedProgression?.availableTalentPoints ?? char.progression?.availableTalentPoints ?? 0);
         setAttributePoints(char.resolvedProgression?.availableStatPoints ?? 0);
@@ -1507,6 +1814,7 @@ export function CharacterBuilderPage() {
         setSelectedOccupation(null);
         setUnlockedTalentNodeIds([]);
         setOccupationStates([]);
+        setActiveOccupationIdForTree(null);
         setResolvedProgression(undefined);
         setAvailableTalentPoints(0);
         setCredits({ ...DEFAULT_CHARACTER_CREDITS });
@@ -2518,12 +2826,12 @@ export function CharacterBuilderPage() {
                                     <div className="flex items-start justify-between gap-4">
                                         <div>
                                             <h2 className="text-lg font-black tracking-widest text-indigo-400 uppercase">Occupation</h2>
-                                            <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-gray-600">Select a role, then inspect or spend points in its talent tree.</p>
+                                            <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-gray-600">Own multiple occupations, choose a primary one, then spend global points in each talent tree.</p>
                                         </div>
                                         <button
-                                            onClick={() => handleOpenTalentTree(selectedOccupation)}
-                                            disabled={!selectedOccupation}
-                                            className={`shrink-0 rounded-xl border px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${selectedOccupation
+                                            onClick={() => handleOpenTalentTree(activeOccupation)}
+                                            disabled={!activeOccupation}
+                                            className={`shrink-0 rounded-xl border px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${activeOccupation
                                                 ? "border-indigo-500/50 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25"
                                                 : "cursor-not-allowed border-white/10 bg-black/20 text-gray-600"
                                                 }`}
@@ -2531,22 +2839,88 @@ export function CharacterBuilderPage() {
                                             Open Talent Tree
                                         </button>
                                     </div>
-                                    {selectedOccupation && (
+                                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                        <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                                            <div className="text-[8px] font-black uppercase tracking-[0.24em] text-gray-500">Owned Occupations</div>
+                                            <div className="mt-2 text-lg font-black uppercase tracking-[0.08em] text-white">{displayOccupationStates.length}</div>
+                                        </div>
+                                        <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 px-4 py-3">
+                                            <div className="text-[8px] font-black uppercase tracking-[0.24em] text-indigo-200/70">Primary Occupation</div>
+                                            <div className="mt-2 text-sm font-black uppercase tracking-[0.08em] text-indigo-100">
+                                                {primaryOccupationState?.occupation?.name || "None"}
+                                            </div>
+                                        </div>
+                                        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+                                            <div className="text-[8px] font-black uppercase tracking-[0.24em] text-amber-200/70">Available Occupation Points</div>
+                                            <div className="mt-2 text-lg font-black uppercase tracking-[0.08em] text-amber-100">{availableTalentPoints}</div>
+                                        </div>
+                                    </div>
+                                    {displayOccupationStates.length > 0 && (
+                                        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                                            <div className="mb-2 text-[8px] font-black uppercase tracking-[0.24em] text-gray-500">Occupation Roster</div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {displayOccupationStates.map((occupationState) => (
+                                                    <button
+                                                        key={occupationState.occupationId}
+                                                        type="button"
+                                                        onClick={() => setActiveOccupationIdForTree(occupationState.occupationId)}
+                                                        className={`rounded-xl border px-3 py-2 text-left transition-all ${activeOccupationState?.occupationId === occupationState.occupationId
+                                                            ? "border-indigo-500/50 bg-indigo-500/15"
+                                                            : "border-white/10 bg-black/30 hover:border-white/20"
+                                                            }`}
+                                                    >
+                                                        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white">
+                                                            {occupationState.occupation?.name || occupationState.occupationId}
+                                                        </div>
+                                                        <div className="mt-1 flex items-center gap-2 text-[8px] font-bold uppercase tracking-[0.16em] text-gray-400">
+                                                            <span>Lv. {occupationState.level}</span>
+                                                            {occupationState.isPrimary && <span className="text-amber-300">Primary</span>}
+                                                        </div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {activeOccupationState && activeOccupation && (
                                         <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4 shadow-lg">
                                             <div className="flex items-start justify-between gap-4">
                                                 <div>
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-sm font-black uppercase tracking-widest text-indigo-300">{selectedOccupation.name}</span>
-                                                        <span className="rounded bg-black/30 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-gray-400">{selectedOccupation.category}</span>
+                                                        <span className="text-sm font-black uppercase tracking-widest text-indigo-300">{activeOccupation.name}</span>
+                                                        <span className="rounded bg-black/30 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-gray-400">{activeOccupation.category}</span>
+                                                        <span className="rounded border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-indigo-200">Lv. {activeOccupationState.level}</span>
+                                                        {activeOccupationState.isPrimary && (
+                                                            <span className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-amber-200">Primary</span>
+                                                        )}
                                                     </div>
-                                                    <p className="mt-2 max-w-2xl text-xs text-gray-400">{selectedOccupation.description}</p>
+                                                    <p className="mt-2 max-w-2xl text-xs text-gray-400">{activeOccupation.description}</p>
                                                 </div>
-                                                <button
-                                                    onClick={() => handleOccupationSelect(null)}
-                                                    className="text-[10px] font-black uppercase tracking-widest text-gray-500 transition-colors hover:text-red-400"
-                                                >
-                                                    Clear
-                                                </button>
+                                                <div className="flex items-center gap-2">
+                                                    {displayOccupationStates.length > 1 && (
+                                                        <select
+                                                            value={primaryOccupationState?.occupationId ?? ""}
+                                                            onChange={(event) => {
+                                                                const nextPrimary = allOccupations.find((occupation) => occupation.id === event.target.value) ?? null;
+                                                                if (nextPrimary) {
+                                                                    handleOccupationSelect(nextPrimary);
+                                                                }
+                                                            }}
+                                                            className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-gray-300 outline-none transition-all focus:border-indigo-500/40"
+                                                        >
+                                                            {displayOccupationStates.map((occupationState) => (
+                                                                <option key={occupationState.occupationId} value={occupationState.occupationId}>
+                                                                    {(occupationState.occupation?.name || occupationState.occupationId)} Lv. {occupationState.level}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleOccupationRemove(activeOccupationState.occupationId)}
+                                                        className="text-[10px] font-black uppercase tracking-widest text-gray-500 transition-colors hover:text-red-400"
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div className="mt-3 flex flex-wrap gap-2">
                                                 {selectedTreeState.unlockedNodes.length > 0 ? selectedTreeState.unlockedNodes.map((node) => (
@@ -2561,12 +2935,13 @@ export function CharacterBuilderPage() {
                                             </div>
                                             <div className="mt-4 flex items-center justify-between gap-3">
                                                 <div className="flex items-center gap-2 text-[10px] font-mono text-gray-400">
-                                                    <span className="rounded-lg border border-white/10 bg-black/30 px-2 py-1">Unlocked: {unlockedTalentNodeIds.length}</span>
+                                                    <span className="rounded-lg border border-white/10 bg-black/30 px-2 py-1">Unlocked: {activeOccupationState.unlockedTalentNodeIds.length}</span>
                                                     <span className="rounded-lg border border-white/10 bg-black/30 px-2 py-1">Spent: {spentTalentPoints}</span>
+                                                    <span className="rounded-lg border border-white/10 bg-black/30 px-2 py-1">Acquisition Cost: {activeOccupationState.unlockPointCost ?? 1}</span>
                                                     <span className="rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-2 py-1 text-indigo-300">Available: {availableTalentPoints}</span>
                                                 </div>
                                                 <button
-                                                    onClick={() => handleOpenTalentTree(selectedOccupation)}
+                                                    onClick={() => handleOpenTalentTree(activeOccupation)}
                                                     className="rounded-lg border border-indigo-500/40 bg-black/30 px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-indigo-200 transition-all hover:bg-black/50"
                                                 >
                                                     Inspect Tree
@@ -2582,13 +2957,29 @@ export function CharacterBuilderPage() {
                                         ))}
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {filteredOccupations.map(o => (
-                                            <div key={o.id} className={`w-full p-4 border rounded-xl flex flex-col gap-2 transition-all ${selectedOccupation?.id === o.id ? "bg-indigo-500/20 border-indigo-500" : "bg-black/40 border-white/5 hover:border-white/20"}`}>
+                                        {filteredOccupations.map(o => {
+                                            const ownedState = displayOccupationStates.find((state) => state.occupationId === o.id);
+                                            const isPrimary = !!ownedState?.isPrimary;
+                                            const isActive = activeOccupationState?.occupationId === o.id;
+                                            return (
+                                            <div key={o.id} className={`w-full p-4 border rounded-xl flex flex-col gap-2 transition-all ${isPrimary ? "bg-indigo-500/20 border-indigo-500" : isActive ? "bg-indigo-500/10 border-indigo-500/40" : "bg-black/40 border-white/5 hover:border-white/20"}`}>
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-sm font-bold uppercase text-indigo-400">{o.name}</span>
-                                                    <span className="text-[8px] bg-white/10 px-1.5 py-0.5 rounded uppercase text-gray-400">{o.category}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        {ownedState && (
+                                                            <span className="text-[8px] rounded border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 uppercase text-indigo-200">
+                                                                Lv. {ownedState.level}
+                                                            </span>
+                                                        )}
+                                                        <span className="text-[8px] bg-white/10 px-1.5 py-0.5 rounded uppercase text-gray-400">{o.category}</span>
+                                                    </div>
                                                 </div>
                                                 <p className="text-xs text-gray-500 line-clamp-2">{o.description}</p>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {isPrimary && <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.18em] text-amber-200">Primary</span>}
+                                                    {ownedState && !isPrimary && <span className="rounded border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.18em] text-indigo-200">Owned</span>}
+                                                    {!ownedState && <span className="rounded border border-white/10 bg-black/20 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.18em] text-gray-500">Cost 1</span>}
+                                                </div>
                                                 <div className="flex flex-wrap gap-1 mt-1">
                                                     {o.perks.map((p, i) => (
                                                         <span key={i} className="text-[9px] bg-teal-500/10 text-teal-400 px-1.5 py-0.5 rounded border border-teal-500/20">{p}</span>
@@ -2597,22 +2988,26 @@ export function CharacterBuilderPage() {
                                                 <div className="mt-2 flex items-center justify-between gap-3">
                                                     <button
                                                         onClick={() => handleOccupationSelect(o)}
-                                                        className={`rounded-lg border px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${selectedOccupation?.id === o.id
+                                                        disabled={!ownedState && availableTalentPoints <= 0}
+                                                        className={`rounded-lg border px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all ${isPrimary
                                                             ? "border-indigo-400 bg-indigo-500/20 text-indigo-200"
-                                                            : "border-white/10 bg-black/30 text-gray-300 hover:border-white/20"
+                                                            : !ownedState && availableTalentPoints <= 0
+                                                                ? "cursor-not-allowed border-white/5 bg-black/20 text-gray-600"
+                                                                : "border-white/10 bg-black/30 text-gray-300 hover:border-white/20"
                                                             }`}
                                                     >
-                                                        {selectedOccupation?.id === o.id ? "Selected" : "Select Occupation"}
+                                                        {isPrimary ? "Primary" : ownedState ? "Make Primary" : "Add Occupation"}
                                                     </button>
                                                     <button
                                                         onClick={() => handleOpenTalentTree(o)}
+                                                        disabled={!ownedState}
                                                         className="rounded-lg border border-indigo-500/30 bg-black/30 px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-indigo-300 transition-all hover:bg-indigo-500/10"
                                                     >
                                                         Open Tree
                                                     </button>
                                                 </div>
                                             </div>
-                                        ))}
+                                        )})}
                                     </div>
                                 </div>
                             )}
@@ -2926,8 +3321,19 @@ export function CharacterBuilderPage() {
 
                                                         {/* Level & Name Overlay */}
                                                         <div className="absolute top-6 flex flex-col items-center">
-                                                            <div className="text-[8px] text-orange-500/70 font-black tracking-[0.3em] uppercase">
-                                                                {primaryOccupationState?.occupation?.name || "SOLDAT"} | LVL {level}
+                                                            <PrimaryOccupationDropdown
+                                                                occupations={displayOccupationStates}
+                                                                primaryOccupationId={primaryOccupationState?.occupationId}
+                                                                onSelect={(occupationId) => {
+                                                                    const nextPrimary = allOccupations.find((occupation) => occupation.id === occupationId) ?? null;
+                                                                    if (nextPrimary) {
+                                                                        handleOccupationSelect(nextPrimary);
+                                                                    }
+                                                                }}
+                                                                variant="overlay"
+                                                            />
+                                                            <div className="mt-1 text-[8px] text-orange-500/70 font-black tracking-[0.22em] uppercase">
+                                                                LVL {level} | Pioneer {resolvedProgression?.pioneerLevel ?? 0}
                                                             </div>
                                                             <div className="text-[10px] text-white font-black tracking-[0.2em] mt-1 uppercase text-center px-4">{name || "UNNAMED"}</div>
                                                             <div className="w-8 h-0.5 bg-[#c2410c] mt-2 shadow-[0_0_8px_rgba(194,65,12,0.4)]" />
@@ -3131,7 +3537,7 @@ export function CharacterBuilderPage() {
                                                     <div className="px-2 py-0.5 bg-red-500/10 border border-red-500/30 rounded text-[9px] font-bold text-red-400 uppercase tracking-widest">
                                                         HP: {derivedStats.hp}
                                                     </div>
-                                                    {selectedOccupation && (
+                                                    {primaryOccupationState && (
                                                         <div className="px-2 py-0.5 bg-[#c2410c]/10 border border-[#c2410c]/30 rounded text-[9px] font-bold text-[#c2410c] uppercase tracking-widest">
                                                             {primaryOccupationLabel}
                                                         </div>
@@ -3284,18 +3690,17 @@ export function CharacterBuilderPage() {
                                                                             {name || "Unnamed Unit"}
                                                                         </h3>
                                                                     </div>
-                                                                    <p className="pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.18em] text-gray-400">
-                                                                        {primaryOccupationLabel}
-                                                                    </p>
-                                                                    {displayOccupationStates.length > 1 && (
-                                                                        <select className="mt-1 w-full border border-white/5 bg-black/30 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.16em] text-gray-400">
-                                                                            {displayOccupationStates.map((occupationState) => (
-                                                                                <option key={occupationState.occupationId} value={occupationState.occupationId}>
-                                                                                    {(occupationState.occupation?.name || occupationState.occupationId)} Lv. {occupationState.level}
-                                                                                </option>
-                                                                            ))}
-                                                                        </select>
-                                                                    )}
+                                                                    <PrimaryOccupationDropdown
+                                                                        occupations={displayOccupationStates}
+                                                                        primaryOccupationId={primaryOccupationState?.occupationId}
+                                                                        onSelect={(occupationId) => {
+                                                                            const nextPrimary = allOccupations.find((occupation) => occupation.id === occupationId) ?? null;
+                                                                            if (nextPrimary) {
+                                                                                handleOccupationSelect(nextPrimary);
+                                                                            }
+                                                                        }}
+                                                                        variant="sheet"
+                                                                    />
                                                                     <p className="pt-0.5 text-[9px] leading-none font-medium uppercase tracking-[0.16em] text-gray-600">
                                                                         {characterTitle || "No Title"}
                                                                     </p>
@@ -3349,18 +3754,30 @@ export function CharacterBuilderPage() {
                                                                 <div className="mt-1 text-[9px] font-bold text-[#c2410c] uppercase truncate">{alignment}</div>
                                                             </div>
                                                         )}
-                                                        <div className="max-h-[168px] overflow-y-auto custom-scrollbar border border-white/5 bg-black/30 p-2.5">
+                                                        <div className="border border-white/5 bg-black/30 p-2.5">
                                                             <div className="mb-2 flex items-center justify-between">
-                                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-500">Abridged Dossier</div>
-                                                                {history.length > 165 && <div className="text-[6px] font-black uppercase text-[#c2410c]/60">Condensed</div>}
+                                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-500">Pioneer</div>
                                                             </div>
-                                                            {history ? (
-                                                                <p className="text-[10px] italic leading-relaxed text-gray-400">
-                                                                    {history.length > 165 ? history.substring(0, 165) + "..." : history}
-                                                                </p>
-                                                            ) : (
-                                                                <p className="text-[10px] italic leading-relaxed text-gray-600">No historical records available for this unit.</p>
-                                                            )}
+                                                            <div className="grid grid-cols-3 gap-2">
+                                                                <div className="border border-white/5 bg-black/30 px-2 py-2">
+                                                                    <div className="text-[6px] font-black uppercase tracking-[0.2em] text-gray-600">Level</div>
+                                                                    <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white">
+                                                                        {resolvedProgression?.pioneerLevel ?? 0}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="border border-white/5 bg-black/30 px-2 py-2">
+                                                                    <div className="text-[6px] font-black uppercase tracking-[0.2em] text-gray-600">Total Points</div>
+                                                                    <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white">
+                                                                        {resolvedProgression?.pioneerPointsTotal ?? 0}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="border border-white/5 bg-black/30 px-2 py-2">
+                                                                    <div className="text-[6px] font-black uppercase tracking-[0.2em] text-gray-600">Available</div>
+                                                                    <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#c2410c]">
+                                                                        {resolvedProgression?.availablePioneerPoints ?? 0}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
                                                         </div>
 
                                                         {currentStory && (
@@ -4365,34 +4782,38 @@ export function CharacterBuilderPage() {
 
             <OccupationTalentTreeModal
                 open={showTalentTreeModal}
-                occupation={selectedOccupation}
-                unlockedTalentNodeIds={unlockedTalentNodeIds}
+                occupationState={activeOccupationState ?? null}
                 availableTalentPoints={availableTalentPoints}
                 onClose={() => setShowTalentTreeModal(false)}
                 onReset={() => {
-                    setUnlockedTalentNodeIds([]);
-                    void resolveCharacterDraft({
-                        progression: selectedOccupation ? {
-                            treeOccupationId: selectedOccupation.id,
+                    if (!activeOccupationState) return;
+                    const nextStates = displayOccupationStates.map((state) => state.occupationId === activeOccupationState.occupationId
+                        ? normalizeOccupationState({
+                            ...state,
                             unlockedTalentNodeIds: [],
-                            availableTalentPoints: 0,
                             spentTalentPoints: 0,
-                        } : undefined,
-                    });
+                            level: 1,
+                        }, state.occupation)
+                        : state);
+                    void resolveAndPersistCharacterDraft(buildOccupationOverrides(nextStates));
                 }}
                 onUnlockNode={(node) => {
+                    if (!activeOccupationState) return;
                     const cost = node.cost || 1;
-                    if (unlockedTalentNodeIds.includes(node.id) || availableTalentPoints < cost) return;
-                    const nextUnlockedTalentNodeIds = [...unlockedTalentNodeIds, node.id];
-                    setUnlockedTalentNodeIds(nextUnlockedTalentNodeIds);
-                    void resolveCharacterDraft({
-                        progression: selectedOccupation ? {
-                            treeOccupationId: selectedOccupation.id,
+                    if (activeOccupationState.unlockedTalentNodeIds.includes(node.id) || availableTalentPoints < cost) return;
+                    const nextUnlockedTalentNodeIds = [...activeOccupationState.unlockedTalentNodeIds, node.id];
+                    const nextSpentTalentPoints = resolveOccupationTree(activeOccupationState.occupationId, nextUnlockedTalentNodeIds)
+                        .unlockedNodes
+                        .reduce((sum, unlockedNode) => sum + (unlockedNode.cost || 1), 0);
+                    const nextStates = displayOccupationStates.map((state) => state.occupationId === activeOccupationState.occupationId
+                        ? normalizeOccupationState({
+                            ...state,
                             unlockedTalentNodeIds: nextUnlockedTalentNodeIds,
-                            availableTalentPoints: Math.max(0, availableTalentPoints - cost),
-                            spentTalentPoints: spentTalentPoints + cost,
-                        } : undefined,
-                    });
+                            spentTalentPoints: nextSpentTalentPoints,
+                            level: 1 + nextSpentTalentPoints,
+                        }, state.occupation)
+                        : state);
+                    void resolveAndPersistCharacterDraft(buildOccupationOverrides(nextStates));
                 }}
             />
         </>
@@ -4401,8 +4822,7 @@ export function CharacterBuilderPage() {
 
 interface OccupationTalentTreeModalProps {
     open: boolean;
-    occupation: Occupation | null;
-    unlockedTalentNodeIds: string[];
+    occupationState: CharacterOccupationProgress | null;
     availableTalentPoints: number;
     onClose: () => void;
     onReset: () => void;
@@ -4411,8 +4831,7 @@ interface OccupationTalentTreeModalProps {
 
 function OccupationTalentTreeModal({
     open,
-    occupation,
-    unlockedTalentNodeIds,
+    occupationState,
     availableTalentPoints,
     onClose,
     onReset,
@@ -4429,8 +4848,7 @@ function OccupationTalentTreeModal({
         >
             <ReactFlowProvider>
                 <OccupationTalentTreeOverlay
-                    occupation={occupation}
-                    unlockedTalentNodeIds={unlockedTalentNodeIds}
+                    occupationState={occupationState}
                     availableTalentPoints={availableTalentPoints}
                     onClose={onClose}
                     onReset={onReset}
@@ -4442,13 +4860,14 @@ function OccupationTalentTreeModal({
 }
 
 function OccupationTalentTreeOverlay({
-    occupation,
-    unlockedTalentNodeIds,
+    occupationState,
     availableTalentPoints,
     onClose,
     onReset,
     onUnlockNode,
 }: Omit<OccupationTalentTreeModalProps, "open">) {
+    const occupation = occupationState?.occupation ?? null;
+    const unlockedTalentNodeIds = occupationState?.unlockedTalentNodeIds ?? [];
     const { fitView } = useReactFlow();
     const treeState = useMemo(
         () => resolveOccupationTree(occupation?.id, unlockedTalentNodeIds),
@@ -4582,7 +5001,7 @@ function OccupationTalentTreeOverlay({
                     <div className="absolute -inset-1 rounded-full border border-zinc-800/50" />
                 </div>
                 <div className="mt-6 text-center">
-                    <h2 className="text-2xl font-black uppercase tracking-[0.2em] text-zinc-100">{occupation?.name || "Occupation"}</h2>
+                    <h2 className="text-2xl font-black uppercase tracking-[0.2em] text-zinc-100">{occupation?.name || "Occupation"} · Lv. {occupationState?.level ?? 1}</h2>
                     <div className="mt-2 text-[9px] font-bold uppercase tracking-[0.4em] text-orange-500">Occupation Tree</div>
                 </div>
             </div>

@@ -36,9 +36,17 @@ pub struct ResolvedOccupationProgress {
     pub occupation: Option<Value>,
     pub unlocked_talent_node_ids: Vec<String>,
     pub spent_talent_points: u16,
+    #[serde(default)]
+    pub spent_pioneer_points: u16,
+    #[serde(default = "default_unlock_point_cost")]
+    pub unlock_point_cost: u16,
     pub level: u16,
     pub available_talent_points: u16,
     pub is_primary: bool,
+}
+
+fn default_unlock_point_cost() -> u16 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +61,8 @@ pub struct ResolvedProgression {
     pub available_pioneer_points: u16,
     pub pioneer_level: u16,
     pub pioneer_points_total: u16,
+    pub occupation_unlock_points_spent: u16,
+    pub occupation_talent_points_spent: u16,
     pub occupations: Vec<ResolvedOccupationProgress>,
 }
 
@@ -493,7 +503,6 @@ pub fn pioneer_points_total(total_xp: u64, rules: &XpAndLevelingRules) -> u16 {
 
 pub fn resolve_progression(
     total_xp: u64,
-    spent_talent_points: u16,
     spent_stat_points: u16,
     spent_pioneer_occupation_points: u16,
     spent_pioneer_stat_points: u16,
@@ -504,12 +513,20 @@ pub fn resolve_progression(
     let occupation_points_total = occupation_points_total_for_level(level_progress.level, rules);
     let stat_points_total = stat_points_total_for_level(level_progress.level, rules);
     let pioneer_points_total = pioneer_points_total(total_xp, rules);
+    let occupation_unlock_points_spent = occupations
+        .iter()
+        .map(|occupation| occupation.unlock_point_cost)
+        .sum::<u16>();
+    let occupation_talent_points_spent = occupations
+        .iter()
+        .map(|occupation| occupation.spent_talent_points)
+        .sum::<u16>();
     let available_pioneer_points = pioneer_points_total
         .saturating_sub(spent_pioneer_occupation_points)
         .saturating_sub(spent_pioneer_stat_points);
     let available_talent_points = occupation_points_available(
         occupation_points_total,
-        spent_talent_points,
+        occupation_talent_points_spent.saturating_add(occupation_unlock_points_spent),
         available_pioneer_points,
     );
     let available_stat_points = stat_points_available(stat_points_total, spent_stat_points);
@@ -522,6 +539,8 @@ pub fn resolve_progression(
         available_talent_points,
         available_stat_points,
         available_pioneer_points,
+        occupation_unlock_points_spent,
+        occupation_talent_points_spent,
         occupations,
         level_progress,
     }
@@ -539,6 +558,10 @@ fn value_as_u16(value: Option<&Value>) -> u16 {
     value_as_u64(value).unwrap_or(0).min(u16::MAX as u64) as u16
 }
 
+fn value_as_bool(value: Option<&Value>) -> bool {
+    value.and_then(Value::as_bool).unwrap_or(false)
+}
+
 fn value_as_string_vec(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(|entry| entry.as_array())
@@ -549,6 +572,18 @@ fn value_as_string_vec(value: Option<&Value>) -> Vec<String> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default()
+}
+
+fn lookup_occupation_value(
+    occupation_id: &str,
+    fallback: Option<&Value>,
+    content: Option<&ContentBundle>,
+) -> Option<Value> {
+    fallback.cloned().or_else(|| {
+        content
+            .and_then(|bundle| bundle.occupations.get(occupation_id))
+            .and_then(|occupation| serde_json::to_value(occupation).ok())
+    })
 }
 
 fn talent_cost_for_unlocks(
@@ -622,14 +657,20 @@ pub fn normalize_character_payload(
         .and_then(|occupation| occupation.get("id"))
         .and_then(Value::as_str)
         .map(str::to_string);
+    let root_occupations = root
+        .get("occupations")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
 
     let (
         primary_occupation_id,
-        unlocked_talent_node_ids,
-        spent_talent_points,
+        _primary_unlocked_talent_node_ids,
+        _primary_spent_talent_points,
         spent_stat_points,
         spent_pioneer_occupation_points,
         spent_pioneer_stat_points,
+        resolved_occupations,
     ) = {
         let progression_value = root
             .entry("progression".to_string())
@@ -641,18 +682,18 @@ pub fn normalize_character_payload(
             .as_object_mut()
             .expect("progression object");
 
-        let primary_occupation_id = progression
+        let legacy_primary_occupation_id = progression
             .get("treeOccupationId")
             .and_then(Value::as_str)
             .map(str::to_string)
             .or_else(|| occupation_id_from_root.clone());
 
-        let unlocked_talent_node_ids =
+        let legacy_unlocked_talent_node_ids =
             value_as_string_vec(progression.get("unlockedTalentNodeIds"));
-        let spent_talent_points = primary_occupation_id
+        let legacy_spent_talent_points = legacy_primary_occupation_id
             .as_deref()
             .map(|occupation_id| {
-                talent_cost_for_unlocks(occupation_id, &unlocked_talent_node_ids, content)
+                talent_cost_for_unlocks(occupation_id, &legacy_unlocked_talent_node_ids, content)
             })
             .unwrap_or_else(|| value_as_u16(progression.get("spentTalentPoints")));
         let spent_stat_points = value_as_u16(progression.get("spentStatPoints"));
@@ -660,13 +701,123 @@ pub fn normalize_character_payload(
             value_as_u16(progression.get("spentPioneerOccupationPoints"));
         let spent_pioneer_stat_points = value_as_u16(progression.get("spentPioneerStatPoints"));
 
+        let mut resolved_occupations = progression
+            .get("occupationStates")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|state| {
+                let entry = state.as_object()?;
+                let occupation_id = entry
+                    .get("occupationId")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| {
+                        entry.get("occupation")
+                            .and_then(|occupation| occupation.get("id"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })?;
+
+                let fallback_root_occupation = root_occupations.iter().find(|occupation| {
+                    occupation
+                        .get("occupationId")
+                        .and_then(Value::as_str)
+                        == Some(occupation_id.as_str())
+                });
+                let occupation_value = lookup_occupation_value(
+                    occupation_id.as_str(),
+                    entry
+                        .get("occupation")
+                        .or_else(|| fallback_root_occupation.and_then(|state| state.get("occupation"))),
+                    content,
+                );
+                let unlocked_talent_node_ids =
+                    value_as_string_vec(entry.get("unlockedTalentNodeIds"));
+                let spent_talent_points =
+                    talent_cost_for_unlocks(&occupation_id, &unlocked_talent_node_ids, content)
+                        .max(value_as_u16(entry.get("spentTalentPoints")));
+                Some(ResolvedOccupationProgress {
+                    occupation_id,
+                    occupation: occupation_value,
+                    unlocked_talent_node_ids,
+                    spent_talent_points,
+                    spent_pioneer_points: value_as_u16(entry.get("spentPioneerPoints")),
+                    unlock_point_cost: value_as_u16(entry.get("unlockPointCost")).max(1),
+                    level: 1_u16.saturating_add(spent_talent_points),
+                    available_talent_points: 0,
+                    is_primary: value_as_bool(entry.get("isPrimary")),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        if resolved_occupations.is_empty() {
+            if let Some(occupation_id) = legacy_primary_occupation_id.as_deref() {
+                resolved_occupations.push(ResolvedOccupationProgress {
+                    occupation_id: occupation_id.to_string(),
+                    occupation: lookup_occupation_value(
+                        occupation_id,
+                        occupation_from_root.as_ref(),
+                        content,
+                    ),
+                    unlocked_talent_node_ids: legacy_unlocked_talent_node_ids.clone(),
+                    spent_talent_points: legacy_spent_talent_points,
+                    spent_pioneer_points: 0,
+                    unlock_point_cost: 1,
+                    level: 1_u16.saturating_add(legacy_spent_talent_points),
+                    available_talent_points: 0,
+                    is_primary: true,
+                });
+            }
+        }
+
+        let mut deduped = Vec::new();
+        let mut seen = std::collections::HashSet::<String>::new();
+        for occupation in resolved_occupations.into_iter() {
+            if seen.insert(occupation.occupation_id.clone()) {
+                deduped.push(occupation);
+            }
+        }
+
+        let primary_index = deduped
+            .iter()
+            .position(|occupation| occupation.is_primary)
+            .or_else(|| {
+                legacy_primary_occupation_id.as_deref().and_then(|occupation_id| {
+                    deduped
+                        .iter()
+                        .position(|occupation| occupation.occupation_id == occupation_id)
+                })
+            })
+            .unwrap_or(0);
+
+        for (index, occupation) in deduped.iter_mut().enumerate() {
+            occupation.is_primary = index == primary_index;
+            occupation.level = 1_u16.saturating_add(occupation.spent_talent_points);
+        }
+
+        let primary_occupation_id = deduped
+            .get(primary_index)
+            .map(|occupation| occupation.occupation_id.clone());
+        let primary_unlocked_talent_node_ids = deduped
+            .get(primary_index)
+            .map(|occupation| occupation.unlocked_talent_node_ids.clone())
+            .unwrap_or_default();
+        let primary_spent_talent_points = deduped
+            .get(primary_index)
+            .map(|occupation| occupation.spent_talent_points)
+            .unwrap_or(0);
+
         if let Some(occupation_id) = primary_occupation_id.as_deref() {
             progression.insert("treeOccupationId".to_string(), Value::from(occupation_id));
+        } else {
+            progression.remove("treeOccupationId");
         }
         progression.insert(
             "unlockedTalentNodeIds".to_string(),
             Value::Array(
-                unlocked_talent_node_ids
+                primary_unlocked_talent_node_ids
                     .iter()
                     .map(|entry| Value::from(entry.as_str()))
                     .collect(),
@@ -674,7 +825,7 @@ pub fn normalize_character_payload(
         );
         progression.insert(
             "spentTalentPoints".to_string(),
-            Value::from(spent_talent_points),
+            Value::from(primary_spent_talent_points),
         );
         progression.insert(
             "spentStatPoints".to_string(),
@@ -691,42 +842,30 @@ pub fn normalize_character_payload(
 
         (
             primary_occupation_id,
-            unlocked_talent_node_ids,
-            spent_talent_points,
+            primary_unlocked_talent_node_ids,
+            primary_spent_talent_points,
             spent_stat_points,
             spent_pioneer_occupation_points,
             spent_pioneer_stat_points,
+            deduped,
         )
     };
 
-    let mut resolved_occupations = Vec::new();
-    if let Some(occupation_id) = primary_occupation_id.as_deref() {
-        let occupation_value = occupation_from_root.or_else(|| {
-            content
-                .and_then(|bundle| bundle.occupations.get(occupation_id))
-                .and_then(|occupation| serde_json::to_value(occupation).ok())
-        });
-
-        resolved_occupations.push(ResolvedOccupationProgress {
-            occupation_id: occupation_id.to_string(),
-            occupation: occupation_value.clone(),
-            unlocked_talent_node_ids: unlocked_talent_node_ids.clone(),
-            spent_talent_points,
-            level: 1_u16.saturating_add(spent_talent_points),
-            available_talent_points: 0,
-            is_primary: true,
-        });
-
-        if root.get("occupation").is_none() {
-            if let Some(occupation) = occupation_value {
+    if let Some(primary_occupation_id) = primary_occupation_id.as_deref() {
+        if let Some(primary_state) = resolved_occupations
+            .iter()
+            .find(|occupation| occupation.occupation_id == primary_occupation_id)
+        {
+            if let Some(occupation) = primary_state.occupation.clone() {
                 root.insert("occupation".to_string(), occupation);
             }
         }
+    } else {
+        root.remove("occupation");
     }
 
     let mut resolved = resolve_progression(
         total_xp,
-        spent_talent_points,
         spent_stat_points,
         spent_pioneer_occupation_points,
         spent_pioneer_stat_points,
@@ -853,11 +992,24 @@ pub async fn resolve_progression_handler(
     let rules = crate::game_rules::load_rules_from_file();
     let resolved = resolve_progression(
         payload.total_xp,
-        payload.spent_talent_points,
         payload.spent_stat_points,
         payload.spent_pioneer_occupation_points,
         payload.spent_pioneer_stat_points,
-        Vec::new(),
+        if payload.spent_talent_points > 0 {
+            vec![ResolvedOccupationProgress {
+                occupation_id: "legacy".to_string(),
+                occupation: None,
+                unlocked_talent_node_ids: Vec::new(),
+                spent_talent_points: payload.spent_talent_points,
+                spent_pioneer_points: 0,
+                unlock_point_cost: 0,
+                level: 1_u16.saturating_add(payload.spent_talent_points),
+                available_talent_points: 0,
+                is_primary: true,
+            }]
+        } else {
+            Vec::new()
+        },
         &rules.xp_and_leveling,
     );
     Ok((StatusCode::OK, Json(json!(resolved))))
@@ -965,5 +1117,95 @@ mod tests {
         let normalized = normalize_character_payload(payload, &rules, None);
         assert_eq!(normalized.get("xp").and_then(Value::as_u64), Some(39_671));
         assert_eq!(normalized.get("level").and_then(Value::as_u64), Some(12));
+    }
+
+    #[test]
+    fn legacy_primary_occupation_is_migrated_into_occupation_states() {
+        let rules = crate::game_rules::load_rules_from_file();
+        let payload = json!({
+            "id": "char-legacy-occ",
+            "name": "Legacy",
+            "stats": {
+                "strength": 3,
+                "agility": 3,
+                "intelligence": 3,
+                "wisdom": 3,
+                "endurance": 3,
+                "charisma": 3
+            },
+            "traits": [],
+            "inventory": [],
+            "level": 5,
+            "xp": 3_433,
+            "occupation": {
+                "id": "soldier",
+                "name": "Soldier"
+            },
+            "progression": {
+                "treeOccupationId": "soldier",
+                "unlockedTalentNodeIds": ["a", "b"],
+                "spentTalentPoints": 2
+            }
+        });
+        let normalized = normalize_character_payload(payload, &rules, None);
+        let states = normalized
+            .get("occupations")
+            .and_then(Value::as_array)
+            .expect("occupation states");
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].get("occupationId").and_then(Value::as_str), Some("soldier"));
+        assert_eq!(states[0].get("unlockPointCost").and_then(Value::as_u64), Some(1));
+        assert_eq!(normalized.pointer("/progression/treeOccupationId").and_then(Value::as_str), Some("soldier"));
+    }
+
+    #[test]
+    fn multi_occupation_payload_keeps_primary_and_global_budget() {
+        let rules = crate::game_rules::load_rules_from_file();
+        let payload = json!({
+            "id": "char-multi-occ",
+            "name": "Multi",
+            "stats": {
+                "strength": 3,
+                "agility": 3,
+                "intelligence": 3,
+                "wisdom": 3,
+                "endurance": 3,
+                "charisma": 3
+            },
+            "traits": [],
+            "inventory": [],
+            "level": 5,
+            "xp": 3_433,
+            "progression": {
+                "treeOccupationId": "scout",
+                "occupationStates": [
+                    {
+                        "occupationId": "soldier",
+                        "spentTalentPoints": 2,
+                        "unlockPointCost": 1,
+                        "level": 3,
+                        "isPrimary": false
+                    },
+                    {
+                        "occupationId": "scout",
+                        "spentTalentPoints": 1,
+                        "unlockPointCost": 1,
+                        "level": 2,
+                        "isPrimary": true
+                    }
+                ]
+            }
+        });
+        let normalized = normalize_character_payload(payload, &rules, None);
+        let states = normalized
+            .pointer("/resolvedProgression/occupations")
+            .and_then(Value::as_array)
+            .expect("resolved occupations");
+        assert_eq!(states.len(), 2);
+        assert_eq!(normalized.pointer("/progression/treeOccupationId").and_then(Value::as_str), Some("scout"));
+        assert_eq!(normalized.pointer("/progression/spentTalentPoints").and_then(Value::as_u64), Some(1));
+        assert_eq!(normalized.pointer("/resolvedProgression/occupationUnlockPointsSpent").and_then(Value::as_u64), Some(2));
+        assert_eq!(normalized.pointer("/resolvedProgression/occupationTalentPointsSpent").and_then(Value::as_u64), Some(3));
+        assert_eq!(normalized.pointer("/resolvedProgression/availableTalentPoints").and_then(Value::as_u64), Some(0));
     }
 }

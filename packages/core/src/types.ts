@@ -260,6 +260,7 @@ export interface CharacterOccupationProgress {
   unlockedTalentNodeIds: string[];
   spentTalentPoints: number;
   spentPioneerPoints?: number;
+  unlockPointCost?: number;
   availableTalentPoints?: number;
   level: number;
   isPrimary?: boolean;
@@ -297,6 +298,8 @@ export interface ResolvedProgression extends LevelProgressSnapshot {
   availablePioneerPoints: number;
   pioneerLevel: number;
   pioneerPointsTotal: number;
+  occupationUnlockPointsSpent: number;
+  occupationTalentPointsSpent: number;
   occupations: CharacterOccupationProgress[];
 }
 
