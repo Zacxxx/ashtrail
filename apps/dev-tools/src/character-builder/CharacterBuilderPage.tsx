@@ -4,7 +4,7 @@ import { Character, Trait, Occupation, Stats, GameRegistry, OccupationCategory, 
 import { TabBar, Modal } from "@ashtrail/ui";
 import { Background, ConnectionLineType, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge as RFEdge, type Node as RFNode } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { GameRulesManager } from "../gameplay-engine/rules/useGameRules";
+import { GameRulesManager, type GameRulesConfig } from "../gameplay-engine/rules/useGameRules";
 import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { HistoryGallery } from "../worldgeneration/HistoryGallery";
 import { useActiveWorld } from "../hooks/useActiveWorld";
@@ -85,6 +85,60 @@ function ensureSinglePrimaryOccupation(states: CharacterOccupationProgress[]): C
     }));
 }
 
+function getBaseLevelTotalXp(level: number, rules: GameRulesConfig): number {
+    const normalizedLevel = Math.max(1, Math.floor(level || 1));
+    if (normalizedLevel >= rules.xpAndLeveling.maxCharacterLevel) {
+        return rules.xpAndLeveling.maxCharacterCumulativeXp;
+    }
+    return rules.xpAndLeveling.generatedLevelTable.find((entry) => entry.level === normalizedLevel)?.cumulativeXp ?? 0;
+}
+
+function getPioneerCumulativeXp(level: number, rules: GameRulesConfig): number {
+    const normalizedLevel = Math.max(0, Math.min(rules.xpAndLeveling.pioneer.maxLevel, Math.floor(level || 0)));
+    let totalXp = 0;
+
+    for (let currentLevel = 1; currentLevel <= normalizedLevel; currentLevel += 1) {
+        const tier = rules.xpAndLeveling.pioneer.tiers.find((entry) => currentLevel >= entry.startLevel && currentLevel <= entry.endLevel);
+        totalXp += tier?.xpPerLevel ?? 0;
+    }
+
+    return totalXp;
+}
+
+function getPioneerLevelFromTotalXp(totalXp: number, rules: GameRulesConfig): number {
+    const normalizedXp = Math.max(0, Math.floor(totalXp || 0));
+    const baseXp = rules.xpAndLeveling.maxCharacterCumulativeXp;
+    if (normalizedXp <= baseXp) {
+        return 0;
+    }
+
+    let accumulatedXp = baseXp;
+    let pioneerLevel = 0;
+    for (let currentLevel = 1; currentLevel <= rules.xpAndLeveling.pioneer.maxLevel; currentLevel += 1) {
+        const tier = rules.xpAndLeveling.pioneer.tiers.find((entry) => currentLevel >= entry.startLevel && currentLevel <= entry.endLevel);
+        if (!tier) {
+            continue;
+        }
+        accumulatedXp += tier.xpPerLevel;
+        if (normalizedXp >= accumulatedXp) {
+            pioneerLevel = currentLevel;
+            continue;
+        }
+        break;
+    }
+
+    return pioneerLevel;
+}
+
+function buildTotalXpForProgression(level: number, pioneerLevel: number, rules: GameRulesConfig): number {
+    const normalizedPioneerLevel = Math.max(0, Math.min(rules.xpAndLeveling.pioneer.maxLevel, Math.floor(pioneerLevel || 0)));
+    const normalizedLevel = normalizedPioneerLevel > 0
+        ? rules.xpAndLeveling.maxCharacterLevel
+        : Math.max(1, Math.min(rules.xpAndLeveling.maxCharacterLevel, Math.floor(level || 1)));
+
+    return getBaseLevelTotalXp(normalizedLevel, rules) + getPioneerCumulativeXp(normalizedPioneerLevel, rules);
+}
+
 interface PrimaryOccupationDropdownProps {
     occupations: CharacterOccupationProgress[];
     primaryOccupationId?: string;
@@ -128,7 +182,7 @@ function PrimaryOccupationDropdown({
 
     const isOverlay = variant === "overlay";
     const triggerClassName = isOverlay
-        ? "min-w-[150px] rounded-full border border-[#c2410c]/25 bg-black/45 px-3 py-1.5 text-[8px] font-black uppercase tracking-[0.22em] text-orange-100 shadow-[0_8px_24px_rgba(0,0,0,0.28)] transition-all hover:border-[#c2410c]/45 hover:bg-black/60"
+        ? "text-[10px] font-black text-[#c2410c] transition-all hover:text-[#fb923c]"
         : "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-left text-[9px] font-black uppercase tracking-[0.18em] text-white transition-all hover:border-[#c2410c]/35 hover:bg-black/45";
     const panelClassName = isOverlay
         ? "absolute left-1/2 top-full z-30 mt-2 w-[220px] -translate-x-1/2 rounded-2xl border border-[#c2410c]/20 bg-[#07090c]/95 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl"
@@ -146,7 +200,23 @@ function PrimaryOccupationDropdown({
     }
 
     return (
-        <div ref={rootRef} className={`relative ${isOverlay ? "" : "w-full"}`}>
+        <div ref={rootRef} className={`relative ${isOverlay ? "flex items-center gap-2" : "w-full"}`}>
+            {isOverlay && (
+                <>
+                    <div className="text-[8px] text-orange-500/80 font-black tracking-[0.3em] uppercase">
+                        {(primaryOccupation.occupation?.name || primaryOccupation.occupationId)} Lv. {primaryOccupation.level}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setOpen((current) => !current)}
+                        aria-label="Select primary occupation"
+                        className={triggerClassName}
+                    >
+                        <span className={`inline-block transition-transform ${open ? "rotate-180" : ""}`}>v</span>
+                    </button>
+                </>
+            )}
+            {!isOverlay && (
             <button
                 type="button"
                 onClick={() => setOpen((current) => !current)}
@@ -157,6 +227,7 @@ function PrimaryOccupationDropdown({
                 </span>
                 <span className={`text-[10px] transition-transform ${open ? "rotate-180" : ""}`}>▼</span>
             </button>
+            )}
             {open && (
                 <div className={panelClassName}>
                     <div className="mb-1 px-2 text-[7px] font-black uppercase tracking-[0.24em] text-gray-500">
@@ -433,6 +504,7 @@ export function CharacterBuilderPage() {
         setActiveWorldId(id);
     };
     const [level, setLevel] = useState(1);
+    const [pioneerLevel, setPioneerLevel] = useState(0);
     const [xp, setXp] = useState(0);
     const [characterTitle, setCharacterTitle] = useState("");
     const [characterBadge, setCharacterBadge] = useState("");
@@ -1162,6 +1234,10 @@ export function CharacterBuilderPage() {
     const applyResolvedCharacter = (resolvedCharacter: Character) => {
         setXp(resolvedCharacter.xp || 0);
         setLevel(resolvedCharacter.level || 1);
+        setPioneerLevel(
+            resolvedCharacter.resolvedProgression?.pioneerLevel ??
+            getPioneerLevelFromTotalXp(resolvedCharacter.xp || 0, GameRulesManager.get()),
+        );
         setResolvedProgression(resolvedCharacter.resolvedProgression);
         const nextOccupationStates = ensureSinglePrimaryOccupation(
             (resolvedCharacter.occupations || []).map((state) => normalizeOccupationState(state, state.occupation)),
@@ -1439,6 +1515,9 @@ export function CharacterBuilderPage() {
         ? `${primaryOccupationState.occupation.name} Lv. ${primaryOccupationState.level}`
         : "No Occupation";
     const activeUnlockedTalentKey = (activeOccupationState?.unlockedTalentNodeIds ?? []).join("|");
+    const rules = GameRulesManager.get();
+    const maxCharacterLevel = rules.xpAndLeveling.maxCharacterLevel;
+    const maxPioneerLevel = rules.xpAndLeveling.pioneer.maxLevel;
 
     useEffect(() => {
         if (!displayOccupationStates.length) {
@@ -1496,16 +1575,33 @@ export function CharacterBuilderPage() {
         }));
     };
 
-    const updateLevel = (nextLevel: number, grantAttributePoint = false) => {
-        const normalizedLevel = Math.max(1, nextLevel || 1);
+    const syncProgressionSelection = (nextLevel: number, nextPioneerLevel: number, grantAttributePoint = false) => {
+        const rules = GameRulesManager.get();
+        const normalizedPioneerLevel = Math.max(0, Math.min(rules.xpAndLeveling.pioneer.maxLevel, Math.floor(nextPioneerLevel || 0)));
+        const normalizedLevel = normalizedPioneerLevel > 0
+            ? rules.xpAndLeveling.maxCharacterLevel
+            : Math.max(1, Math.min(rules.xpAndLeveling.maxCharacterLevel, Math.floor(nextLevel || 1)));
+        const totalXp = buildTotalXpForProgression(normalizedLevel, normalizedPioneerLevel, rules);
+
+        setPioneerLevel(normalizedPioneerLevel);
         setLevel(prevLevel => {
             if (grantAttributePoint && normalizedLevel > prevLevel) {
                 setAttributePoints(points => points + (normalizedLevel - prevLevel));
             }
             return normalizedLevel;
         });
-        setXp(0);
-        void resolveCharacterDraft({ level: normalizedLevel, xp: 0 });
+        setXp(totalXp);
+        void resolveCharacterDraft({ level: normalizedLevel, xp: totalXp });
+    };
+
+    const updateLevel = (nextLevel: number, grantAttributePoint = false) => {
+        syncProgressionSelection(nextLevel, 0, grantAttributePoint);
+    };
+
+    const updatePioneerLevel = (nextPioneerLevel: number) => {
+        const rules = GameRulesManager.get();
+        const baseLevel = nextPioneerLevel > 0 ? rules.xpAndLeveling.maxCharacterLevel : level;
+        syncProgressionSelection(baseLevel, nextPioneerLevel);
     };
 
     const buildOccupationOverrides = (states: CharacterOccupationProgress[]): Partial<Character> => {
@@ -1699,7 +1795,11 @@ export function CharacterBuilderPage() {
         setIsFamily(char.isFamily || false);
         setFamilyId(char.familyId || "");
         setWorldId(char.worldId || "665774da-472d-4570-adfb-1242ceefdfd9");
-        updateLevel(char.level || 1);
+        setLevel(char.level || 1);
+        setPioneerLevel(
+            char.resolvedProgression?.pioneerLevel ??
+            getPioneerLevelFromTotalXp(char.xp || 0, GameRulesManager.get()),
+        );
         setCharacterTitle(char.title || "");
         setCharacterBadge(char.badge || "");
         setFaction(char.faction || "");
@@ -1795,6 +1895,7 @@ export function CharacterBuilderPage() {
         setFamilyId("");
         setWorldId("665774da-472d-4570-adfb-1242ceefdfd9");
         setLevel(1);
+        setPioneerLevel(0);
         setXp(0);
         setCharacterTitle("");
         setCharacterBadge("");
@@ -2171,29 +2272,46 @@ export function CharacterBuilderPage() {
                                         </div>
                                     )}
 
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-4">
                                         <div className="space-y-1">
                                             <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Name</label>
                                             <input value={name} onChange={e => setName(e.target.value)} placeholder="Enter name..." className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                         </div>
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)_minmax(0,0.95fr)_minmax(0,1fr)] gap-4">
                                             <div className="space-y-1">
                                                 <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Age</label>
                                                 <input type="number" value={age} onChange={e => setAge(Math.max(18, parseInt(e.target.value) || 18))} min={18} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                             </div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-1">
-                                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Level</label>
-                                                    <input type="number" value={level} onChange={e => updateLevel(Math.max(1, parseInt(e.target.value) || 1), true)} min={1} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Gender</label>
-                                                    <select value={gender} onChange={e => setGender(e.target.value)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all">
-                                                        <option>Male</option>
-                                                        <option>Female</option>
-                                                        <option>Non-Binary</option>
-                                                    </select>
-                                                </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Level</label>
+                                                <input
+                                                    type="number"
+                                                    value={level}
+                                                    onChange={e => updateLevel(Math.max(1, parseInt(e.target.value) || 1), true)}
+                                                    min={1}
+                                                    max={maxCharacterLevel}
+                                                    className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all"
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Pioneer</label>
+                                                <select
+                                                    value={pioneerLevel}
+                                                    onChange={e => updatePioneerLevel(parseInt(e.target.value, 10) || 0)}
+                                                    className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all"
+                                                >
+                                                    {Array.from({ length: maxPioneerLevel + 1 }, (_, value) => (
+                                                        <option key={value} value={value}>{value}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Gender</label>
+                                                <select value={gender} onChange={e => setGender(e.target.value)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all">
+                                                    <option>Male</option>
+                                                    <option>Female</option>
+                                                    <option>Non-Binary</option>
+                                                </select>
                                             </div>
                                         </div>
                                     </div>
@@ -4431,7 +4549,7 @@ export function CharacterBuilderPage() {
                                             </div>
                                         </div>
                                         <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-                                            Age {age} | {gender} | Level {level}
+                                            Age {age} | {gender} | Level {level} | Pioneer {pioneerLevel}
                                         </p>
                                         <div className="flex gap-4 pt-1">
                                             <div className="text-[9px] font-black text-emerald-500 uppercase">HP: {derivedStats.hp}</div>

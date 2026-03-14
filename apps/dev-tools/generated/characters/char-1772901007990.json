@@ -83,33 +83,33 @@
   "faction": "",
   "gender": "Male",
   "history": "Tristan, twenty-four years old by the reckoning of the new age, once held the title of Chief Logistics Officer for Moebius, a corporate behemoth that spanned continents. His life was a calibrated sequence of data streams, market analyses, and executive directives, all delivered from a sky-high office overlooking a city that hummed with manufactured purpose. He was Zach’s right hand, not merely a functionary but an architect of Moebius’s sprawling influence, accustomed to command and the absolute clarity of a world where every variable could, theoretically, be controlled. His ambition was a cold, precise flame, fueled by the relentless expansion of Moebius’s technological dominion, envisioning a future where the corporation’s algorithms dictated the very flow of human existence.\n\nThe arrival of the Great Fog was not a gradual dimming but an abrupt, violent suffocation of the sky. Tristan witnessed the collapse from within Moebius’s highest echelons, first as a series of red alerts and then as the frantic unraveling of global infrastructure. The meticulously charted supply lines he oversaw dissolved into chaos, the market forecasts spiraled into meaninglessness, and the absolute control he once wielded became a phantom limb. He saw the sun become a dying ember through reinforced plasteel, watched the screens flicker out, and felt the primal terror of humanity’s sophisticated veneer shattering, revealing the raw, desperate scramble beneath. His world, built on order and predictable profit, simply ceased to be.\n\nThe immediate aftermath was a brutal education in irrelevance. Tristan, a man whose power resided in spreadsheets and networked systems, found himself adrift in a new reality where a well-placed fist held more sway than a billion-credit portfolio. He navigated the initial resource wars not with corporate might, but with sheer, desperate cunning, leveraging what little pre-collapse knowledge he possessed to secure passage into the deepest of Moebius’s abandoned data vaults. There, amidst the silent, server farms, he learned the grim calculus of survival: where to find potable water, how to ration scavenged nutrient paste, and the absolute necessity of silence when shadows moved just beyond the airlock. His executive mind, once focused on global logistics, now fixated on the next meal, the next breath.\n\nYears inside the decaying structural shells of the forgotten world forged Tristan into something new, something sharper. The softness of his executive life was stripped away, replaced by the hardened muscle and calculating gaze of a scavenger. He learned to read the subtle signs of the Ash-Trail – the shifting dust, the tell-tale echoes in derelict corridors, the scent of proximity to danger. His corporate knack for assessing risk and opportunity transmuted into a primal instinct for survival, making him adept at navigating ruins and evading threats. The name Moebius, once a beacon of his identity, became a dangerous secret, a relic of a past that could earn him either suspicion or a swift, violent end. He became a ghost in the shell, shedding his former self to simply *be*.\n\nToday, Tristan walks the Ash-Trail as a Scout, a solitary figure whose reputation for quiet efficiency precedes him. He moves between the fledgling City-States and the vast, unknown wastes, trading information for passage, guiding others through treacherous zones, or charting paths to rumored caches. His past is a tightly guarded secret, a potential leverage or a fatal weakness depending on who uncovers it. He begins his journey today not for ambition or profit in the Old World sense, but for the immediate survival of himself and those who pay for his services. A new contract has come, speaking of forgotten Moebius installations, and the cold, precise survival math dictates that the risks, however immense, might just outweigh the potential for discovery, for some forgotten truth.",
-  "hp": 65,
+  "hp": 35,
   "id": "char-1772901007990",
   "inventory": [],
   "isFamily": false,
   "isNPC": false,
   "level": 30,
-  "maxHp": 65,
+  "maxHp": 35,
   "name": "Tristan",
   "occupation": {
-    "category": "FIELD",
-    "description": "Moved ahead of groups to map terrain, mark hazards, and report back. Light on their feet, sharp-eyed, and comfortable alone in hostile territory.",
+    "category": "SECURITY",
+    "description": "Served in an organized fighting force before the collapse. Knows formations, weapon maintenance, and how to follow orders under fire. Discipline is second nature.",
     "grantsTraitIds": [
-      "trait-occ-scout-base"
+      "trait-occ-soldier-base"
     ],
-    "id": "occ-scout",
-    "name": "Scout",
+    "id": "occ-soldier",
+    "name": "Soldier",
     "perks": [
-      "Map discovery range doubled",
-      "Reduced encounter danger on roads",
-      "POIs revealed earlier"
+      "Increased accuracy under suppressive fire",
+      "Faster weapon handling",
+      "Bonus morale in combat situations"
     ],
-    "shortDescription": "Eyes and ears of every expedition."
+    "shortDescription": "Trained combatant with military discipline."
   },
   "occupations": [
     {
       "availableTalentPoints": 5,
-      "isPrimary": false,
+      "isPrimary": true,
       "level": 12,
       "occupation": {
         "category": "SECURITY",
@@ -169,7 +169,7 @@
     },
     {
       "availableTalentPoints": 5,
-      "isPrimary": true,
+      "isPrimary": false,
       "level": 12,
       "occupation": {
         "category": "FIELD",
@@ -214,7 +214,7 @@
     "occupationStates": [
       {
         "availableTalentPoints": 5,
-        "isPrimary": false,
+        "isPrimary": true,
         "level": 12,
         "occupation": {
           "category": "SECURITY",
@@ -274,7 +274,7 @@
       },
       {
         "availableTalentPoints": 5,
-        "isPrimary": true,
+        "isPrimary": false,
         "level": 12,
         "occupation": {
           "category": "FIELD",
@@ -312,17 +312,17 @@
     "spentPioneerStatPoints": 0,
     "spentStatPoints": 10,
     "spentTalentPoints": 11,
-    "treeOccupationId": "occ-scout",
+    "treeOccupationId": "occ-soldier",
     "unlockedTalentNodeIds": [
-      "sct-1",
-      "sct-2",
-      "sct-3",
-      "sct-5",
-      "sct-4",
-      "sct-6",
-      "sct-7",
-      "sct-9",
-      "sct-8"
+      "s-1",
+      "s-2",
+      "s-3",
+      "s-5",
+      "s-4",
+      "s-6",
+      "s-7",
+      "s-9",
+      "s-8"
     ]
   },
   "relationships": [
@@ -351,7 +351,7 @@
     "occupations": [
       {
         "availableTalentPoints": 5,
-        "isPrimary": false,
+        "isPrimary": true,
         "level": 12,
         "occupation": {
           "category": "SECURITY",
@@ -411,7 +411,7 @@
       },
       {
         "availableTalentPoints": 5,
-        "isPrimary": true,
+        "isPrimary": false,
         "level": 12,
         "occupation": {
           "category": "FIELD",
