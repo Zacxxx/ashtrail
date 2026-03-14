@@ -11,6 +11,7 @@ import { CharacterBuilderPage } from "./character-builder";
 import { HistoryPage } from "./history";
 import { EcologyPage } from "./ecology";
 import { GameMasterPage } from "./game-master";
+import { JobCenterPage } from "./jobs/JobCenterPage";
 import { QuestPage } from "./quests";
 import { StoryLoopPage } from "./story-loop";
 import { DemoLandingPage } from "./demo/DemoLandingPage";
@@ -55,6 +56,7 @@ const router = createBrowserRouter([
             { path: "history", element: <HistoryPage /> },
             { path: "ecology", element: <EcologyPage /> },
             { path: "quests", element: <QuestPage /> },
+            { path: "jobcenter", element: <JobCenterPage /> },
             { path: "story-loop", element: <StoryLoopPage /> },
         ],
     },

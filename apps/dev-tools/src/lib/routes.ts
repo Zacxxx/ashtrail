@@ -14,6 +14,7 @@ export const DEVTOOLS_ROUTES = {
     history: `${DEVTOOLS_BASE}/history`,
     ecology: `${DEVTOOLS_BASE}/ecology`,
     quests: `${DEVTOOLS_BASE}/quests`,
+    jobCenter: `${DEVTOOLS_BASE}/jobcenter`,
     storyLoop: `${DEVTOOLS_BASE}/story-loop`,
 } as const;
 
@@ -27,6 +28,7 @@ export const DEVTOOLS_TOOL_ROUTE_BY_ID = {
     history: DEVTOOLS_ROUTES.history,
     ecology: DEVTOOLS_ROUTES.ecology,
     quests: DEVTOOLS_ROUTES.quests,
+    jobcenter: DEVTOOLS_ROUTES.jobCenter,
     "story-loop": DEVTOOLS_ROUTES.storyLoop,
 } as const;
 
@@ -40,6 +42,7 @@ export const LEGACY_DEVTOOLS_REDIRECTS = {
     "/history": DEVTOOLS_ROUTES.history,
     "/ecology": DEVTOOLS_ROUTES.ecology,
     "/quests": DEVTOOLS_ROUTES.quests,
+    "/jobcenter": DEVTOOLS_ROUTES.jobCenter,
     "/story-loop": DEVTOOLS_ROUTES.storyLoop,
 } as const;
 
