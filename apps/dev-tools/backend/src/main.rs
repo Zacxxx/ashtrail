@@ -2432,6 +2432,7 @@ async fn start_generate_media_audio_job(
 
     let jobs = state.jobs.clone();
     let output_root = state.generated_media_dir.join(&job_id);
+    let songs_dir = state.songs_dir.clone();
     let spawned_job_id = job_id.clone();
     tokio::spawn(async move {
         if let Ok(mut map) = jobs.lock() {
@@ -2464,7 +2465,21 @@ async fn start_generate_media_audio_job(
         .await;
 
         match execution {
-            Ok(execution) => {
+            Ok(mut execution) => {
+                if let Err(message) = persist_generated_media_audio_song(
+                    &songs_dir,
+                    &spawned_job_id,
+                    &output_root,
+                    &request,
+                    &mut execution,
+                ) {
+                    warn!("failed to persist media audio job {} into songs: {}", spawned_job_id, message);
+                    execution
+                        .result
+                        .artifact
+                        .warnings
+                        .push(format!("Song persistence failed: {message}"));
+                }
                 if let Ok(mut map) = jobs.lock() {
                     if let Some(job) = map.get_mut(&spawned_job_id) {
                         let artifact_status = execution.result.artifact.status.clone();
@@ -2503,6 +2518,12 @@ async fn start_generate_media_audio_job(
                                 serde_json::to_value(artifact_status)
                                     .unwrap_or_else(|_| serde_json::Value::String("error".to_string())),
                             );
+                            if let Some(song_clip) = execution.song_clip.as_ref() {
+                                metadata.insert(
+                                    "songTitle".to_string(),
+                                    serde_json::Value::String(song_clip.title.clone()),
+                                );
+                            }
                         }
                     }
                 }
@@ -2543,6 +2564,289 @@ async fn start_generate_media_audio_job(
     });
 
     Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+fn persist_generated_media_audio_song(
+    songs_dir: &std::path::Path,
+    job_id: &str,
+    output_root: &std::path::Path,
+    request: &media_audio::GenerateMediaAudioRequest,
+    execution: &mut media_audio::MediaAudioExecution,
+) -> Result<(), String> {
+    let Some(song_clip) = execution.song_clip.as_ref() else {
+        return Ok(());
+    };
+
+    let slug = slugify_prompt(&song_clip.title);
+    let batch_id = if slug.is_empty() {
+        format!("media_audio_{}", &job_id[..8.min(job_id.len())])
+    } else {
+        format!("{}_{}", slug, &job_id[..8.min(job_id.len())])
+    };
+    let batch_dir = songs_dir.join(&batch_id);
+    std::fs::create_dir_all(&batch_dir).map_err(|error| format!("create song batch dir: {error}"))?;
+
+    let audio_source = output_root.join("audio.wav");
+    if !audio_source.exists() {
+        return Err("generated audio file is missing".to_string());
+    }
+    let audio_filename = "000_v01.wav".to_string();
+    let audio_target = batch_dir.join(&audio_filename);
+    std::fs::copy(&audio_source, &audio_target).map_err(|error| format!("copy generated audio: {error}"))?;
+
+    let mut image_url = None;
+    let image_source = output_root.join("image.png");
+    if image_source.exists() {
+        let image_filename = "preview.png";
+        let image_target = batch_dir.join(image_filename);
+        std::fs::copy(&image_source, &image_target)
+            .map_err(|error| format!("copy generated image: {error}"))?;
+        image_url = Some(format!("/api/songs/{}/{}", batch_id, image_filename));
+    }
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let category = request
+        .category
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            execution
+                .result
+                .artifact
+                .metadata
+                .tags
+                .iter()
+                .find_map(|tag| {
+                    let normalized = tag.trim().to_lowercase();
+                    if normalized == "ost" || normalized == "ambience" || normalized == "sfx" {
+                        Some(tag.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("ost")
+        })
+        .to_string();
+
+    let manifest = SongBatchManifest {
+        batch_id: batch_id.clone(),
+        batch_name: song_clip.title.clone(),
+        created_at,
+        category: category.clone(),
+        genre: request
+            .style
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("cinematic")
+            .to_string(),
+        moods: request
+            .mood
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| vec![value.to_string()])
+            .unwrap_or_default(),
+        instrumentation: Vec::new(),
+        tempo: infer_media_song_tempo(request),
+        rhythmic_feel: infer_media_song_rhythmic_feel(request),
+        soundscape: request.prompt.trim().to_string(),
+        production_style: request
+            .style
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("cinematic")
+            .to_string(),
+        negative_prompt: song_clip.negative_prompt.clone(),
+        global_direction: execution.result.artifact.metadata.description.clone(),
+        clips: vec![GeneratedSongClip {
+            clip_id: format!("clip-{}-v01", &job_id[..8.min(job_id.len())]),
+            filename: audio_filename.clone(),
+            title: song_clip.title.clone(),
+            prompt: song_clip.prompt.clone(),
+            normalized_prompt: song_clip.normalized_prompt.clone(),
+            negative_prompt: song_clip.negative_prompt.clone(),
+            url: format!("/api/songs/{}/{}", batch_id, audio_filename),
+            mime_type: song_clip.mime_type.clone(),
+            duration_seconds: song_clip.duration_seconds,
+            sample_rate_hz: song_clip.sample_rate_hz,
+            variant_index: 1,
+            category,
+        }],
+    };
+
+    let manifest_json =
+        serde_json::to_string_pretty(&manifest).map_err(|error| format!("serialize song manifest: {error}"))?;
+    std::fs::write(batch_dir.join("manifest.json"), manifest_json)
+        .map_err(|error| format!("write song manifest: {error}"))?;
+
+    if let Some(audio) = execution.result.artifact.audio.as_mut() {
+        audio.url = format!("/api/songs/{}/{}", batch_id, audio_filename);
+        audio.mime_type = song_clip.mime_type.clone();
+        audio.duration_seconds = song_clip.duration_seconds.round().max(1.0) as u32;
+    }
+    execution.audio_preview = execution.result.artifact.audio.as_ref().map(|audio| audio.url.clone());
+
+    if let Some(image) = execution.result.artifact.image.as_mut() {
+        if let Some(url) = image_url.clone() {
+            image.url = url;
+        }
+    }
+    execution.image_preview = execution.result.artifact.image.as_ref().map(|image| image.url.clone());
+
+    if let Some(metadata) = execution.result.transcript.tool_arguments.as_object_mut() {
+        metadata.insert("persistedSongBatchId".to_string(), serde_json::Value::String(batch_id));
+        metadata.insert(
+            "persistedSongPath".to_string(),
+            serde_json::Value::String(audio_target.to_string_lossy().to_string()),
+        );
+    }
+
+    let artifact_json = serde_json::to_string_pretty(&execution.result)
+        .map_err(|error| format!("serialize generated media artifact: {error}"))?;
+    std::fs::write(batch_dir.join("generated_media_artifact.json"), artifact_json)
+        .map_err(|error| format!("write generated media artifact: {error}"))?;
+
+    Ok(())
+}
+
+fn infer_media_song_tempo(request: &media_audio::GenerateMediaAudioRequest) -> String {
+    let haystack = format!(
+        "{} {} {} {} {}",
+        request.prompt,
+        request.style.as_deref().unwrap_or_default(),
+        request.intent.as_deref().unwrap_or_default(),
+        request.category.as_deref().unwrap_or_default(),
+        request.mood.as_deref().unwrap_or_default()
+    )
+    .to_lowercase();
+    if haystack.contains("combat") || haystack.contains("battle") || haystack.contains("raid") {
+        "fast".to_string()
+    } else if haystack.contains("night") || haystack.contains("ambience") || haystack.contains("ambient") {
+        "slow".to_string()
+    } else {
+        "medium".to_string()
+    }
+}
+
+fn infer_media_song_rhythmic_feel(request: &media_audio::GenerateMediaAudioRequest) -> String {
+    let haystack = format!(
+        "{} {} {}",
+        request.prompt,
+        request.intent.as_deref().unwrap_or_default(),
+        request.category.as_deref().unwrap_or_default()
+    )
+    .to_lowercase();
+    if haystack.contains("combat") || haystack.contains("battle") || haystack.contains("raid") {
+        "driving".to_string()
+    } else if haystack.contains("stinger") || haystack.contains("sfx") {
+        "syncopated".to_string()
+    } else if haystack.contains("ambience") || haystack.contains("ambient") {
+        "drone".to_string()
+    } else {
+        "pulse".to_string()
+    }
+}
+
+#[cfg(test)]
+mod media_audio_persistence_tests {
+    use super::{infer_media_song_rhythmic_feel, infer_media_song_tempo, persist_generated_media_audio_song};
+    use crate::media_audio::{
+        GenerateMediaAudioRequest, GeneratedMediaAudioArtifact, GeneratedMediaAudioAsset,
+        GeneratedMediaAudioResult, GeneratedMediaImageAsset, GeneratedMediaMetadata,
+        GeneratedMediaStatus, InterleavedTranscript, MediaAudioExecution, MediaAudioSongClipDetails,
+    };
+    use serde_json::json;
+    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+
+    #[test]
+    fn persists_generated_media_audio_into_song_batch_manifest() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("ashtrail-media-audio-{unique}"));
+        let songs_dir = root.join("Songs");
+        let output_root = root.join("generated-media").join("job-1234");
+        fs::create_dir_all(&songs_dir).expect("songs dir");
+        fs::create_dir_all(&output_root).expect("output dir");
+        fs::write(output_root.join("audio.wav"), b"RIFFdemo").expect("audio");
+        fs::write(output_root.join("image.png"), b"\x89PNGdemo").expect("image");
+        fs::write(output_root.join("artifact.json"), b"{}").expect("artifact");
+
+        let request = GenerateMediaAudioRequest {
+            prompt: "Night battle against tribal raiders".to_string(),
+            duration_seconds: Some(20),
+            style: Some("cinematic tribal".to_string()),
+            intent: Some("combat underscore".to_string()),
+            category: Some("ost".to_string()),
+            mood: Some("tense".to_string()),
+        };
+        let mut execution = MediaAudioExecution {
+            result: GeneratedMediaAudioResult {
+                artifact: GeneratedMediaAudioArtifact {
+                    artifact_type: "generated_media_audio".to_string(),
+                    status: GeneratedMediaStatus::Success,
+                    audio: Some(GeneratedMediaAudioAsset {
+                        url: "/api/generated-media/job-1234/audio.wav".to_string(),
+                        duration_seconds: 20,
+                        mime_type: "audio/wav".to_string(),
+                    }),
+                    image: Some(GeneratedMediaImageAsset {
+                        url: "/api/generated-media/job-1234/image.png".to_string(),
+                        mime_type: "image/png".to_string(),
+                    }),
+                    metadata: GeneratedMediaMetadata {
+                        title: "Night Raid".to_string(),
+                        description: "Aggressive night combat underscore.".to_string(),
+                        intent: "combat underscore".to_string(),
+                        tags: vec!["ost".to_string(), "combat".to_string()],
+                    },
+                    warnings: Vec::new(),
+                },
+                transcript: InterleavedTranscript {
+                    model: "gemini-3-flash-preview".to_string(),
+                    logical_tool_name: "generatemedia.audio".to_string(),
+                    api_tool_name: "generatemedia_audio".to_string(),
+                    tool_called: true,
+                    thought_signature_detected: true,
+                    tool_arguments: json!({ "prompt": request.prompt }),
+                    final_response_text: "Night Raid ready.".to_string(),
+                },
+            },
+            audio_preview: Some("/api/generated-media/job-1234/audio.wav".to_string()),
+            image_preview: Some("/api/generated-media/job-1234/image.png".to_string()),
+            song_clip: Some(MediaAudioSongClipDetails {
+                title: "Night Raid".to_string(),
+                prompt: request.prompt.clone(),
+                normalized_prompt: "Instrumental combat cue with war drums.".to_string(),
+                negative_prompt: "No vocals.".to_string(),
+                mime_type: "audio/wav".to_string(),
+                duration_seconds: 20.0,
+                sample_rate_hz: 48_000,
+            }),
+        };
+
+        persist_generated_media_audio_song(&songs_dir, "job-1234-abcdef", &output_root, &request, &mut execution)
+            .expect("persisted");
+
+        let entries = fs::read_dir(&songs_dir)
+            .expect("read songs dir")
+            .map(|entry| entry.expect("entry").path())
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 1);
+        let batch_dir = &entries[0];
+        let manifest = fs::read_to_string(batch_dir.join("manifest.json")).expect("manifest");
+        let manifest_json: serde_json::Value = serde_json::from_str(&manifest).expect("manifest json");
+        assert_eq!(manifest_json["clips"][0]["url"], json!(execution.audio_preview.clone().expect("audio preview")));
+        assert!(batch_dir.join("000_v01.wav").exists());
+        assert!(batch_dir.join("preview.png").exists());
+        assert!(batch_dir.join("generated_media_artifact.json").exists());
+        assert_eq!(infer_media_song_tempo(&request), "fast");
+        assert_eq!(infer_media_song_rhythmic_feel(&request), "driving");
+    }
 }
 
 async fn query_lore_handler(

@@ -1,5 +1,6 @@
 use std::{
     env,
+    path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -10,7 +11,7 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::gemini;
 
@@ -107,6 +108,13 @@ pub fn vertex_model() -> String {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| DEFAULT_VERTEX_MODEL.to_string())
+}
+
+pub fn vertex_api_key() -> Option<String> {
+    env::var("VERTEX_API_KEY")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 pub fn vertex_project_id() -> Result<String, (StatusCode, String)> {
@@ -213,16 +221,8 @@ pub async fn generate_music_variations(
     normalized: &NormalizedSongPrompt,
     sample_count: usize,
 ) -> Result<Vec<GeneratedSongPayload>, (StatusCode, String)> {
-    let project_id = vertex_project_id()?;
     let location = vertex_location();
     let model = vertex_model();
-    let access_token = get_vertex_access_token().await?;
-    let url = format!(
-        "https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:predict",
-        location, project_id, location, model
-    );
-
-    let client = Client::new();
     let request_body = serde_json::json!({
         "instances": [{
             "prompt": normalized.prompt_en_us,
@@ -233,10 +233,87 @@ pub async fn generate_music_variations(
         }
     });
 
+    if let Some(api_key) = vertex_api_key() {
+        match generate_music_variations_with_api_key(&api_key, &location, &model, &request_body).await {
+            Ok(payloads) => return Ok(payloads),
+            Err(error) => {
+                if oauth_vertex_config_available() {
+                    warn!("VERTEX_API_KEY Lyria request failed, falling back to OAuth mode: {}", error.1);
+                } else {
+                    return Err(error);
+                }
+            }
+        }
+    }
+
+    generate_music_variations_with_oauth(&location, &model, &request_body).await
+}
+
+async fn generate_music_variations_with_api_key(
+    api_key: &str,
+    location: &str,
+    model: &str,
+    request_body: &Value,
+) -> Result<Vec<GeneratedSongPayload>, (StatusCode, String)> {
+    let client = Client::new();
+    let mut last_error: Option<(StatusCode, String)> = None;
+
+    for url in api_key_candidate_urls(location, model) {
+        let url_with_key = format!("{}?key={}", url, api_key);
+        let response = client
+            .post(&url_with_key)
+            .json(request_body)
+            .send()
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("Vertex Lyria API key request failed: {error}"),
+                )
+            })?;
+
+        let status = response.status();
+        let body = response.text().await.map_err(|error| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Vertex Lyria API key response read failed: {error}"),
+            )
+        })?;
+
+        if !status.is_success() {
+            last_error = Some((
+                StatusCode::BAD_GATEWAY,
+                format!("Vertex Lyria API key failed ({}): {}", status, body),
+            ));
+            continue;
+        }
+
+        return parse_predict_response(&body);
+    }
+
+    Err(last_error.unwrap_or((
+        StatusCode::BAD_GATEWAY,
+        "Vertex Lyria API key mode failed without a response".to_string(),
+    )))
+}
+
+async fn generate_music_variations_with_oauth(
+    location: &str,
+    model: &str,
+    request_body: &Value,
+) -> Result<Vec<GeneratedSongPayload>, (StatusCode, String)> {
+    let project_id = vertex_project_id()?;
+    let access_token = get_vertex_access_token().await?;
+    let url = format!(
+        "https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:predict",
+        location, project_id, location, model
+    );
+
+    let client = Client::new();
     let response = client
         .post(&url)
         .bearer_auth(&access_token)
-        .json(&request_body)
+        .json(request_body)
         .send()
         .await
         .map_err(|error| {
@@ -261,7 +338,46 @@ pub async fn generate_music_variations(
         ));
     }
 
-    let parsed: PredictResponse = serde_json::from_str(&body).map_err(|error| {
+    parse_predict_response(&body)
+}
+
+fn oauth_vertex_config_available() -> bool {
+    env::var("GOOGLE_APPLICATION_CREDENTIALS")
+        .ok()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+        && env::var("VERTEX_PROJECT_ID")
+            .ok()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+}
+
+fn api_key_candidate_urls(location: &str, model: &str) -> Vec<String> {
+    let mut urls = vec![format!(
+        "https://aiplatform.googleapis.com/v1/publishers/google/models/{}:predict",
+        model
+    )];
+
+    if let Some(project_id) = env::var("VERTEX_PROJECT_ID")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        urls.push(format!(
+            "https://aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:predict",
+            project_id, location, model
+        ));
+        urls.push(format!(
+            "https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:predict",
+            location, project_id, location, model
+        ));
+    }
+
+    urls
+}
+
+fn parse_predict_response(body: &str) -> Result<Vec<GeneratedSongPayload>, (StatusCode, String)> {
+    let parsed: PredictResponse = serde_json::from_str(body).map_err(|error| {
         (
             StatusCode::BAD_GATEWAY,
             format!("Vertex Lyria response parse failed: {error}"),
@@ -444,16 +560,28 @@ async fn get_vertex_access_token() -> Result<String, (StatusCode, String)> {
 }
 
 fn load_service_account_credentials() -> Result<ServiceAccountKey, (StatusCode, String)> {
-    let path = env::var("GOOGLE_APPLICATION_CREDENTIALS").map_err(|_| {
+    let raw_path = env::var("GOOGLE_APPLICATION_CREDENTIALS").map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "GOOGLE_APPLICATION_CREDENTIALS environment variable not set".to_string(),
         )
     })?;
+    let path = resolve_credentials_path(&raw_path).ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!(
+                "Failed to resolve GOOGLE_APPLICATION_CREDENTIALS path: {}",
+                raw_path
+            ),
+        )
+    })?;
     let raw = std::fs::read_to_string(&path).map_err(|error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to read GOOGLE_APPLICATION_CREDENTIALS file: {error}"),
+            format!(
+                "Failed to read GOOGLE_APPLICATION_CREDENTIALS file ({}): {error}",
+                path.display()
+            ),
         )
     })?;
     serde_json::from_str::<ServiceAccountKey>(&raw).map_err(|error| {
@@ -463,6 +591,28 @@ fn load_service_account_credentials() -> Result<ServiceAccountKey, (StatusCode, 
             "GOOGLE_APPLICATION_CREDENTIALS must point to a service-account JSON key".to_string(),
         )
     })
+}
+
+fn resolve_credentials_path(raw_path: &str) -> Option<PathBuf> {
+    let trimmed = raw_path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let candidate = PathBuf::from(trimmed);
+    if candidate.is_absolute() {
+        return candidate.exists().then_some(candidate);
+    }
+
+    let current_dir = env::current_dir().ok()?;
+    for base in current_dir.ancestors() {
+        let resolved = base.join(&candidate);
+        if resolved.exists() {
+            return Some(resolved);
+        }
+    }
+
+    None
 }
 
 fn build_service_account_assertion(
@@ -522,7 +672,10 @@ fn extract_audio_base64(value: &Value) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_song_prompt_fallback, extract_audio_base64, parse_normalized_song_prompt, SongPromptSpec};
+    use super::{
+        api_key_candidate_urls, build_song_prompt_fallback, extract_audio_base64,
+        parse_normalized_song_prompt, resolve_credentials_path, SongPromptSpec,
+    };
     use serde_json::json;
 
     fn make_spec() -> SongPromptSpec {
@@ -572,5 +725,28 @@ mod tests {
         });
         let audio = extract_audio_base64(&payload).expect("audio");
         assert_eq!(audio, "UklGRg==");
+    }
+
+    #[test]
+    fn builds_api_key_candidate_urls() {
+        std::env::remove_var("VERTEX_PROJECT_ID");
+        let urls = api_key_candidate_urls("us-central1", "lyria-002");
+        assert_eq!(urls.len(), 1);
+        assert!(urls[0].contains("/publishers/google/models/lyria-002:predict"));
+
+        std::env::set_var("VERTEX_PROJECT_ID", "ashtrail-test");
+        let urls = api_key_candidate_urls("us-central1", "lyria-002");
+        assert_eq!(urls.len(), 3);
+        assert!(urls.iter().any(|url| url.contains("aiplatform.googleapis.com/v1/publishers/google/models/lyria-002:predict")));
+        assert!(urls.iter().any(|url| url.contains("/projects/ashtrail-test/locations/us-central1/publishers/google/models/lyria-002:predict")));
+        std::env::remove_var("VERTEX_PROJECT_ID");
+    }
+
+    #[test]
+    fn resolves_relative_credentials_path_from_project_ancestors() {
+        let filename = "gen-lang-client-0415457494-7d9044b9ea9f.json";
+        let resolved = resolve_credentials_path(filename);
+        assert!(resolved.is_some());
+        assert!(resolved.unwrap().ends_with(filename));
     }
 }

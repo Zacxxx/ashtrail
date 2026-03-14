@@ -7,13 +7,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
 
-use crate::gemini;
+use crate::{gemini, lyria};
 
 const GEMINI_INTERLEAVED_MODEL_DEFAULT: &str = "gemini-3-flash-preview";
-const GEMINI_TTS_MODEL: &str = "gemini-2.5-flash-preview-tts";
 const DEFAULT_DURATION_SECONDS: u32 = 18;
 const MAX_DURATION_SECONDS: u32 = 30;
-const TTS_SAMPLE_RATE_HZ: u32 = 24_000;
 const TOOL_LOGICAL_NAME: &str = "generatemedia.audio";
 const TOOL_API_NAME: &str = "generatemedia_audio";
 
@@ -100,11 +98,24 @@ pub struct GeneratedMediaAudioResult {
     pub transcript: InterleavedTranscript,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaAudioSongClipDetails {
+    pub title: String,
+    pub prompt: String,
+    pub normalized_prompt: String,
+    pub negative_prompt: String,
+    pub mime_type: String,
+    pub duration_seconds: f32,
+    pub sample_rate_hz: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct MediaAudioExecution {
     pub result: GeneratedMediaAudioResult,
     pub audio_preview: Option<String>,
     pub image_preview: Option<String>,
+    pub song_clip: Option<MediaAudioSongClipDetails>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,13 +137,15 @@ struct MediaPlan {
     intent: String,
     tags: Vec<String>,
     image_prompt: String,
-    speech_transcript: String,
+    music_direction: String,
 }
 
 #[derive(Debug, Clone)]
 struct AudioGeneration {
     url: String,
+    mime_type: String,
     duration_seconds: u32,
+    song_clip: MediaAudioSongClipDetails,
 }
 
 #[derive(Debug, Clone)]
@@ -201,7 +214,7 @@ pub async fn run_interleaved_audio_demo(
     })?;
 
     let (audio, audio_warning) =
-        match generate_audio_asset(output_root, &plan, payload.duration_seconds).await {
+        match generate_audio_asset(output_root, &payload, &plan, payload.duration_seconds).await {
             Ok(asset) => (Some(asset), None),
             Err((_code, message)) => {
                 warn!("audio generation failed for {job_id}: {message}");
@@ -235,8 +248,8 @@ pub async fn run_interleaved_audio_demo(
         status: compute_artifact_status(audio.is_some(), image.is_some()),
         audio: audio.as_ref().map(|asset| GeneratedMediaAudioAsset {
             url: asset.url.clone(),
+            mime_type: asset.mime_type.clone(),
             duration_seconds: asset.duration_seconds,
-            mime_type: "audio/wav".to_string(),
         }),
         image: image.as_ref().map(|asset| GeneratedMediaImageAsset {
             url: asset.url.clone(),
@@ -299,6 +312,7 @@ pub async fn run_interleaved_audio_demo(
     Ok(MediaAudioExecution {
         audio_preview: result.artifact.audio.as_ref().map(|audio| audio.url.clone()),
         image_preview: result.artifact.image.as_ref().map(|image| image.url.clone()),
+        song_clip: audio.as_ref().map(|asset| asset.song_clip.clone()),
         result,
     })
 }
@@ -355,10 +369,10 @@ The tool represents the business capability `{logical_tool}`. After the tool res
             }
         },
         "generationConfig": {
-            "temperature": 1.0
-        },
-        "thinkingConfig": {
-            "includeThoughts": true
+            "temperature": 1.0,
+            "thinkingConfig": {
+                "includeThoughts": true
+            }
         }
     })
 }
@@ -383,10 +397,10 @@ fn build_followup_request(
             function_response_content
         ],
         "generationConfig": {
-            "temperature": 1.0
-        },
-        "thinkingConfig": {
-            "includeThoughts": true
+            "temperature": 1.0,
+            "thinkingConfig": {
+                "includeThoughts": true
+            }
         }
     })
 }
@@ -396,8 +410,6 @@ fn build_function_response_content(
     artifact: &GeneratedMediaAudioArtifact,
     image_bytes: Option<Vec<u8>>,
 ) -> Value {
-    let image_display_name = image_bytes.as_ref().map(|_| "artifact_preview.png");
-    let image_ref = image_display_name.map(|display_name| json!({ "$ref": display_name }));
     let mut function_response = json!({
         "name": tool_name,
         "response": {
@@ -407,8 +419,7 @@ fn build_function_response_content(
                 "audio": artifact.audio,
                 "image": artifact.image.as_ref().map(|image| json!({
                     "url": image.url,
-                    "mime_type": image.mime_type,
-                    "preview": image_ref
+                    "mime_type": image.mime_type
                 })),
                 "metadata": artifact.metadata,
                 "warnings": artifact.warnings
@@ -421,7 +432,7 @@ fn build_function_response_content(
             "inlineData": {
                 "mimeType": "image/png",
                 "data": base64::engine::general_purpose::STANDARD.encode(bytes),
-                "displayName": image_display_name.unwrap_or("artifact_preview.png")
+                "displayName": "artifact_preview.png"
             }
         }]);
     }
@@ -473,9 +484,8 @@ fn pick_arg(args: &Value, key: &str, fallback: Option<&str>, default: &str) -> S
 
 async fn build_media_plan(payload: &ToolExecutionPayload) -> MediaPlan {
     let fallback = fallback_media_plan(payload);
-    let approx_word_count = (payload.duration_seconds.saturating_mul(11) / 5).clamp(12, 75);
     let prompt = format!(
-        "Return strict JSON only with keys title, description, intent, tags, imagePrompt, speechTranscript.\n\
+        "Return strict JSON only with keys title, description, intent, tags, imagePrompt, musicDirection.\n\
 Build a unified game-media artifact plan.\n\
 User prompt: {prompt}\n\
 Requested duration: {duration}s\n\
@@ -489,7 +499,9 @@ Rules:\n\
 - Intent: normalize to a concise production phrase.\n\
 - Tags: array of 2 to 4 lowercase tags, always include one of ost, ambience, or sfx when relevant.\n\
 - imagePrompt: concise but vivid concept-art prompt for one associated image.\n\
-- speechTranscript: around {words} words, suitable for Gemini TTS, atmospheric and usable as a narrated audio cue.\n\
+ - musicDirection: concise en-US instrumental music direction for downstream music generation.\n\
+ - musicDirection must describe energy, tone, pacing, and sonic texture.\n\
+ - musicDirection must never ask for vocals, lyrics, narration, or spoken word.\n\
 - Do not use markdown.\n\
 Fallback JSON:\n{fallback}",
         prompt = payload.prompt,
@@ -498,7 +510,6 @@ Fallback JSON:\n{fallback}",
         intent = payload.intent,
         category = payload.category,
         mood = payload.mood,
-        words = approx_word_count,
         fallback = serde_json::to_string(&fallback).unwrap_or_else(|_| "{}".to_string()),
     );
 
@@ -527,9 +538,9 @@ fn fallback_media_plan(payload: &ToolExecutionPayload) -> MediaPlan {
             "Cinematic concept art for '{}', {}, {}, {}, game media artifact, highly legible composition, atmospheric lighting",
             payload.prompt, payload.category, payload.mood, payload.style
         ),
-        speech_transcript: format!(
-            "Title: {}. This cue supports {}. The sound should feel {}, with {} textures, and hold attention for roughly {} seconds while guiding the player through {}.",
-            title, payload.intent, payload.mood, payload.style, payload.duration_seconds, payload.prompt
+        music_direction: format!(
+            "Instrumental {} cue for {}. {} mood, {} pacing, {} production, tailored for {}. No vocals, no lyrics, no spoken word.",
+            category_tag, payload.intent, payload.mood, infer_tempo(payload), payload.style, payload.prompt
         ),
     }
 }
@@ -563,6 +574,158 @@ fn normalize_category_tag(category: &str) -> &'static str {
     } else {
         "ambience"
     }
+}
+
+fn infer_tempo(payload: &ToolExecutionPayload) -> String {
+    let haystack = format!(
+        "{} {} {} {}",
+        payload.prompt, payload.intent, payload.category, payload.mood
+    )
+    .to_lowercase();
+    if haystack.contains("combat")
+        || haystack.contains("battle")
+        || haystack.contains("raid")
+        || haystack.contains("chase")
+    {
+        "fast".to_string()
+    } else if haystack.contains("tension")
+        || haystack.contains("hunt")
+        || haystack.contains("stealth")
+    {
+        "medium".to_string()
+    } else if haystack.contains("ambience") || haystack.contains("night") {
+        "slow".to_string()
+    } else {
+        "medium".to_string()
+    }
+}
+
+fn infer_rhythmic_feel(payload: &ToolExecutionPayload) -> String {
+    let haystack = format!("{} {} {}", payload.prompt, payload.intent, payload.category).to_lowercase();
+    if haystack.contains("combat")
+        || haystack.contains("battle")
+        || haystack.contains("raid")
+    {
+        "driving".to_string()
+    } else if haystack.contains("sfx") || haystack.contains("stinger") {
+        "syncopated".to_string()
+    } else if haystack.contains("ambience") {
+        "drone".to_string()
+    } else {
+        "pulse".to_string()
+    }
+}
+
+fn infer_instrumentation(payload: &ToolExecutionPayload) -> Vec<String> {
+    let haystack = format!(
+        "{} {} {} {}",
+        payload.prompt, payload.intent, payload.category, payload.mood
+    )
+    .to_lowercase();
+    let mut items = Vec::new();
+    if haystack.contains("tribal") {
+        items.push("tribal percussion".to_string());
+        items.push("war drums".to_string());
+    }
+    if haystack.contains("combat") || haystack.contains("battle") {
+        items.push("cinematic drums".to_string());
+        items.push("low strings".to_string());
+    }
+    if haystack.contains("night") || haystack.contains("dark") {
+        items.push("dark synth pads".to_string());
+        items.push("low pulses".to_string());
+    }
+    if items.is_empty() {
+        items.push("cinematic percussion".to_string());
+        items.push("atmospheric synth textures".to_string());
+    }
+    items.truncate(4);
+    items
+}
+
+fn trim_wav_to_duration(
+    wav: &[u8],
+    sample_rate_hz_hint: u32,
+    target_seconds: u32,
+    generated_duration_seconds: f32,
+) -> Option<(Vec<u8>, f32)> {
+    if target_seconds == 0 || generated_duration_seconds <= target_seconds as f32 {
+        return Some((wav.to_vec(), generated_duration_seconds));
+    }
+    if wav.len() < 44 || &wav[0..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
+        return None;
+    }
+
+    let mut cursor = 12usize;
+    let mut sample_rate_hz = sample_rate_hz_hint;
+    let mut block_align = 0u16;
+    let mut data_chunk_offset = None;
+    let mut data_chunk_size = 0usize;
+
+    while cursor + 8 <= wav.len() {
+        let chunk_id = &wav[cursor..cursor + 4];
+        let chunk_size = u32::from_le_bytes([
+            wav[cursor + 4],
+            wav[cursor + 5],
+            wav[cursor + 6],
+            wav[cursor + 7],
+        ]) as usize;
+        let chunk_data_start = cursor + 8;
+        let chunk_data_end = chunk_data_start.saturating_add(chunk_size);
+        if chunk_data_end > wav.len() {
+            return None;
+        }
+
+        if chunk_id == b"fmt " && chunk_size >= 16 {
+            sample_rate_hz = u32::from_le_bytes([
+                wav[chunk_data_start + 4],
+                wav[chunk_data_start + 5],
+                wav[chunk_data_start + 6],
+                wav[chunk_data_start + 7],
+            ]);
+            block_align = u16::from_le_bytes([
+                wav[chunk_data_start + 12],
+                wav[chunk_data_start + 13],
+            ]);
+        } else if chunk_id == b"data" {
+            data_chunk_offset = Some(cursor);
+            data_chunk_size = chunk_size;
+            break;
+        }
+
+        cursor = chunk_data_end + (chunk_size % 2);
+    }
+
+    let data_chunk_offset = data_chunk_offset?;
+    if sample_rate_hz == 0 || block_align == 0 {
+        return None;
+    }
+
+    let bytes_per_second = sample_rate_hz as usize * block_align as usize;
+    if bytes_per_second == 0 {
+        return None;
+    }
+
+    let target_byte_len = (target_seconds as usize)
+        .saturating_mul(bytes_per_second)
+        .min(data_chunk_size);
+    let trimmed_data_len = target_byte_len - (target_byte_len % block_align as usize);
+    let data_start = data_chunk_offset + 8;
+    let data_end = data_start + trimmed_data_len;
+    if data_end > wav.len() {
+        return None;
+    }
+
+    let mut trimmed = wav[..data_chunk_offset].to_vec();
+    trimmed.extend_from_slice(b"data");
+    trimmed.extend_from_slice(&(trimmed_data_len as u32).to_le_bytes());
+    trimmed.extend_from_slice(&wav[data_start..data_end]);
+
+    let riff_size = (trimmed.len().saturating_sub(8)) as u32;
+    trimmed[4..8].copy_from_slice(&riff_size.to_le_bytes());
+
+    let actual_duration_seconds = trimmed_data_len as f32 / bytes_per_second as f32;
+    Some((trimmed, actual_duration_seconds))
 }
 
 fn parse_media_plan(raw: &str) -> Option<MediaPlan> {
@@ -601,8 +764,8 @@ fn parse_media_plan(raw: &str) -> Option<MediaPlan> {
             .and_then(Value::as_str)
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())?,
-        speech_transcript: value
-            .get("speechTranscript")
+        music_direction: value
+            .get("musicDirection")
             .and_then(Value::as_str)
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())?,
@@ -611,10 +774,46 @@ fn parse_media_plan(raw: &str) -> Option<MediaPlan> {
 
 async fn generate_audio_asset(
     output_root: &Path,
+    payload: &ToolExecutionPayload,
     plan: &MediaPlan,
     requested_duration_seconds: u32,
 ) -> Result<AudioGeneration, (StatusCode, String)> {
-    let audio_bytes = generate_tts_audio(&plan.speech_transcript).await?;
+    let spec = lyria::SongPromptSpec {
+        cue_text: payload.prompt.clone(),
+        category: payload.category.clone(),
+        genre: payload.style.clone(),
+        moods: vec![payload.mood.clone()],
+        instrumentation: infer_instrumentation(payload),
+        tempo: infer_tempo(payload),
+        rhythmic_feel: infer_rhythmic_feel(payload),
+        soundscape: payload.prompt.clone(),
+        production_style: payload.style.clone(),
+        global_direction: plan.music_direction.clone(),
+        negative_prompt: "No vocals, no lyrics, no spoken word, no narration, no announcer.".to_string(),
+    };
+    let normalized = lyria::normalize_song_prompt(&spec).await;
+    let mut variants = lyria::generate_music_variations(&normalized, 1).await?;
+    let generated = variants.pop().ok_or_else(|| {
+        (
+            StatusCode::BAD_GATEWAY,
+            "Lyria returned no generated audio".to_string(),
+        )
+    })?;
+
+    let target_duration_seconds = requested_duration_seconds.clamp(1, MAX_DURATION_SECONDS);
+    let (audio_bytes, actual_duration_seconds) = trim_wav_to_duration(
+        &generated.audio_bytes,
+        generated.sample_rate_hz,
+        target_duration_seconds,
+        generated.duration_seconds,
+    )
+    .unwrap_or_else(|| {
+        (
+            generated.audio_bytes.clone(),
+            generated.duration_seconds.min(target_duration_seconds as f32),
+        )
+    });
+
     fs::write(output_root.join("audio.wav"), audio_bytes).map_err(|error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -630,112 +829,18 @@ async fn generate_audio_asset(
                 .and_then(|name| name.to_str())
                 .unwrap_or_default()
         ),
-        duration_seconds: estimate_transcript_duration_seconds(&plan.speech_transcript)
-            .min(requested_duration_seconds)
-            .max(1),
+        mime_type: generated.mime_type.clone(),
+        duration_seconds: actual_duration_seconds.round().clamp(1.0, MAX_DURATION_SECONDS as f32) as u32,
+        song_clip: MediaAudioSongClipDetails {
+            title: normalized.title,
+            prompt: payload.prompt.clone(),
+            normalized_prompt: normalized.prompt_en_us,
+            negative_prompt: normalized.negative_prompt_en_us,
+            mime_type: generated.mime_type.clone(),
+            duration_seconds: actual_duration_seconds,
+            sample_rate_hz: generated.sample_rate_hz,
+        },
     })
-}
-
-async fn generate_tts_audio(transcript: &str) -> Result<Vec<u8>, (StatusCode, String)> {
-    let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "GEMINI_API_KEY environment variable not set".to_string(),
-        )
-    })?;
-    let response = Client::new()
-        .post(format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-            GEMINI_TTS_MODEL
-        ))
-        .header("x-goog-api-key", api_key)
-        .json(&json!({
-            "contents": [{
-                "parts": [{ "text": transcript }]
-            }],
-            "generationConfig": {
-                "responseModalities": ["AUDIO"],
-                "speechConfig": {
-                    "voiceConfig": {
-                        "prebuiltVoiceConfig": {
-                            "voiceName": "Kore"
-                        }
-                    }
-                }
-            }
-        }))
-        .send()
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("Gemini TTS request failed: {error}"),
-            )
-        })?;
-    let status = response.status();
-    let body = response.text().await.map_err(|error| {
-        (
-            StatusCode::BAD_GATEWAY,
-            format!("Gemini TTS response read failed: {error}"),
-        )
-    })?;
-    if !status.is_success() {
-        return Err((
-            StatusCode::BAD_GATEWAY,
-            format!("Gemini TTS failed ({}): {}", status, body),
-        ));
-    }
-    let value = serde_json::from_str::<Value>(&body).map_err(|error| {
-        (
-            StatusCode::BAD_GATEWAY,
-            format!("Gemini TTS parse failed: {error}"),
-        )
-    })?;
-    let pcm_b64 = value
-        .pointer("/candidates/0/content/parts/0/inlineData/data")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            (
-                StatusCode::BAD_GATEWAY,
-                "Gemini TTS returned no inline audio data".to_string(),
-            )
-        })?;
-    let pcm_bytes = base64::engine::general_purpose::STANDARD
-        .decode(pcm_b64)
-        .map_err(|error| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("Gemini TTS audio decode failed: {error}"),
-            )
-        })?;
-    Ok(pcm_to_wav(&pcm_bytes, TTS_SAMPLE_RATE_HZ))
-}
-
-fn pcm_to_wav(pcm: &[u8], sample_rate_hz: u32) -> Vec<u8> {
-    let mut wav = Vec::with_capacity(44 + pcm.len());
-    let data_len = pcm.len() as u32;
-    let chunk_size = 36 + data_len;
-    let byte_rate = sample_rate_hz * 2;
-    wav.extend_from_slice(b"RIFF");
-    wav.extend_from_slice(&chunk_size.to_le_bytes());
-    wav.extend_from_slice(b"WAVE");
-    wav.extend_from_slice(b"fmt ");
-    wav.extend_from_slice(&16u32.to_le_bytes());
-    wav.extend_from_slice(&1u16.to_le_bytes());
-    wav.extend_from_slice(&1u16.to_le_bytes());
-    wav.extend_from_slice(&sample_rate_hz.to_le_bytes());
-    wav.extend_from_slice(&byte_rate.to_le_bytes());
-    wav.extend_from_slice(&2u16.to_le_bytes());
-    wav.extend_from_slice(&16u16.to_le_bytes());
-    wav.extend_from_slice(b"data");
-    wav.extend_from_slice(&data_len.to_le_bytes());
-    wav.extend_from_slice(pcm);
-    wav
-}
-
-fn estimate_transcript_duration_seconds(transcript: &str) -> u32 {
-    let word_count = transcript.split_whitespace().count() as f32;
-    ((word_count / 2.4).ceil() as u32).clamp(1, MAX_DURATION_SECONDS)
 }
 
 async fn generate_image_asset(
@@ -880,7 +985,7 @@ fn extract_text_response(response: &Value) -> Option<String> {
 mod tests {
     use super::{
         clamp_duration_seconds, compute_artifact_status, contains_thought_signature,
-        extract_function_call, parse_media_plan, pcm_to_wav, GeneratedMediaStatus,
+        extract_function_call, parse_media_plan, trim_wav_to_duration, GeneratedMediaStatus,
     };
     use serde_json::json;
 
@@ -899,7 +1004,7 @@ mod tests {
             "intent":"combat setup",
             "tags":["ambience","tension"],
             "imagePrompt":"dust storm relay tower",
-            "speechTranscript":"Short atmospheric cue."
+            "musicDirection":"Instrumental tense combat ambience, no vocals."
         }"#)
         .expect("plan");
         assert_eq!(plan.title, "Dust Relay");
@@ -924,10 +1029,31 @@ mod tests {
     }
 
     #[test]
-    fn wraps_pcm_as_wav() {
-        let wav = pcm_to_wav(&[0, 1, 2, 3], 24_000);
-        assert!(wav.starts_with(b"RIFF"));
-        assert_eq!(&wav[8..12], b"WAVE");
+    fn trims_wav_to_target_duration() {
+        let sample_rate_hz = 48_000u32;
+        let block_align = 2u16;
+        let data_len = sample_rate_hz as usize * block_align as usize * 4;
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36u32 + data_len as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVE");
+        wav.extend_from_slice(b"fmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&sample_rate_hz.to_le_bytes());
+        wav.extend_from_slice(&(sample_rate_hz * block_align as u32).to_le_bytes());
+        wav.extend_from_slice(&block_align.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(data_len as u32).to_le_bytes());
+        wav.resize(44 + data_len, 0u8);
+
+        let (trimmed, duration) =
+            trim_wav_to_duration(&wav, sample_rate_hz, 2, 4.0).expect("trimmed wav");
+        assert!(trimmed.starts_with(b"RIFF"));
+        assert_eq!(&trimmed[8..12], b"WAVE");
+        assert!(duration <= 2.01);
     }
 
     #[test]

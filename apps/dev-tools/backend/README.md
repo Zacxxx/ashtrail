@@ -12,11 +12,17 @@ This backend powers `/worldgen`, generation history, image jobs, and local asset
 
 ### Required for Lyria / Vertex AI song generation
 
+`VERTEX_API_KEY`
+- Optional.
+- If present, backend tries a simpler Vertex API key flow first for `lyria-002`.
+- If that fails and OAuth config is also present, backend falls back to the service-account flow.
+
 `VERTEX_PROJECT_ID`
-- Required for `lyria-002` song generation routes.
+- Required for the OAuth/service-account flow.
+- Optional if `VERTEX_API_KEY` works for your setup.
 
 `GOOGLE_APPLICATION_CREDENTIALS`
-- Required.
+- Required for the OAuth/service-account flow.
 - Must point to a service-account JSON key file used for Vertex AI OAuth.
 
 `VERTEX_LOCATION`
@@ -70,6 +76,7 @@ This backend powers `/worldgen`, generation history, image jobs, and local asset
 
 ```env
 GEMINI_API_KEY=your_key
+VERTEX_API_KEY=your_vertex_api_key
 VERTEX_PROJECT_ID=your_gcp_project
 GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
 VERTEX_LOCATION=us-central1
