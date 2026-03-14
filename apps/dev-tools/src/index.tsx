@@ -14,9 +14,11 @@ import { GameMasterPage } from "./game-master";
 import { QuestPage } from "./quests";
 import { StoryLoopPage } from "./story-loop";
 import { DemoLandingPage } from "./demo/DemoLandingPage";
+import { DemoPlanetScreen } from "./demo/DemoPlanetScreen";
 import {
     DEMO_ALIAS_ROUTE,
     DEMO_ROUTE,
+    DEMO_STEP_ONE_ROUTE,
     DEVTOOLS_BASE,
     LEGACY_DEVTOOLS_REDIRECTS,
 } from "./lib/routes";
@@ -34,6 +36,10 @@ const router = createBrowserRouter([
     {
         path: DEMO_ALIAS_ROUTE,
         element: <DemoLandingPage />,
+    },
+    {
+        path: DEMO_STEP_ONE_ROUTE,
+        element: <DemoPlanetScreen />,
     },
     {
         path: DEVTOOLS_BASE,
