@@ -116,6 +116,12 @@ export function JobsProvider({ children }: { children: ReactNode }) {
             parentJobId: job.parentJobId ?? null,
             metadata: job.metadata ?? null,
             outputRefs: job.outputRefs ?? [],
+            stageHistory: job.stageHistory ?? [{
+                stage: job.currentStage || "Queued",
+                status: job.status || "queued",
+                progress: job.progress ?? 0,
+                at: now,
+            }],
             error: job.error ?? null,
             createdAt: now,
             updatedAt: now,

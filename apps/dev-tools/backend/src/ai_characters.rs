@@ -1,5 +1,5 @@
 use crate::gemini;
-use crate::jobs::{now_ms, JobStatus};
+use crate::jobs::JobStatus;
 use crate::{build_text_output_ref, make_job_record, parse_tracked_job_meta, AppState};
 use axum::{
     extract::State,
@@ -46,12 +46,9 @@ fn finish_tracked_character_job(
 ) {
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(job_id) {
-            job.status = JobStatus::Completed;
-            job.progress = 100.0;
-            job.current_stage = "Completed".to_string();
+            job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
             job.result = Some(result);
             job.output_refs = vec![build_text_output_ref(output_label, summary)];
-            job.updated_at = now_ms();
         }
     }
 }
@@ -63,11 +60,8 @@ fn fail_tracked_character_job(
 ) {
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(job_id) {
-            job.status = JobStatus::Failed;
-            job.progress = 100.0;
-            job.current_stage = "Failed".to_string();
+            job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
             job.error = Some(message);
-            job.updated_at = now_ms();
         }
     }
 }
@@ -209,10 +203,7 @@ pub async fn generate_character_handler(
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.status = JobStatus::Running;
-                    job.progress = 25.0;
-                    job.current_stage = "Generating characters".to_string();
-                    job.updated_at = now_ms();
+                    job.transition(JobStatus::Running, 25.0, "Generating characters".to_string());
                 }
             }
             match execute_generate_characters(req).await {
@@ -359,10 +350,7 @@ pub async fn generate_story_handler(
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.status = JobStatus::Running;
-                    job.progress = 25.0;
-                    job.current_stage = "Generating story".to_string();
-                    job.updated_at = now_ms();
+                    job.transition(JobStatus::Running, 25.0, "Generating story".to_string());
                 }
             }
             match execute_generate_story(req).await {

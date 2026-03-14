@@ -605,7 +605,11 @@ async fn start_bulk_isolation_job(
                     "worldgen",
                 );
                 job.world_id = Some(planet_id.clone());
-                job.current_stage = format!("Queued for {} Isolation", entity_type.to_uppercase());
+                job.transition(
+                    JobStatus::Queued,
+                    0.0,
+                    format!("Queued for {} Isolation", entity_type.to_uppercase()),
+                );
                 job
             },
         );
@@ -825,7 +829,11 @@ pub async fn start_upscaled_province_refine(
                     "worldgen",
                 );
                 job.world_id = Some(planet_id.clone());
-                job.current_stage = format!("Queued for {} Refinement", entity_type.to_uppercase());
+                job.transition(
+                    JobStatus::Queued,
+                    0.0,
+                    format!("Queued for {} Refinement", entity_type.to_uppercase()),
+                );
                 job
             },
         );
@@ -1030,8 +1038,7 @@ pub async fn run_pipeline_stage(
                     "worldgen",
                 );
                 job.world_id = Some(planet_id.clone());
-                job.status = JobStatus::Running;
-                job.current_stage = stage_name.clone();
+                job.transition(JobStatus::Running, 0.0, stage_name.clone());
                 job
             },
         );
@@ -1101,10 +1108,7 @@ pub async fn cancel_worldgen_job(
         return Err((StatusCode::NOT_FOUND, "Job not found".to_string()));
     };
 
-    job.cancel_requested = true;
-    if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-        job.current_stage = "Cancellation requested".to_string();
-    }
+    job.set_cancel_requested("Cancellation requested");
 
     Ok(StatusCode::ACCEPTED)
 }
@@ -1432,9 +1436,7 @@ fn set_job_stage(
 ) {
     if let Ok(mut store) = jobs.lock() {
         if let Some(job) = store.get_mut(job_id) {
-            job.status = status;
-            job.progress = progress;
-            job.current_stage = stage.to_string();
+            job.transition(status, progress, stage.to_string());
         }
     }
 }
@@ -1442,8 +1444,7 @@ fn set_job_stage(
 fn set_job_failed(jobs: &Arc<Mutex<HashMap<String, JobRecord>>>, job_id: &str, err: &str) {
     if let Ok(mut store) = jobs.lock() {
         if let Some(job) = store.get_mut(job_id) {
-            job.status = JobStatus::Failed;
-            job.current_stage = "Failed".to_string();
+            job.transition(JobStatus::Failed, job.progress, "Failed".to_string());
             job.error = Some(err.to_string());
         }
     }
@@ -2078,8 +2079,7 @@ fn run_stage_blocking(
     let update_progress = |pct: f32, msg: &str| {
         if let Ok(mut jobs) = jobs_ref.lock() {
             if let Some(job) = jobs.get_mut(&job_id_owned) {
-                job.progress = pct;
-                job.current_stage = msg.to_string();
+                job.transition(JobStatus::Running, pct, msg.to_string());
             }
         }
     };
@@ -2097,8 +2097,7 @@ fn run_stage_blocking(
     if let Some(job) = jobs.get_mut(job_id) {
         match result {
             Ok(()) => {
-                job.status = JobStatus::Completed;
-                job.progress = 100.0;
+                job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
                 info!(
                     "Worldgen stage '{}' completed for planet {}",
                     stage_name, planet_id
@@ -2110,7 +2109,7 @@ fn run_stage_blocking(
                 pipeline.save(&out_dir.join("pipeline_status.json")).ok();
             }
             Err(e) => {
-                job.status = JobStatus::Failed;
+                job.transition(JobStatus::Failed, job.progress, "Failed".to_string());
                 job.error = Some(e.clone());
                 error!("Worldgen stage '{}' failed: {}", stage_name, e);
             }
@@ -2372,8 +2371,11 @@ fn run_isolate_all_entities_job(
     {
         let mut jobs = jobs.lock().unwrap();
         if let Some(job) = jobs.get_mut(&job_id) {
-            job.status = JobStatus::Running;
-            job.current_stage = format!("Loading {} masks", entity_type);
+            job.transition(
+                JobStatus::Running,
+                job.progress,
+                format!("Loading {} masks", entity_type),
+            );
         }
     }
 
@@ -2405,9 +2407,11 @@ fn run_isolate_all_entities_job(
             {
                 let mut jobs = jobs.lock().unwrap();
                 if let Some(job) = jobs.get_mut(&job_id) {
-                    job.progress = ((index as f32) / (total as f32)) * 100.0;
-                    job.current_stage =
-                        format!("Isolating {} {}/{}", entity_type, index + 1, total);
+                    job.transition(
+                        JobStatus::Running,
+                        ((index as f32) / (total as f32)) * 100.0,
+                        format!("Isolating {} {}/{}", entity_type, index + 1, total),
+                    );
                 }
             }
 
@@ -2428,14 +2432,11 @@ fn run_isolate_all_entities_job(
     if let Some(job) = jobs.get_mut(&job_id) {
         match result {
             Ok(()) => {
-                job.status = JobStatus::Completed;
-                job.progress = 100.0;
-                job.current_stage = "Completed".to_string();
+                job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
                 job.error = None;
             }
             Err(error_msg) => {
-                job.status = JobStatus::Failed;
-                job.current_stage = "Failed".to_string();
+                job.transition(JobStatus::Failed, job.progress, "Failed".to_string());
                 job.error = Some(error_msg);
             }
         }

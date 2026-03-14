@@ -718,7 +718,11 @@ async fn spawn_ecology_job(
                     "ecology",
                 );
                 job.world_id = Some(world_id.clone());
-                job.current_stage = "Queued ecology generation".to_string();
+                job.transition(
+                    JobStatus::Queued,
+                    0.0,
+                    "Queued ecology generation".to_string(),
+                );
                 job
             },
         );
@@ -819,9 +823,7 @@ fn update_job(
 ) {
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(job_id) {
-            job.status = status;
-            job.progress = progress;
-            job.current_stage = stage.to_string();
+            job.transition(status, progress, stage.to_string());
             job.error = error_message;
         }
     }

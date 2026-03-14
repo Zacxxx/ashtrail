@@ -32,7 +32,7 @@ use generator::{
     GenerateTerrainResponse,
 };
 use hierarchy::{generate_full_planet_hierarchy, HierarchyGenerateRequest, PlanetManifest};
-use jobs::{now_ms, JobOutputRef, JobRecord, JobStatus};
+use jobs::{now_ms, JobOutputRef, JobRecord, JobStageEvent, JobStatus};
 use serde::Deserialize;
 use serde::Serialize;
 use std::{
@@ -110,6 +110,7 @@ struct JobStatusResponse {
     parent_job_id: Option<String>,
     metadata: Option<serde_json::Value>,
     output_refs: Vec<JobOutputRef>,
+    stage_history: Vec<JobStageEvent>,
     created_at: u64,
     updated_at: u64,
 }
@@ -154,6 +155,7 @@ struct JobListItem {
     parent_job_id: Option<String>,
     metadata: Option<serde_json::Value>,
     output_refs: Vec<JobOutputRef>,
+    stage_history: Vec<JobStageEvent>,
     error: Option<String>,
     created_at: u64,
     updated_at: u64,
@@ -170,7 +172,7 @@ pub(crate) fn make_job_record(
     let mut job = JobRecord::new(kind, title, tool);
     job.world_id = world_id;
     job.run_id = run_id;
-    job.current_stage = stage.to_string();
+    job.transition(JobStatus::Queued, 0.0, stage.to_string());
     job
 }
 
@@ -190,6 +192,75 @@ pub(crate) fn build_text_output_ref(label: &str, text: &str) -> JobOutputRef {
         href: None,
         route: None,
         preview_text: Some(text.chars().take(220).collect()),
+    }
+}
+
+#[cfg(test)]
+mod job_response_tests {
+    use super::{JobListItem, JobStatusResponse};
+    use crate::jobs::{JobOutputRef, JobRecord, JobRouteRef, JobStatus};
+    use serde_json::{json, Value};
+
+    #[test]
+    fn job_responses_serialize_stage_history() {
+        let mut record = JobRecord::new("interleaved.session.v1", "Interleaved Session", "story-loop");
+        record.transition(JobStatus::Running, 35.0, "Generating text".to_string());
+        record.output_refs = vec![JobOutputRef {
+            id: "open-run".to_string(),
+            label: "Open Run".to_string(),
+            kind: "route".to_string(),
+            href: None,
+            route: Some(JobRouteRef {
+                path: "/devtools/jobcenter".to_string(),
+                search: None,
+            }),
+            preview_text: None,
+        }];
+
+        let detail = JobStatusResponse {
+            job_id: "job-1".to_string(),
+            status: record.status.clone(),
+            progress: record.progress,
+            current_stage: record.current_stage.clone(),
+            result: Some(json!({ "ok": true })),
+            error: None,
+            kind: record.kind.clone(),
+            title: record.title.clone(),
+            tool: record.tool.clone(),
+            world_id: Some("world-1".to_string()),
+            run_id: None,
+            parent_job_id: None,
+            metadata: Some(json!({ "modality": "text" })),
+            output_refs: record.output_refs.clone(),
+            stage_history: record.stage_history.clone(),
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        };
+
+        let list_item = JobListItem {
+            job_id: "job-1".to_string(),
+            kind: record.kind,
+            title: record.title,
+            tool: record.tool,
+            status: record.status,
+            progress: record.progress,
+            current_stage: record.current_stage,
+            world_id: Some("world-1".to_string()),
+            run_id: None,
+            parent_job_id: None,
+            metadata: Some(json!({ "childKind": "text-beat" })),
+            output_refs: record.output_refs,
+            stage_history: record.stage_history,
+            error: None,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        };
+
+        let detail_json = serde_json::to_value(detail).expect("detail serializes");
+        let list_json = serde_json::to_value(list_item).expect("list item serializes");
+
+        assert!(matches!(detail_json.get("stageHistory"), Some(Value::Array(events)) if events.len() >= 2));
+        assert!(matches!(list_json.get("stageHistory"), Some(Value::Array(events)) if events.len() >= 2));
     }
 }
 
@@ -1835,6 +1906,7 @@ async fn get_job_status(
         parent_job_id: job.parent_job_id.clone(),
         metadata: job.metadata.clone(),
         output_refs: job.output_refs.clone(),
+        stage_history: job.stage_history.clone(),
         created_at: job.created_at,
         updated_at: job.updated_at,
     };
@@ -1867,6 +1939,7 @@ async fn list_jobs(
             parent_job_id: job.parent_job_id.clone(),
             metadata: job.metadata.clone(),
             output_refs: job.output_refs.clone(),
+            stage_history: job.stage_history.clone(),
             error: job.error.clone(),
             created_at: job.created_at,
             updated_at: job.updated_at,
@@ -1892,11 +1965,7 @@ async fn cancel_job(
         return Err((StatusCode::NOT_FOUND, "job not found".to_string()));
     };
 
-    job.cancel_requested = true;
-    if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-        job.current_stage = "Cancellation requested".to_string();
-        job.updated_at = now_ms();
-    }
+    job.set_cancel_requested("Cancellation requested");
 
     info!(job_id = %job_id, "job cancellation requested");
     Ok(StatusCode::ACCEPTED)
@@ -4018,9 +4087,7 @@ fn set_location_job_state(
 ) {
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(job_id) {
-            job.status = status;
-            job.progress = progress;
-            job.current_stage = current_stage.to_string();
+            job.transition(status, progress, current_stage.to_string());
             job.error = error;
             if !matches!(job.status, JobStatus::Completed) {
                 job.result = None;
