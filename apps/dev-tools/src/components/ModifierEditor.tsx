@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { GameplayEffect, EffectType, ResourceType } from "@ashtrail/core";
+import { GameplayEffect, EffectType, ResourceType, normalizeLegacyEffect } from "@ashtrail/core";
 
 interface ModifierEditorProps {
     effects: GameplayEffect[];
@@ -36,6 +36,9 @@ const COMMON_TARGETS = [
     'resourceConsumption', 'xpGain', 'lootMultiplier', 'breakdownChance', 'mapDiscoveryRadius',
     'hazardDamage', 'criticalFailureChance', 'criticalFailureIgnoreChance', 'doubleLootChance',
     'diseaseChance', 'radiationPenalty', 'campSafety',
+    'damageTakenMultiplier', 'damageDealtMultiplier', 'healingReceivedMultiplier',
+    'statusResistance', 'statusDurationMultiplier', 'armorPenetration',
+    'actionLock', 'cannotMove', 'cannotAttack', 'cannotCast', 'cannotDefend',
     'mainHand', 'offHand', 'protection', 'stealth',
     'food', 'water', 'fuel', 'parts'
 ];
@@ -321,6 +324,57 @@ export function ModifierEditor({ effects, onChange, colorScheme = 'orange' }: Mo
                                 />
                             </div>
                         </div>
+
+                        {(() => {
+                            const normalized = normalizeLegacyEffect(eff);
+                            return (
+                                <div className="rounded-lg border border-cyan-500/15 bg-cyan-500/5 p-3">
+                                    <div className="flex flex-wrap items-center gap-2 text-[9px] font-black uppercase tracking-widest">
+                                        <span className="text-cyan-300">Canonical Mapping</span>
+                                        <span className="rounded-full border border-white/10 bg-black/40 px-2 py-0.5 text-gray-300">
+                                            {normalized.definition.kind}
+                                        </span>
+                                        <span className="rounded-full border border-white/10 bg-black/40 px-2 py-0.5 text-gray-400">
+                                            {normalized.definition.runtimeStatus}
+                                        </span>
+                                        <span className="rounded-full border border-white/10 bg-black/40 px-2 py-0.5 text-gray-400">
+                                            {normalized.definition.scope}
+                                        </span>
+                                    </div>
+                                    <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-gray-400 font-mono">
+                                        <div>
+                                            {normalized.definition.kind === 'stat' && `target=${normalized.definition.target} op=${normalized.definition.op}`}
+                                            {normalized.definition.kind === 'state' && `tags=${normalized.definition.state.tags.join(', ') || 'none'}`}
+                                            {normalized.definition.kind === 'proc' && `phase=${normalized.definition.phase} proc=${normalized.definition.proc.type}`}
+                                        </div>
+                                        <div>
+                                            stack={normalized.definition.stacking?.mode || 'none'}
+                                            {normalized.definition.stacking?.group ? ` group=${normalized.definition.stacking.group}` : ''}
+                                            {normalized.definition.stacking?.maxStacks ? ` max=${normalized.definition.stacking.maxStacks}` : ''}
+                                        </div>
+                                    </div>
+                                    <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-gray-500 font-mono">
+                                        <div>
+                                            dispel={String(normalized.definition.dispel?.dispellable !== false)}
+                                            {normalized.definition.dispel?.dispelGroup ? ` group=${normalized.definition.dispel.dispelGroup}` : ''}
+                                        </div>
+                                        <div>
+                                            {normalized.definition.visibility?.isBuff ? 'buff' : normalized.definition.visibility?.isDebuff ? 'debuff' : 'neutral'}
+                                        </div>
+                                    </div>
+                                    {normalized.trace.rulesUsed.length > 0 && (
+                                        <div className="mt-2 text-[9px] text-sky-300/80">
+                                            rules: {normalized.trace.rulesUsed.join(', ')}
+                                        </div>
+                                    )}
+                                    {normalized.trace.warnings.length > 0 && (
+                                        <div className="mt-2 text-[9px] text-amber-300/80">
+                                            {normalized.trace.warnings.join(' | ')}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
                     </div>
                 ))}
             </div>

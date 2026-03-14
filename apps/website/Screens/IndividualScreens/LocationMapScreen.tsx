@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { GameState, MOCK_NEARBY_PLAYERS, MOCK_ACTIVITY_FEED } from '@ashtrail/core';
-import { Card, Badge, Button } from '../../UI/Primitives';
+import { Card, Badge, Button } from '@ashtrail/ui';
 
 interface LocationMapScreenProps {
   state: GameState;

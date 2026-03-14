@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useMemo } from "react";
 import { useEcologyData } from "../ecology/useEcologyData";
+import { buildEcologyRoute } from "../lib/routes";
 
 interface EcologyPanelProps {
     planetId: string | null;
@@ -48,10 +49,10 @@ export function EcologyPanel({ planetId }: EcologyPanelProps) {
                             <p className="text-[10px] text-gray-500 mt-1">Ecology now runs from world, kingdom, duchy, biome, flora, and fauna canon only.</p>
                         </div>
                         <Link
-                            to="/ecology"
+                            to={buildEcologyRoute()}
                             className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-emerald-300 transition-all hover:bg-emerald-500/20"
                         >
-                            OPEN /ECOLOGY
+                            OPEN /DEVTOOLS/ECOLOGY
                         </Link>
                     </div>
                     <div className="mt-3 grid grid-cols-3 gap-2">
@@ -86,7 +87,7 @@ export function EcologyPanel({ planetId }: EcologyPanelProps) {
                                 </p>
                             </div>
                             <Link
-                                to="/ecology?tab=biomes"
+                                to={buildEcologyRoute({ tab: "biomes" })}
                                 className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300"
                             >
                                 TUNE BIOMES
@@ -101,7 +102,7 @@ export function EcologyPanel({ planetId }: EcologyPanelProps) {
                 )}
 
                 <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4 text-[11px] text-gray-400 leading-relaxed">
-                    Province dossiers and climate profiles have been removed from ecology management. Use `/ecology` to work on baselines, biome coverage, flora, and fauna.
+                    Province dossiers and climate profiles have been removed from ecology management. Use `/devtools/ecology` to work on baselines, biome coverage, flora, and fauna.
                 </div>
             </div>
         </div>

@@ -1,0 +1,237 @@
+{
+  "age": 28,
+  "appearancePrompt": "Today, Aya is rarely found in one place for long. She traverses the scarred landscape, a lone figure moving between scattered settlements, her pack heavy with salvaged medicines, hand-crafted tinctures, and the tools of her trade. Her mission is two-fold: to offer what aid she can to those still struggling with the lingering effects of the Ashfall and the new, mutated diseases that plague humanity, and to seek out new knowledge. She constantly searches for untouched pockets of nature, resilient flora that might hold new medicinal properties, or hidden caches of old-world information that could further her understanding of healing and the planet's slow, agonizing recovery.",
+  "backstory": "Today, Aya is rarely found in one place for long. She traverses the scarred landscape, a lone figure moving between scattered settlements, her pack heavy with salvaged medicines, hand-crafted tinctures, and the tools of her trade. Her mission is two-fold: to offer what aid she can to those still struggling with the lingering effects of the Ashfall and the new, mutated diseases that plague humanity, and to seek out new knowledge. She constantly searches for untouched pockets of nature, resilient flora that might hold new medicinal properties, or hidden caches of old-world information that could further her understanding of healing and the planet's slow, agonizing recovery.",
+  "credits": {
+    "copper": 0,
+    "gold": 10,
+    "silver": 24
+  },
+  "gender": "Female",
+  "history": "Aya was born into a world still choking on the aftermath of the Ashfall, a cataclysmic event that shrouded the planet in a perpetual twilight of dust and despair. Her early life in a small, struggling settlement, nestled in a sheltered valley where the ash had begun to thin, was marked by constant sickness, injury, and the quiet resignation of people who had lost everything. Her parents, survivors from the 'old world', instilled in her a thirst for knowledge and an unwavering empathy. Witnessing endless suffering, a fierce drive to alleviate pain ignited within her, pushing her beyond the daily scramble for survival.\n\nHer extraordinary intellect manifested early. While others sought scraps of food or working tech, Aya scavenged for books, tattered medical journals, and ancient pharmaceutical texts from the pre-Ashfall era. She meticulously pieced together fragmented knowledge, often cross-referencing with local herbal lore and the grim, practical lessons learned from treating the wounded. Her informal mentor was an old woman named Kiko, a retired nurse who had barely survived the initial devastation. Kiko, recognizing Aya's brilliance, taught her rudimentary surgery, wound care, and the importance of sanitation, blending pre-Ashfall medical theory with the harsh realities of their current world. Aya’s dedication transformed her into a beacon of hope, turning a small, dusty clinic into a sanctuary of healing and a quiet center of learning.",
+  "hp": 75,
+  "id": "char-1773444650126-kvcx8hqn6",
+  "inventory": [],
+  "isNPC": true,
+  "level": 8,
+  "maxHp": 75,
+  "name": "Aya Shimizu",
+  "occupations": [],
+  "progression": {
+    "availableTalentPoints": 8,
+    "occupationStates": [],
+    "spentPioneerOccupationPoints": 0,
+    "spentPioneerStatPoints": 0,
+    "spentStatPoints": 0,
+    "spentTalentPoints": 0,
+    "unlockedTalentNodeIds": []
+  },
+  "resolvedProgression": {
+    "availablePioneerPoints": 0,
+    "availableStatPoints": 2,
+    "availableTalentPoints": 8,
+    "currentLevelCumulativeXp": 13293,
+    "isMaxLevel": false,
+    "level": 8,
+    "maxLevel": 30,
+    "nextLevelCumulativeXp": 18362,
+    "nextLevelXp": 5069,
+    "occupationPointsTotal": 8,
+    "occupations": [],
+    "pioneerLevel": 0,
+    "pioneerPointsTotal": 0,
+    "progressPct": 0.0,
+    "statPointsTotal": 2,
+    "totalXp": 13293,
+    "xpIntoLevel": 0,
+    "xpToNextLevel": 5069
+  },
+  "skills": [
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 0,
+      "damage": 5,
+      "description": "Strike with your equipped weapon. Replaces base damage with weapon's flat damage modifier. Melee: scales with Strength. Ranged: fixed damage only.",
+      "effectType": "physical",
+      "effects": [
+        {
+          "description": "Replaces skill base damage with the equipped weapon's flat damage value.",
+          "id": "effect-1773078073638",
+          "name": "Weapon Damage Replacement",
+          "target": "mainHand",
+          "trigger": "passive",
+          "type": "WEAPON_DAMAGE_REPLACEMENT",
+          "value": 0
+        }
+      ],
+      "icon": "⚔️",
+      "id": "use-weapon",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Use Weapon",
+      "targetType": "cell"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Basic medical patch-up.",
+      "effectType": "support",
+      "healing": 15,
+      "icon": "🩹",
+      "id": "first-aid",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "First Aid",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Push an enemy back and potentially cause shock damage.",
+      "effectType": "physical",
+      "icon": "✋",
+      "id": "shove",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Shove",
+      "pushDistance": 2,
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Protect an ally for 1 turn. You tank damage redirected to them with reductions based on your Endurance vs Incoming Damage.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "PROTECTION_STANCE",
+          "value": 0
+        }
+      ],
+      "icon": "🛡️",
+      "id": "defend",
+      "maxRange": 2,
+      "minRange": 1,
+      "name": "Defend",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Become invisible to enemies. Any damage taken will reveal you. Duration increases with Wisdom.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "STEALTH",
+          "value": 0
+        }
+      ],
+      "icon": "👤",
+      "id": "hide",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Hide",
+      "targetType": "self"
+    },
+    {
+      "apCost": 2,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 2,
+      "description": "A quick burst of speed. +3 Movement Points for the current turn.",
+      "effects": [
+        {
+          "description": "Increases Movement Points.",
+          "duration": 1,
+          "id": "effect-sprint-mp",
+          "name": "Sprint Bonus",
+          "target": "mp",
+          "trigger": "passive",
+          "type": "STAT_MODIFIER",
+          "value": 3
+        }
+      ],
+      "icon": "👟",
+      "id": "sprint",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Sprint",
+      "targetType": "self"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Bother the enemy with your charisma, reducing their MP based on your Charisma vs target Wisdom.",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 1,
+          "target": "mp",
+          "type": "STAT_MODIFIER",
+          "value": 0
+        }
+      ],
+      "icon": "🎭",
+      "id": "distract",
+      "maxRange": 4,
+      "minRange": 1,
+      "name": "Distract",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Find weaknesses in the target, increasing critical chance for all attackers based on your Intelligence. (Max difference: 5 levels)",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 2,
+          "type": "ANALYZED",
+          "value": 0
+        }
+      ],
+      "icon": "🔍",
+      "id": "analyze",
+      "maxRange": 5,
+      "minRange": 1,
+      "name": "Analyze",
+      "targetType": "enemy"
+    }
+  ],
+  "stats": {
+    "agility": 8,
+    "charisma": 11,
+    "endurance": 13,
+    "intelligence": 19,
+    "strength": 5,
+    "wisdom": 17
+  },
+  "traits": [],
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
+  "xp": 13293
+}

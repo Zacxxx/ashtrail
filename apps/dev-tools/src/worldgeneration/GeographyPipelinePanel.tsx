@@ -4,6 +4,7 @@ import type { PlanetWorld } from "./types";
 import { useWorldgenPipeline, PIPELINE_STAGES, DEFAULT_WORLDGEN_CONFIG } from "./useWorldgenPipeline";
 import type { StageStatus, WorldgenConfig } from "./useWorldgenPipeline";
 import { useEffect, useState } from "react";
+import { buildEcologyRoute } from "../lib/routes";
 
 // ── Status Icons ──
 
@@ -279,7 +280,7 @@ export function GeographyPipelinePanel({ activeHistoryId, globeWorld }: Geograph
                                                     <p><span className="text-cyan-300 font-bold">Low-confidence pixels:</span> {biomeReport.lowConfidencePixelCount}</p>
                                                     <p><span className="text-cyan-300 font-bold">Vision cache:</span> {biomeReport.visionAvailable ? biomeReport.visionModelId || "available" : "not cached"}</p>
                                                     <p className="text-gray-400">Top coverage: {biomeReport.activeBiomes.slice(0, 3).map((entry) => `${entry.name} ${(entry.pixelShare * 100).toFixed(1)}%`).join(" • ") || "n/a"}</p>
-                                                    <Link to="/ecology?tab=biomes" className="inline-block mt-2 text-cyan-300 hover:text-cyan-200">
+                                                    <Link to={buildEcologyRoute({ tab: "biomes" })} className="inline-block mt-2 text-cyan-300 hover:text-cyan-200">
                                                         Open archetype tuning →
                                                     </Link>
                                                 </div>

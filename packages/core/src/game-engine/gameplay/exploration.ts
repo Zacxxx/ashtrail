@@ -12,14 +12,33 @@ export interface Tile {
     doorId?: string;
 }
 
+export interface ExplorationRouteNode {
+    row: number;
+    col: number;
+}
+
+export type ExplorationNpcIntent =
+    | "idle"
+    | "walking_to_anchor"
+    | "waiting"
+    | "wandering_local"
+    | "using_door";
+
 export interface ExplorationPawn {
     id: string;
     name: string;
     x: number;
     y: number;
+    tileRow: number;
+    tileCol: number;
     targetX?: number;
     targetY?: number;
     path?: { x: number; y: number }[];
+    route: ExplorationRouteNode[];
+    routeIndex: number;
+    segmentProgress: number;
+    moving: boolean;
+    moveSpeedTilesPerSecond: number;
     speed: number; // tiles per second
     factionId: string;
     type: "human" | "animal" | "mechanoid";
@@ -29,6 +48,10 @@ export interface ExplorationPawn {
     isNpc?: boolean;
     interactionLabel?: string;
     homeInteriorId?: string;
+    scheduleId?: string;
+    currentAnchorId?: string;
+    currentIntent?: ExplorationNpcIntent;
+    nextDecisionAtTick?: number;
 }
 
 export interface MapObject {
@@ -126,6 +149,7 @@ export interface ExplorationSessionSnapshot {
 
 export type ExplorationClientAction =
     | { type: "start_session"; worldId: string; locationId: string; selectedCharacterIds: string[]; config?: ExplorationSessionConfig }
+    | { type: "subscribe_view"; centerRow: number; centerCol: number; radius: number }
     | { type: "subscribe_chunks"; centerRow: number; centerCol: number; radius: number }
     | { type: "move_to"; pawnId: string; targetRow: number; targetCol: number }
     | { type: "set_selected_pawn"; pawnId?: string | null }
@@ -134,7 +158,17 @@ export type ExplorationClientAction =
 
 export type ExplorationSessionEvent =
     | { type: "session_ready"; state: ExplorationSessionSnapshot }
+    | { type: "chunk_delta"; descriptorId: string; chunks: ExplorationChunk[]; removedChunkIds: string[] }
     | { type: "chunk_sync"; sync: ExplorationChunkSync }
+    | {
+        type: "pawn_delta";
+        pawns: ExplorationPawn[];
+        removedPawnIds: string[];
+        selectedPawnId: string | null;
+        visibility: ExplorationVisibilityState;
+        tick: number;
+        connectionState: "active" | "reconnecting";
+    }
     | { type: "pawn_sync"; pawns: ExplorationPawn[]; selectedPawnId: string | null; visibility: ExplorationVisibilityState; tick: number; connectionState: "active" | "reconnecting" }
     | { type: "interaction"; label: string; row?: number; col?: number; objectId?: string; actorId?: string }
     | { type: "pong"; tick: number }

@@ -20,6 +20,44 @@ interface PreviewTexture {
     characterId?: string;
 }
 
+interface SupabaseHealthState {
+    configured: boolean;
+    reachable: boolean;
+    bucket?: string | null;
+    prefix?: string | null;
+    error?: string | null;
+}
+
+interface GalleryInventoryItem {
+    id: string;
+    type: string;
+    title: string;
+    category: string;
+    displayUrl: string;
+    localUrl?: string | null;
+    cloudPublicUrl?: string | null;
+    storageKey?: string | null;
+    source?: string;
+    syncState?: string;
+    createdAt?: string | null;
+    worldId?: string | null;
+    metadata?: Record<string, any>;
+}
+
+interface GalleryInventoryResponse {
+    warnings: string[];
+    supabase: SupabaseHealthState;
+    tabs: {
+        planets: GalleryInventoryItem[];
+        textures: GalleryInventoryItem[];
+        icons: GalleryInventoryItem[];
+        characters: GalleryInventoryItem[];
+        isolated: GalleryInventoryItem[];
+        sprites: GalleryInventoryItem[];
+        packs: GalleryInventoryItem[];
+    };
+}
+
 export function GalleryPage() {
     const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
@@ -47,8 +85,51 @@ export function GalleryPage() {
     const [cloudObjects, setCloudObjects] = useState<CloudObject[]>([]);
     const [showCloudBrowser, setShowCloudBrowser] = useState(false);
     const [isLoadingCloudBrowser, setIsLoadingCloudBrowser] = useState(false);
+    const [inventory, setInventory] = useState<GalleryInventoryResponse | null>(null);
+    const [supabaseHealth, setSupabaseHealth] = useState<SupabaseHealthState | null>(null);
 
     const activePlanet = useMemo(() => history.find(h => h.id === activePlanetId), [history, activePlanetId]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadHealthFallback = async () => {
+            try {
+                const res = await fetch("/api/storage/supabase/health");
+                const payload = await res.json().catch(() => null);
+                if (!cancelled && res.ok && payload) {
+                    setSupabaseHealth(payload);
+                }
+            } catch {
+                if (!cancelled) {
+                    setSupabaseHealth(null);
+                }
+            }
+        };
+
+        (async () => {
+            try {
+                const res = await fetch("/api/gallery/inventory");
+                const payload = await res.json().catch(() => null);
+                if (!res.ok || !payload) {
+                    throw new Error("Failed to load gallery inventory");
+                }
+                if (!cancelled) {
+                    setInventory(payload);
+                    setSupabaseHealth(payload.supabase ?? null);
+                }
+            } catch {
+                if (!cancelled) {
+                    setInventory(null);
+                }
+                await loadHealthFallback();
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [galleryRefreshKey]);
 
     const syncCloudStorage = async () => {
         setIsSyncingCloud(true);
@@ -67,6 +148,7 @@ export function GalleryPage() {
             setSyncResult(
                 `Sync done - uploaded: ${payload.uploaded ?? 0}, downloaded: ${payload.downloaded ?? 0}, skipped: ${payload.skipped ?? 0}, failed: ${payload.failed ?? 0}`
             );
+            setGalleryRefreshKey((previous) => previous + 1);
         } catch (e) {
             const message = e instanceof Error ? e.message : "Cloud sync failed";
             setCloudError(message);
@@ -176,12 +258,21 @@ export function GalleryPage() {
             )}
 
             {/* ══ Main Layout ══ */}
-            <div className="flex-1 flex overflow-hidden relative z-10 pt-[112px] bg-black/30 w-full">
+            {supabaseHealth?.configured && !supabaseHealth.reachable && (
+                <div className="absolute top-[152px] left-6 right-6 z-20 text-[10px] font-mono tracking-wide bg-amber-500/10 p-2 rounded-lg backdrop-blur-sm border border-amber-500/20">
+                    <p className="text-amber-200">
+                        Supabase unavailable{supabaseHealth.bucket ? ` (${supabaseHealth.bucket})` : ""}: {supabaseHealth.error || "Unknown error"}
+                    </p>
+                </div>
+            )}
+
+            <div className={`flex-1 flex overflow-hidden relative z-10 bg-black/30 w-full ${supabaseHealth?.configured && !supabaseHealth.reachable ? "pt-[152px]" : "pt-[112px]"}`}>
 
                 {/* Left: History Gallery */}
                 <div className="flex-1 h-full overflow-hidden">
                     <HistoryGallery
                         history={history}
+                        inventory={inventory}
                         activePlanetId={activePlanetId}
                         extendedRefreshKey={galleryRefreshKey}
                         showExtendedTabs={true}

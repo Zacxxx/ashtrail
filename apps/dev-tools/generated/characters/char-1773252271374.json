@@ -32,6 +32,14 @@
     "mother": null
   },
   "progression": {
+    "attributeUpgrades": {
+      "agility": 0,
+      "charisma": 0,
+      "endurance": 0,
+      "intelligence": 0,
+      "strength": 0,
+      "wisdom": 0
+    },
     "availableTalentPoints": 15,
     "occupationStates": [],
     "spentPioneerOccupationPoints": 0,
@@ -52,6 +60,8 @@
     "nextLevelCumulativeXp": 83918,
     "nextLevelXp": 12870,
     "occupationPointsTotal": 15,
+    "occupationTalentPointsSpent": 0,
+    "occupationUnlockPointsSpent": 0,
     "occupations": [],
     "pioneerLevel": 0,
     "pioneerPointsTotal": 0,

@@ -37,6 +37,7 @@ use crate::{
 const DEFAULT_ROWS: u32 = 64;
 const DEFAULT_COLS: u32 = 64;
 pub const TEST_EXPLORATION_LOCATION_ID: &str = "__test_exploration__";
+const TEST_EXPLORATION_LAYOUT_VERSION: u64 = 3;
 
 #[derive(Clone)]
 pub struct ExplorationGenerationRuntime {
@@ -1142,6 +1143,17 @@ pub fn ensure_test_exploration_location(
 ) -> Result<(), String> {
     let path = chunked_manifest_path(planets_dir, world_id, TEST_EXPLORATION_LOCATION_ID);
     if path.exists() {
+        let existing_version = load_manifest_descriptor(planets_dir, world_id, TEST_EXPLORATION_LOCATION_ID)
+            .ok()
+            .and_then(|descriptor| descriptor.metadata)
+            .and_then(|metadata| metadata.get("testLayoutVersion").and_then(Value::as_u64))
+            .unwrap_or(0);
+        if existing_version >= TEST_EXPLORATION_LAYOUT_VERSION {
+            return Ok(());
+        }
+        remove_manifest_if_exists(planets_dir, world_id, TEST_EXPLORATION_LOCATION_ID);
+    }
+    if path.exists() {
         return Ok(());
     }
     let map = serde_json::from_value::<RuntimeExplorationMap>(build_test_manifest_value(world_id))
@@ -1201,6 +1213,7 @@ fn build_manifest(
     let center_clear_x = width / 2;
     let center_clear_y = height / 2;
     let mut placed = Vec::<(u32, u32, u32, u32)>::new();
+    let mut carved_room_interior_ids = Vec::<String>::new();
 
     for index in 0..structure_count {
         let label = payload
@@ -1231,6 +1244,7 @@ fn build_manifest(
             }
             placed.push((x, y, room_w, room_h));
             let room = carve_room(&mut tiles, width, x, y, room_w, room_h, &mut rng, index);
+            carved_room_interior_ids.push(room.interior_id.clone());
             objects.push(ExplorationObject {
                 id: format!("obj-roof-{index}"),
                 r#type: format!("{}-roof", label.to_lowercase().replace(' ', "-")),
@@ -1317,12 +1331,28 @@ fn build_manifest(
         }
     }
 
+    carve_river(
+        &mut tiles,
+        width,
+        height,
+        &objects,
+        center_clear_x,
+        center_clear_y,
+        &mut rng,
+    );
+
+    clear_spawn_zone(&mut tiles, width, height, center_clear_x, center_clear_y);
+
     let natural_count = natural_object_count(payload, location, semantics_summary);
     for index in 0..natural_count {
         let x = rng.random_range(2..width.saturating_sub(2));
         let y = rng.random_range(2..height.saturating_sub(2));
         let idx = tile_index(width, x, y);
-        if !tiles[idx].walkable {
+        if !tiles[idx].walkable
+            || tiles[idx].interior_id.is_some()
+            || tiles[idx].is_spawn_zone.is_some()
+            || tiles[idx].r#type != "floor"
+        {
             continue;
         }
         objects.push(ExplorationObject {
@@ -1346,7 +1376,54 @@ fn build_manifest(
         });
     }
 
-    clear_spawn_zone(&mut tiles, width, height, center_clear_x, center_clear_y);
+    let outdoor_npc_count = match location.category {
+        locations::LocationCategory::Settlement => 2,
+        locations::LocationCategory::Ruin => 1,
+        _ => 0,
+    };
+    for index in 0..outdoor_npc_count {
+        let Some((x, y)) = find_random_outdoor_position(
+            &tiles,
+            width,
+            height,
+            &objects,
+            &mut rng,
+            center_clear_x,
+            center_clear_y,
+        ) else {
+            continue;
+        };
+        let home_interior_id = carved_room_interior_ids
+            .get(index % carved_room_interior_ids.len().max(1))
+            .cloned();
+        let npc_name = match location.category {
+            locations::LocationCategory::Settlement => {
+                if index == 0 {
+                    "Courtyard Resident".to_string()
+                } else {
+                    "Gate Walker".to_string()
+                }
+            }
+            locations::LocationCategory::Ruin => "Lookout".to_string(),
+            _ => format!("Scout {}", index + 1),
+        };
+        pawns.push(json!({
+            "id": format!("npc-outdoor-{index}"),
+            "name": npc_name,
+            "x": x,
+            "y": y,
+            "speed": 2.5,
+            "factionId": "ambient",
+            "type": "human",
+            "facing": "south",
+            "isNpc": true,
+            "interactionLabel": "Talk",
+            "homeInteriorId": home_interior_id,
+            "scheduleId": if matches!(location.category, locations::LocationCategory::Settlement) { "sandbox-outdoor-loop" } else { "sandbox-watch" },
+            "currentIntent": if index == 0 { "wandering_local" } else { "idle" },
+            "nextDecisionAtTick": 0,
+        }));
+    }
 
     ExplorationMapManifest {
         id: format!("explore-{}-{}", payload.world_id, payload.location_id),
@@ -1383,6 +1460,14 @@ fn build_manifest_value(
                 "locationId": payload.location_id,
             }),
         );
+        if payload.location_id == TEST_EXPLORATION_LOCATION_ID {
+            if let Some(metadata) = obj.get_mut("metadata").and_then(Value::as_object_mut) {
+                metadata.insert(
+                    "testLayoutVersion".to_string(),
+                    Value::from(TEST_EXPLORATION_LAYOUT_VERSION),
+                );
+            }
+        }
         if let Some(biome_pack_id) = &payload.biome_pack_id {
             obj.insert(
                 "biomePackId".to_string(),
@@ -1813,6 +1898,175 @@ fn clear_spawn_zone(
     }
 }
 
+fn set_sand_tile(tile: &mut ExplorationTile) {
+    tile.r#type = "sand".to_string();
+    tile.walkable = true;
+    tile.move_cost = 1.2;
+    tile.light_level = Some(0.86);
+    tile.blocks_light = Some(false);
+    tile.door_id = None;
+}
+
+fn set_water_tile(tile: &mut ExplorationTile) {
+    tile.r#type = "water".to_string();
+    tile.walkable = true;
+    tile.move_cost = 1.95;
+    tile.light_level = Some(0.7);
+    tile.blocks_light = Some(false);
+    tile.door_id = None;
+}
+
+fn can_overwrite_outdoor_tile(tile: &ExplorationTile) -> bool {
+    tile.interior_id.is_none()
+        && tile.is_spawn_zone.is_none()
+        && tile.r#type != "wall"
+        && tile.r#type != "door"
+}
+
+fn carve_river(
+    tiles: &mut [ExplorationTile],
+    width: u32,
+    height: u32,
+    objects: &[ExplorationObject],
+    center_x: u32,
+    center_y: u32,
+    rng: &mut StdRng,
+) {
+    if width < 18 || height < 18 {
+        return;
+    }
+
+    let mut river_center_y = if rng.random_bool(0.5) {
+        (height / 3).max(3)
+    } else {
+        ((height * 2) / 3).min(height.saturating_sub(4))
+    };
+    if river_center_y.abs_diff(center_y) < 7 {
+        river_center_y = (height / 4).max(3);
+    }
+
+    for x in 1..width.saturating_sub(1) {
+        if x > 2 && x % 4 == 0 {
+            let next_center = river_center_y as i32 + rng.random_range(-1..=1);
+            river_center_y = next_center.clamp(2, height as i32 - 3) as u32;
+        }
+
+        for offset in -2..=2 {
+            let y = river_center_y as i32 + offset;
+            if y <= 0 || y >= height as i32 - 1 {
+                continue;
+            }
+            let idx = tile_index(width, x, y as u32);
+            if !can_overwrite_outdoor_tile(&tiles[idx]) || object_occupies_cell(objects, x, y as u32) {
+                continue;
+            }
+            if offset.abs() <= 1 {
+                set_water_tile(&mut tiles[idx]);
+            } else if tiles[idx].r#type == "floor" {
+                set_sand_tile(&mut tiles[idx]);
+            }
+        }
+
+        for bank_offset in -4..=4 {
+            let y = river_center_y as i32 + bank_offset;
+            if y <= 0 || y >= height as i32 - 1 {
+                continue;
+            }
+            let idx = tile_index(width, x, y as u32);
+            if !can_overwrite_outdoor_tile(&tiles[idx]) || object_occupies_cell(objects, x, y as u32) {
+                continue;
+            }
+            if tiles[idx].r#type == "floor" && bank_offset.abs() >= 2 {
+                set_sand_tile(&mut tiles[idx]);
+            }
+        }
+    }
+
+    for y in 1..height.saturating_sub(1) {
+        for x in 1..width.saturating_sub(1) {
+            let idx = tile_index(width, x, y);
+            if tiles[idx].r#type != "floor" || !can_overwrite_outdoor_tile(&tiles[idx]) {
+                continue;
+            }
+            let mut adjacent_water = false;
+            for (dx, dy) in [(-1_i32, 0_i32), (1, 0), (0, -1), (0, 1)] {
+                let nx = x as i32 + dx;
+                let ny = y as i32 + dy;
+                if nx < 1 || ny < 1 || nx >= width as i32 - 1 || ny >= height as i32 - 1 {
+                    continue;
+                }
+                let neighbor = &tiles[tile_index(width, nx as u32, ny as u32)];
+                if neighbor.r#type == "water" {
+                    adjacent_water = true;
+                    break;
+                }
+            }
+            if adjacent_water && x.abs_diff(center_x) > 2 && y.abs_diff(center_y) > 2 {
+                set_sand_tile(&mut tiles[idx]);
+            }
+        }
+    }
+}
+
+fn object_occupies_cell(objects: &[ExplorationObject], x: u32, y: u32) -> bool {
+    objects.iter().any(|object| {
+        x >= object.x && x < object.x + object.width && y >= object.y && y < object.y + object.height
+    })
+}
+
+fn is_valid_outdoor_position(
+    tiles: &[ExplorationTile],
+    width: u32,
+    height: u32,
+    objects: &[ExplorationObject],
+    center_x: u32,
+    center_y: u32,
+    x: u32,
+    y: u32,
+) -> bool {
+    if x < 2 || y < 2 || x >= width.saturating_sub(2) || y >= height.saturating_sub(2) {
+        return false;
+    }
+    if x.abs_diff(center_x) <= 3 && y.abs_diff(center_y) <= 3 {
+        return false;
+    }
+    let tile = &tiles[tile_index(width, x, y)];
+    tile.walkable
+        && tile.interior_id.is_none()
+        && tile.r#type != "door"
+        && tile.r#type != "water"
+        && tile.is_spawn_zone.is_none()
+        && !object_occupies_cell(objects, x, y)
+}
+
+fn find_random_outdoor_position(
+    tiles: &[ExplorationTile],
+    width: u32,
+    height: u32,
+    objects: &[ExplorationObject],
+    rng: &mut StdRng,
+    center_x: u32,
+    center_y: u32,
+) -> Option<(u32, u32)> {
+    for _ in 0..96 {
+        let x = rng.random_range(2..width.saturating_sub(2));
+        let y = rng.random_range(2..height.saturating_sub(2));
+        if is_valid_outdoor_position(tiles, width, height, objects, center_x, center_y, x, y) {
+            return Some((x, y));
+        }
+    }
+
+    for y in 2..height.saturating_sub(2) {
+        for x in 2..width.saturating_sub(2) {
+            if is_valid_outdoor_position(tiles, width, height, objects, center_x, center_y, x, y) {
+                return Some((x, y));
+            }
+        }
+    }
+
+    None
+}
+
 fn carve_room(
     tiles: &mut [ExplorationTile],
     width: u32,
@@ -1940,6 +2194,8 @@ fn infer_natural_object_type(
         "tree".to_string()
     } else if prompt.contains("desert") {
         "rock".to_string()
+    } else if matches!(location.category, locations::LocationCategory::Settlement) {
+        "tree".to_string()
     } else if matches!(location.category, locations::LocationCategory::Ruin) {
         "rubble".to_string()
     } else {

@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import type { LocationGenerationMetadata, WorldLocation } from "../history/locationTypes";
 import { titleCaseLocation } from "../history/locationTypes";
+import { buildHistoryRoute } from "../lib/routes";
 
 interface HumanityPanelProps {
     humPrompt: string;
@@ -97,7 +98,7 @@ export function HumanityPanel({
                                     Main lore {readiness?.mainLoreChars ?? 0}/{readiness?.minMainLoreChars ?? 250} chars
                                 </p>
                                 <p className="mt-1 text-xs text-gray-300">
-                                    Humanity is blocked until the main `/history` lore contains enough canon to anchor settlements and location lore.
+                                    Humanity is blocked until the main `/devtools/history` lore contains enough canon to anchor settlements and location lore.
                                 </p>
                             </div>
                             <div className="text-right text-[10px] tracking-[0.18em] uppercase">
@@ -114,10 +115,10 @@ export function HumanityPanel({
                             </div>
                         ) : null}
                         <div className="mt-4 flex flex-wrap gap-2">
-                            <Link to="/history?tab=lore" className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200 hover:bg-cyan-500/20">
+                            <Link to={buildHistoryRoute({ tab: "lore" })} className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200 hover:bg-cyan-500/20">
                                 Open History Lore
                             </Link>
-                            <Link to="/history?tab=locations" className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-200 hover:bg-white/10">
+                            <Link to={buildHistoryRoute({ tab: "locations" })} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-200 hover:bg-white/10">
                                 Open History Locations
                             </Link>
                         </div>

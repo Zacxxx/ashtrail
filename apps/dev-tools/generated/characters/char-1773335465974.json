@@ -269,7 +269,7 @@
   },
   "occupations": [
     {
-      "availableTalentPoints": 6,
+      "availableTalentPoints": 5,
       "isPrimary": true,
       "level": 1,
       "occupation": {
@@ -320,7 +320,9 @@
         "shortDescription": "Coordinates teams and complex projects."
       },
       "occupationId": "occ-operations-manager",
+      "spentPioneerPoints": 0,
       "spentTalentPoints": 0,
+      "unlockPointCost": 1,
       "unlockedTalentNodeIds": []
     }
   ],
@@ -330,10 +332,18 @@
   },
   "portraitName": "Brice Alfano",
   "progression": {
-    "availableTalentPoints": 6,
+    "attributeUpgrades": {
+      "agility": 0,
+      "charisma": 0,
+      "endurance": 0,
+      "intelligence": 0,
+      "strength": 0,
+      "wisdom": 0
+    },
+    "availableTalentPoints": 5,
     "occupationStates": [
       {
-        "availableTalentPoints": 6,
+        "availableTalentPoints": 5,
         "isPrimary": true,
         "level": 1,
         "occupation": {
@@ -384,7 +394,9 @@
           "shortDescription": "Coordinates teams and complex projects."
         },
         "occupationId": "occ-operations-manager",
+        "spentPioneerPoints": 0,
         "spentTalentPoints": 0,
+        "unlockPointCost": 1,
         "unlockedTalentNodeIds": []
       }
     ],
@@ -404,7 +416,7 @@
   "resolvedProgression": {
     "availablePioneerPoints": 0,
     "availableStatPoints": 2,
-    "availableTalentPoints": 6,
+    "availableTalentPoints": 5,
     "currentLevelCumulativeXp": 5890,
     "isMaxLevel": false,
     "level": 6,
@@ -412,9 +424,11 @@
     "nextLevelCumulativeXp": 9155,
     "nextLevelXp": 3265,
     "occupationPointsTotal": 6,
+    "occupationTalentPointsSpent": 0,
+    "occupationUnlockPointsSpent": 1,
     "occupations": [
       {
-        "availableTalentPoints": 6,
+        "availableTalentPoints": 5,
         "isPrimary": true,
         "level": 1,
         "occupation": {
@@ -465,7 +479,9 @@
           "shortDescription": "Coordinates teams and complex projects."
         },
         "occupationId": "occ-operations-manager",
+        "spentPioneerPoints": 0,
         "spentTalentPoints": 0,
+        "unlockPointCost": 1,
         "unlockedTalentNodeIds": []
       }
     ],

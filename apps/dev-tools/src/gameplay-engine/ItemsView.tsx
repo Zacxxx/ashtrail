@@ -544,17 +544,6 @@ export function ItemsView({ item, onSave }: ItemsViewProps) {
                         📸 Modify Visual Artifact
                     </button>
                 </div>
-                <div className="col-span-1 space-y-1">
-                    <label className="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Rarity</label>
-                    <select value={rarity} onChange={e => setRarity(e.target.value as ItemRarity)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-3 rounded-xl text-sm outline-none focus:border-yellow-500/50 transition-all">
-                        <option value="salvaged">Salvaged</option>
-                        <option value="reinforced">Reinforced</option>
-                        <option value="pre-ash">Pre-Ash</option>
-                        <option value="specialized">Specialized</option>
-                        <option value="relic">Relic</option>
-                        <option value="ashmarked">Ashmarked</option>
-                    </select>
-                </div>
             </div>
         </div>
     );

@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { GameState } from '@ashtrail/core';
-import { Card, ProgressBar, Button, Badge } from '../../UI/Primitives';
+import { Card, ProgressBar, Button, Badge } from '@ashtrail/ui';
 
 interface CombatScreenProps {
   state: GameState;

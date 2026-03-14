@@ -13,5 +13,6 @@ export * from './game-engine/gameplay/engine';
 export * from './game-engine/gameplay/clock';
 export * from './game-engine/gameplay/exploration';
 export * from './game-engine/effects';
+export * from './game-engine/modifiers';
 export * from './talentTrees';
 export * from './combat-protocol';

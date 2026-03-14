@@ -9,6 +9,7 @@ import { DateSelector } from "../components/DateSelector";
 import { AshtrailDate, formatAshtrailDate } from "../lib/calendar";
 import { AiGenerateModal } from "./AiGenerateModal";
 import type { LorePriority, LoreSnippet } from "../types/lore";
+import { buildGameMasterRoute } from "../lib/routes";
 
 interface LoreTabProps {
     selectedWorld: GenerationHistoryItem | null;
@@ -310,7 +311,7 @@ export function LoreTab({ selectedWorld }: LoreTabProps) {
                         <p className="text-[10px] tracking-widest text-gray-500 uppercase">{snippets.length} persisted</p>
                     </div>
                     <div className="flex gap-2">
-                        <Link to="/game-master?tab=context" className="px-3 py-1 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
+                        <Link to={buildGameMasterRoute({ tab: "context" })} className="px-3 py-1 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
                             GM
                         </Link>
                         <Button onClick={() => setShowGenModal(true)} className="bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 px-3 py-1 font-bold text-xs">

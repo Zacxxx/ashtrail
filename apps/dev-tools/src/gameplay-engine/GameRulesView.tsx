@@ -995,11 +995,40 @@ Development = random(${rules.regions.devMin}, ${rules.regions.devMax})
                                 centered on the target cell. Damage is applied identically to all affected cells.
                             </p>
 
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="rounded-xl border border-white/5 bg-black/20 p-3">
+                                <div className="mb-3 text-[9px] font-black uppercase tracking-[0.2em] text-gray-500">
+                                    Attack Patterns
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 md:grid-cols-7">
+                                    {[
+                                        { name: "Single", icon: "◎", tone: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
+                                        { name: "Cross", icon: "+", tone: "border-white/10 bg-black/30 text-gray-400" },
+                                        { name: "Circle", icon: "◉", tone: "border-white/10 bg-black/30 text-gray-400" },
+                                        { name: "Splash", icon: "✹", tone: "border-pink-500/30 bg-pink-500/10 text-pink-300" },
+                                        { name: "Line", icon: "→", tone: "border-white/10 bg-black/30 text-gray-400" },
+                                        { name: "Cone", icon: "▽", tone: "border-white/10 bg-black/30 text-gray-400" },
+                                        { name: "Perp", icon: "⊥", tone: "border-white/10 bg-black/30 text-gray-400" },
+                                    ].map((pattern) => (
+                                        <div
+                                            key={pattern.name}
+                                            className={`flex min-h-[68px] flex-col items-center justify-center rounded-lg border px-2 py-2 text-center ${pattern.tone}`}
+                                        >
+                                            <span className="text-lg leading-none">{pattern.icon}</span>
+                                            <span className="mt-2 text-[8px] font-black uppercase tracking-[0.18em]">{pattern.name}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                                 {[
                                     { name: "Circle", icon: "⭕", desc: "All cells within Manhattan distance `areaSize` around the target cell. Size 1 = radius 1 cross." },
                                     { name: "Cross", icon: "➕", desc: "Beams outward orthogonally (up/down/left/right) up to `areaSize` distance from target." },
                                     { name: "Line", icon: "↗️", desc: "Vector from caster through target, extending `areaSize` cells. Useful for piercing shots." },
+                                    { name: "Single", icon: "◎", desc: "Targets exactly one cell. `areaSize = 0` means no spread and no secondary cells are affected." },
+                                    { name: "Splash", icon: "✹", desc: "Square blast centered on the target cell. Useful for explosive weapons and compact detonation zones." },
+                                    { name: "Cone", icon: "▽", desc: "Expands outward from the caster toward the target direction. Strong for flamers, breath weapons, and fan-shaped bursts." },
+                                    { name: "Perpendicular", icon: "⊥", desc: "Forms a bar perpendicular to the shot direction at the impact point. Useful for sweep shots and lateral shock lines." },
                                 ].map(shape => (
                                     <div key={shape.name} className="bg-black/40 border border-white/5 rounded-lg p-4 space-y-2">
                                         <div className="flex items-center gap-2">
@@ -1063,8 +1092,11 @@ Development = random(${rules.regions.devMin}, ${rules.regions.devMax})
 
                         <div className="bg-black/30 border border-white/5 rounded-xl p-5 space-y-5">
                             <p className="text-[12px] text-gray-400 leading-relaxed">
-                                The <span className="text-white font-bold">GameplayEffect</span> system provides a unified way to handle all
-                                passive bonuses, active debuffs, and temporary status conditions. These can be attached to
+                                The legacy <span className="text-white font-bold">GameplayEffect</span> format is still accepted, but the runtime is being
+                                normalized toward three internal families:
+                                <span className="text-cyan-300 font-bold"> StatModifier</span>,
+                                <span className="text-indigo-300 font-bold"> State</span>,
+                                and <span className="text-amber-300 font-bold"> ProcEffect</span>. These can be attached to
                                 <span className="text-purple-400"> Traits</span>, <span className="text-purple-400"> Skills</span>,
                                 <span className="text-purple-400"> Items</span>, or <span className="text-purple-400"> Occupations</span>.
                             </p>
@@ -1074,11 +1106,11 @@ Development = random(${rules.regions.devMin}, ${rules.regions.devMax})
                                     <h4 className="text-[10px] font-black uppercase text-purple-400/70 tracking-widest">Effect Types</h4>
                                     <div className="space-y-2">
                                         {[
-                                            { t: 'STAT_MODIFIER', d: 'Modifies base stats (STR, AGI, etc.) or derived values (MaxHP, Evasion).' },
-                                            { t: 'DAMAGE_OVER_TIME', d: 'Applies damage (e.g. fire_damage, poison_damage) at start of turn.' },
-                                            { t: 'HEAL_OVER_TIME', d: 'Applies healing at start of turn.' },
-                                            { t: 'STATUS_IMMUNITY', d: 'Prevents specific status effects from being applied.' },
-                                            { t: 'LORE_EFFECT', d: 'Descriptive or narrative perks with no direct engine math.' }
+                                            { t: 'StatModifier', d: 'Canonical numeric modifiers. Legacy STAT_MODIFIER / COMBAT_BONUS map here.' },
+                                            { t: 'State', d: 'Canonical gameplay state. STEALTH and ANALYZED map here with tags and runtime metadata.' },
+                                            { t: 'ProcEffect', d: 'Canonical triggered effect. WEAPON_DAMAGE_REPLACEMENT, PROTECTION_STANCE, DoT and HoT map here, including real combat tick phases.' },
+                                            { t: 'STATUS_IMMUNITY', d: 'Legacy type still supported. Combat/runtime blocking now checks canonical tags, targets and effect identities without rewriting world effects.' },
+                                            { t: 'LORE_EFFECT', d: 'Narrative-only payload. Accepted for compatibility, but not a combat runtime mechanic.' }
                                         ].map(item => (
                                             <div key={item.t} className="bg-black/40 border border-white/5 p-3 rounded-lg">
                                                 <code className="text-[10px] text-purple-300 font-mono">{item.t}</code>
@@ -1092,11 +1124,12 @@ Development = random(${rules.regions.devMin}, ${rules.regions.devMax})
                                     <h4 className="text-[10px] font-black uppercase text-purple-400/70 tracking-widest">Execution Triggers</h4>
                                     <div className="space-y-2">
                                         {[
-                                            { t: 'passive', d: 'Always active as long as the source is equipped/unlocked.' },
-                                            { t: 'on_turn_start', d: 'Triggered at the beginning of the owner\'s turn (DoTs/HoTs).' },
-                                            { t: 'on_hit', d: 'Triggered when the owner successfully hits a target.' },
-                                            { t: 'on_defend', d: 'Triggered when the owner is attacked.' },
-                                            { t: 'on_kill', d: 'Triggered when the owner reduces a target to 0 HP.' }
+                                            { t: 'onApply', d: 'Canonical apply phase. Used when a legacy effect becomes an active runtime modifier.' },
+                                            { t: 'startTurn', d: 'Canonical runtime phase for turn-start ticks. DoTs, HoTs and start-turn refreshes resolve here.' },
+                                            { t: 'beforeDamage', d: 'Canonical runtime phase for interception and damage overrides. Protection and weapon replacement resolve here.' },
+                                            { t: 'afterDamage', d: 'Canonical runtime phase for post-damage reactions and follow-up effects.' },
+                                            { t: 'endTurn', d: 'Canonical runtime phase for end-turn ticks when a legacy effect explicitly targets turn-end.' },
+                                            { t: 'dispel/stack', d: 'Runtime now supports replace, refreshDuration, stack, maxValue and minValue semantics plus buff/debuff/group dispel.' }
                                         ].map(item => (
                                             <div key={item.t} className="bg-black/40 border border-white/5 p-3 rounded-lg">
                                                 <code className="text-[10px] text-teal-300 font-mono">{item.t}</code>
@@ -1108,13 +1141,24 @@ Development = random(${rules.regions.devMin}, ${rules.regions.devMax})
                             </div>
 
                             <FormulaBox>
-                                {`FinalStat = (BaseStat + FlatModifiers) * (1 + Sum(PercentageModifiers))
+                                {`Legacy input is still GameplayEffect.
+Runtime path is now:
+data/editor -> legacy adapter -> canonical modifier -> rules lookup -> combat runtime -> active state/UI
 
-Example: 'Burning' Status
-Type: DAMAGE_OVER_TIME, Target: fire_damage, Value: 5, Duration: 3, Trigger: on_turn_start
+Example: STEALTH
+Legacy type: STEALTH
+Canonical kind: State
+Rules: stealthBaseDuration + stealthScaleFactor
 
-Example: 'Iron Skin' Trait
-Type: STAT_MODIFIER, Target: defense, Value: 2, Trigger: passive`}
+Example: DAMAGE_OVER_TIME
+Legacy type: DAMAGE_OVER_TIME
+Canonical kind: ProcEffect
+Phase: startTurn or endTurn
+
+Example: STATUS_IMMUNITY
+Legacy type: STATUS_IMMUNITY
+Canonical kind: State
+Runtime: blocks matching incoming combat effects by canonical tag / target / effect identity while preserving legacy data`}
                             </FormulaBox>
                         </div>
                     </section>

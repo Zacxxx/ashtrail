@@ -1,6 +1,7 @@
 use rand::Rng;
 use serde_json::Value;
 
+use super::modifiers::{is_analyzed_effect, is_weapon_damage_replacement_effect};
 use super::rules::GameRulesConfig;
 use super::types::{
     DamagePreview, EffectType, GameplayEffect, Skill, SkillEffectType, TacticalEntity,
@@ -32,7 +33,7 @@ pub fn has_weapon_damage_replacement(skill: &Skill) -> bool {
     skill.effects.as_ref().is_some_and(|effects| {
         effects
             .iter()
-            .any(|effect| effect.effect_type == EffectType::WeaponDamageReplacement)
+            .any(is_weapon_damage_replacement_effect)
     })
 }
 
@@ -401,7 +402,18 @@ fn legacy_basic_attack_bonus_roll(
 }
 
 fn analyzed_bonus(target: &TacticalEntity) -> f64 {
-    active_effect_value(target, EffectType::Analyzed) / 100.0
+    target
+        .active_effects
+        .as_ref()
+        .map(|effects| {
+            effects
+                .iter()
+                .filter(|effect| is_analyzed_effect(effect) || effect.effect_type == EffectType::Analyzed)
+                .map(|effect| effect.value)
+                .sum::<f64>()
+        })
+        .unwrap_or(0.0)
+        / 100.0
 }
 
 fn mitigate_damage(damage: i32, target: &TacticalEntity, is_magical: bool) -> i32 {

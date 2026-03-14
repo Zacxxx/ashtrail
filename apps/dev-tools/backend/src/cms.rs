@@ -10,6 +10,10 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+fn strip_utf8_bom(raw: &str) -> &str {
+    raw.strip_prefix('\u{feff}').unwrap_or(raw)
+}
+
 fn character_portraits_dir(state: &AppState) -> PathBuf {
     state.character_portraits_dir.clone()
 }
@@ -393,7 +397,7 @@ pub async fn get_characters(
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
                 if let Ok(content_raw) = fs::read_to_string(&path) {
-                    if let Ok(mut json) = serde_json::from_str::<Value>(&content_raw) {
+                    if let Ok(mut json) = serde_json::from_str::<Value>(strip_utf8_bom(&content_raw)) {
                         let normalized = normalize_character_portrait(&state, &mut json)?;
                         if normalized {
                             let _ = fs::write(

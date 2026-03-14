@@ -12,6 +12,12 @@ import { useGenerationHistory, type GenerationHistoryItem } from "../hooks/useGe
 import { useJobs } from "../jobs/useJobs";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import { WorldPickerModal } from "../components/WorldPickerModal";
+import {
+    buildGameplayEngineRoute,
+    buildHistoryRoute,
+    buildQuestsRoute,
+    DEVTOOLS_ROUTES,
+} from "../lib/routes";
 
 type GameMasterTab = "context" | "directives" | "integrations";
 
@@ -281,7 +287,7 @@ export function GameMasterPage() {
                     worldId: selectedWorld.id,
                 },
                 restore: {
-                    route: "/game-master",
+                    route: DEVTOOLS_ROUTES.gameMaster,
                     search: { tab: "directives" },
                     payload: {
                         worldId: selectedWorld.id,
@@ -395,10 +401,10 @@ export function GameMasterPage() {
                                         </div>
                                     </div>
                                     <div className="flex gap-2 shrink-0">
-                                        <Link to="/history?tab=lore" className="px-3 py-2 rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-cyan-500/20 transition-colors">
+                                        <Link to={buildHistoryRoute({ tab: "lore" })} className="px-3 py-2 rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-cyan-500/20 transition-colors">
                                             Edit Lore
                                         </Link>
-                                        <Link to="/quests" className="px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
+                                        <Link to={buildQuestsRoute()} className="px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
                                             Open Quests
                                         </Link>
                                     </div>
@@ -443,7 +449,7 @@ export function GameMasterPage() {
                                         <Button onClick={handleGenerateWorldPrompt} disabled={isGeneratingWorldPrompt} className="bg-red-500/10 text-red-200 border border-red-400/30 hover:bg-red-500/20">
                                             {isGeneratingWorldPrompt ? "Generating..." : "Generate from Canon"}
                                         </Button>
-                                        <Link to="/quests" className="px-4 py-2 rounded-lg bg-white/5 text-white border border-white/10 text-[11px] font-bold tracking-widest uppercase hover:bg-white/10 transition-colors">
+                                        <Link to={buildQuestsRoute()} className="px-4 py-2 rounded-lg bg-white/5 text-white border border-white/10 text-[11px] font-bold tracking-widest uppercase hover:bg-white/10 transition-colors">
                                             Review Quests
                                         </Link>
                                     </div>
@@ -714,9 +720,9 @@ export function GameMasterPage() {
                                 <Card className="bg-[#121820] border border-white/5 p-5">
                                     <div className="text-[10px] font-bold tracking-widest uppercase text-cyan-300 mb-3">History</div>
                                     <p className="text-sm text-gray-500 leading-relaxed mb-4">
-                                        `/history` remains the canonical source. Lore, factions, characters, regions, locations, and temporality flow into the AI GM dynamically from there.
+                                        `/devtools/history` remains the canonical source. Lore, factions, characters, regions, locations, and temporality flow into the AI GM dynamically from there.
                                     </p>
-                                    <Link to="/history?tab=lore" className="inline-flex px-3 py-2 rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-cyan-500/20 transition-colors">
+                                    <Link to={buildHistoryRoute({ tab: "lore" })} className="inline-flex px-3 py-2 rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-cyan-500/20 transition-colors">
                                         Open Lore Editor
                                     </Link>
                                 </Card>
@@ -724,9 +730,9 @@ export function GameMasterPage() {
                                 <Card className="bg-[#121820] border border-white/5 p-5">
                                     <div className="text-[10px] font-bold tracking-widest uppercase text-orange-300 mb-3">Gameplay Events</div>
                                     <p className="text-sm text-gray-500 leading-relaxed mb-4">
-                                        `/gameplay-engine?step=EVENTS` consumes the compiled GM context at generation, rethink, and resolution time.
+                                        `/devtools/gameplay-engine?step=EVENTS` consumes the compiled GM context at generation, rethink, and resolution time.
                                     </p>
-                                    <Link to="/gameplay-engine?step=EVENTS" className="inline-flex px-3 py-2 rounded-lg bg-orange-500/10 text-orange-300 border border-orange-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-orange-500/20 transition-colors">
+                                    <Link to={buildGameplayEngineRoute({ step: "EVENTS" })} className="inline-flex px-3 py-2 rounded-lg bg-orange-500/10 text-orange-300 border border-orange-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-orange-500/20 transition-colors">
                                         Open Events View
                                     </Link>
                                 </Card>
@@ -734,9 +740,9 @@ export function GameMasterPage() {
                                 <Card className="bg-[#121820] border border-white/5 p-5">
                                     <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-300 mb-3">Quests</div>
                                     <p className="text-sm text-gray-500 leading-relaxed mb-4">
-                                        `/quests` uses the canonical GM world prompt and the same compiled world context. Missing world prompt blocks new quest generation.
+                                        `/devtools/quests` uses the canonical GM world prompt and the same compiled world context. Missing world prompt blocks new quest generation.
                                     </p>
-                                    <Link to="/quests" className="inline-flex px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
+                                    <Link to={buildQuestsRoute()} className="inline-flex px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-bold tracking-widest uppercase hover:bg-indigo-500/20 transition-colors">
                                         Open Quests
                                     </Link>
                                 </Card>

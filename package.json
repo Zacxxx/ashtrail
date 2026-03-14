@@ -13,6 +13,7 @@
     "dev:server": "bun run --cwd apps/server dev",
     "dev:website": "bun run --cwd apps/website dev",
     "dev:website:full": "bun run dev:server & bun run dev:website",
+    "dev:demo": "bun run dev:dev-tools:frontend",
     "dev:dev-tools": "bun run dev:dev-tools:backend & bun run dev:dev-tools:frontend",
     "dev:dev-tools:frontend": "bun run --cwd apps/dev-tools dev",
     "dev:dev-tools:backend": "bun run --cwd apps/dev-tools dev:backend",
