@@ -133,10 +133,50 @@ describe("JobCenterPage", () => {
         });
 
         expect(screen.getByText("By Technical Category")).toBeInTheDocument();
-        expect(screen.getByText("By Product Category")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Switch to product categories" })).toBeInTheDocument();
         expect(screen.getAllByText(/Technical:/).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Product:/).length).toBeGreaterThan(0);
         expect(screen.getByText("Available")).toBeInTheDocument();
+    });
+
+    it("switches tool grouping with the chevron toggle", async () => {
+        const exploration = makeJob({
+            jobId: "exploration-1",
+            tool: "exploration",
+            title: "Explore Basin",
+            kind: "exploration.scene.generate",
+            status: "running",
+            updatedAt: 10,
+        });
+
+        mockUseGenerationHistory.mockReturnValue({ history: [] });
+        mockUseJobs.mockReturnValue({
+            jobs: [exploration],
+            cancelJob: vi.fn(),
+            openOutput: vi.fn(),
+            redoJob: vi.fn(),
+            getJobDetail: vi.fn(async () => ({ ...exploration } as JobDetail)),
+            refreshJobs: vi.fn(async () => undefined),
+        });
+
+        render(
+            <MemoryRouter initialEntries={["/devtools/jobcenter?tab=tools"]}>
+                <Routes>
+                    <Route path="/devtools/jobcenter" element={<JobCenterPage />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText("By Technical Category")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", { name: "Switch to product categories" }));
+
+        await waitFor(() => {
+            expect(screen.getByText("By Product Category")).toBeInTheDocument();
+        });
+        expect(screen.getByRole("button", { name: "Switch to technical categories" })).toBeInTheDocument();
     });
 
     it("switches back to overview with a tool filter from the tools tab", async () => {
@@ -186,5 +226,79 @@ describe("JobCenterPage", () => {
         });
         expect(screen.getByRole("combobox", { name: "Tool" })).toHaveValue("exploration");
         expect(screen.getByText("1 visible families")).toBeInTheDocument();
+    });
+
+    it("renders generated media audio artifacts in job detail", async () => {
+        const mediaJob = makeJob({
+            jobId: "media-1",
+            tool: "generatemedia.audio",
+            title: "Generate Media Audio",
+            kind: "interleaved.generatemedia.audio.v1",
+            status: "completed",
+            progress: 100,
+            currentStage: "Completed",
+            outputRefs: [{ id: "summary", label: "Gemini Final Response", kind: "text", previewText: "done" }],
+            metadata: { modality: "mixed" },
+            updatedAt: 50,
+        });
+
+        mockUseGenerationHistory.mockReturnValue({ history: [] });
+        mockUseJobs.mockReturnValue({
+            jobs: [mediaJob],
+            cancelJob: vi.fn(),
+            openOutput: vi.fn(),
+            redoJob: vi.fn(),
+            getJobDetail: vi.fn(async () => ({
+                ...mediaJob,
+                result: {
+                    artifact: {
+                        type: "generated_media_audio",
+                        status: "success",
+                        audio: {
+                            url: "/api/generated-media/media-1/audio.wav",
+                            durationSeconds: 18,
+                            mimeType: "audio/wav",
+                        },
+                        image: {
+                            url: "/api/generated-media/media-1/image.png",
+                            mimeType: "image/png",
+                        },
+                        metadata: {
+                            title: "Dust Relay",
+                            description: "A tense audio cue for refinery traversal.",
+                            intent: "scene support",
+                            tags: ["ambience", "ost"],
+                        },
+                        warnings: [],
+                    },
+                    transcript: {
+                        model: "gemini-3-flash-preview",
+                        logicalToolName: "generatemedia.audio",
+                        apiToolName: "generatemedia_audio",
+                        toolCalled: true,
+                        thoughtSignatureDetected: true,
+                        finalResponseText: "Dust Relay supports traversal under pressure.",
+                    },
+                },
+            } as JobDetail)),
+            refreshJobs: vi.fn(async () => undefined),
+        });
+
+        render(
+            <MemoryRouter initialEntries={["/devtools/jobcenter?jobId=media-1"]}>
+                <Routes>
+                    <Route path="/devtools/jobcenter" element={<JobCenterPage />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText("Generated Media Artifact")).toBeInTheDocument();
+        });
+
+        expect(screen.getByText("Dust Relay")).toBeInTheDocument();
+        expect(screen.getByText(/A tense audio cue/i)).toBeInTheDocument();
+        expect(screen.getAllByText("generatemedia.audio").length).toBeGreaterThan(0);
+        expect(screen.getByText(/Dust Relay supports traversal under pressure/i)).toBeInTheDocument();
     });
 });

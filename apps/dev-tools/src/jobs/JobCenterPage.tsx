@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
+import { isGeneratedMediaAudioResult, type GeneratedMediaAudioResult } from "../media/generatedMediaAudio";
 import {
     PRODUCT_TOOL_AREA_LABELS,
     PRODUCT_TOOL_AREA_ORDER,
@@ -18,6 +19,7 @@ import { useJobs } from "./useJobs";
 type JobCenterTab = "overview" | "tools";
 type FamilyScope = "all" | "running" | "history";
 type ToolUsageFilter = "all" | "used" | "unused" | "active";
+type ToolGroupMode = "technical" | "product";
 
 function formatRelativeTime(timestamp: number): string {
     const deltaMs = Date.now() - timestamp;
@@ -68,6 +70,17 @@ function statusTone(status: JobNode["status"]): string {
 
 function scopeFilterLabel(scope: FamilyScope, count: number): string {
     return `${scope} (${count})`;
+}
+
+function artifactStatusTone(status: GeneratedMediaAudioResult["artifact"]["status"]): string {
+    switch (status) {
+        case "success":
+            return "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
+        case "partial_success":
+            return "border-amber-500/30 bg-amber-500/10 text-amber-100";
+        default:
+            return "border-red-500/30 bg-red-500/10 text-red-100";
+    }
 }
 
 function familyMatchesSearch(family: JobFamily, search: string, worldName: string | null): boolean {
@@ -128,6 +141,7 @@ export function JobCenterPage() {
     const [usageStatusFilter, setUsageStatusFilter] = useState<ToolUsageFilter>("all");
 
     const activeTab: JobCenterTab = searchParams.get("tab") === "tools" ? "tools" : "overview";
+    const toolGroupMode: ToolGroupMode = searchParams.get("groupBy") === "product" ? "product" : "technical";
     const selectedToolId = searchParams.get("tool");
     const overviewToolFilter = searchParams.get("tool") || "all";
     const requestedJobId = searchParams.get("jobId");
@@ -336,6 +350,9 @@ export function JobCenterPage() {
     const activeTimeline = selectedFamily?.timeline || [];
     const activeOutputs = selectedNode?.outputRefs || [];
     const activeWorldName = selectedFamily?.worldId ? (worldNames[selectedFamily.worldId] || selectedFamily.worldId) : null;
+    const activeMediaArtifact = selectedDetail && isGeneratedMediaAudioResult(selectedDetail.result)
+        ? selectedDetail.result
+        : null;
 
     return (
         <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.12),_transparent_28%),linear-gradient(180deg,_#071018_0%,_#03070b_100%)] px-5 pb-8 pt-24 text-gray-200 md:px-8">
@@ -639,6 +656,66 @@ export function JobCenterPage() {
                                             </div>
                                         </SectionCard>
                                     </div>
+                                    {activeMediaArtifact && (
+                                        <SectionCard title="Generated Media Artifact">
+                                            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                                                <div className="rounded-2xl border border-white/8 bg-[#04090e] p-4">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${artifactStatusTone(activeMediaArtifact.artifact.status)}`}>
+                                                            {activeMediaArtifact.artifact.status.replace("_", " ")}
+                                                        </span>
+                                                        {activeMediaArtifact.artifact.metadata.tags.map((tag) => (
+                                                            <span key={tag} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-gray-300">
+                                                                {tag}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                    <h3 className="mt-4 text-xl font-black tracking-[0.06em] text-white">{activeMediaArtifact.artifact.metadata.title}</h3>
+                                                    <p className="mt-3 text-sm leading-6 text-gray-300">{activeMediaArtifact.artifact.metadata.description}</p>
+                                                    {activeMediaArtifact.artifact.audio && (
+                                                        <div className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+                                                            <div className="mb-3 flex items-center justify-between gap-3 text-[11px] font-black uppercase tracking-[0.18em] text-cyan-100">
+                                                                <span>Audio</span>
+                                                                <span>{activeMediaArtifact.artifact.audio.durationSeconds}s</span>
+                                                            </div>
+                                                            <audio controls preload="none" className="w-full">
+                                                                <source src={activeMediaArtifact.artifact.audio.url} type={activeMediaArtifact.artifact.audio.mimeType} />
+                                                            </audio>
+                                                        </div>
+                                                    )}
+                                                    {activeMediaArtifact.transcript.finalResponseText && (
+                                                        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                                                            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">Gemini Final Response</div>
+                                                            <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-gray-200">{activeMediaArtifact.transcript.finalResponseText}</p>
+                                                        </div>
+                                                    )}
+                                                    {!!activeMediaArtifact.artifact.warnings?.length && (
+                                                        <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+                                                            {activeMediaArtifact.artifact.warnings.join(" ")}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="space-y-4">
+                                                    {activeMediaArtifact.artifact.image && (
+                                                        <div className="rounded-2xl border border-white/8 bg-[#04090e] p-4">
+                                                            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">Associated Image</div>
+                                                            <img src={activeMediaArtifact.artifact.image.url} alt={activeMediaArtifact.artifact.metadata.title} className="mt-4 w-full rounded-2xl border border-white/10 bg-black/20 object-cover" />
+                                                        </div>
+                                                    )}
+                                                    <div className="rounded-2xl border border-white/8 bg-[#04090e] p-4">
+                                                        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">Interleaved Trace</div>
+                                                        <div className="mt-4 space-y-2 text-sm text-gray-300">
+                                                            <p><span className="text-gray-500">Model:</span> {activeMediaArtifact.transcript.model}</p>
+                                                            <p><span className="text-gray-500">Logical tool:</span> {activeMediaArtifact.transcript.logicalToolName}</p>
+                                                            <p><span className="text-gray-500">API tool:</span> {activeMediaArtifact.transcript.apiToolName}</p>
+                                                            <p><span className="text-gray-500">Thought signature:</span> {activeMediaArtifact.transcript.thoughtSignatureDetected ? "preserved" : "not detected"}</p>
+                                                            <p><span className="text-gray-500">Intent:</span> {activeMediaArtifact.artifact.metadata.intent}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </SectionCard>
+                                    )}
                                     <SectionCard title="Modalities">
                                         <div className="grid gap-3 lg:grid-cols-3">
                                             {(["text", "image", "asset", "route", "mixed", "unknown"] as JobModality[]).map((modality) => {
@@ -710,10 +787,25 @@ export function JobCenterPage() {
                 ) : (
                     <section className="rounded-[28px] border border-white/10 bg-black/25 p-5 shadow-2xl backdrop-blur-xl">
                         <div className="space-y-6">
-                            <SectionCard title="By Technical Category">
+                            <SectionCard
+                                title={toolGroupMode === "technical" ? "By Technical Category" : "By Product Category"}
+                                action={(
+                                    <button
+                                        type="button"
+                                        onClick={() => updateSearch((next) => {
+                                            next.set("tab", "tools");
+                                            next.set("groupBy", toolGroupMode === "technical" ? "product" : "technical");
+                                        })}
+                                        aria-label={toolGroupMode === "technical" ? "Switch to product categories" : "Switch to technical categories"}
+                                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-gray-200 hover:border-cyan-400/30 hover:text-white"
+                                    >
+                                        {toolGroupMode === "technical" ? "Product >" : "< Technical"}
+                                    </button>
+                                )}
+                            >
                                 <div className="space-y-5">
-                                    {technicalGroups.length === 0 && <EmptyToolsState />}
-                                    {technicalGroups.map((group) => (
+                                    {(toolGroupMode === "technical" ? technicalGroups : productGroups).length === 0 && <EmptyToolsState />}
+                                    {(toolGroupMode === "technical" ? technicalGroups : productGroups).map((group) => (
                                         <div key={group.category} className="space-y-3">
                                             <div>
                                                 <div className="text-[11px] font-black uppercase tracking-[0.22em] text-white">{group.label}</div>
@@ -726,31 +818,6 @@ export function JobCenterPage() {
                                                         tool={tool}
                                                         selected={selectedToolId === tool.toolId}
                                                         withAnchorId
-                                                        onSelect={() => handleSelectTool(tool.toolId)}
-                                                        onOpenRoute={tool.route ? () => navigate(tool.route) : undefined}
-                                                        onViewJobs={() => handleViewJobsForTool(tool.toolId)}
-                                                    />
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </SectionCard>
-                            <SectionCard title="By Product Category">
-                                <div className="space-y-5">
-                                    {productGroups.length === 0 && <EmptyToolsState />}
-                                    {productGroups.map((group) => (
-                                        <div key={group.category} className="space-y-3">
-                                            <div>
-                                                <div className="text-[11px] font-black uppercase tracking-[0.22em] text-white">{group.label}</div>
-                                                <div className="mt-1 text-xs text-gray-500">{group.tools.length} tools</div>
-                                            </div>
-                                            <div className="grid gap-3 lg:grid-cols-2">
-                                                {group.tools.map((tool) => (
-                                                    <ToolCard
-                                                        key={`${group.category}-${tool.toolId}`}
-                                                        tool={tool}
-                                                        selected={selectedToolId === tool.toolId}
                                                         onSelect={() => handleSelectTool(tool.toolId)}
                                                         onOpenRoute={tool.route ? () => navigate(tool.route) : undefined}
                                                         onViewJobs={() => handleViewJobsForTool(tool.toolId)}
@@ -892,10 +959,13 @@ function StatCard({ label, value }: { label: string; value: string }) {
     );
 }
 
-function SectionCard({ title, children }: { title: string; children: ReactNode }) {
+function SectionCard({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
     return (
         <section className="rounded-[24px] border border-white/10 bg-[#07111a] p-5">
-            <div className="mb-4 text-[11px] font-black uppercase tracking-[0.24em] text-cyan-200">{title}</div>
+            <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="text-[11px] font-black uppercase tracking-[0.24em] text-cyan-200">{title}</div>
+                {action}
+            </div>
             {children}
         </section>
     );

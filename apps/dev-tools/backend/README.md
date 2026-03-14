@@ -10,6 +10,23 @@ This backend powers `/worldgen`, generation history, image jobs, and local asset
 - Required for image/text generation endpoints.
 - If missing, model catalog still returns but models are marked unavailable.
 
+### Required for Lyria / Vertex AI song generation
+
+`VERTEX_PROJECT_ID`
+- Required for `lyria-002` song generation routes.
+
+`GOOGLE_APPLICATION_CREDENTIALS`
+- Required.
+- Must point to a service-account JSON key file used for Vertex AI OAuth.
+
+`VERTEX_LOCATION`
+- Optional.
+- Default: `us-central1`
+
+`VERTEX_LYRIA_MODEL`
+- Optional.
+- Default: `lyria-002`
+
 ### Image model registry (worldgen province refinement)
 
 `AI_IMAGE_MODELS`
@@ -53,6 +70,10 @@ This backend powers `/worldgen`, generation history, image jobs, and local asset
 
 ```env
 GEMINI_API_KEY=your_key
+VERTEX_PROJECT_ID=your_gcp_project
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
+VERTEX_LOCATION=us-central1
+VERTEX_LYRIA_MODEL=lyria-002
 
 AI_IMAGE_MODELS=gemini-3.1-flash-image-preview|Nano Banana 2,gemini-3-pro-image-preview|Gemini 3 Pro Image Preview,gemini-2.5-flash-image|Gemini 2.5 Flash Image
 AI_IMAGE_DEFAULT_MODEL=gemini-3.1-flash-image-preview

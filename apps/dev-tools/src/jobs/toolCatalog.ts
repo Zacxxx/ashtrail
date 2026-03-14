@@ -150,6 +150,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
         route: DEVTOOLS_ROUTES.characterBuilder,
     },
     {
+        id: "generatemedia.audio",
+        label: "Generate Media Audio",
+        description: "Gemini 3 interleaved media demo that calls one business tool to produce a unified audio artifact with image and metadata.",
+        technicalCategory: "assets",
+        productAreas: ["assets", "narrative-ai"],
+        defaultModalities: ["mixed"],
+        route: `${DEVTOOLS_ROUTES.assetGenerator}?tab=songs`,
+    },
+    {
         id: "asset-generator",
         label: "Asset Generator",
         description: "Icon, texture, and asset image generation workflows.",
