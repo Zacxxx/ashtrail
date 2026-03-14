@@ -16,6 +16,34 @@ interface UseExplorationWebSocketOptions {
     session: ExplorationLaunchConfig;
 }
 
+const EXPLORATION_WS_LOG_PREFIX = "[exploration-ws]";
+
+function visibilityEquals(
+    left: ExplorationVisibilityState,
+    right: ExplorationVisibilityState,
+) {
+    if (left.revealedInteriorId !== right.revealedInteriorId) {
+        return false;
+    }
+    if (left.revealedRoofGroupIds.length !== right.revealedRoofGroupIds.length) {
+        return false;
+    }
+    if (left.openedDoorIds.length !== right.openedDoorIds.length) {
+        return false;
+    }
+    for (let index = 0; index < left.revealedRoofGroupIds.length; index += 1) {
+        if (left.revealedRoofGroupIds[index] !== right.revealedRoofGroupIds[index]) {
+            return false;
+        }
+    }
+    for (let index = 0; index < left.openedDoorIds.length; index += 1) {
+        if (left.openedDoorIds[index] !== right.openedDoorIds[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function getWebSocketUrl() {
     if (typeof window === "undefined") {
         return null;
@@ -46,9 +74,13 @@ function pruneChunks(
 }
 
 export function useExplorationWebSocket({ session }: UseExplorationWebSocketOptions) {
+    const selectedCharacterIdsKey = useMemo(
+        () => JSON.stringify(session.selectedCharIds),
+        [session.selectedCharIds],
+    );
     const [descriptor, setDescriptor] = useState<ExplorationManifestDescriptor | null>(null);
     const [chunks, setChunks] = useState<Map<string, ExplorationChunk>>(new Map());
-    const [pawns, setPawns] = useState<ExplorationPawn[]>([]);
+    const [pawnStore, setPawnStore] = useState<Map<string, ExplorationPawn>>(new Map());
     const [selectedPawnId, setSelectedPawnIdState] = useState<string | null>(null);
     const [visibility, setVisibility] = useState<ExplorationVisibilityState>({
         revealedInteriorId: null,
@@ -70,10 +102,15 @@ export function useExplorationWebSocket({ session }: UseExplorationWebSocketOpti
     latestSessionRef.current = session;
 
     useEffect(() => {
+        console.info(EXPLORATION_WS_LOG_PREFIX, "reset session state", {
+            worldId: session.worldId,
+            locationId: session.locationId,
+            selectedCharacterIds: session.selectedCharIds,
+        });
         setDescriptor(null);
         descriptorRef.current = null;
         setChunks(new Map());
-        setPawns([]);
+        setPawnStore(new Map());
         setSelectedPawnIdState(null);
         setVisibility({
             revealedInteriorId: null,
@@ -83,15 +120,15 @@ export function useExplorationWebSocket({ session }: UseExplorationWebSocketOpti
         setTick(0);
         setLastInteraction(null);
         latestSubscriptionRef.current = null;
-    }, [session.locationId, session.worldId, session.selectedCharIds]);
+    }, [selectedCharacterIdsKey, session.locationId, session.worldId]);
 
     const applySnapshot = useCallback((snapshot: ExplorationSessionSnapshot) => {
         setDescriptor(snapshot.descriptor);
         descriptorRef.current = snapshot.descriptor;
         setChunks(new Map(snapshot.chunks.map((chunk) => [chunk.id, chunk])));
-        setPawns(snapshot.pawns);
+        setPawnStore(new Map(snapshot.pawns.map((pawn) => [pawn.id, pawn])));
         setSelectedPawnIdState(snapshot.selectedPawnId);
-        setVisibility(snapshot.visibility);
+        setVisibility((previous) => visibilityEquals(previous, snapshot.visibility) ? previous : snapshot.visibility);
         setTick(snapshot.tick);
         setConnectionState(snapshot.connectionState);
     }, []);
@@ -107,12 +144,14 @@ export function useExplorationWebSocket({ session }: UseExplorationWebSocketOpti
         const next = { centerRow, centerCol, radius };
         latestSubscriptionRef.current = next;
         sendAction({
-            type: "subscribe_chunks",
+            type: "subscribe_view",
             centerRow,
             centerCol,
             radius,
         });
     }, [sendAction]);
+
+    const pawns = useMemo(() => [...pawnStore.values()], [pawnStore]);
 
     useEffect(() => {
         intentionallyClosedRef.current = false;
@@ -120,8 +159,10 @@ export function useExplorationWebSocket({ session }: UseExplorationWebSocketOpti
         const connect = () => {
             const url = getWebSocketUrl();
             if (!url) {
+                console.warn(EXPLORATION_WS_LOG_PREFIX, "window unavailable, skipping websocket init");
                 return;
             }
+            console.info(EXPLORATION_WS_LOG_PREFIX, "connecting", { url });
             const ws = new WebSocket(url);
             wsRef.current = ws;
 
@@ -130,6 +171,11 @@ export function useExplorationWebSocket({ session }: UseExplorationWebSocketOpti
                 setIsConnected(true);
                 setConnectionState("active");
                 setError(null);
+                console.info(EXPLORATION_WS_LOG_PREFIX, "connected, sending start_session", {
+                    worldId: latestSessionRef.current.worldId,
+                    locationId: latestSessionRef.current.locationId,
+                    selectedCharacterIds: latestSessionRef.current.selectedCharIds,
+                });
                 sendAction({
                     type: "start_session",
                     worldId: latestSessionRef.current.worldId,
@@ -142,7 +188,7 @@ export function useExplorationWebSocket({ session }: UseExplorationWebSocketOpti
                 });
                 if (latestSubscriptionRef.current) {
                     sendAction({
-                        type: "subscribe_chunks",
+                        type: "subscribe_view",
                         centerRow: latestSubscriptionRef.current.centerRow,
                         centerCol: latestSubscriptionRef.current.centerCol,
                         radius: latestSubscriptionRef.current.radius,
@@ -155,7 +201,26 @@ export function useExplorationWebSocket({ session }: UseExplorationWebSocketOpti
                     const message = JSON.parse(event.data) as ExplorationSessionEvent;
                     switch (message.type) {
                         case "session_ready":
+                            console.info(EXPLORATION_WS_LOG_PREFIX, "session_ready", {
+                                descriptorId: message.state.descriptor.id,
+                                chunkCount: message.state.chunks.length,
+                                pawnCount: message.state.pawns.length,
+                            });
                             applySnapshot(message.state);
+                            break;
+                        case "chunk_delta":
+                            setChunks((previous) => {
+                                const next = new Map(previous);
+                                for (const chunkId of message.removedChunkIds) {
+                                    next.delete(chunkId);
+                                }
+                                for (const chunk of message.chunks) {
+                                    next.set(chunk.id, chunk);
+                                }
+                                const subscription = latestSubscriptionRef.current;
+                                if (!subscription) return next;
+                                return pruneChunks(next, subscription.centerRow, subscription.centerCol, descriptorRef.current?.chunkSize || 16);
+                            });
                             break;
                         case "chunk_sync":
                             setChunks((previous) => {
@@ -168,10 +233,26 @@ export function useExplorationWebSocket({ session }: UseExplorationWebSocketOpti
                                 return pruneChunks(next, subscription.centerRow, subscription.centerCol, descriptorRef.current?.chunkSize || 16);
                             });
                             break;
-                        case "pawn_sync":
-                            setPawns(message.pawns);
+                        case "pawn_delta":
+                            setPawnStore((previous) => {
+                                const next = new Map(previous);
+                                for (const pawnId of message.removedPawnIds) {
+                                    next.delete(pawnId);
+                                }
+                                for (const pawn of message.pawns) {
+                                    next.set(pawn.id, pawn);
+                                }
+                                return next;
+                            });
                             setSelectedPawnIdState(message.selectedPawnId);
-                            setVisibility(message.visibility);
+                            setVisibility((previous) => visibilityEquals(previous, message.visibility) ? previous : message.visibility);
+                            setTick(message.tick);
+                            setConnectionState(message.connectionState);
+                            break;
+                        case "pawn_sync":
+                            setPawnStore(new Map(message.pawns.map((pawn) => [pawn.id, pawn])));
+                            setSelectedPawnIdState(message.selectedPawnId);
+                            setVisibility((previous) => visibilityEquals(previous, message.visibility) ? previous : message.visibility);
                             setTick(message.tick);
                             setConnectionState(message.connectionState);
                             break;
@@ -179,28 +260,32 @@ export function useExplorationWebSocket({ session }: UseExplorationWebSocketOpti
                             setLastInteraction(message.label);
                             break;
                         case "error":
+                            console.error(EXPLORATION_WS_LOG_PREFIX, "server error", message.message);
                             setError(message.message);
                             break;
                         case "pong":
                             break;
                     }
                 } catch (parseError) {
-                    console.error("Failed to parse exploration event", parseError);
+                    console.error(EXPLORATION_WS_LOG_PREFIX, "failed to parse exploration event", parseError);
                 }
             };
 
             ws.onerror = () => {
+                console.error(EXPLORATION_WS_LOG_PREFIX, "socket error");
                 setError("Exploration connection error");
             };
 
             ws.onclose = () => {
                 setIsConnected(false);
                 if (intentionallyClosedRef.current) {
+                    console.info(EXPLORATION_WS_LOG_PREFIX, "socket closed intentionally");
                     return;
                 }
                 setConnectionState("reconnecting");
                 reconnectAttemptRef.current += 1;
                 const delay = Math.min(4000, 400 * (2 ** (reconnectAttemptRef.current - 1)));
+                console.warn(EXPLORATION_WS_LOG_PREFIX, "socket closed, scheduling reconnect", { delay });
                 reconnectTimerRef.current = window.setTimeout(connect, delay);
             };
         };
@@ -210,11 +295,21 @@ export function useExplorationWebSocket({ session }: UseExplorationWebSocketOpti
             intentionallyClosedRef.current = true;
             if (reconnectTimerRef.current !== null) {
                 window.clearTimeout(reconnectTimerRef.current);
+                reconnectTimerRef.current = null;
             }
-            wsRef.current?.close();
+            const socket = wsRef.current;
+            if (socket) {
+                socket.onopen = null;
+                socket.onmessage = null;
+                socket.onerror = null;
+                socket.onclose = null;
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.close();
+                }
+            }
             wsRef.current = null;
         };
-    }, [applySnapshot, sendAction, session.locationId, session.selectedCharIds, session.worldId]);
+    }, [applySnapshot, selectedCharacterIdsKey, sendAction, session.locationId, session.worldId]);
 
     const moveTo = useCallback((pawnId: string, targetRow: number, targetCol: number) => {
         sendAction({

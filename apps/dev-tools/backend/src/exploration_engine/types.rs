@@ -28,11 +28,25 @@ pub struct ExplorationPawn {
     pub x: f32,
     pub y: f32,
     #[serde(default)]
+    pub tile_row: i32,
+    #[serde(default)]
+    pub tile_col: i32,
+    #[serde(default)]
     pub target_x: Option<f32>,
     #[serde(default)]
     pub target_y: Option<f32>,
     #[serde(default)]
     pub path: Option<Vec<PathNode>>,
+    #[serde(default)]
+    pub route: Vec<RouteNode>,
+    #[serde(default)]
+    pub route_index: usize,
+    #[serde(default)]
+    pub segment_progress: f32,
+    #[serde(default)]
+    pub moving: bool,
+    #[serde(default)]
+    pub move_speed_tiles_per_second: f32,
     pub speed: f32,
     pub faction_id: String,
     pub r#type: String,
@@ -48,6 +62,14 @@ pub struct ExplorationPawn {
     pub interaction_label: Option<String>,
     #[serde(default)]
     pub home_interior_id: Option<String>,
+    #[serde(default)]
+    pub schedule_id: Option<String>,
+    #[serde(default)]
+    pub current_anchor_id: Option<String>,
+    #[serde(default)]
+    pub current_intent: Option<String>,
+    #[serde(default)]
+    pub next_decision_at_tick: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +188,13 @@ pub struct PathNode {
     pub y: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteNode {
+    pub row: i32,
+    pub col: i32,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorationSessionSnapshot {
@@ -200,7 +229,8 @@ pub enum ExplorationClientAction {
         config: Option<ExplorationSessionConfig>,
     },
     #[serde(rename_all = "camelCase")]
-    SubscribeChunks {
+    #[serde(alias = "subscribe_chunks")]
+    SubscribeView {
         center_row: u32,
         center_col: u32,
         radius: u32,
@@ -238,8 +268,23 @@ pub enum ExplorationSessionEvent {
         state: ExplorationSessionSnapshot,
     },
     #[serde(rename_all = "camelCase")]
+    ChunkDelta {
+        descriptor_id: String,
+        chunks: Vec<ExplorationChunk>,
+        removed_chunk_ids: Vec<String>,
+    },
+    #[serde(rename_all = "camelCase")]
     ChunkSync {
         sync: ExplorationChunkSync,
+    },
+    #[serde(rename_all = "camelCase")]
+    PawnDelta {
+        pawns: Vec<ExplorationPawn>,
+        removed_pawn_ids: Vec<String>,
+        selected_pawn_id: Option<String>,
+        visibility: ExplorationVisibilityState,
+        tick: u64,
+        connection_state: String,
     },
     #[serde(rename_all = "camelCase")]
     PawnSync {

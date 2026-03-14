@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { GameState } from '@ashtrail/core';
-import { Card, Badge } from '../../UI/Primitives';
+import { Card, Badge } from '@ashtrail/ui';
 
 export const QuestLog: React.FC<{ state: GameState }> = ({ state }) => {
    return (

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Button } from "../../UI/Primitives";
+import { Button } from "@ashtrail/ui";
 
 export const APPEARANCE_SELECTORS = {
   build: [

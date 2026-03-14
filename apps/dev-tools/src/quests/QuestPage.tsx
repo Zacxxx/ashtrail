@@ -26,6 +26,7 @@ import { useJobs } from "../jobs/useJobs";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import type { JobDetail, JobListItem } from "../jobs/types";
 import { QuestWorkflowBar } from "./QuestWorkflowBar";
+import { buildGameMasterRoute, DEVTOOLS_ROUTES } from "../lib/routes";
 
 type QuestTab = "seed" | "run" | "archive";
 type QuestSeedStep = "BRIEF" | "PARTY" | "ANCHORS" | "REVIEW";
@@ -684,7 +685,7 @@ export function QuestPage() {
                     characterName: character.name,
                 },
                 restore: {
-                    route: "/quests",
+                    route: DEVTOOLS_ROUTES.quests,
                     search: { tab: "run" },
                     payload: {
                         worldId: activeWorldId,
@@ -742,7 +743,7 @@ export function QuestPage() {
                     },
                 },
                 restore: {
-                    route: "/quests",
+                    route: DEVTOOLS_ROUTES.quests,
                     search: { tab: "seed" },
                     payload: {
                         worldId: activeWorldId,
@@ -804,7 +805,7 @@ export function QuestPage() {
                     },
                 },
                 restore: {
-                    route: "/quests",
+                    route: DEVTOOLS_ROUTES.quests,
                     search: { tab: "seed" },
                     payload: {
                         worldId: selectedWorld.id,
@@ -869,7 +870,7 @@ export function QuestPage() {
                     },
                 },
                 restore: {
-                    route: "/quests",
+                    route: DEVTOOLS_ROUTES.quests,
                     search: { tab: "run" },
                     payload: {
                         worldId: activeRun.worldId,
@@ -1438,7 +1439,7 @@ export function QuestPage() {
                 <div className={`mx-auto flex h-full w-full flex-col gap-4 overflow-hidden ${activeTab === "run" ? "max-w-[1600px]" : "max-w-7xl"}`}>
                     {questJob && (questJob.status === "queued" || questJob.status === "running") && <div className="shrink-0 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-xs text-cyan-100">{toLegacyQuestKind(questJob) === "generate-run" ? "Quest generation" : "Quest advance"} • {questJob.currentStage} • {Math.round(questJob.progress)}%</div>}
                     {notices.length > 0 && <div className="shrink-0 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">{notices.map((notice) => <div key={notice}>{notice}</div>)}</div>}
-                    {!hasCanonicalWorldPrompt && <div className="shrink-0 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4"><div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-red-300">Canonical World Prompt Required</div><div className="text-sm text-red-100">Quests use the Game Master narrative world prompt, not the graphical world-generation seed prompt. Write it manually or generate it from canon on the Game Master page before generating quests.</div><div className="mt-3"><Link to="/game-master?tab=directives" className="text-[10px] font-bold uppercase tracking-widest text-red-200 hover:text-white">Open Game Master Directives</Link></div></div>}
+                    {!hasCanonicalWorldPrompt && <div className="shrink-0 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4"><div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-red-300">Canonical World Prompt Required</div><div className="text-sm text-red-100">Quests use the Game Master narrative world prompt, not the graphical world-generation seed prompt. Write it manually or generate it from canon on the Game Master page before generating quests.</div><div className="mt-3"><Link to={buildGameMasterRoute({ tab: "directives" })} className="text-[10px] font-bold uppercase tracking-widest text-red-200 hover:text-white">Open Game Master Directives</Link></div></div>}
 
                     {activeTab === "seed" && (
                         <Card className="flex min-h-0 flex-1 flex-col rounded-[30px] border border-white/5 bg-[#121820]">

@@ -6,6 +6,11 @@ import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useEcologyData } from "./useEcologyData";
 import { EcologyBulkGeneratorModal, type EcologyBulkGeneratorRequest } from "./EcologyBulkGeneratorModal";
+import {
+    buildAssetGeneratorRoute,
+    buildGameplayEngineRoute,
+    DEVTOOLS_ROUTES,
+} from "../lib/routes";
 import type {
     ActivityCycle,
     AssetImageRef,
@@ -340,7 +345,7 @@ export function EcologyPage() {
         return (
             <div className="h-screen overflow-hidden bg-[#070b12] text-gray-300 font-sans p-8 flex flex-col">
                 <header className="mb-6 flex items-center gap-6 shrink-0 border-b border-white/5 pb-6">
-                    <Link to="/" className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 hover:text-white transition-all">
+                    <Link to={DEVTOOLS_ROUTES.root} className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 hover:text-white transition-all">
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                     </Link>
                     <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500 text-[#0a0f14] font-bold text-sm">🌿</div>
@@ -966,13 +971,26 @@ function FloraEditor({
                     <EditorSection title="Asset Links" accentClassName="text-emerald-300">
                         <div className="flex flex-wrap gap-2">
                             <Link
-                                to={`/asset-generator?tab=game-assets&assetType=vegetation&targetKind=flora&targetId=${encodeURIComponent(item.id)}${worldId ? `&worldId=${encodeURIComponent(worldId)}` : ""}${item.biomeIds[0] ? `&biomeId=${encodeURIComponent(item.biomeIds[0])}` : ""}`}
+                                to={buildAssetGeneratorRoute({
+                                    tab: "game-assets",
+                                    assetType: "vegetation",
+                                    targetKind: "flora",
+                                    targetId: item.id,
+                                    worldId,
+                                    biomeId: item.biomeIds[0],
+                                })}
                                 className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-emerald-300 transition-all hover:bg-emerald-500/20"
                             >
                                 GENERATE VEGETATION ASSET
                             </Link>
                             <Link
-                                to={`/asset-generator?tab=ecology-illustrations&subCategory=flora&targetKind=flora&targetId=${encodeURIComponent(item.id)}${worldId ? `&worldId=${encodeURIComponent(worldId)}` : ""}`}
+                                to={buildAssetGeneratorRoute({
+                                    tab: "ecology-illustrations",
+                                    subCategory: "flora",
+                                    targetKind: "flora",
+                                    targetId: item.id,
+                                    worldId,
+                                })}
                                 className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20"
                             >
                                 GENERATE ILLUSTRATION
@@ -1149,7 +1167,7 @@ function FaunaEditor({
                             {item.skillIds.length > 0 ? item.skillIds.map((skillId) => (
                                 <Link
                                     key={skillId}
-                                    to={`/gameplay-engine?step=SKILLS`}
+                                    to={buildGameplayEngineRoute({ step: "SKILLS" })}
                                     className="rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[10px] font-mono text-sky-200 transition-all hover:bg-sky-500/20"
                                 >
                                     {skillId}
@@ -1164,13 +1182,27 @@ function FaunaEditor({
                     <EditorSection title="Asset Links" accentClassName="text-amber-300">
                         <div className="mb-3 flex flex-wrap gap-2">
                             <Link
-                                to={`/asset-generator?tab=sprites&mode=directional-set&spriteType=animal&targetKind=fauna&targetId=${encodeURIComponent(item.id)}${worldId ? `&worldId=${encodeURIComponent(worldId)}` : ""}${item.biomeIds.length ? `&biomeIds=${encodeURIComponent(item.biomeIds.join(","))}` : ""}`}
+                                to={buildAssetGeneratorRoute({
+                                    tab: "sprites",
+                                    mode: "directional-set",
+                                    spriteType: "animal",
+                                    targetKind: "fauna",
+                                    targetId: item.id,
+                                    worldId,
+                                    biomeIds: item.biomeIds.length ? item.biomeIds.join(",") : undefined,
+                                })}
                                 className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-amber-300 transition-all hover:bg-amber-500/20"
                             >
                                 GENERATE EXPLORATION SPRITE
                             </Link>
                             <Link
-                                to={`/asset-generator?tab=ecology-illustrations&subCategory=fauna&targetKind=fauna&targetId=${encodeURIComponent(item.id)}${worldId ? `&worldId=${encodeURIComponent(worldId)}` : ""}`}
+                                to={buildAssetGeneratorRoute({
+                                    tab: "ecology-illustrations",
+                                    subCategory: "fauna",
+                                    targetKind: "fauna",
+                                    targetId: item.id,
+                                    worldId,
+                                })}
                                 className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20"
                             >
                                 GENERATE ILLUSTRATION
@@ -1283,7 +1315,14 @@ function BiomeEditor({
                                     OPEN
                                 </button>
                                 <Link
-                                    to={`/asset-generator?tab=game-assets&assetType=vegetation&targetKind=flora&targetId=${encodeURIComponent(entry.id)}${worldId ? `&worldId=${encodeURIComponent(worldId)}` : ""}&biomeId=${encodeURIComponent(item.id)}`}
+                                    to={buildAssetGeneratorRoute({
+                                        tab: "game-assets",
+                                        assetType: "vegetation",
+                                        targetKind: "flora",
+                                        targetId: entry.id,
+                                        worldId,
+                                        biomeId: item.id,
+                                    })}
                                     className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-bold tracking-widest text-emerald-300"
                                 >
                                     VEGETATION
@@ -1369,7 +1408,7 @@ function AssetBatchChips({ label, batchIds, tab }: { label: string; batchIds: st
                 {batchIds.map((batchId) => (
                     <Link
                         key={batchId}
-                        to={`/asset-generator?tab=${encodeURIComponent(tab)}&batchId=${encodeURIComponent(batchId)}`}
+                        to={buildAssetGeneratorRoute({ tab, batchId })}
                         className="rounded-full border border-white/10 bg-[#0a0f14] px-3 py-1 text-[10px] font-mono text-gray-300 hover:border-cyan-500/30 hover:text-cyan-300"
                     >
                         {batchId}
@@ -1555,7 +1594,7 @@ function IllustrationPreviewCard({
                         {previewBatchId}
                     </span>
                     <Link
-                        to={`/asset-generator?tab=${encodeURIComponent(previewTab)}&batchId=${encodeURIComponent(previewBatchId)}`}
+                        to={buildAssetGeneratorRoute({ tab: previewTab, batchId: previewBatchId })}
                         className="shrink-0 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 font-bold tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20"
                     >
                         OPEN BATCH

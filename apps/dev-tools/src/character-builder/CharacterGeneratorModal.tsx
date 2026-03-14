@@ -3,6 +3,7 @@ import { Modal, Slider } from "@ashtrail/ui";
 import { Character, GameRegistry, Trait, Occupation, Stats, CharacterType, DEFAULT_CHARACTER_CREDITS } from "@ashtrail/core";
 import { useJobs } from "../jobs/useJobs";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
+import { DEVTOOLS_ROUTES } from "../lib/routes";
 
 interface CharacterGeneratorModalProps {
     open: boolean;
@@ -91,7 +92,7 @@ export function CharacterGeneratorModal({
                     },
                 },
                 restore: {
-                    route: "/character-builder",
+                    route: DEVTOOLS_ROUTES.characterBuilder,
                     payload: {
                         worldId,
                         prompt,

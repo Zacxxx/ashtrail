@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { TabBar } from "@ashtrail/ui";
 import { useActiveWorld } from "../hooks/useActiveWorld";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import { JobsDropdown } from "../jobs/JobsDropdown";
 import { useJobs } from "../jobs/useJobs";
 import { WorldPickerModal } from "./WorldPickerModal";
+import { buildQuestsRoute, DEVTOOLS_ROUTES } from "../lib/routes";
 
 export function GlobalHeader() {
     const { activeWorldId } = useActiveWorld();
@@ -15,10 +16,11 @@ export function GlobalHeader() {
     const navigate = useNavigate();
     const jobsRef = useRef<HTMLDivElement | null>(null);
     const { activeCount, isPanelOpen, setPanelOpen } = useJobs();
+    const isHub = Boolean(useMatch({ path: DEVTOOLS_ROUTES.root, end: true }));
+    const isQuests = Boolean(useMatch({ path: DEVTOOLS_ROUTES.quests, end: true }));
+    const isWorldgen = Boolean(useMatch({ path: DEVTOOLS_ROUTES.worldgen, end: true }));
 
     const selectedWorld = history.find(h => h.id === activeWorldId);
-    const isHub = location.pathname === "/";
-    const isQuests = location.pathname === "/quests";
     const questTab = (() => {
         const tab = new URLSearchParams(location.search).get("tab");
         return tab === "run" || tab === "archive" ? tab : "seed";
@@ -33,7 +35,7 @@ export function GlobalHeader() {
             <TabBar
                 tabs={["seed", "run", "archive"]}
                 activeTab={questTab}
-                onTabChange={(tab) => navigate(`/quests?tab=${tab}`)}
+                onTabChange={(tab) => navigate(buildQuestsRoute(tab))}
                 className="min-w-[290px]"
             />
         </div>
@@ -56,7 +58,7 @@ export function GlobalHeader() {
                 {/* Left: Logo & Back Button */}
                 <div className="flex items-center gap-6">
                     {!isHub && (
-                        <Link to="/" className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 hover:text-white transition-all">
+                        <Link to={DEVTOOLS_ROUTES.root} className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 hover:text-white transition-all">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                         </Link>
                     )}
@@ -109,7 +111,7 @@ export function GlobalHeader() {
                         {isPanelOpen && <JobsDropdown />}
                     </div>
 
-                    {location.pathname !== "/worldgen" && (
+                    {!isWorldgen && (
                         <button
                             onClick={() => setIsPickerOpen(true)}
                             className={`flex items-center justify-center w-9 h-9 rounded-full border transition-all shadow-lg ${isPickerOpen ? 'bg-[#E6E6FA]/20 border-[#E6E6FA]/50 text-[#E6E6FA]' : 'bg-[#1e1e1e]/60 border-white/5 text-gray-400 hover:text-white hover:bg-white/5'}`}

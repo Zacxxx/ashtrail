@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Card, Button, Badge, ProgressBar, ScreenShell, Stack, Container } from '../../UI/Primitives';
+import { Card, Button, Badge, ProgressBar, ScreenShell, Stack, Container } from '@ashtrail/ui';
 
 interface SettingsScreenProps {
   onBack: () => void;

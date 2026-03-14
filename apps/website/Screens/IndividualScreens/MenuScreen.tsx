@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Button, ScreenShell, Stack, Container } from '../../UI/Primitives';
+import { Button, ScreenShell, Stack, Container } from '@ashtrail/ui';
 import { calculateClockState, ClockState } from '@ashtrail/core';
 
 interface MenuScreenProps {

@@ -5,6 +5,7 @@ import type { Area } from "./locationTypes";
 import type { Character } from "./CharactersTab";
 import { useJobs } from "../jobs/useJobs";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
+import { DEVTOOLS_ROUTES } from "../lib/routes";
 
 // ── Types ──
 
@@ -145,7 +146,7 @@ export function AiGenerateModal({
                     currentStage: "Queued",
                 },
                 restore: {
-                    route: "/history",
+                    route: DEVTOOLS_ROUTES.history,
                     payload: {
                         entityType,
                         count,
