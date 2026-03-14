@@ -62,7 +62,7 @@ export interface TacticalEntity {
     level: number;
     gridPos: GridPos;
     equipped?: Record<string, Item | null>;
-    activeEffects?: (GameplayEffect & { justApplied?: boolean; protectorId?: string; lastKnownPosition?: GridPos })[];
+    activeEffects?: GameplayEffect[];
     baseStats: BaseStats;
 }
 

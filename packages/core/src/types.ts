@@ -109,6 +109,19 @@ export interface GameplayEffect {
   stacking?: EffectStacking;
   condition?: EffectCondition;
   icon?: string;
+  instanceId?: string;
+  currentStacks?: number;
+  appliedTurn?: number;
+  sourceEntityId?: string;
+  applierId?: string;
+  skillId?: string;
+  itemId?: string;
+  dispellable?: boolean;
+  dispelPriority?: number;
+  dispelGroup?: string;
+  protectorId?: string;
+  lastKnownPosition?: { row: number; col: number };
+  justApplied?: boolean;
 }
 
 export interface Trait {
@@ -271,6 +284,7 @@ export interface CharacterProgression {
   unlockedTalentNodeIds: string[];
   availableTalentPoints: number;
   spentTalentPoints: number;
+  attributeUpgrades?: Stats;
   spentStatPoints?: number;
   spentPioneerOccupationPoints?: number;
   spentPioneerStatPoints?: number;

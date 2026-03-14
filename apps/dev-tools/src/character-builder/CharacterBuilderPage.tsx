@@ -183,7 +183,7 @@ function PrimaryOccupationDropdown({
     const isOverlay = variant === "overlay";
     const triggerClassName = isOverlay
         ? "text-[10px] font-black text-[#c2410c] transition-all hover:text-[#fb923c]"
-        : "w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-left text-[9px] font-black uppercase tracking-[0.18em] text-white transition-all hover:border-[#c2410c]/35 hover:bg-black/45";
+        : "text-[9px] font-medium uppercase tracking-[0.18em] text-gray-300 transition-all hover:text-white";
     const panelClassName = isOverlay
         ? "absolute left-1/2 top-full z-30 mt-2 w-[220px] -translate-x-1/2 rounded-2xl border border-[#c2410c]/20 bg-[#07090c]/95 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl"
         : "absolute left-0 top-full z-30 mt-2 w-full rounded-xl border border-white/10 bg-[#07090c]/95 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl";
@@ -217,10 +217,22 @@ function PrimaryOccupationDropdown({
                 </>
             )}
             {!isOverlay && (
-            <button
+                <button
+                    type="button"
+                    onClick={() => setOpen((current) => !current)}
+                    className={`flex items-center gap-2 ${triggerClassName}`}
+                >
+                    <span className="truncate">
+                        {(primaryOccupation.occupation?.name || primaryOccupation.occupationId)} Lv. {primaryOccupation.level}
+                    </span>
+                    <span className={`inline-block text-[9px] text-[#c2410c] transition-transform ${open ? "rotate-180" : ""}`}>v</span>
+                </button>
+            )}
+            {!isOverlay && false && (
+                <button
                 type="button"
                 onClick={() => setOpen((current) => !current)}
-                className={`flex items-center justify-between gap-3 ${triggerClassName}`}
+                className={`flex items-center gap-2 ${triggerClassName}`}
             >
                 <span className="truncate">
                     {(primaryOccupation.occupation?.name || primaryOccupation.occupationId)} Lv. {primaryOccupation.level}
@@ -286,6 +298,16 @@ function injectAppearanceTab(tabs: BuilderTab[]): BuilderTab[] {
 
 const DEFAULT_STATS: Stats = { strength: 3, agility: 3, intelligence: 3, wisdom: 3, endurance: 3, charisma: 3 };
 const ZERO_STATS: Stats = { strength: 0, agility: 0, intelligence: 0, wisdom: 0, endurance: 0, charisma: 0 };
+const normalizeStatAllocation = (value?: Partial<Stats> | null): Stats => ({
+    strength: Math.max(0, Math.floor(value?.strength ?? 0)),
+    agility: Math.max(0, Math.floor(value?.agility ?? 0)),
+    intelligence: Math.max(0, Math.floor(value?.intelligence ?? 0)),
+    wisdom: Math.max(0, Math.floor(value?.wisdom ?? 0)),
+    endurance: Math.max(0, Math.floor(value?.endurance ?? 0)),
+    charisma: Math.max(0, Math.floor(value?.charisma ?? 0)),
+});
+const sumStatAllocation = (value?: Partial<Stats> | null): number =>
+    Object.values(normalizeStatAllocation(value)).reduce((sum, entry) => sum + entry, 0);
 
 const RARITY_ORDER: Record<ItemRarity, number> = {
     ashmarked: 5,
@@ -1149,6 +1171,8 @@ export function CharacterBuilderPage() {
         const fallbackSpentTalentPoints = resolveOccupationTree(selectedOccupation?.id, unlockedTalentNodeIds)
             .unlockedNodes
             .reduce((sum, node) => sum + (node.cost || 1), 0);
+        const normalizedAttributeUpgrades = normalizeStatAllocation(attributeUpgrades);
+        const spentStatPoints = sumStatAllocation(normalizedAttributeUpgrades);
         const snapshotOccupationStates = ensureSinglePrimaryOccupation(
             (occupationStates.length > 0
                 ? occupationStates
@@ -1164,6 +1188,19 @@ export function CharacterBuilderPage() {
                 .map((state) => normalizeOccupationState(state, state.occupation)),
         );
         const primaryOccupationState = snapshotOccupationStates.find((state) => state.isPrimary) ?? snapshotOccupationStates[0];
+        const progressionPayload = {
+            treeOccupationId: primaryOccupationState?.occupationId,
+            unlockedTalentNodeIds: primaryOccupationState?.unlockedTalentNodeIds ?? [],
+            availableTalentPoints,
+            spentTalentPoints: primaryOccupationState?.spentTalentPoints ?? 0,
+            attributeUpgrades: normalizedAttributeUpgrades,
+            spentStatPoints,
+            spentPioneerOccupationPoints: resolvedProgression
+                ? Math.max(0, resolvedProgression.pioneerPointsTotal - resolvedProgression.availablePioneerPoints)
+                : undefined,
+            spentPioneerStatPoints: 0,
+            occupationStates: snapshotOccupationStates.length > 0 ? snapshotOccupationStates : undefined,
+        };
 
         return {
         id: charId,
@@ -1184,20 +1221,7 @@ export function CharacterBuilderPage() {
         traits: selectedTraits,
         occupation: primaryOccupationState?.occupation || selectedOccupation || undefined,
         occupations: snapshotOccupationStates.length > 0 ? snapshotOccupationStates : undefined,
-        progression: snapshotOccupationStates.length > 0 ? {
-            treeOccupationId: primaryOccupationState?.occupationId,
-            unlockedTalentNodeIds: primaryOccupationState?.unlockedTalentNodeIds ?? [],
-            availableTalentPoints,
-            spentTalentPoints: primaryOccupationState?.spentTalentPoints ?? 0,
-            spentStatPoints: resolvedProgression?.statPointsTotal !== undefined
-                ? Math.max(0, resolvedProgression.statPointsTotal - attributePoints)
-                : undefined,
-            spentPioneerOccupationPoints: resolvedProgression
-                ? Math.max(0, resolvedProgression.pioneerPointsTotal - resolvedProgression.availablePioneerPoints)
-                : undefined,
-            spentPioneerStatPoints: 0,
-            occupationStates: snapshotOccupationStates,
-        } : undefined,
+        progression: progressionPayload,
         hp: derivedStats.hp,
         maxHp: derivedStats.hp,
         xp,
@@ -1261,6 +1285,7 @@ export function CharacterBuilderPage() {
             resolvedCharacter.progression?.availableTalentPoints ??
             0,
         );
+        setAttributeUpgrades(normalizeStatAllocation(resolvedCharacter.progression?.attributeUpgrades));
         if (!isRedispatching) {
             setAttributePoints(resolvedCharacter.resolvedProgression?.availableStatPoints ?? 0);
         }
@@ -1612,20 +1637,19 @@ export function CharacterBuilderPage() {
         return {
             occupation: primaryState?.occupation,
             occupations: normalizedStates.length > 0 ? normalizedStates : undefined,
-            progression: normalizedStates.length > 0 ? {
+            progression: {
                 treeOccupationId: primaryState?.occupationId,
                 unlockedTalentNodeIds: primaryState?.unlockedTalentNodeIds ?? [],
                 availableTalentPoints,
                 spentTalentPoints: primaryState?.spentTalentPoints ?? 0,
-                spentStatPoints: resolvedProgression?.statPointsTotal !== undefined
-                    ? Math.max(0, resolvedProgression.statPointsTotal - attributePoints)
-                    : 0,
+                attributeUpgrades: normalizeStatAllocation(attributeUpgrades),
+                spentStatPoints: sumStatAllocation(attributeUpgrades),
                 spentPioneerOccupationPoints: resolvedProgression
                     ? Math.max(0, resolvedProgression.pioneerPointsTotal - resolvedProgression.availablePioneerPoints)
                     : 0,
                 spentPioneerStatPoints: 0,
-                occupationStates: normalizedStates,
-            } : undefined,
+                occupationStates: normalizedStates.length > 0 ? normalizedStates : undefined,
+            },
         };
     };
 
@@ -1814,7 +1838,7 @@ export function CharacterBuilderPage() {
         setRelationships(loadedRels);
         setSelectedTraits((char.traits || []).filter((trait) => !isOccupationLinkedTrait(trait)));
         setStats(char.stats);
-        setAttributeUpgrades({ ...ZERO_STATS });
+        setAttributeUpgrades(normalizeStatAllocation(char.progression?.attributeUpgrades));
         setIsRedispatching(false);
         setRedispatchPoints(null);
         setRedispatchUpgrades(null);
@@ -1865,9 +1889,7 @@ export function CharacterBuilderPage() {
         const usedTraitPoints = (char.traits || []).reduce((sum, t) => sum + t.cost, 0);
         setTraitPoints(15 - usedTraitPoints);
         const usedStatPoints = Object.values(char.stats).reduce((sum, v) => (sum as number) + (v as number), 0) - 18;
-        setStatsPoints(18 - usedStatPoints);
-        setAttributePoints(0);
-        setAttributeUpgrades({ ...ZERO_STATS });
+        setStatsPoints(Math.max(0, 18 - usedStatPoints));
         setIsRedispatching(false);
         setRedispatchPoints(null);
         setRedispatchUpgrades(null);
@@ -2156,6 +2178,7 @@ export function CharacterBuilderPage() {
                                 tabs={visibleTabs}
                                 activeTab={activeTab}
                                 onTabChange={(t) => setActiveTab(t as BuilderTab)}
+                                formatLabel={(tab) => tab === "STATS" ? "ATTRIBUTES" : tab.toUpperCase()}
                             />
                         </div>
 
@@ -2272,17 +2295,17 @@ export function CharacterBuilderPage() {
                                         </div>
                                     )}
 
-                                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-4">
-                                        <div className="space-y-1">
+                                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-4">
+                                        <div className="space-y-1 min-w-0">
                                             <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Name</label>
                                             <input value={name} onChange={e => setName(e.target.value)} placeholder="Enter name..." className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                         </div>
-                                        <div className="grid grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)_minmax(0,0.95fr)_minmax(0,1fr)] gap-4">
-                                            <div className="space-y-1">
+                                        <div className="flex flex-wrap items-end gap-4 xl:justify-end">
+                                            <div className="space-y-1 w-[calc(50%-0.5rem)] min-w-[96px] sm:w-24">
                                                 <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Age</label>
                                                 <input type="number" value={age} onChange={e => setAge(Math.max(18, parseInt(e.target.value) || 18))} min={18} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all" />
                                             </div>
-                                            <div className="space-y-1">
+                                            <div className="space-y-1 w-[calc(50%-0.5rem)] min-w-[96px] sm:w-24">
                                                 <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Level</label>
                                                 <input
                                                     type="number"
@@ -2293,7 +2316,7 @@ export function CharacterBuilderPage() {
                                                     className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all"
                                                 />
                                             </div>
-                                            <div className="space-y-1">
+                                            <div className="space-y-1 w-[calc(50%-0.5rem)] min-w-[112px] sm:w-28">
                                                 <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Pioneer</label>
                                                 <select
                                                     value={pioneerLevel}
@@ -2305,7 +2328,7 @@ export function CharacterBuilderPage() {
                                                     ))}
                                                 </select>
                                             </div>
-                                            <div className="space-y-1">
+                                            <div className="space-y-1 w-[calc(50%-0.5rem)] min-w-[112px] sm:w-32">
                                                 <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Gender</label>
                                                 <select value={gender} onChange={e => setGender(e.target.value)} className="w-full bg-black/50 border border-white/10 text-white px-4 py-2.5 rounded-lg text-sm outline-none focus:border-indigo-500/50 transition-all">
                                                     <option>Male</option>
@@ -2920,16 +2943,27 @@ export function CharacterBuilderPage() {
                             {activeTab === "STATS" && (
                                 <div className="space-y-6 max-w-xl">
                                     <div className="flex justify-between items-center">
-                                        <h2 className="text-lg font-black tracking-widest text-indigo-400 uppercase">Stats</h2>
-                                        <span className="text-xs font-mono text-gray-400">Points: <span className={statsPoints >= 0 ? "text-green-400" : "text-red-400"}>{statsPoints}</span></span>
+                                        <h2 className="text-lg font-black tracking-widest text-indigo-400 uppercase">Attributes</h2>
+                                        <div className="flex items-center gap-3 text-xs font-mono text-gray-400">
+                                            <span>Base: <span className={statsPoints >= 0 ? "text-green-400" : "text-red-400"}>{statsPoints}</span></span>
+                                            <span>Level-up: <span className={attributePoints >= 0 ? "text-cyan-400" : "text-red-400"}>{attributePoints}</span></span>
+                                        </div>
                                     </div>
+                                    <p className="text-[10px] uppercase tracking-[0.18em] text-gray-600">
+                                        Base attributes feed the calculated stats panel and stay aligned with level-up bonuses and equipped gear.
+                                    </p>
                                     <div className="space-y-3">
                                         {(Object.keys(stats) as (keyof Stats)[]).map(stat => (
                                             <div key={stat} className="flex items-center justify-between bg-black/40 p-4 rounded-xl border border-white/5">
-                                                <span className="text-sm font-bold uppercase tracking-widest text-gray-300 w-32">{stat}</span>
+                                                <div className="w-40">
+                                                    <div className="text-sm font-bold uppercase tracking-widest text-gray-300">{stat}</div>
+                                                    <div className="mt-1 text-[9px] font-bold uppercase tracking-[0.16em] text-gray-500">
+                                                        Base {stats[stat]}{attributeUpgrades[stat] !== 0 ? ` • +${attributeUpgrades[stat]} up` : ""}{equipmentStatModifiers[stat] !== 0 ? ` • ${equipmentStatModifiers[stat] > 0 ? `+${equipmentStatModifiers[stat]}` : equipmentStatModifiers[stat]} gear` : ""}
+                                                    </div>
+                                                </div>
                                                 <div className="flex items-center gap-4">
                                                     <button onClick={() => adjustStat(stat, -1)} className="w-8 h-8 bg-white/5 border border-white/10 rounded text-gray-400 hover:bg-white/10 transition-all font-bold">−</button>
-                                                    <span className="text-xl font-mono font-bold text-indigo-400 w-8 text-center">{stats[stat]}</span>
+                                                    <span className="text-xl font-mono font-bold text-indigo-400 w-8 text-center">{effectiveStats[stat]}</span>
                                                     <button onClick={() => adjustStat(stat, 1)} className="w-8 h-8 bg-white/5 border border-white/10 rounded text-gray-400 hover:bg-white/10 transition-all font-bold">+</button>
                                                 </div>
                                             </div>
@@ -3862,7 +3896,7 @@ export function CharacterBuilderPage() {
                                                 <section className="border border-white/5 bg-black/40 p-3 shadow-2xl">
                                                     <div className="mb-3 flex items-center gap-2">
                                                         <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
-                                                        <h4 className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#c2410c]">Story & Reputation</h4>
+                                                        <h4 className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#c2410c]">Alignment & Renown</h4>
                                                     </div>
 
                                                     <div className="space-y-2.5">
@@ -4557,12 +4591,17 @@ export function CharacterBuilderPage() {
                                             <div className="text-[9px] font-black text-orange-500 uppercase">Armor: {derivedStats.armor}</div>
                                         </div>
 
-                                        {/* Simple Status visualization */}
+                                        {/* Attribute recap */}
                                         <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
-                                            {Object.entries(stats).map(([s, v]) => (
-                                                <div key={s} className="flex justify-between items-center">
-                                                    <span className="text-[10px] text-gray-400 uppercase tracking-widest font-black">{s}</span>
-                                                    <span className="text-sm text-indigo-400 font-bold">{v}</span>
+                                            {(Object.entries(effectiveStats) as [keyof Stats, number][]).map(([stat, value]) => (
+                                                <div key={stat} className="flex items-center justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="text-[10px] text-gray-400 uppercase tracking-widest font-black">{stat}</div>
+                                                        <div className="mt-1 text-[8px] text-gray-600 uppercase tracking-[0.16em] font-bold">
+                                                            Base {stats[stat]}{attributeUpgrades[stat] !== 0 ? ` • +${attributeUpgrades[stat]} up` : ""}{equipmentStatModifiers[stat] !== 0 ? ` • ${equipmentStatModifiers[stat] > 0 ? `+${equipmentStatModifiers[stat]}` : equipmentStatModifiers[stat]} gear` : ""}
+                                                        </div>
+                                                    </div>
+                                                    <span className="shrink-0 text-sm text-indigo-400 font-bold">{value}</span>
                                                 </div>
                                             ))}
                                         </div>

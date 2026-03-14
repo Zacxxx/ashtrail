@@ -574,6 +574,67 @@ fn value_as_string_vec(value: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn strip_utf8_bom(raw: &str) -> &str {
+    raw.strip_prefix('\u{feff}').unwrap_or(raw)
+}
+
+const DEFAULT_BUILDER_BASELINE_STAT_SUM: u16 = 36;
+const STAT_KEYS: [&str; 6] = [
+    "strength",
+    "agility",
+    "intelligence",
+    "wisdom",
+    "endurance",
+    "charisma",
+];
+
+fn stats_sum_from_root(root: &Map<String, Value>) -> Option<u16> {
+    let stats = root.get("stats")?.as_object()?;
+    Some(STAT_KEYS.into_iter().map(|key| value_as_u16(stats.get(key))).sum())
+}
+
+fn normalize_attribute_upgrades_value(value: Option<&Value>) -> Value {
+    let source = value.and_then(Value::as_object);
+    let mut normalized = Map::new();
+    for key in STAT_KEYS {
+        normalized.insert(key.to_string(), Value::from(value_as_u16(source.and_then(|entry| entry.get(key)))));
+    }
+    Value::Object(normalized)
+}
+
+fn stat_sum_from_value(value: &Value) -> u16 {
+    value
+        .as_object()
+        .map(|stats| STAT_KEYS.into_iter().map(|key| value_as_u16(stats.get(key))).sum())
+        .unwrap_or(0)
+}
+
+fn repair_polluted_spent_stat_points(
+    root: &Map<String, Value>,
+    spent_stat_points: u16,
+    level: u8,
+    rules: &XpAndLevelingRules,
+    attribute_upgrade_points: u16,
+) -> u16 {
+    let stat_points_total = stat_points_total_for_level(level, rules);
+
+    if attribute_upgrade_points > 0 {
+        return attribute_upgrade_points.min(stat_points_total);
+    }
+
+    if spent_stat_points == 0 {
+        return 0;
+    }
+
+    let stats_sum = stats_sum_from_root(root).unwrap_or(u16::MAX);
+
+    if spent_stat_points == stat_points_total && stats_sum <= DEFAULT_BUILDER_BASELINE_STAT_SUM {
+        return 0;
+    }
+
+    spent_stat_points.min(stat_points_total)
+}
+
 fn lookup_occupation_value(
     occupation_id: &str,
     fallback: Option<&Value>,
@@ -650,6 +711,24 @@ pub fn normalize_character_payload(
     let canonical_level = character_level_from_total_xp(total_xp, &rules.xp_and_leveling);
     root.insert("xp".to_string(), Value::from(total_xp));
     root.insert("level".to_string(), Value::from(canonical_level));
+    let raw_spent_stat_points = root
+        .get("progression")
+        .and_then(Value::as_object)
+        .map(|progression| value_as_u16(progression.get("spentStatPoints")))
+        .unwrap_or(0);
+    let normalized_attribute_upgrades = normalize_attribute_upgrades_value(
+        root.get("progression")
+            .and_then(Value::as_object)
+            .and_then(|progression| progression.get("attributeUpgrades")),
+    );
+    let attribute_upgrade_points = stat_sum_from_value(&normalized_attribute_upgrades);
+    let repaired_spent_stat_points = repair_polluted_spent_stat_points(
+        root,
+        raw_spent_stat_points,
+        canonical_level,
+        &rules.xp_and_leveling,
+        attribute_upgrade_points,
+    );
 
     let occupation_from_root = root.get("occupation").cloned();
     let occupation_id_from_root = occupation_from_root
@@ -696,7 +775,7 @@ pub fn normalize_character_payload(
                 talent_cost_for_unlocks(occupation_id, &legacy_unlocked_talent_node_ids, content)
             })
             .unwrap_or_else(|| value_as_u16(progression.get("spentTalentPoints")));
-        let spent_stat_points = value_as_u16(progression.get("spentStatPoints"));
+        let spent_stat_points = repaired_spent_stat_points;
         let spent_pioneer_occupation_points =
             value_as_u16(progression.get("spentPioneerOccupationPoints"));
         let spent_pioneer_stat_points = value_as_u16(progression.get("spentPioneerStatPoints"));
@@ -828,6 +907,10 @@ pub fn normalize_character_payload(
             Value::from(primary_spent_talent_points),
         );
         progression.insert(
+            "attributeUpgrades".to_string(),
+            normalized_attribute_upgrades.clone(),
+        );
+        progression.insert(
             "spentStatPoints".to_string(),
             Value::from(spent_stat_points),
         );
@@ -935,7 +1018,7 @@ pub fn migrate_generated_characters_on_startup() -> Result<(), String> {
             }
         };
 
-        let payload = match serde_json::from_str::<Value>(&raw) {
+        let payload = match serde_json::from_str::<Value>(strip_utf8_bom(&raw)) {
             Ok(payload) => payload,
             Err(error) => {
                 warn!("Could not parse character file {}: {error}", path.display());
@@ -1207,5 +1290,89 @@ mod tests {
         assert_eq!(normalized.pointer("/resolvedProgression/occupationUnlockPointsSpent").and_then(Value::as_u64), Some(2));
         assert_eq!(normalized.pointer("/resolvedProgression/occupationTalentPointsSpent").and_then(Value::as_u64), Some(3));
         assert_eq!(normalized.pointer("/resolvedProgression/availableTalentPoints").and_then(Value::as_u64), Some(0));
+    }
+
+    #[test]
+    fn polluted_spent_stat_points_are_repaired_for_unupgraded_characters() {
+        let rules = crate::game_rules::load_rules_from_file();
+        let payload = json!({
+            "id": "char-polluted-stats",
+            "name": "Polluted",
+            "stats": {
+                "strength": 3,
+                "agility": 3,
+                "intelligence": 10,
+                "wisdom": 8,
+                "endurance": 4,
+                "charisma": 8
+            },
+            "traits": [],
+            "inventory": [],
+            "level": 30,
+            "xp": 3_664_000,
+            "progression": {
+                "spentStatPoints": 10
+            }
+        });
+
+        let normalized = normalize_character_payload(payload, &rules, None);
+        assert_eq!(
+            normalized
+                .pointer("/progression/spentStatPoints")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            normalized
+                .pointer("/resolvedProgression/availableStatPoints")
+                .and_then(Value::as_u64),
+            Some(10)
+        );
+    }
+
+    #[test]
+    fn attribute_upgrades_drive_spent_stat_points_canonically() {
+        let rules = crate::game_rules::load_rules_from_file();
+        let payload = json!({
+            "id": "char-attr-upgrades",
+            "name": "Allocated",
+            "stats": {
+                "strength": 3,
+                "agility": 3,
+                "intelligence": 3,
+                "wisdom": 3,
+                "endurance": 3,
+                "charisma": 3
+            },
+            "traits": [],
+            "inventory": [],
+            "level": 12,
+            "xp": 39_671,
+            "progression": {
+                "spentStatPoints": 0,
+                "attributeUpgrades": {
+                    "strength": 2,
+                    "agility": 1,
+                    "intelligence": 0,
+                    "wisdom": 0,
+                    "endurance": 1,
+                    "charisma": 0
+                }
+            }
+        });
+
+        let normalized = normalize_character_payload(payload, &rules, None);
+        assert_eq!(
+            normalized
+                .pointer("/progression/spentStatPoints")
+                .and_then(Value::as_u64),
+            Some(4)
+        );
+        assert_eq!(
+            normalized
+                .pointer("/resolvedProgression/availableStatPoints")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
     }
 }

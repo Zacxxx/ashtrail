@@ -158,6 +158,14 @@
     "mother": null
   },
   "progression": {
+    "attributeUpgrades": {
+      "agility": 0,
+      "charisma": 0,
+      "endurance": 0,
+      "intelligence": 0,
+      "strength": 0,
+      "wisdom": 0
+    },
     "availableTalentPoints": 11,
     "occupationStates": [
       {

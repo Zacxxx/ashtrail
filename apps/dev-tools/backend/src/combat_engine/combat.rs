@@ -11,6 +11,13 @@ use super::grid::{
     get_neighbors, get_reachable_cells, highlight_cells, move_entity_on_grid, place_entity,
     remove_entity,
 };
+use super::modifiers::{
+    canonicalize_effect_target, effect_blocks_action, effect_dispel_group, effect_is_buff, effect_is_debuff,
+    effect_is_dispellable, effect_max_stacks, effect_stack_group, effect_stack_mode, effect_tags,
+    is_damage_over_time_effect, is_heal_over_time_effect, is_protection_stance_effect,
+    is_stealth_effect, status_immunity_blocks_effect, tick_phase_for_effect,
+    Phase as ModifierPhase, StackMode,
+};
 use super::rules::GameRulesConfig;
 use super::skill_basics::{
     analyze_crit_bonus, compute_basic_attack_preview, compute_basic_attack_roll,
@@ -34,6 +41,13 @@ pub struct CombatState {
     pub turn_number: u32,
     pub rules: GameRulesConfig,
     log_counter: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct EffectApplyResult {
+    applied: bool,
+    blocked_by_immunity: bool,
+    current_stacks: u32,
 }
 
 impl CombatState {
@@ -264,6 +278,9 @@ impl CombatState {
                 attacker.ap
             ));
         }
+        if Self::entity_has_action_lock(attacker, "attack") {
+            return Err("Attack is blocked by an active effect".to_string());
+        }
 
         let attack_range = Self::basic_attack_range(attacker);
         let (valid, blocked) = get_attackable_cells_split(
@@ -321,6 +338,16 @@ impl CombatState {
             if *cooldown > 1 {
                 return Err(format!("{} is on cooldown", skill.name));
             }
+        }
+        let action_key = if skill.id == "defend" {
+            "defend"
+        } else if matches!(skill.effect_type, Some(SkillEffectType::Physical)) {
+            "attack"
+        } else {
+            "cast"
+        };
+        if Self::entity_has_action_lock(caster, action_key) {
+            return Err(format!("{} is blocked by an active effect", skill.name));
         }
         if !cell.walkable {
             return Err("Cannot target obstacles.".to_string());
@@ -442,14 +469,175 @@ impl CombatState {
         mut effect: GameplayEffect,
         rules: &GameRulesConfig,
         mark_as_just_applied: bool,
-    ) {
+        source_entity_id: Option<&str>,
+        applier_id: Option<&str>,
+        skill_id: Option<&str>,
+        item_id: Option<&str>,
+        turn_number: u32,
+    ) -> EffectApplyResult {
+        if Self::is_effect_blocked_by_immunity(entity, &effect) {
+            return EffectApplyResult {
+                applied: false,
+                blocked_by_immunity: true,
+                current_stacks: 0,
+            };
+        }
+
         if mark_as_just_applied {
             mark_just_applied(&mut effect);
         }
         let mut effects = entity.active_effects.take().unwrap_or_default();
-        effects.push(effect);
-        entity.active_effects = Some(effects);
+        effect.instance_id = effect.instance_id.or_else(|| {
+            Some(format!(
+                "{}:{}:{}",
+                effect.id.clone().unwrap_or_else(|| "runtime-effect".to_string()),
+                entity.id,
+                effects.len()
+            ))
+        });
+        effect.current_stacks = Some(effect.current_stacks.unwrap_or(1));
+        effect.applied_turn = Some(effect.applied_turn.unwrap_or(turn_number));
+        effect.source_entity_id = effect
+            .source_entity_id
+            .or_else(|| source_entity_id.map(ToString::to_string));
+        effect.applier_id = effect
+            .applier_id
+            .or_else(|| applier_id.map(ToString::to_string));
+        effect.skill_id = effect.skill_id.or_else(|| skill_id.map(ToString::to_string));
+        effect.item_id = effect.item_id.or_else(|| item_id.map(ToString::to_string));
+        effect.dispellable = Some(effect_is_dispellable(&effect));
+        effect.dispel_group = effect.dispel_group.clone().or_else(|| effect_dispel_group(&effect));
+
+        let stack_group = effect_stack_group(&effect);
+        let stack_mode = effect_stack_mode(&effect);
+        let max_stacks = effect_max_stacks(&effect).unwrap_or(u32::MAX);
+        let matching_indices: Vec<usize> = stack_group
+            .as_ref()
+            .map(|group| {
+                effects
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, existing)| {
+                        if effect_stack_group(existing).as_deref() == Some(group.as_str()) {
+                            Some(index)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut result = EffectApplyResult {
+            applied: true,
+            blocked_by_immunity: false,
+            current_stacks: effect.current_stacks.unwrap_or(1),
+        };
+
+        match stack_mode {
+            Some(StackMode::Replace) if !matching_indices.is_empty() => {
+                effects = effects
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(index, existing)| {
+                        if matching_indices.contains(&index) {
+                            None
+                        } else {
+                            Some(existing)
+                        }
+                    })
+                    .collect();
+                effects.push(effect);
+            }
+            Some(StackMode::RefreshDuration) | Some(StackMode::Stack) | Some(StackMode::MaxValue)
+            | Some(StackMode::MinValue) if !matching_indices.is_empty() => {
+                let first_index = matching_indices[0];
+                let mut merged = effects[first_index].clone();
+                for duplicate_index in matching_indices.iter().skip(1).rev() {
+                    let duplicate = effects.remove(*duplicate_index);
+                    if let Some(duration) = duplicate.duration {
+                        merged.duration = Some(merged.duration.unwrap_or(duration).max(duration));
+                    }
+                    merged.current_stacks = Some(
+                        merged
+                            .current_stacks
+                            .unwrap_or(1)
+                            .saturating_add(duplicate.current_stacks.unwrap_or(1)),
+                    );
+                    if matches!(stack_mode, Some(StackMode::Stack)) {
+                        merged.value += duplicate.value;
+                    } else if matches!(stack_mode, Some(StackMode::MaxValue)) {
+                        merged.value = merged.value.max(duplicate.value);
+                    } else if matches!(stack_mode, Some(StackMode::MinValue)) {
+                        merged.value = merged.value.min(duplicate.value);
+                    }
+                }
+
+                match stack_mode {
+                    Some(StackMode::RefreshDuration) => {
+                        if let Some(duration) = effect.duration {
+                            merged.duration = Some(merged.duration.unwrap_or(duration).max(duration));
+                        }
+                        if effect.value.abs() >= merged.value.abs() {
+                            merged.value = effect.value;
+                        }
+                    }
+                    Some(StackMode::Stack) => {
+                        let current = merged.current_stacks.unwrap_or(1);
+                        if current < max_stacks {
+                            merged.current_stacks = Some((current + 1).min(max_stacks));
+                            merged.value += effect.value;
+                        } else if let Some(duration) = effect.duration {
+                            merged.duration = Some(merged.duration.unwrap_or(duration).max(duration));
+                        }
+                    }
+                    Some(StackMode::MaxValue) => {
+                        merged.value = merged.value.max(effect.value);
+                        if let Some(duration) = effect.duration {
+                            merged.duration = Some(merged.duration.unwrap_or(duration).max(duration));
+                        }
+                    }
+                    Some(StackMode::MinValue) => {
+                        merged.value = merged.value.min(effect.value);
+                        if let Some(duration) = effect.duration {
+                            merged.duration = Some(merged.duration.unwrap_or(duration).max(duration));
+                        }
+                    }
+                    _ => {}
+                }
+
+                merged.dispellable = Some(effect_is_dispellable(&merged));
+                merged.dispel_group = merged.dispel_group.clone().or_else(|| effect_dispel_group(&merged));
+                result.current_stacks = merged.current_stacks.unwrap_or(1);
+                effects[first_index] = merged;
+            }
+            _ => {
+                effects.push(effect.clone());
+                result.current_stacks = effect.current_stacks.unwrap_or(1);
+            }
+        }
+
+        entity.active_effects = if effects.is_empty() { None } else { Some(effects) };
         Self::refresh_entity_state(entity, rules, true);
+        result
+    }
+
+    fn is_effect_blocked_by_immunity(entity: &TacticalEntity, incoming: &GameplayEffect) -> bool {
+        entity
+            .active_effects
+            .as_ref()
+            .is_some_and(|effects| {
+                effects
+                    .iter()
+                    .any(|active| status_immunity_blocks_effect(active, incoming))
+            })
+    }
+
+    fn entity_has_action_lock(entity: &TacticalEntity, action: &str) -> bool {
+        entity
+            .active_effects
+            .as_ref()
+            .is_some_and(|effects| effects.iter().any(|effect| effect_blocks_action(effect, action)))
     }
 
     fn refresh_entity_state(
@@ -501,7 +689,7 @@ impl CombatState {
         if let Some(entity) = self.entities.get_mut(entity_id) {
             if let Some(mut effects) = entity.active_effects.take() {
                 let initial_len = effects.len();
-                effects.retain(|effect| effect.effect_type != EffectType::Stealth);
+                effects.retain(|effect| !is_stealth_effect(effect));
                 let broke = effects.len() < initial_len;
                 if effects.is_empty() {
                     entity.active_effects = None;
@@ -512,6 +700,78 @@ impl CombatState {
             }
         }
         false
+    }
+
+    fn dispel_entity_effects_with_predicate<F>(
+        &mut self,
+        entity_id: &str,
+        only_dispellable: bool,
+        predicate: F,
+    ) -> usize
+    where
+        F: Fn(&GameplayEffect) -> bool,
+    {
+        let mut removed = 0usize;
+        if let Some(entity) = self.entities.get_mut(entity_id) {
+            let mut effects = entity.active_effects.take().unwrap_or_default();
+            effects.retain(|effect| {
+                let should_remove = predicate(effect)
+                    && (!only_dispellable || effect_is_dispellable(effect));
+                if should_remove {
+                    removed += 1;
+                    false
+                } else {
+                    true
+                }
+            });
+            entity.active_effects = if effects.is_empty() { None } else { Some(effects) };
+            if removed > 0 {
+                Self::refresh_entity_state(entity, &self.rules, false);
+            }
+        }
+        removed
+    }
+
+    pub fn dispel_entity_buffs(&mut self, entity_id: &str, only_dispellable: bool) -> usize {
+        self.dispel_entity_effects_with_predicate(entity_id, only_dispellable, effect_is_buff)
+    }
+
+    pub fn dispel_entity_debuffs(&mut self, entity_id: &str, only_dispellable: bool) -> usize {
+        self.dispel_entity_effects_with_predicate(entity_id, only_dispellable, effect_is_debuff)
+    }
+
+    pub fn dispel_entity_effects_by_group(
+        &mut self,
+        entity_id: &str,
+        group: &str,
+        only_dispellable: bool,
+    ) -> usize {
+        self.dispel_entity_effects_with_predicate(entity_id, only_dispellable, |effect| {
+            effect_dispel_group(effect).as_deref() == Some(group)
+                || effect_stack_group(effect).as_deref() == Some(group)
+        })
+    }
+
+    pub fn dispel_entity_effects_by_source(
+        &mut self,
+        entity_id: &str,
+        source_entity_id: &str,
+        only_dispellable: bool,
+    ) -> usize {
+        self.dispel_entity_effects_with_predicate(entity_id, only_dispellable, |effect| {
+            effect.source_entity_id.as_deref() == Some(source_entity_id)
+        })
+    }
+
+    pub fn dispel_entity_effects_by_tag(
+        &mut self,
+        entity_id: &str,
+        tag: &str,
+        only_dispellable: bool,
+    ) -> usize {
+        self.dispel_entity_effects_with_predicate(entity_id, only_dispellable, |effect| {
+            effect_tags(effect).iter().any(|effect_tag| effect_tag == tag)
+        })
     }
 
     fn apply_protection_to_target(
@@ -529,7 +789,7 @@ impl CombatState {
         let Some(protection) = target.active_effects.as_ref().and_then(|effects| {
             effects
                 .iter()
-                .find(|effect| effect.effect_type == EffectType::ProtectionStance)
+                .find(|effect| is_protection_stance_effect(effect))
         }) else {
             return (incoming_damage, defeated);
         };
@@ -598,6 +858,118 @@ impl CombatState {
         );
 
         (defend.ally_damage, defeated)
+    }
+
+    fn process_periodic_effects_for_entity(
+        &mut self,
+        entity_id: &str,
+        phase: ModifierPhase,
+    ) -> Vec<(String, GridPos, String)> {
+        let effects = self
+            .entities
+            .get(entity_id)
+            .and_then(|entity| entity.active_effects.clone())
+            .unwrap_or_default();
+
+        let mut defeated = Vec::new();
+
+        for effect in effects {
+            if effect.just_applied.unwrap_or(false) {
+                continue;
+            }
+
+            if tick_phase_for_effect(&effect) != Some(phase) {
+                continue;
+            }
+
+            if is_damage_over_time_effect(&effect) {
+                let damage = effect.value.max(0.0) as i32;
+                if damage <= 0 {
+                    continue;
+                }
+
+                let mut new_hp = 0;
+                let mut name = String::new();
+                if let Some(entity) = self.entities.get_mut(entity_id) {
+                    entity.hp = (entity.hp - damage).max(0);
+                    new_hp = entity.hp;
+                    name = entity.name.clone();
+                }
+
+                self.add_log(
+                    &format!(
+                        "☠️ {} suffers {} damage from {}.",
+                        name,
+                        damage,
+                        effect
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| "damage over time".to_string())
+                    ),
+                    LogType::Damage,
+                );
+
+                if damage > 0 && self.break_stealth(entity_id) {
+                    self.add_log(
+                        &format!("👁️ {} was REVEALED by periodic damage!", name),
+                        LogType::Info,
+                    );
+                }
+
+                if new_hp <= 0 {
+                    if let Some(entity) = self.entities.get(entity_id) {
+                        defeated.push((entity.id.clone(), entity.grid_pos.clone(), entity.name.clone()));
+                    }
+                }
+            } else if is_heal_over_time_effect(&effect) {
+                let mut actual_heal = 0;
+                let mut name = String::new();
+                if let Some(entity) = self.entities.get_mut(entity_id) {
+                    let heal = effect.value.max(0.0) as i32;
+                    actual_heal = heal.min(entity.max_hp - entity.hp);
+                    entity.hp = (entity.hp + heal).min(entity.max_hp);
+                    name = entity.name.clone();
+                }
+
+                if actual_heal > 0 {
+                    self.add_log(
+                        &format!(
+                            "✨ {} recovers {} HP from {}.",
+                            name,
+                            actual_heal,
+                            effect
+                                .name
+                                .clone()
+                                .unwrap_or_else(|| "healing over time".to_string())
+                        ),
+                        LogType::Heal,
+                    );
+                }
+            }
+        }
+
+        defeated
+    }
+
+    fn resolve_defeated_entities(
+        &mut self,
+        defeated_ids: &[(String, GridPos, String)],
+        events: &mut Vec<CombatEvent>,
+    ) {
+        for (def_id, def_pos, def_name) in defeated_ids {
+            self.add_log(
+                &format!("💀 {def_name} has been defeated!"),
+                LogType::System,
+            );
+            remove_entity(&mut self.grid, def_pos.row, def_pos.col);
+            events.push(CombatEvent::EntityDefeated {
+                entity_id: def_id.clone(),
+            });
+        }
+
+        for (def_id, _, _) in defeated_ids {
+            events.extend(self.check_win_loss(def_id));
+        }
     }
 
     pub fn preview_move(
@@ -762,17 +1134,61 @@ impl CombatState {
     // ── Calculate Effective Stats ───────────────────────────
 
     pub fn calculate_effective_stats(base: &mut TacticalEntity, rules: &GameRulesConfig) {
-        let mut hp_bonus = 0i32;
-        let mut ap_bonus = 0i32;
-        let mut mp_bonus = 0i32;
-        let mut str_bonus = 0i32;
-        let mut agi_bonus = 0i32;
-        let mut int_bonus = 0i32;
-        let mut wis_bonus = 0i32;
-        let mut endu_bonus = 0i32;
-        let mut cha_bonus = 0i32;
-        let mut eva_bonus = 0i32;
-        let mut def_bonus = 0i32;
+        #[derive(Default, Clone, Copy)]
+        struct NumericModifier {
+            flat: f64,
+            percent: f64,
+        }
+
+        impl NumericModifier {
+            fn apply(&self, base_value: f64) -> f64 {
+                (base_value + self.flat) * (1.0 + self.percent / 100.0)
+            }
+        }
+
+        let mut hp_modifier = NumericModifier::default();
+        let mut ap_modifier = NumericModifier::default();
+        let mut mp_modifier = NumericModifier::default();
+        let mut str_modifier = NumericModifier::default();
+        let mut agi_modifier = NumericModifier::default();
+        let mut int_modifier = NumericModifier::default();
+        let mut wis_modifier = NumericModifier::default();
+        let mut endu_modifier = NumericModifier::default();
+        let mut cha_modifier = NumericModifier::default();
+        let mut eva_modifier = NumericModifier::default();
+        let mut def_modifier = NumericModifier::default();
+        let mut crit_modifier = NumericModifier::default();
+        let mut resist_modifier = NumericModifier::default();
+        let mut social_modifier = NumericModifier::default();
+
+        let apply_effect = |target: &str, value: f64, is_percentage: bool, modifier: &mut NumericModifier| {
+            if is_percentage {
+                modifier.percent += value;
+            } else {
+                modifier.flat += value;
+            }
+            let _ = target;
+        };
+
+        let mut collect_effect = |target: &str, value: f64, is_percentage: bool| {
+            match target {
+                "maxHp" => apply_effect(target, value, is_percentage, &mut hp_modifier),
+                "maxAp" => apply_effect(target, value, is_percentage, &mut ap_modifier),
+                "maxMp" => apply_effect(target, value, is_percentage, &mut mp_modifier),
+                "strength" => apply_effect(target, value, is_percentage, &mut str_modifier),
+                "agility" => apply_effect(target, value, is_percentage, &mut agi_modifier),
+                "intelligence" => apply_effect(target, value, is_percentage, &mut int_modifier),
+                "wisdom" => apply_effect(target, value, is_percentage, &mut wis_modifier),
+                "endurance" => apply_effect(target, value, is_percentage, &mut endu_modifier),
+                "charisma" => apply_effect(target, value, is_percentage, &mut cha_modifier),
+                "evasion" => apply_effect(target, value, is_percentage, &mut eva_modifier),
+                "defense" => apply_effect(target, value, is_percentage, &mut def_modifier),
+                "critChance" => apply_effect(target, value, is_percentage, &mut crit_modifier),
+                "resistance" => apply_effect(target, value, is_percentage, &mut resist_modifier),
+                "socialBonus" => apply_effect(target, value, is_percentage, &mut social_modifier),
+                _ => {}
+            }
+        };
 
         for tr in &base.traits {
             if let Some(effects) = &tr.effects {
@@ -784,20 +1200,8 @@ impl CombatState {
                         || eff.effect_type == EffectType::CombatBonus
                     {
                         if let Some(target) = &eff.target {
-                            let val = eff.value as i32;
-                            match target.as_str() {
-                                "hp" | "maxHp" => hp_bonus += val,
-                                "ap" | "maxAp" => ap_bonus += val,
-                                "mp" | "maxMp" => mp_bonus += val,
-                                "strength" => str_bonus += val,
-                                "agility" => agi_bonus += val,
-                                "intelligence" => int_bonus += val,
-                                "wisdom" => wis_bonus += val,
-                                "endurance" => endu_bonus += val,
-                                "charisma" => cha_bonus += val,
-                                "evasion" => eva_bonus += val,
-                                "defense" | "armor" => def_bonus += val,
-                                _ => {}
+                            if let Some(canonical_target) = canonicalize_effect_target(Some(target.as_str())) {
+                                collect_effect(&canonical_target, eff.value, eff.is_percentage.unwrap_or(false));
                             }
                         }
                     }
@@ -814,22 +1218,19 @@ impl CombatState {
                     if let Some(effs) = item.get("effects").and_then(|v| v.as_array()) {
                         for eff in effs {
                             let e_type = eff.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                            let target = eff.get("target").and_then(|v| v.as_str()).unwrap_or("");
+                            let target = eff.get("target").and_then(|v| v.as_str());
                             let val = eff.get("value").map(value_to_i32).unwrap_or(0);
+                            let is_percentage = eff
+                                .get("isPercentage")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false)
+                                || eff
+                                    .get("stacking")
+                                    .and_then(|v| v.as_str())
+                                    == Some("multiplicative");
                             if e_type == "STAT_MODIFIER" || e_type == "COMBAT_BONUS" {
-                                match target {
-                                    "hp" | "maxHp" => hp_bonus += val,
-                                    "ap" | "maxAp" => ap_bonus += val,
-                                    "mp" | "maxMp" => mp_bonus += val,
-                                    "strength" => str_bonus += val,
-                                    "agility" => agi_bonus += val,
-                                    "intelligence" => int_bonus += val,
-                                    "wisdom" => wis_bonus += val,
-                                    "endurance" => endu_bonus += val,
-                                    "charisma" => cha_bonus += val,
-                                    "evasion" => eva_bonus += val,
-                                    "defense" | "armor" => def_bonus += val,
-                                    _ => {}
+                                if let Some(canonical_target) = canonicalize_effect_target(target) {
+                                    collect_effect(&canonical_target, val as f64, is_percentage);
                                 }
                             }
                         }
@@ -840,48 +1241,62 @@ impl CombatState {
 
         if let Some(effs) = &base.active_effects {
             for eff in effs {
-                if eff.effect_type == EffectType::StatModifier {
+                if eff.effect_type == EffectType::StatModifier
+                    || eff.effect_type == EffectType::CombatBonus
+                {
                     if let Some(target) = &eff.target {
-                        let val = eff.value as i32;
-                        match target.as_str() {
-                            "hp" | "maxHp" => hp_bonus += val,
-                            "ap" | "maxAp" => ap_bonus += val,
-                            "mp" | "maxMp" => mp_bonus += val,
-                            "strength" => str_bonus += val,
-                            "agility" => agi_bonus += val,
-                            "intelligence" => int_bonus += val,
-                            "wisdom" => wis_bonus += val,
-                            "endurance" => endu_bonus += val,
-                            "charisma" => cha_bonus += val,
-                            "evasion" => eva_bonus += val,
-                            "defense" | "armor" => def_bonus += val,
-                            _ => {}
+                        if let Some(canonical_target) = canonicalize_effect_target(Some(target.as_str())) {
+                            collect_effect(
+                                &canonical_target,
+                                eff.value,
+                                eff.is_percentage.unwrap_or(false)
+                                    || eff.stacking == Some(EffectStacking::Multiplicative),
+                            );
                         }
                     }
                 }
             }
         }
 
-        base.strength = (base.base_stats.strength + str_bonus).max(0);
-        base.agility = (base.base_stats.agility + agi_bonus).max(0);
-        base.intelligence = (base.base_stats.intelligence + int_bonus).max(0);
-        base.wisdom = (base.base_stats.wisdom + wis_bonus).max(0);
-        base.endurance = (base.base_stats.endurance + endu_bonus).max(0);
-        base.charisma = (base.base_stats.charisma + cha_bonus).max(0);
-        base.evasion = (base.base_stats.evasion + eva_bonus).max(0);
+        base.strength = str_modifier.apply(base.base_stats.strength as f64).floor().max(0.0) as i32;
+        base.agility = agi_modifier.apply(base.base_stats.agility as f64).floor().max(0.0) as i32;
+        base.intelligence = int_modifier
+            .apply(base.base_stats.intelligence as f64)
+            .floor()
+            .max(0.0) as i32;
+        base.wisdom = wis_modifier.apply(base.base_stats.wisdom as f64).floor().max(0.0) as i32;
+        base.endurance = endu_modifier
+            .apply(base.base_stats.endurance as f64)
+            .floor()
+            .max(0.0) as i32;
+        base.charisma = cha_modifier
+            .apply(base.base_stats.charisma as f64)
+            .floor()
+            .max(0.0) as i32;
+        base.evasion = eva_modifier.apply(base.base_stats.evasion as f64).floor().max(0.0) as i32;
 
         let agi_scale = rules.core.armor_agi_scale;
         let endu_scale = rules.core.armor_endu_scale;
         let base_armor_log = (agi_scale * ((base.agility.max(0) as f64) + 1.0).ln()
             + endu_scale * ((base.endurance.max(0) as f64) + 1.0).ln())
             as i32;
-        base.defense = base_armor_log + base.base_stats.defense + def_bonus;
+        base.defense = def_modifier
+            .apply((base_armor_log + base.base_stats.defense) as f64)
+            .floor()
+            .max(0.0) as i32;
 
-        base.max_hp =
-            1.max(base.endurance * rules.core.hp_per_endurance + rules.core.hp_base + hp_bonus);
-        base.max_ap =
-            1.max(rules.core.ap_base + base.agility / rules.core.ap_agility_divisor + ap_bonus);
-        base.max_mp = 1.max(rules.core.mp_base + mp_bonus);
+        base.max_hp = hp_modifier
+            .apply((base.endurance * rules.core.hp_per_endurance + rules.core.hp_base) as f64)
+            .floor()
+            .max(1.0) as i32;
+        base.max_ap = ap_modifier
+            .apply((rules.core.ap_base + base.agility / rules.core.ap_agility_divisor) as f64)
+            .floor()
+            .max(1.0) as i32;
+        base.max_mp = mp_modifier
+            .apply(rules.core.mp_base as f64)
+            .floor()
+            .max(1.0) as i32;
 
         if base.hp > base.max_hp {
             base.hp = base.max_hp;
@@ -893,9 +1308,12 @@ impl CombatState {
             base.mp = base.max_mp;
         }
 
-        base.crit_chance = base.intelligence as f64 * rules.core.crit_per_intelligence;
-        base.resistance = base.wisdom as f64 * rules.core.resist_per_wisdom;
-        base.social_bonus = base.charisma as f64 * rules.core.charisma_bonus_per_charisma;
+        base.crit_chance =
+            crit_modifier.apply(base.intelligence as f64 * rules.core.crit_per_intelligence);
+        base.resistance =
+            resist_modifier.apply(base.wisdom as f64 * rules.core.resist_per_wisdom);
+        base.social_bonus = social_modifier
+            .apply(base.charisma as f64 * rules.core.charisma_bonus_per_charisma);
     }
 
     // ── Tackle Cost ─────────────────────────────────────────
@@ -950,6 +1368,17 @@ impl CombatState {
                 return events;
             }
         };
+
+        if self
+            .entities
+            .get(entity_id)
+            .is_some_and(|entity| Self::entity_has_action_lock(entity, "move"))
+        {
+            events.push(CombatEvent::Error {
+                message: "Movement is blocked by an active effect".to_string(),
+            });
+            return events;
+        }
 
         let path = find_path(&self.grid, from.row, from.col, to_row, to_col);
         let path_len = match &path {
@@ -1238,12 +1667,32 @@ impl CombatState {
                         stacking: None,
                         condition: None,
                         icon: None,
+                        instance_id: None,
+                        current_stacks: None,
+                        applied_turn: None,
+                        source_entity_id: None,
+                        applier_id: None,
+                        skill_id: None,
+                        item_id: None,
+                        dispellable: None,
+                        dispel_priority: None,
+                        dispel_group: None,
                         protector_id: None,
                         last_known_position: None,
                         just_applied: None,
                     };
                     if let Some(t_ref) = self.entities.get_mut(&occupant_id) {
-                        Self::apply_effect_to_entity(t_ref, new_eff, &self.rules, true);
+                        let _ = Self::apply_effect_to_entity(
+                            t_ref,
+                            new_eff,
+                            &self.rules,
+                            true,
+                            Some(caster_id),
+                            Some(caster_id),
+                            Some(&skill.id),
+                            None,
+                            self.turn_number,
+                        );
                     }
                     self.add_log(
                         &format!(
@@ -1299,12 +1748,32 @@ impl CombatState {
                         stacking: None,
                         condition: None,
                         icon: None,
+                        instance_id: None,
+                        current_stacks: None,
+                        applied_turn: None,
+                        source_entity_id: None,
+                        applier_id: None,
+                        skill_id: None,
+                        item_id: None,
+                        dispellable: None,
+                        dispel_priority: None,
+                        dispel_group: None,
                         protector_id: None,
                         last_known_position: None,
                         just_applied: None,
                     };
                     if let Some(t_ref) = self.entities.get_mut(&occupant_id) {
-                        Self::apply_effect_to_entity(t_ref, new_eff, &self.rules, true);
+                        let _ = Self::apply_effect_to_entity(
+                            t_ref,
+                            new_eff,
+                            &self.rules,
+                            true,
+                            Some(caster_id),
+                            Some(caster_id),
+                            Some(&skill.id),
+                            None,
+                            self.turn_number,
+                        );
                     }
                     self.add_log(
                         &format!(
@@ -1383,7 +1852,7 @@ impl CombatState {
                         if let Some(protection) =
                             target.active_effects.as_ref().and_then(|effects| {
                                 effects.iter().find(|effect| {
-                                    effect.effect_type == EffectType::ProtectionStance
+                                    is_protection_stance_effect(effect)
                                 })
                             })
                         {
@@ -1806,7 +2275,7 @@ impl CombatState {
             if let Some(effs) = skill.effects.as_ref() {
                 for eff in effs {
                     let mut new_eff = eff.clone();
-                    if new_eff.effect_type == EffectType::ProtectionStance {
+                    if is_protection_stance_effect(&new_eff) {
                         new_eff.protector_id = Some(caster_id.to_string());
                         self.add_log(
                             &format!(
@@ -1817,7 +2286,7 @@ impl CombatState {
                             ),
                             LogType::Info,
                         );
-                    } else if new_eff.effect_type == EffectType::Stealth {
+                    } else if is_stealth_effect(&new_eff) {
                         new_eff.duration = Some(stealth_duration(caster_wisdom, &self.rules));
                         new_eff.last_known_position = Some(caster_pos.clone());
                         self.add_log(
@@ -1828,7 +2297,7 @@ impl CombatState {
                             ),
                             LogType::Info,
                         );
-                    } else if new_eff.effect_type == EffectType::Analyzed {
+                    } else if matches!(new_eff.effect_type, EffectType::Analyzed) {
                         self.add_log(
                             &format!("👁️ {} is now ANALYZED!", target.name),
                             LogType::Info,
@@ -1837,14 +2306,28 @@ impl CombatState {
                     if let Some(t_ref) = self.entities.get_mut(&occupant_id) {
                         let should_mark_just_applied = !(skill.id == "sprint"
                             && new_eff.effect_type == EffectType::StatModifier
-                            && new_eff.target.as_deref() == Some("maxMp"));
-                        Self::apply_effect_to_entity(
+                            && matches!(new_eff.target.as_deref(), Some("maxMp") | Some("mp")));
+                        let apply_result = Self::apply_effect_to_entity(
                             t_ref,
                             new_eff,
                             &self.rules,
                             should_mark_just_applied,
+                            Some(caster_id),
+                            Some(caster_id),
+                            Some(&skill.id),
+                            None,
+                            self.turn_number,
                         );
-                        new_hp = t_ref.hp;
+                        let updated_hp = t_ref.hp;
+                        let blocked_by_immunity = apply_result.blocked_by_immunity;
+                        let _ = t_ref;
+                        if blocked_by_immunity {
+                            self.add_log(
+                                &format!("🛡️ {} resists {}.", target.name, eff.name.clone().unwrap_or_else(|| "the effect".to_string())),
+                                LogType::Info,
+                            );
+                        }
+                        new_hp = updated_hp;
                     }
                 }
             }
@@ -1902,6 +2385,17 @@ impl CombatState {
             return events;
         }
 
+        if let Some(current_entity_id) = self.get_active_entity_id().map(str::to_string) {
+            let defeated =
+                self.process_periodic_effects_for_entity(&current_entity_id, ModifierPhase::EndTurn);
+            if !defeated.is_empty() {
+                self.resolve_defeated_entities(&defeated, &mut events);
+                if self.phase != CombatPhase::Combat {
+                    return events;
+                }
+            }
+        }
+
         clear_highlights(&mut self.grid);
 
         // Find next alive entity
@@ -1927,54 +2421,92 @@ impl CombatState {
             self.turn_number += 1;
         }
 
-        // Reset AP/MP and tick cooldowns for next entity
-        let next_entity_id = self.turn_order[next_index].clone();
-        if let Some(entity) = self.entities.get_mut(&next_entity_id) {
-            entity.ap = entity.max_ap;
-            entity.mp = entity.max_mp;
-            // Tick cooldowns
-            let new_cooldowns: HashMap<String, u32> = entity
-                .skill_cooldowns
-                .iter()
-                .filter_map(|(skill_id, cd)| {
-                    if *cd > 1 {
-                        Some((skill_id.clone(), cd - 1))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            entity.skill_cooldowns = new_cooldowns;
+        let mut next_entity_id = self.turn_order[next_index].clone();
+        let mut start_turn_attempts = 0;
+        loop {
+            start_turn_attempts += 1;
+            if start_turn_attempts > len {
+                return events;
+            }
 
-            // Tick active effects
-            if let Some(effects) = &mut entity.active_effects {
-                let mut remaining_effects = Vec::new();
-                for mut eff in effects.drain(..) {
-                    if eff.just_applied.unwrap_or(false) {
-                        eff.just_applied = Some(false);
-                        remaining_effects.push(eff);
-                    } else if let Some(dur) = eff.duration {
-                        if dur > 1 {
-                            eff.duration = Some(dur - 1);
-                            remaining_effects.push(eff);
+            if let Some(entity) = self.entities.get_mut(&next_entity_id) {
+                entity.ap = entity.max_ap;
+                entity.mp = entity.max_mp;
+                let new_cooldowns: HashMap<String, u32> = entity
+                    .skill_cooldowns
+                    .iter()
+                    .filter_map(|(skill_id, cd)| {
+                        if *cd > 1 {
+                            Some((skill_id.clone(), cd - 1))
+                        } else {
+                            None
                         }
-                    } else {
-                        // Permanent effect
-                        remaining_effects.push(eff);
+                    })
+                    .collect();
+                entity.skill_cooldowns = new_cooldowns;
+            }
+
+            let defeated =
+                self.process_periodic_effects_for_entity(&next_entity_id, ModifierPhase::StartTurn);
+            if !defeated.is_empty() {
+                self.resolve_defeated_entities(&defeated, &mut events);
+                if self.phase != CombatPhase::Combat {
+                    return events;
+                }
+            }
+
+            if self
+                .entities
+                .get(&next_entity_id)
+                .map(|entity| entity.hp > 0)
+                .unwrap_or(false)
+            {
+                if let Some(entity) = self.entities.get_mut(&next_entity_id) {
+                    if let Some(effects) = &mut entity.active_effects {
+                        let mut remaining_effects = Vec::new();
+                        for mut eff in effects.drain(..) {
+                            if eff.just_applied.unwrap_or(false) {
+                                eff.just_applied = Some(false);
+                                remaining_effects.push(eff);
+                            } else if let Some(dur) = eff.duration {
+                                if dur > 1 {
+                                    eff.duration = Some(dur - 1);
+                                    remaining_effects.push(eff);
+                                }
+                            } else {
+                                remaining_effects.push(eff);
+                            }
+                        }
+
+                        if remaining_effects.is_empty() {
+                            entity.active_effects = None;
+                        } else {
+                            entity.active_effects = Some(remaining_effects);
+                        }
                     }
                 }
+                break;
+            }
 
-                if remaining_effects.is_empty() {
-                    entity.active_effects = None;
-                } else {
-                    entity.active_effects = Some(remaining_effects);
+            let mut found_replacement = false;
+            for _ in 0..len {
+                next_index = (next_index + 1) % len;
+                if let Some(entity) = self.entities.get(&self.turn_order[next_index]) {
+                    if entity.hp > 0 {
+                        next_entity_id = self.turn_order[next_index].clone();
+                        found_replacement = true;
+                        break;
+                    }
                 }
+            }
+
+            if !found_replacement {
+                return events;
             }
         }
 
         self.active_entity_index = next_index;
 
-        // Recalculate stats for the next entity
         if let Some(mut entity) = self.entities.get(&next_entity_id).cloned() {
             Self::calculate_effective_stats(&mut entity, &self.rules);
             if let Some(e) = self.entities.get_mut(&next_entity_id) {
@@ -2174,6 +2706,16 @@ mod tests {
             stacking: None,
             condition: None,
             icon: None,
+            instance_id: None,
+            current_stacks: None,
+            applied_turn: None,
+            source_entity_id: None,
+            applier_id: None,
+            skill_id: None,
+            item_id: None,
+            dispellable: None,
+            dispel_priority: None,
+            dispel_group: None,
             protector_id: None,
             last_known_position: None,
             just_applied: None,
@@ -2195,6 +2737,16 @@ mod tests {
             stacking: None,
             condition: None,
             icon: None,
+            instance_id: None,
+            current_stacks: None,
+            applied_turn: None,
+            source_entity_id: None,
+            applier_id: None,
+            skill_id: None,
+            item_id: None,
+            dispellable: None,
+            dispel_priority: None,
+            dispel_group: None,
             protector_id: None,
             last_known_position: None,
             just_applied: None,
@@ -2216,6 +2768,140 @@ mod tests {
             stacking: None,
             condition: None,
             icon: None,
+            instance_id: None,
+            current_stacks: None,
+            applied_turn: None,
+            source_entity_id: None,
+            applier_id: None,
+            skill_id: None,
+            item_id: None,
+            dispellable: None,
+            dispel_priority: None,
+            dispel_group: None,
+            protector_id: None,
+            last_known_position: None,
+            just_applied: None,
+        }
+    }
+
+    fn dot_effect(trigger: EffectTrigger) -> GameplayEffect {
+        GameplayEffect {
+            id: Some("effect-dot".to_string()),
+            name: Some("Poison".to_string()),
+            description: None,
+            effect_type: EffectType::DamageOverTime,
+            target: Some("poison_damage".to_string()),
+            value: 4.0,
+            is_percentage: Some(false),
+            duration: Some(2),
+            trigger: Some(trigger),
+            scope: Some(EffectScope::Combat),
+            stacking: None,
+            condition: None,
+            icon: None,
+            instance_id: None,
+            current_stacks: None,
+            applied_turn: None,
+            source_entity_id: None,
+            applier_id: None,
+            skill_id: None,
+            item_id: None,
+            dispellable: None,
+            dispel_priority: None,
+            dispel_group: None,
+            protector_id: None,
+            last_known_position: None,
+            just_applied: None,
+        }
+    }
+
+    fn hot_effect(trigger: EffectTrigger) -> GameplayEffect {
+        GameplayEffect {
+            id: Some("effect-hot".to_string()),
+            name: Some("Regeneration".to_string()),
+            description: None,
+            effect_type: EffectType::HealOverTime,
+            target: Some("hp".to_string()),
+            value: 3.0,
+            is_percentage: Some(false),
+            duration: Some(2),
+            trigger: Some(trigger),
+            scope: Some(EffectScope::Combat),
+            stacking: None,
+            condition: None,
+            icon: None,
+            instance_id: None,
+            current_stacks: None,
+            applied_turn: None,
+            source_entity_id: None,
+            applier_id: None,
+            skill_id: None,
+            item_id: None,
+            dispellable: None,
+            dispel_priority: None,
+            dispel_group: None,
+            protector_id: None,
+            last_known_position: None,
+            just_applied: None,
+        }
+    }
+
+    fn status_immunity_effect(target: &str) -> GameplayEffect {
+        GameplayEffect {
+            id: Some("effect-immunity".to_string()),
+            name: Some("Immunity".to_string()),
+            description: None,
+            effect_type: EffectType::StatusImmunity,
+            target: Some(target.to_string()),
+            value: 0.0,
+            is_percentage: Some(false),
+            duration: Some(2),
+            trigger: Some(EffectTrigger::Passive),
+            scope: Some(EffectScope::Combat),
+            stacking: None,
+            condition: None,
+            icon: None,
+            instance_id: None,
+            current_stacks: None,
+            applied_turn: None,
+            source_entity_id: None,
+            applier_id: None,
+            skill_id: None,
+            item_id: None,
+            dispellable: None,
+            dispel_priority: None,
+            dispel_group: None,
+            protector_id: None,
+            last_known_position: None,
+            just_applied: None,
+        }
+    }
+
+    fn action_lock_effect(target: &str) -> GameplayEffect {
+        GameplayEffect {
+            id: Some("effect-lock".to_string()),
+            name: Some("Action Lock".to_string()),
+            description: None,
+            effect_type: EffectType::ActionModifier,
+            target: Some(target.to_string()),
+            value: 1.0,
+            is_percentage: Some(false),
+            duration: Some(1),
+            trigger: Some(EffectTrigger::Passive),
+            scope: Some(EffectScope::Combat),
+            stacking: None,
+            condition: None,
+            icon: None,
+            instance_id: None,
+            current_stacks: None,
+            applied_turn: None,
+            source_entity_id: None,
+            applier_id: None,
+            skill_id: None,
+            item_id: None,
+            dispellable: None,
+            dispel_priority: None,
+            dispel_group: None,
             protector_id: None,
             last_known_position: None,
             just_applied: None,
@@ -2354,6 +3040,98 @@ mod tests {
                 icon: None,
                 effects: Some(vec![protection_effect()]),
             },
+            "hide" => Skill {
+                id: "hide".to_string(),
+                name: "Hide".to_string(),
+                description: "Enter stealth".to_string(),
+                category: SkillCategory::Base,
+                ap_cost: 3,
+                min_range: 0,
+                max_range: 0,
+                area_type: SkillAreaType::Single,
+                area_size: 0,
+                target_type: SkillTargetType::SelfTarget,
+                damage: None,
+                healing: None,
+                cooldown: 4,
+                effect_type: Some(SkillEffectType::Support),
+                push_distance: None,
+                icon: None,
+                effects: Some(vec![GameplayEffect {
+                    id: Some("effect-hide".to_string()),
+                    name: Some("Stealth".to_string()),
+                    description: None,
+                    effect_type: EffectType::Stealth,
+                    target: None,
+                    value: 0.0,
+                    is_percentage: Some(false),
+                    duration: Some(1),
+                    trigger: None,
+                    scope: Some(EffectScope::Combat),
+                    stacking: None,
+                    condition: None,
+                    icon: None,
+                    instance_id: None,
+                    current_stacks: None,
+                    applied_turn: None,
+                    source_entity_id: None,
+                    applier_id: None,
+                    skill_id: None,
+                    item_id: None,
+                    dispellable: None,
+                    dispel_priority: None,
+                    dispel_group: None,
+                    protector_id: None,
+                    last_known_position: None,
+                    just_applied: None,
+                }]),
+            },
+            "analyze" => Skill {
+                id: "analyze".to_string(),
+                name: "Analyze".to_string(),
+                description: "Reveal weaknesses".to_string(),
+                category: SkillCategory::Base,
+                ap_cost: 3,
+                min_range: 1,
+                max_range: 5,
+                area_type: SkillAreaType::Single,
+                area_size: 0,
+                target_type: SkillTargetType::Enemy,
+                damage: None,
+                healing: None,
+                cooldown: 4,
+                effect_type: Some(SkillEffectType::Magical),
+                push_distance: None,
+                icon: None,
+                effects: Some(vec![GameplayEffect {
+                    id: Some("effect-analyze".to_string()),
+                    name: Some("Weakness Revealed".to_string()),
+                    description: None,
+                    effect_type: EffectType::Analyzed,
+                    target: None,
+                    value: 0.0,
+                    is_percentage: Some(false),
+                    duration: Some(2),
+                    trigger: None,
+                    scope: Some(EffectScope::Combat),
+                    stacking: None,
+                    condition: None,
+                    icon: None,
+                    instance_id: None,
+                    current_stacks: None,
+                    applied_turn: None,
+                    source_entity_id: None,
+                    applier_id: None,
+                    skill_id: None,
+                    item_id: None,
+                    dispellable: None,
+                    dispel_priority: None,
+                    dispel_group: None,
+                    protector_id: None,
+                    last_known_position: None,
+                    just_applied: None,
+                }]),
+            },
             _ => panic!("Unsupported test skill"),
         }
     }
@@ -2456,7 +3234,7 @@ mod tests {
                 "weaponType": "melee",
                 "weaponRange": 1,
                 "effects": [
-                    { "type": "COMBAT_BONUS", "target": "damage", "value": 25 }
+                    { "type": "COMBAT_BONUS", "target": "damage", "value": 60 }
                 ]
             }
         }));
@@ -2465,7 +3243,7 @@ mod tests {
         state.execute_skill("p1", 10, 2, "use-weapon");
         let final_hp = state.entities.get("e1").unwrap().hp;
 
-        assert!(initial_hp - final_hp >= 20);
+        assert!(initial_hp - final_hp >= 40);
     }
 
     #[test]
@@ -2513,7 +3291,7 @@ mod tests {
                 "weaponType": "ranged",
                 "weaponRange": 5,
                 "effects": [
-                    { "type": "COMBAT_BONUS", "target": "damage", "value": 50.0 }
+                    { "type": "COMBAT_BONUS", "target": "damage", "value": 80.0 }
                 ]
             }
         }));
@@ -2574,6 +3352,43 @@ mod tests {
     }
 
     #[test]
+    fn test_damage_over_time_ticks_on_start_turn() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("e1").unwrap().active_effects = Some(vec![dot_effect(EffectTrigger::OnTurnStart)]);
+        let initial_hp = state.entities.get("e1").unwrap().hp;
+
+        state.end_turn();
+
+        let enemy = state.entities.get("e1").unwrap();
+        assert_eq!(enemy.hp, initial_hp - 4);
+    }
+
+    #[test]
+    fn test_heal_over_time_ticks_on_start_turn() {
+        let mut state = make_combat_state();
+        let enemy = state.entities.get_mut("e1").unwrap();
+        enemy.hp = 40;
+        enemy.active_effects = Some(vec![hot_effect(EffectTrigger::OnTurnStart)]);
+
+        state.end_turn();
+
+        let enemy = state.entities.get("e1").unwrap();
+        assert_eq!(enemy.hp, 43);
+    }
+
+    #[test]
+    fn test_damage_over_time_ticks_on_end_turn_for_owner() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().active_effects = Some(vec![dot_effect(EffectTrigger::OnTurnEnd)]);
+        let initial_hp = state.entities.get("p1").unwrap().hp;
+
+        state.end_turn();
+
+        let player = state.entities.get("p1").unwrap();
+        assert_eq!(player.hp, initial_hp - 4);
+    }
+
+    #[test]
     fn test_defend_logs_when_applied() {
         let mut state = make_combat_state();
         let protector_target = make_test_entity("p2", true, 10, 3);
@@ -2621,5 +3436,213 @@ mod tests {
             .logs
             .iter()
             .any(|entry| entry.message.contains("protects Player_p1")));
+    }
+
+    #[test]
+    fn test_damage_over_time_stacks_with_cap() {
+        let mut entity = make_test_entity("p1", true, 10, 1);
+        let rules = GameRulesConfig::default();
+
+        let first = CombatState::apply_effect_to_entity(
+            &mut entity,
+            dot_effect(EffectTrigger::OnTurnStart),
+            &rules,
+            false,
+            Some("p2"),
+            Some("p2"),
+            Some("poison-strike"),
+            None,
+            3,
+        );
+        let second = CombatState::apply_effect_to_entity(
+            &mut entity,
+            dot_effect(EffectTrigger::OnTurnStart),
+            &rules,
+            false,
+            Some("p2"),
+            Some("p2"),
+            Some("poison-strike"),
+            None,
+            3,
+        );
+
+        assert!(first.applied);
+        assert!(second.applied);
+        let effects = entity.active_effects.as_ref().unwrap();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(effects[0].current_stacks, Some(2));
+        assert_eq!(effects[0].value as i32, 8);
+
+        for _ in 0..10 {
+            CombatState::apply_effect_to_entity(
+                &mut entity,
+                dot_effect(EffectTrigger::OnTurnStart),
+                &rules,
+                false,
+                Some("p2"),
+                Some("p2"),
+                Some("poison-strike"),
+                None,
+                3,
+            );
+        }
+
+        let effect = &entity.active_effects.as_ref().unwrap()[0];
+        assert_eq!(effect.current_stacks, Some(5));
+    }
+
+    #[test]
+    fn test_stealth_replaces_existing_stealth() {
+        let mut entity = make_test_entity("p1", true, 10, 1);
+        let rules = GameRulesConfig::default();
+        let mut stealth = make_skill("hide").effects.unwrap()[0].clone();
+        stealth.duration = Some(2);
+
+        CombatState::apply_effect_to_entity(
+            &mut entity,
+            stealth.clone(),
+            &rules,
+            false,
+            Some("p1"),
+            Some("p1"),
+            Some("hide"),
+            None,
+            1,
+        );
+        CombatState::apply_effect_to_entity(
+            &mut entity,
+            stealth,
+            &rules,
+            false,
+            Some("p1"),
+            Some("p1"),
+            Some("hide"),
+            None,
+            2,
+        );
+
+        let effects = entity.active_effects.as_ref().unwrap();
+        assert_eq!(effects.len(), 1);
+    }
+
+    #[test]
+    fn test_hot_refreshes_duration_instead_of_duplicate() {
+        let mut entity = make_test_entity("p1", true, 10, 1);
+        let rules = GameRulesConfig::default();
+        let mut first = hot_effect(EffectTrigger::OnTurnStart);
+        first.duration = Some(1);
+        let mut second = hot_effect(EffectTrigger::OnTurnStart);
+        second.duration = Some(3);
+
+        CombatState::apply_effect_to_entity(
+            &mut entity,
+            first,
+            &rules,
+            false,
+            Some("p1"),
+            Some("p1"),
+            Some("regen"),
+            None,
+            1,
+        );
+        CombatState::apply_effect_to_entity(
+            &mut entity,
+            second,
+            &rules,
+            false,
+            Some("p1"),
+            Some("p1"),
+            Some("regen"),
+            None,
+            1,
+        );
+
+        let effects = entity.active_effects.as_ref().unwrap();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(effects[0].duration, Some(3));
+    }
+
+    #[test]
+    fn test_status_immunity_blocks_matching_dot_application() {
+        let mut entity = make_test_entity("p1", true, 10, 1);
+        entity.active_effects = Some(vec![status_immunity_effect("poison_damage")]);
+
+        let result = CombatState::apply_effect_to_entity(
+            &mut entity,
+            dot_effect(EffectTrigger::OnTurnStart),
+            &GameRulesConfig::default(),
+            false,
+            Some("e1"),
+            Some("e1"),
+            Some("venom"),
+            None,
+            1,
+        );
+
+        assert!(!result.applied);
+        assert!(result.blocked_by_immunity);
+        assert_eq!(entity.active_effects.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_dispel_helpers_remove_expected_effects() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().active_effects = Some(vec![
+            make_skill("hide").effects.unwrap()[0].clone(),
+            dot_effect(EffectTrigger::OnTurnStart),
+            hot_effect(EffectTrigger::OnTurnStart),
+        ]);
+
+        let removed_debuffs = state.dispel_entity_debuffs("p1", true);
+        assert_eq!(removed_debuffs, 1);
+        assert_eq!(state.entities.get("p1").unwrap().active_effects.as_ref().unwrap().len(), 2);
+
+        let removed_stealth = state.dispel_entity_effects_by_tag("p1", "stealth", true);
+        assert_eq!(removed_stealth, 1);
+
+        let removed_group = state.dispel_entity_effects_by_group("p1", "hot:maxHp", true);
+        assert_eq!(removed_group, 1);
+        assert!(state.entities.get("p1").unwrap().active_effects.is_none());
+    }
+
+    #[test]
+    fn test_effect_application_tracks_source_metadata() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().skills = vec![make_skill("analyze")];
+        move_entity_on_grid(&mut state.grid, "e1", 1, 10, 10, 2);
+        state.entities.get_mut("e1").unwrap().grid_pos = GridPos { row: 10, col: 2 };
+
+        state.execute_skill("p1", 10, 2, "analyze");
+
+        let effect = &state.entities.get("e1").unwrap().active_effects.as_ref().unwrap()[0];
+        assert_eq!(effect.source_entity_id.as_deref(), Some("p1"));
+        assert_eq!(effect.applier_id.as_deref(), Some("p1"));
+        assert_eq!(effect.skill_id.as_deref(), Some("analyze"));
+        assert!(effect.instance_id.is_some());
+        assert_eq!(effect.current_stacks, Some(1));
+        assert_eq!(effect.dispellable, Some(true));
+    }
+
+    #[test]
+    fn test_action_lock_blocks_move_and_attack() {
+        let mut state = make_combat_state();
+        state.entities.get_mut("p1").unwrap().active_effects = Some(vec![action_lock_effect("cannotMove")]);
+
+        let move_events = state.perform_move("p1", 9, 1);
+        assert!(matches!(
+            move_events.first(),
+            Some(CombatEvent::Error { message }) if message.contains("Movement is blocked")
+        ));
+
+        state.entities.get_mut("p1").unwrap().active_effects = Some(vec![action_lock_effect("cannotAttack")]);
+        move_entity_on_grid(&mut state.grid, "e1", 1, 10, 10, 2);
+        state.entities.get_mut("e1").unwrap().grid_pos = GridPos { row: 10, col: 2 };
+        state.entities.get_mut("e1").unwrap().evasion = 0;
+
+        let attack_events = state.perform_attack("p1", "e1");
+        assert!(matches!(
+            attack_events.first(),
+            Some(CombatEvent::Error { message }) if message.contains("blocked")
+        ));
     }
 }

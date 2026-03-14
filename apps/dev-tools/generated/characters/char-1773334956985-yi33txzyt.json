@@ -39,6 +39,14 @@
   "portraitName": "Kaelen \"Stoneheart\" Vance",
   "portraitUrl": "/api/character-portraits/char-1773334956985-yi33txzyt.png?v=1773444561353",
   "progression": {
+    "attributeUpgrades": {
+      "agility": 0,
+      "charisma": 0,
+      "endurance": 0,
+      "intelligence": 0,
+      "strength": 0,
+      "wisdom": 0
+    },
     "availableTalentPoints": 15,
     "occupationStates": [],
     "spentPioneerOccupationPoints": 0,

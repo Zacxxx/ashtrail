@@ -962,6 +962,7 @@ export function CombatEncounterView({
 
         const rules = GameRulesManager.get();
         const isMagical = skill.effectType === 'magical';
+        const isPhysical = skill.effectType === 'physical';
 
         let baseDmg = skill.damage || 0;
         const weaponReplacement = skill.effects?.find(e => e.type === 'WEAPON_DAMAGE_REPLACEMENT' as any);
@@ -976,30 +977,53 @@ export function CombatEncounterView({
             }
         }
 
-        const minStrBonus = skill.pushDistance ? attacker.strength * (rules.combat.shovePushDamageRatio || 0.1) : attacker.strength * (rules.combat.strengthScalingMin || 0.2);
-        const maxStrBonus = skill.pushDistance ? attacker.strength * (rules.combat.shovePushDamageRatio || 0.1) : attacker.strength * (rules.combat.strengthScalingMax || 0.4);
-
         const vMin = rules.combat.damageVarianceMin || 0.85;
         const vMax = rules.combat.damageVarianceMax || 1.15;
+        const strengthToPowerRatio = rules.combat.strengthToPowerRatio || 1;
+        const weaponType = attacker.equipped?.mainHand?.weaponType;
+        const isRangedWeapon = weaponType === 'ranged';
 
         const analyzedBonus = target.activeEffects?.filter(e => e.type === 'ANALYZED' as any).reduce((sum: number, e: any) => sum + (e.value || 0), 0) || 0;
         const finalCritChance = attacker.critChance + (analyzedBonus / 100);
 
-        const calc = (str: number, v: number, crit: boolean) => {
-            let d = Math.floor((baseDmg + str) * v);
+        const calcRaw = (variance: number) => {
+            if (skill.pushDistance) {
+                const shoveBonus = attacker.strength * (rules.combat.shovePushDamageRatio || 0.1);
+                return Math.floor((baseDmg + shoveBonus) * variance);
+            }
+
+            if (weaponReplacement) {
+                if (isRangedWeapon) {
+                    return Math.floor(baseDmg * variance);
+                }
+                const minScale = rules.combat.strengthScalingMin || 0.2;
+                const maxScale = rules.combat.strengthScalingMax || 0.4;
+                const scale = variance === vMin ? minScale : maxScale;
+                const statBonus = (baseDmg * scale * attacker.strength) / 10;
+                return Math.floor((baseDmg + statBonus) * variance);
+            }
+
+            return Math.floor((baseDmg + (attacker.strength * strengthToPowerRatio)) * variance);
+        };
+
+        const calc = (variance: number, crit: boolean) => {
+            let d = calcRaw(variance);
             if (crit) d = Math.floor(d * 1.5);
             if (isMagical) {
                 const resist = Math.floor(d * (target.resistance || 0));
                 return Math.max(1, d - resist);
             }
-            return Math.max(1, d - (target.defense || 0));
+            if (isPhysical || weaponReplacement || skill.pushDistance) {
+                return Math.max(1, d - (target.defense || 0));
+            }
+            return Math.max(1, d);
         };
 
         return {
-            min: calc(minStrBonus, vMin, false),
-            max: calc(maxStrBonus, vMax, false),
-            critMin: calc(minStrBonus, vMin, true),
-            critMax: calc(maxStrBonus, vMax, true),
+            min: calc(vMin, false),
+            max: calc(vMax, false),
+            critMin: calc(vMin, true),
+            critMax: calc(vMax, true),
             isMagical,
             critChance: isNaN(finalCritChance) ? (attacker.critChance || 0) : finalCritChance,
         };
