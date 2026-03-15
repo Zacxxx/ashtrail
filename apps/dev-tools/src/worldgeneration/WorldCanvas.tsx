@@ -606,6 +606,10 @@ export function WorldCanvas({
         await startDemoTravelInterleavedGeneration(payload, true);
     }, [resolveDemoTravelAnchor, startDemoTravelInterleavedGeneration]);
 
+    const handleDemoTravelUpdate = useCallback((payload: { screenX: number; screenY: number; isVisibleOnScreen: boolean }) => {
+        setDemoTravelPanelAnchor(resolveDemoTravelAnchor(payload as DemoTravelFinalTriggerPayload));
+    }, [resolveDemoTravelAnchor]);
+
     const categoryColor = (category: WorldLocation["category"]) => {
         switch (category) {
             case "settlement": return "#f97316";
@@ -621,68 +625,14 @@ export function WorldCanvas({
         }
     };
 
-    const locationMarkers = humanityLocations.map((location) => ({
-        id: location.id,
-        x: location.x,
-        y: location.y,
-        size: 9 + Math.round(Math.max(0, location.importance) / 10),
-        color: categoryColor(location.category),
-        label: `${location.name} • ${location.type} • ${location.provinceName}`,
-        selected: location.id === selectedHumanityLocationId,
+    const locationMarkers = (humanityLocations || []).map((loc) => ({
+        id: loc.id,
+        x: loc.x,
+        y: loc.y,
+        color: categoryColor(loc.category),
+        isSelected: loc.id === selectedHumanityLocationId,
     }));
 
-    const demoTravelText = parseDemoTravelTextContent(demoTravelPanel.textContent, demoTravelPanel.zoneInfo?.zoneTitle || "Travel Zone");
-    const demoTravelOverview = demoTravelText.overview || demoTravelText.fallback || demoTravelPanel.zoneInfo?.terrainSummary || "";
-    const demoTravelSubtitle = demoTravelPanel.zoneInfo
-        ? `${demoTravelPanel.zoneInfo.biomeLabel} • ${demoTravelPanel.zoneInfo.coordinateLabel}`
-        : "";
-    const stageWidth = demoTravelStageRef.current?.clientWidth || 0;
-    const stageHeight = demoTravelStageRef.current?.clientHeight || 0;
-    const demoTravelMetaRows = demoTravelPanel.zoneInfo
-        ? [
-            { label: "Biome", value: demoTravelPanel.zoneInfo.biomeLabel },
-            { label: "Elevation", value: demoTravelPanel.zoneInfo.elevationLabel },
-            { label: "Climate", value: demoTravelPanel.zoneInfo.climateLabel },
-            { label: "Coordinates", value: demoTravelPanel.zoneInfo.coordinateLabel },
-        ]
-        : [];
-    const demoTravelCardWidth = stageWidth > 0 ? Math.min(440, Math.max(380, stageWidth * 0.32)) : 420;
-    const demoTravelCardHeight = stageHeight > 0 ? Math.min(300, Math.max(260, stageHeight * 0.42)) : 280;
-    const demoTravelCardOrigin = demoTravelPanelAnchor
-        ? {
-            x: stageWidth > 0 ? Math.max(24, stageWidth - demoTravelCardWidth - 24) : 24,
-            y: stageHeight > 0 ? Math.max(24, Math.min(stageHeight - demoTravelCardHeight - 24, stageHeight * 0.5 - demoTravelCardHeight * 0.52)) : 24,
-        }
-        : null;
-    const demoTravelCardEntryPoint = demoTravelCardOrigin
-        ? {
-            x: demoTravelCardOrigin.x + 18,
-            y: Math.max(demoTravelCardOrigin.y + 52, Math.min(demoTravelCardOrigin.y + demoTravelCardHeight - 52, demoTravelPanelAnchor?.y || demoTravelCardOrigin.y + demoTravelCardHeight * 0.5)),
-        }
-        : null;
-    const demoTravelSeedWidth = 124;
-    const demoTravelSeedHeight = 92;
-    const demoTravelSeedOrigin = demoTravelPanelAnchor
-        ? {
-            x: stageWidth > 0 ? Math.max(20, Math.min(stageWidth - demoTravelSeedWidth - 20, demoTravelPanelAnchor.x - 54)) : demoTravelPanelAnchor.x - 54,
-            y: stageHeight > 0 ? Math.max(20, Math.min(stageHeight - demoTravelSeedHeight - 20, demoTravelPanelAnchor.y - 48)) : demoTravelPanelAnchor.y - 48,
-        }
-        : null;
-    const demoTravelSeedEntryPoint = demoTravelSeedOrigin
-        ? {
-            x: demoTravelSeedOrigin.x + 14,
-            y: Math.max(demoTravelSeedOrigin.y + 22, Math.min(demoTravelSeedOrigin.y + demoTravelSeedHeight - 22, demoTravelPanelAnchor?.y || demoTravelSeedOrigin.y + demoTravelSeedHeight * 0.5)),
-        }
-        : null;
-    const demoTravelConnectorTarget = demoTravelPanelPhase === "open" ? demoTravelCardEntryPoint : demoTravelSeedEntryPoint;
-    const demoTravelConnectorPath = demoTravelPanelAnchor && demoTravelConnectorTarget
-        ? `M ${demoTravelPanelAnchor.x} ${demoTravelPanelAnchor.y} C ${demoTravelPanelAnchor.x + 24} ${demoTravelPanelAnchor.y - 20}, ${demoTravelConnectorTarget.x - 48} ${demoTravelConnectorTarget.y + 10}, ${demoTravelConnectorTarget.x} ${demoTravelConnectorTarget.y}`
-        : null;
-    const demoTravelCardTransform = demoTravelSeedOrigin && demoTravelCardOrigin
-        ? `translate(${demoTravelSeedOrigin.x - demoTravelCardOrigin.x}px, ${demoTravelSeedOrigin.y - demoTravelCardOrigin.y}px) scale(${demoTravelSeedWidth / demoTravelCardWidth}, ${demoTravelSeedHeight / demoTravelCardHeight})`
-        : "translate(0px, 0px) scale(0.22, 0.24)";
-
-    // Helper block to keep JSX clean
     const render2DMap = () => {
         if (!globeWorld) {
             return (
@@ -736,6 +686,38 @@ export function WorldCanvas({
             );
         }
 
+        const stageWidth = demoTravelStageRef.current?.clientWidth || 0;
+        const stageHeight = demoTravelStageRef.current?.clientHeight || 0;
+        const demoTravelText = parseDemoTravelTextContent(demoTravelPanel.textContent, demoTravelPanel.zoneInfo?.zoneTitle || "Travel Zone");
+        const demoTravelOverview = demoTravelText.overview || demoTravelText.fallback;
+        
+        const demoTravelCardWidth = stageWidth > 0 ? Math.min(440, Math.max(380, stageWidth * 0.32)) : 420;
+        const demoTravelCardHeight = stageHeight > 0 ? Math.min(300, Math.max(260, stageHeight * 0.42)) : 280;
+        const demoTravelCardOrigin = demoTravelPanelAnchor
+            ? {
+                x: stageWidth > 0 ? Math.max(24, stageWidth - demoTravelCardWidth - 24) : 24,
+                y: stageHeight > 0 ? Math.max(24, Math.min(stageHeight - demoTravelCardHeight - 24, demoTravelPanelAnchor.y - demoTravelCardHeight * 0.45)) : 24,
+            }
+            : null;
+
+        const demoTravelCardEntryPoint = demoTravelCardOrigin
+            ? { x: demoTravelCardOrigin.x, y: demoTravelCardOrigin.y + demoTravelCardHeight * 0.45 }
+            : null;
+
+        const demoTravelConnectorPath = demoTravelPanelAnchor && demoTravelCardEntryPoint
+            ? `M ${demoTravelPanelAnchor.x} ${demoTravelPanelAnchor.y} C ${demoTravelPanelAnchor.x - 40} ${demoTravelPanelAnchor.y}, ${demoTravelCardEntryPoint.x + 40} ${demoTravelCardEntryPoint.y}, ${demoTravelCardEntryPoint.x} ${demoTravelCardEntryPoint.y}`
+            : null;
+
+        const demoTravelSeedWidth = 140;
+        const demoTravelSeedHeight = 120;
+        const demoTravelSeedOrigin = demoTravelPanelAnchor
+            ? { x: demoTravelPanelAnchor.x - demoTravelSeedWidth - 20, y: demoTravelPanelAnchor.y - demoTravelSeedHeight * 0.5 }
+            : null;
+
+        const demoTravelCardTransform = demoTravelPanelAnchor && demoTravelCardOrigin
+            ? `translate(${demoTravelPanelAnchor.x - demoTravelCardOrigin.x - 30}px, ${demoTravelPanelAnchor.y - demoTravelCardOrigin.y - 40}px) scale(0.12)`
+            : "scale(0.8)";
+
         return (
             <div ref={demoTravelStageRef} className="w-full h-full rounded-2xl border border-white/5 overflow-hidden relative bg-black/50 shadow-2xl">
                 <PlanetGlobe
@@ -748,6 +730,7 @@ export function WorldCanvas({
                     demoTravelStartToken={demoTravelStartToken}
                     onDemoTravelDestinationReady={handleDemoTravelDestinationReady}
                     onDemoTravelFinalTrigger={handleDemoTravelFinalTrigger}
+                    onDemoTravelUpdate={handleDemoTravelUpdate}
                 />
 
                 {demoTravelEnabled && (
@@ -782,19 +765,24 @@ export function WorldCanvas({
                                 <path
                                     d={demoTravelConnectorPath}
                                     fill="none"
-                                    pathLength={1}
-                                    stroke="url(#demo-travel-tail)"
-                                    strokeWidth="1.6"
+                                    stroke="#B3EBF2"
+                                    strokeWidth="1.5"
                                     strokeLinecap="round"
                                     style={{
-                                        filter: "drop-shadow(0 0 12px rgba(179,235,242,0.3))",
-                                        strokeDasharray: 1,
-                                        strokeDashoffset: demoTravelPanelPhase === "open" ? 0 : 1,
-                                        opacity: demoTravelPanelPhase === "open" ? 0.95 : 0.2,
-                                        transition: "stroke-dashoffset 540ms cubic-bezier(0.2, 0.8, 0.2, 1) 60ms, opacity 420ms ease-out",
+                                        filter: "drop-shadow(0 0 10px rgba(179,235,242,0.4))",
+                                        opacity: demoTravelPanelPhase === "hidden" ? 0 : 0.85,
+                                        transition: "opacity 320ms ease-out",
                                     }}
                                 />
-                                {demoTravelPanelAnchor && null}
+                                {demoTravelPanelAnchor && (
+                                    <circle
+                                        cx={demoTravelPanelAnchor.x}
+                                        cy={demoTravelPanelAnchor.y}
+                                        r="3.5"
+                                        fill="#B3EBF2"
+                                        style={{ filter: "drop-shadow(0 0 8px rgba(179,235,242,0.6))" }}
+                                    />
+                                )}
                             </svg>
                         )}
 

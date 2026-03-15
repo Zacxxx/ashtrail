@@ -20,6 +20,7 @@ interface PlanetGlobeProps {
   demoTravelStartToken?: number;
   onDemoTravelDestinationReady?: (payload: DemoTravelFinalTriggerPayload) => void;
   onDemoTravelFinalTrigger?: (payload: DemoTravelFinalTriggerPayload) => void;
+  onDemoTravelUpdate?: (payload: { screenX: number; screenY: number; isVisibleOnScreen: boolean }) => void;
 }
 
 interface TerrainMask {
@@ -919,6 +920,7 @@ export function PlanetGlobe({
   demoTravelStartToken = 0,
   onDemoTravelDestinationReady,
   onDemoTravelFinalTrigger,
+  onDemoTravelUpdate,
 }: PlanetGlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredTileId, setHoveredTileId] = useState<string | null>(null);
@@ -1917,14 +1919,44 @@ export function PlanetGlobe({
       if (demoTravelEnabled && runtimeTravel) {
         updateTravelSequence(deltaSeconds);
 
-        if (sequence.state === "complete" && sequence.lastStartToken > 0 && onDemoTravelFinalTrigger) {
+        if (sequence.state === "complete" && sequence.lastStartToken > 0) {
           const triggerKey = `${runtimeTravel.route.routeId}:${sequence.lastStartToken}`;
           if (lastEmittedTriggerKey !== triggerKey) {
             lastEmittedTriggerKey = triggerKey;
-            onDemoTravelFinalTrigger({
-              ...buildRoutePayload(runtimeTravel.route),
-              triggeredAt: now,
-            });
+            if (onDemoTravelFinalTrigger) {
+              onDemoTravelFinalTrigger({
+                ...buildRoutePayload(runtimeTravel.route),
+                triggeredAt: now,
+              });
+            }
+          }
+          
+          // Continuous position update for the panel tracer
+          if (onDemoTravelUpdate && runtimeTravel.nodes.length > 0) {
+            const finalNodeIndex = runtimeTravel.nodes.length - 1;
+            const finalNodeMesh = runtimeTravel.nodes[finalNodeIndex].core;
+            finalNodeMesh.getWorldPosition(tempWorldPosition);
+            
+            // Re-project and update
+            const projectedScreen = tempWorldPosition.clone().project(camera);
+            const viewportWidth = Math.max(1, container.clientWidth || renderer.domElement.clientWidth || 1);
+            const viewportHeight = Math.max(1, container.clientHeight || renderer.domElement.clientHeight || 1);
+            const screenX = ((projectedScreen.x + 1) * 0.5) * viewportWidth;
+            const screenY = ((1 - projectedScreen.y) * 0.5) * viewportHeight;
+            
+            tempSurfaceNormal.copy(tempWorldPosition).normalize();
+            tempViewDirection.copy(camera.position).sub(tempWorldPosition).normalize();
+            const facing = tempSurfaceNormal.dot(tempViewDirection);
+            
+            const isVisibleOnScreen = projectedScreen.z >= -1
+              && projectedScreen.z <= 1
+              && screenX >= 0
+              && screenX <= viewportWidth
+              && screenY >= 0
+              && screenY <= viewportHeight
+              && facing > 0.03;
+              
+            onDemoTravelUpdate({ screenX, screenY, isVisibleOnScreen });
           }
         }
 
