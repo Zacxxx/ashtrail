@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { useJobs } from "../jobs/useJobs";
+import { SyncedNarratedVideoPlayer } from "../media/SyncedNarratedVideoPlayer";
 
 interface HistoryGalleryProps {
     history: GenerationHistoryItem[];
@@ -15,7 +16,7 @@ interface HistoryGalleryProps {
     onRenameWorld?: (id: string, newName: string) => void;
 }
 
-type TabType = "planets" | "textures" | "icons" | "characters" | "songs" | "isolated";
+type TabType = "planets" | "textures" | "icons" | "characters" | "songs" | "videos" | "isolated";
 
 interface GalleryInventoryItem {
     id: string;
@@ -48,6 +49,7 @@ interface GalleryInventoryResponse {
         isolated: GalleryInventoryItem[];
         sprites: GalleryInventoryItem[];
         songs: GalleryInventoryItem[];
+        videos: GalleryInventoryItem[];
         packs: GalleryInventoryItem[];
     };
 }
@@ -112,6 +114,32 @@ interface SongAudioItem {
     syncState: string;
 }
 
+interface VideoPackageItem {
+    id: string;
+    title: string;
+    category: string;
+    batchName: string;
+    createdAt: string;
+    posterUrl: string;
+    videoUrl: string;
+    durationSeconds: number;
+    narrationLanguage: string;
+    voiceName: string;
+    keepVeoAudio: boolean;
+    source: string;
+    syncState: string;
+    script: string;
+    segments: Array<{
+        segmentId: string;
+        startMs: number;
+        endMs: number;
+        text: string;
+        audioUrl: string;
+        mimeType: string;
+        duckVideoTo: number;
+    }>;
+}
+
 function inventoryMetaString(item: GalleryInventoryItem, key: string): string | undefined {
     const value = item.metadata?.[key];
     return typeof value === "string" ? value : undefined;
@@ -141,6 +169,7 @@ export function HistoryGallery({
     const [textureImages, setTextureImages] = useState<TextureImageItem[]>([]);
     const [characterPortraits, setCharacterPortraits] = useState<CharacterPortraitItem[]>([]);
     const [songClips, setSongClips] = useState<SongAudioItem[]>([]);
+    const [videoPackages, setVideoPackages] = useState<VideoPackageItem[]>([]);
     const [isolatedImages, setIsolatedImages] = useState<IsolatedImageItem[]>([]);
     const [upscaledImages, setUpscaledImages] = useState<UpscaledIsolatedItem[]>([]);
     const [isolatedSection, setIsolatedSection] = useState<"isolated" | "upscaled">("isolated");
@@ -189,7 +218,7 @@ export function HistoryGallery({
         ? "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8 gap-2.5"
         : activeTab === "isolated"
             ? "grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 items-start"
-        : activeTab === "songs"
+        : activeTab === "songs" || activeTab === "videos"
             ? "grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-5"
         : activeTab === "characters"
             ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5"
@@ -286,6 +315,25 @@ export function HistoryGallery({
                     sampleRateHz: inventoryMetaNumber(item, "sampleRateHz") || 0,
                     source: item.source || "local",
                     syncState: item.syncState || "local_only",
+                })),
+            );
+            setVideoPackages(
+                (inventory.tabs.videos || []).map((item, index) => ({
+                    id: item.id || `video-${index}`,
+                    title: item.title || `Video ${index + 1}`,
+                    category: item.category || "videos",
+                    batchName: inventoryMetaString(item, "batchName") || inventoryMetaString(item, "batchId") || "Video",
+                    createdAt: item.createdAt || "",
+                    posterUrl: inventoryMetaString(item, "posterUrl") || "",
+                    videoUrl: inventoryMetaString(item, "videoUrl") || item.localUrl || item.cloudPublicUrl || item.displayUrl || "",
+                    durationSeconds: inventoryMetaNumber(item, "durationSeconds") || 0,
+                    narrationLanguage: inventoryMetaString(item, "narrationLanguage") || "fr-FR",
+                    voiceName: inventoryMetaString(item, "voiceName") || "Charon",
+                    keepVeoAudio: Boolean(item.metadata?.keepVeoAudio),
+                    source: item.source || "local",
+                    syncState: item.syncState || "local_only",
+                    script: inventoryMetaString(item, "script") || "",
+                    segments: Array.isArray(item.metadata?.segments) ? item.metadata?.segments : [],
                 })),
             );
 
@@ -412,6 +460,7 @@ export function HistoryGallery({
                     setTextureImages(textureGroups);
                     setCharacterPortraits(portraits);
                     setSongClips([]);
+                    setVideoPackages([]);
                     setIsolatedImages(isolatedItems);
                     setUpscaledImages(upscaledItems);
                 }
@@ -468,6 +517,14 @@ export function HistoryGallery({
                         className={`flex-1 py-3 text-[10px] font-black tracking-widest uppercase transition-all ${activeTab === "songs" ? "text-cyan-300 bg-white/10" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"}`}
                     >
                         Songs
+                    </button>
+                )}
+                {showExtendedTabs && (
+                    <button
+                        onClick={() => setActiveTab("videos")}
+                        className={`flex-1 py-3 text-[10px] font-black tracking-widest uppercase transition-all ${activeTab === "videos" ? "text-fuchsia-300 bg-white/10" : "text-gray-500 hover:text-gray-300 hover:bg-white/5"}`}
+                    >
+                        Videos
                     </button>
                 )}
                 {showExtendedTabs && (
@@ -666,6 +723,37 @@ export function HistoryGallery({
                             <p>{clip.prompt}</p>
                             {clip.negativePrompt && <p className="text-gray-500">Avoid: {clip.negativePrompt}</p>}
                             <p className="uppercase tracking-widest text-gray-500">Variant {clip.variantIndex} • {clip.durationSeconds}s • {clip.sampleRateHz} Hz • {clip.createdAt ? new Date(clip.createdAt).toLocaleDateString() : "Unknown date"}</p>
+                        </div>
+                    </div>
+                ))}
+
+                {activeTab === "videos" && showExtendedTabs && !isLoadingExtended && videoPackages.length === 0 && (
+                    <div className="col-span-full text-xs text-gray-500">No videos found yet.</div>
+                )}
+                {activeTab === "videos" && showExtendedTabs && videoPackages.map((video) => (
+                    <div key={video.id} className="rounded-2xl border border-white/10 bg-black/40 p-4 shadow-lg">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <div className="text-sm font-bold text-white">{video.title}</div>
+                                <div className="mt-1 text-[9px] uppercase tracking-widest text-fuchsia-300">{video.category} • {video.batchName}</div>
+                            </div>
+                            <div className="text-right text-[9px] uppercase tracking-widest text-gray-500">
+                                <div>{video.source}</div>
+                                <div>{video.syncState}</div>
+                            </div>
+                        </div>
+                        <div className="mt-4">
+                            <SyncedNarratedVideoPlayer
+                                videoUrl={video.videoUrl}
+                                posterUrl={video.posterUrl}
+                                durationSeconds={video.durationSeconds}
+                                segments={video.segments}
+                                keepVideoAudioDefault={video.keepVeoAudio}
+                            />
+                        </div>
+                        <div className="mt-4 space-y-1 text-[10px] text-gray-400">
+                            <p className="uppercase tracking-widest text-gray-500">{video.narrationLanguage} • {video.voiceName} • {video.durationSeconds}s • {video.createdAt ? new Date(video.createdAt).toLocaleDateString() : "Unknown date"}</p>
+                            {video.script && <p>{video.script}</p>}
                         </div>
                     </div>
                 ))}

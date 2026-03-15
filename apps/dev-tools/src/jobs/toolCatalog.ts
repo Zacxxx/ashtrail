@@ -159,6 +159,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
         route: `${DEVTOOLS_ROUTES.assetGenerator}?tab=songs`,
     },
     {
+        id: "generatemedia.video",
+        label: "Generate Media Video",
+        description: "Gemini 3 interleaved media demo that calls one business tool to produce a unified cinematic video artifact with poster, narration, and metadata.",
+        technicalCategory: "assets",
+        productAreas: ["assets", "narrative-ai"],
+        defaultModalities: ["mixed"],
+        route: `${DEVTOOLS_ROUTES.assetGenerator}?tab=videos`,
+    },
+    {
         id: "asset-generator",
         label: "Asset Generator",
         description: "Icon, texture, and asset image generation workflows.",

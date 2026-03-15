@@ -301,4 +301,95 @@ describe("JobCenterPage", () => {
         expect(screen.getAllByText("generatemedia.audio").length).toBeGreaterThan(0);
         expect(screen.getByText(/Dust Relay supports traversal under pressure/i)).toBeInTheDocument();
     });
+
+    it("renders generated media video artifacts in job detail", async () => {
+        const mediaJob = makeJob({
+            jobId: "media-video-1",
+            tool: "generatemedia.video",
+            title: "Generate Media Video",
+            kind: "interleaved.generatemedia.video.v1",
+            status: "completed",
+            progress: 100,
+            currentStage: "Completed",
+            outputRefs: [{ id: "summary", label: "Gemini Final Response", kind: "text", previewText: "done" }],
+            metadata: { modality: "mixed" },
+            updatedAt: 70,
+        });
+
+        mockUseGenerationHistory.mockReturnValue({ history: [] });
+        mockUseJobs.mockReturnValue({
+            jobs: [mediaJob],
+            cancelJob: vi.fn(),
+            openOutput: vi.fn(),
+            redoJob: vi.fn(),
+            getJobDetail: vi.fn(async () => ({
+                ...mediaJob,
+                result: {
+                    artifact: {
+                        type: "generated_media_video",
+                        status: "success",
+                        video: {
+                            url: "/api/videos/batch-1/video.mp4",
+                            durationSeconds: 8,
+                            mimeType: "video/mp4",
+                            aspectRatio: "16:9",
+                            resolution: "720p",
+                            keepVeoAudio: true,
+                        },
+                        poster: {
+                            url: "/api/videos/batch-1/poster.png",
+                            mimeType: "image/png",
+                        },
+                        narration: {
+                            language: "fr-FR",
+                            voiceName: "Charon",
+                            script: "La nuit ferme l'horizon.",
+                            segments: [{
+                                segmentId: "seg-001",
+                                startMs: 0,
+                                endMs: 2200,
+                                text: "La nuit ferme l'horizon.",
+                                audioUrl: "/api/videos/batch-1/narration/seg_001.wav",
+                                mimeType: "audio/wav",
+                                duckVideoTo: 0.3,
+                            }],
+                        },
+                        metadata: {
+                            title: "Ashfall Raid",
+                            description: "A brutal cinematic beat for a night assault.",
+                            intent: "combat intro",
+                            tags: ["cinematic", "lore"],
+                        },
+                        warnings: [],
+                    },
+                    transcript: {
+                        model: "gemini-3-flash-preview",
+                        logicalToolName: "generatemedia.video",
+                        apiToolName: "generatemedia_video",
+                        toolCalled: true,
+                        thoughtSignatureDetected: true,
+                        finalResponseText: "Ashfall Raid frames the attack before the clash lands.",
+                    },
+                },
+            } as JobDetail)),
+            refreshJobs: vi.fn(async () => undefined),
+        });
+
+        render(
+            <MemoryRouter initialEntries={["/devtools/jobcenter?jobId=media-video-1"]}>
+                <Routes>
+                    <Route path="/devtools/jobcenter" element={<JobCenterPage />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText("Generated Media Video Artifact")).toBeInTheDocument();
+        });
+
+        expect(screen.getByText("Ashfall Raid")).toBeInTheDocument();
+        expect(screen.getByText(/night assault/i)).toBeInTheDocument();
+        expect(screen.getAllByText("generatemedia.video").length).toBeGreaterThan(0);
+        expect(screen.getByText(/Ashfall Raid frames the attack/i)).toBeInTheDocument();
+    });
 });
