@@ -5,6 +5,7 @@ mod asset_packs;
 mod cell_analyzer;
 mod cms;
 mod combat_engine;
+mod demo_step_one;
 mod ecology;
 mod game_rules;
 mod exploration_engine;
@@ -1189,6 +1190,7 @@ async fn main() {
         .route("/api/songs/batches", get(list_song_batches))
         .route("/api/songs/batches/{batch_id}", get(get_song_batch))
         .route("/api/media/audio/jobs", post(start_generate_media_audio_job))
+        .route("/api/demo/step-1/jobs", post(start_demo_step_one_job))
         .route("/api/ai/image-models", get(get_ai_image_models))
         .route("/api/gallery/inventory", get(get_gallery_inventory))
         .route("/api/storage/supabase/health", get(get_supabase_storage_health))
@@ -2557,6 +2559,188 @@ async fn start_generate_media_audio_job(
                                 "finalResponseText": message.clone()
                             }
                         }));
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_one_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_one::DemoStepOneGenerateRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step1.interleaved.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 1"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step1.interleaved"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert("modality".to_string(), serde_json::Value::String("mixed".to_string()));
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "logicalToolName".to_string(),
+            serde_json::Value::String("demo.step1.interleaved".to_string()),
+        );
+        metadata.insert(
+            "demoStep".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1)),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = state.generated_media_dir.join(&job_id);
+    let songs_dir = state.songs_dir.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    10.0,
+                    "Opening Ashtrail demo step 1 session".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        28.0,
+                        "Generating interleaved world package".to_string(),
+                    );
+                }
+            }
+
+            let result =
+                demo_step_one::run_demo_step_one(&request, &output_root, &spawned_job_id).await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        84.0,
+                        "Packaging demo step 1 outputs".to_string(),
+                    );
+                }
+            }
+
+            Ok::<demo_step_one::DemoStepOneExecution, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(mut execution) => {
+                if let Err(message) = persist_generated_media_audio_song(
+                    &songs_dir,
+                    &spawned_job_id,
+                    &output_root,
+                    &execution.request,
+                    &mut execution.base_execution,
+                ) {
+                    warn!("failed to persist demo step 1 job {} into songs: {}", spawned_job_id, message);
+                    execution.result.artifact.warnings.push(format!("Song persistence failed: {message}"));
+                }
+                execution.result.artifact.audio = execution.base_execution.result.artifact.audio.clone();
+                execution.result.artifact.image = execution.base_execution.result.artifact.image.clone();
+                execution.result.artifact.metadata = execution.base_execution.result.artifact.metadata.clone();
+
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        let artifact_status = execution.result.artifact.status.clone();
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&execution.result).ok();
+                        job.output_refs = {
+                            let mut refs = vec![build_text_output_ref(
+                                "World Introduction",
+                                &execution.result.artifact.lore_text,
+                            )];
+                            if let Some(audio_url) = execution.base_execution.audio_preview.clone() {
+                                refs.push(JobOutputRef {
+                                    id: "generated-audio".to_string(),
+                                    label: "Open Audio".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(audio_url),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            if let Some(image_url) = execution.base_execution.image_preview.clone() {
+                                refs.push(JobOutputRef {
+                                    id: "generated-image".to_string(),
+                                    label: "Open Image".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(image_url),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            refs
+                        };
+                        if let Some(metadata) = job.metadata.as_mut().and_then(|value| value.as_object_mut()) {
+                            metadata.insert(
+                                "artifactStatus".to_string(),
+                                serde_json::to_value(artifact_status)
+                                    .unwrap_or_else(|_| serde_json::Value::String("error".to_string())),
+                            );
+                            metadata.insert(
+                                "worldTitle".to_string(),
+                                serde_json::Value::String(execution.result.artifact.metadata.title.clone()),
+                            );
+                            if let Some(song_clip) = execution.base_execution.song_clip.as_ref() {
+                                metadata.insert(
+                                    "songTitle".to_string(),
+                                    serde_json::Value::String(song_clip.title.clone()),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message.clone());
+                        job.result =
+                            serde_json::to_value(demo_step_one::build_demo_step_one_error_result(&message))
+                                .ok();
                     }
                 }
             }
