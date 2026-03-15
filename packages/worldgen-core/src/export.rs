@@ -14,6 +14,11 @@ fn pack_id_rgb(id: u32) -> Rgb<u8> {
     ])
 }
 
+/// Decode a 24-bit RGB-packed ID.
+pub fn decode_id_rgb(rgb: [u8; 3]) -> u32 {
+    rgb[0] as u32 | ((rgb[1] as u32) << 8) | ((rgb[2] as u32) << 16)
+}
+
 /// Write an ID label texture as RGB24 packed PNG.
 pub fn write_id_texture(
     labels: &[u32],
@@ -155,5 +160,22 @@ impl PipelineStatus {
     pub fn save(&self, path: &Path) -> Result<(), String> {
         let json = serde_json::to_string_pretty(self).map_err(|e| format!("JSON error: {}", e))?;
         std::fs::write(path, json).map_err(|e| format!("Failed to save: {}", e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_id_rgb;
+
+    #[test]
+    fn decodes_rgb_ids_written_by_writer_layout() {
+        for id in [0u32, 1, 255, 256, 65_535, 65_536, 105, 367, 557] {
+            let rgb = [
+                (id & 0xFF) as u8,
+                ((id >> 8) & 0xFF) as u8,
+                ((id >> 16) & 0xFF) as u8,
+            ];
+            assert_eq!(decode_id_rgb(rgb), id);
+        }
     }
 }

@@ -19,8 +19,10 @@ mod jobs;
 mod locations;
 mod lyria;
 mod media_audio;
+mod media_video;
 mod progression;
 mod quest_ai;
+mod tts;
 mod worldgen_pipeline;
 
 use axum::{
@@ -75,6 +77,8 @@ struct AppState {
     demo_output_dir: PathBuf,
     demo_step_one_use_pregenerated: bool,
     demo_step_one_pregenerated_folder: String,
+    videos_dir: PathBuf,
+    generated_media_video_dir: PathBuf,
     isolated_dir: PathBuf,
     packs_dir: PathBuf,
     refine_limiter: RefineLimiter,
@@ -642,6 +646,57 @@ struct SongBatchSummary {
     thumbnail_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeneratedVideoNarrationSegment {
+    segment_id: String,
+    start_ms: u32,
+    end_ms: u32,
+    text: String,
+    audio_url: String,
+    mime_type: String,
+    duck_video_to: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoPackageFile {
+    url: String,
+    mime_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoPackageManifest {
+    batch_id: String,
+    batch_name: String,
+    created_at: String,
+    category: String,
+    duration_seconds: u32,
+    aspect_ratio: String,
+    keep_veo_audio: bool,
+    narration_language: String,
+    voice_name: String,
+    video: VideoPackageFile,
+    poster: Option<VideoPackageFile>,
+    script: String,
+    description: String,
+    tags: Vec<String>,
+    segments: Vec<GeneratedVideoNarrationSegment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoPackageSummary {
+    batch_id: String,
+    batch_name: String,
+    created_at: String,
+    category: String,
+    duration_seconds: u32,
+    narration_language: String,
+    thumbnail_url: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TextureBatchRequest {
@@ -796,6 +851,15 @@ struct SupabaseSyncResponse {
     failed: usize,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoBatchSaveResponse {
+    batch_id: String,
+    uploaded: usize,
+    skipped: usize,
+    failed: usize,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SupabaseHealthResponse {
@@ -836,6 +900,7 @@ struct GalleryInventoryTabs {
     isolated: Vec<GalleryInventoryItem>,
     sprites: Vec<GalleryInventoryItem>,
     songs: Vec<GalleryInventoryItem>,
+    videos: Vec<GalleryInventoryItem>,
     packs: Vec<GalleryInventoryItem>,
 }
 
@@ -974,6 +1039,14 @@ async fn main() {
     std::fs::create_dir_all(&demo_output_dir)
         .expect("failed to create generated/demo-output directory");
 
+    let videos_dir = PathBuf::from("../../game-assets/assets/Videos");
+    std::fs::create_dir_all(&videos_dir)
+        .expect("failed to create game-assets/assets/Videos directory");
+
+    let generated_media_video_dir = PathBuf::from("generated/media-video");
+    std::fs::create_dir_all(&generated_media_video_dir)
+        .expect("failed to create generated/media-video directory");
+
     let isolated_dir = PathBuf::from("../../game-assets/assets/IsolatedRegions");
     std::fs::create_dir_all(&isolated_dir)
         .expect("failed to create game-assets/assets/IsolatedRegions directory");
@@ -1022,6 +1095,8 @@ async fn main() {
         demo_output_dir: demo_output_dir.clone(),
         demo_step_one_use_pregenerated,
         demo_step_one_pregenerated_folder,
+        videos_dir: videos_dir.clone(),
+        generated_media_video_dir: generated_media_video_dir.clone(),
         isolated_dir: isolated_dir.clone(),
         packs_dir: packs_dir.clone(),
         refine_limiter: RefineLimiter {
@@ -1141,6 +1216,10 @@ async fn main() {
         .route(
             "/api/planet/ecology-data/{world_id}/refresh-derived-stats",
             post(ecology::refresh_derived_stats),
+        )
+        .route(
+            "/api/planet/ecology-data/{world_id}/generate/briefing",
+            post(ecology::generate_briefing_ecology),
         )
         .route("/api/planet/ecology-jobs/{job_id}", get(get_job_status))
         .route("/api/planet/humanity", post(start_humanity_job))
@@ -1319,6 +1398,11 @@ async fn main() {
             post(start_demo_step_two_lore_insight_job),
         )
         .route("/api/demo/step-2/jobs", post(start_demo_step_two_job))
+        .route("/api/tts/generate", post(tts::generate_tts_handler))
+        .route("/api/media/video/jobs", post(start_generate_media_video_job))
+        .route("/api/videos/batches", get(list_video_batches))
+        .route("/api/videos/batches/{batch_id}", get(get_video_batch))
+        .route("/api/videos/batches/{batch_id}/save", post(save_video_batch_to_gallery))
         .route("/api/ai/image-models", get(get_ai_image_models))
         .route("/api/gallery/inventory", get(get_gallery_inventory))
         .route("/api/storage/supabase/health", get(get_supabase_storage_health))
@@ -1467,6 +1551,12 @@ async fn main() {
         .nest_service("/api/songs", ServeDir::new(songs_dir.clone()))
         .nest_service("/api/generated-media", ServeDir::new(generated_media_dir.clone()))
         .nest_service("/api/demo-output", ServeDir::new(demo_output_dir.clone()))
+        .nest_service("/api/tts", ServeDir::new("generated/tts"))
+        .nest_service("/api/videos", ServeDir::new(videos_dir.clone()))
+        .nest_service(
+            "/api/generated-media-video",
+            ServeDir::new(generated_media_video_dir.clone()),
+        )
         .nest_service("/api/isolated-assets", ServeDir::new(isolated_dir.clone()))
         .with_state(state)
         .layer(
@@ -3851,6 +3941,374 @@ fn persist_generated_media_audio_song(
     Ok(())
 }
 
+async fn start_generate_media_video_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<media_video::GenerateMediaVideoRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if request.prompt.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Prompt is required".to_string()));
+    }
+
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("interleaved.generatemedia.video.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Media Video"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("generatemedia.video"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "modality".to_string(),
+            serde_json::Value::String("mixed".to_string()),
+        );
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "logicalToolName".to_string(),
+            serde_json::Value::String("generatemedia.video".to_string()),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = state.generated_media_video_dir.join(&job_id);
+    let videos_dir = state.videos_dir.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    10.0,
+                    "Opening Gemini 3 interleaved video session".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(JobStatus::Running, 32.0, "Waiting for functionCall".to_string());
+                }
+            }
+
+            let result =
+                media_video::run_interleaved_video_demo(&request, &output_root, &spawned_job_id)
+                    .await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        84.0,
+                        "Packaging cinematic artifact".to_string(),
+                    );
+                }
+            }
+
+            Ok::<media_video::MediaVideoExecution, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(mut execution) => {
+                if let Err(message) = persist_generated_media_video_package(
+                    &videos_dir,
+                    &spawned_job_id,
+                    &output_root,
+                    &request,
+                    &mut execution,
+                ) {
+                    warn!(
+                        "failed to persist media video job {} into videos: {}",
+                        spawned_job_id, message
+                    );
+                    execution
+                        .result
+                        .artifact
+                        .warnings
+                        .push(format!("Video persistence failed: {message}"));
+                }
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        let artifact_status = execution.result.artifact.status.clone();
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&execution.result).ok();
+                        job.output_refs = {
+                            let mut refs = vec![build_text_output_ref(
+                                "Gemini Final Response",
+                                &execution.result.transcript.final_response_text,
+                            )];
+                            if let Some(video_url) = execution.video_preview {
+                                refs.push(JobOutputRef {
+                                    id: "generated-video".to_string(),
+                                    label: "Open Video".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(video_url),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            if let Some(poster_url) = execution.poster_preview {
+                                refs.push(JobOutputRef {
+                                    id: "generated-poster".to_string(),
+                                    label: "Open Poster".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(poster_url),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            refs
+                        };
+                        if let Some(metadata) =
+                            job.metadata.as_mut().and_then(|value| value.as_object_mut())
+                        {
+                            metadata.insert(
+                                "artifactStatus".to_string(),
+                                serde_json::to_value(artifact_status).unwrap_or_else(|_| {
+                                    serde_json::Value::String("error".to_string())
+                                }),
+                            );
+                            metadata.insert(
+                                "videoTitle".to_string(),
+                                serde_json::Value::String(
+                                    execution.result.artifact.metadata.title.clone(),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message.clone());
+                        job.result = Some(serde_json::json!({
+                            "artifact": {
+                                "type": "generated_media_video",
+                                "status": "error",
+                                "video": serde_json::Value::Null,
+                                "poster": serde_json::Value::Null,
+                                "narration": serde_json::Value::Null,
+                                "metadata": {
+                                    "title": "Media video generation failed",
+                                    "description": message.clone(),
+                                    "intent": request.intent.clone().unwrap_or_else(|| "scene support".to_string()),
+                                    "tags": [request.category.clone().unwrap_or_else(|| "cinematic".to_string())]
+                                },
+                                "warnings": [message.clone()]
+                            },
+                            "transcript": {
+                                "model": media_audio::interleaved_model(),
+                                "logicalToolName": "generatemedia.video",
+                                "apiToolName": "generatemedia.video",
+                                "toolCalled": false,
+                                "thoughtSignatureDetected": false,
+                                "toolArguments": serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+                                "finalResponseText": message.clone()
+                            }
+                        }));
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+fn persist_generated_media_video_package(
+    videos_dir: &std::path::Path,
+    job_id: &str,
+    output_root: &std::path::Path,
+    request: &media_video::GenerateMediaVideoRequest,
+    execution: &mut media_video::MediaVideoExecution,
+) -> Result<(), String> {
+    let Some(video) = execution.result.artifact.video.clone() else {
+        return Ok(());
+    };
+    let slug = slugify_prompt(&execution.result.artifact.metadata.title);
+    let batch_id = if slug.is_empty() {
+        format!("media_video_{}", &job_id[..8.min(job_id.len())])
+    } else {
+        format!("{}_{}", slug, &job_id[..8.min(job_id.len())])
+    };
+    let batch_dir = videos_dir.join(&batch_id);
+    std::fs::create_dir_all(&batch_dir).map_err(|error| format!("create video batch dir: {error}"))?;
+    std::fs::create_dir_all(batch_dir.join("narration"))
+        .map_err(|error| format!("create video narration dir: {error}"))?;
+
+    let video_source = output_root.join("video.mp4");
+    if !video_source.exists() {
+        return Err("generated video file is missing".to_string());
+    }
+    std::fs::copy(&video_source, batch_dir.join("video.mp4"))
+        .map_err(|error| format!("copy generated video: {error}"))?;
+
+    let mut poster_url = None;
+    let poster_source = output_root.join("poster.png");
+    if poster_source.exists() {
+        std::fs::copy(&poster_source, batch_dir.join("poster.png"))
+            .map_err(|error| format!("copy poster image: {error}"))?;
+        poster_url = Some(format!("/api/videos/{}/poster.png", batch_id));
+    }
+
+    let mut manifest_segments = Vec::new();
+    if let Some(narration) = execution.result.artifact.narration.as_mut() {
+        for segment in &mut narration.segments {
+            let file_name = segment
+                .audio_url
+                .rsplit('/')
+                .next()
+                .ok_or_else(|| "narration segment url is missing a filename".to_string())?
+                .to_string();
+            let source = output_root.join("narration").join(&file_name);
+            if !source.exists() {
+                continue;
+            }
+            std::fs::copy(&source, batch_dir.join("narration").join(&file_name))
+                .map_err(|error| format!("copy narration segment: {error}"))?;
+            segment.audio_url = format!("/api/videos/{}/narration/{}", batch_id, file_name);
+            manifest_segments.push(GeneratedVideoNarrationSegment {
+                segment_id: segment.segment_id.clone(),
+                start_ms: segment.start_ms,
+                end_ms: segment.end_ms,
+                text: segment.text.clone(),
+                audio_url: segment.audio_url.clone(),
+                mime_type: segment.mime_type.clone(),
+                duck_video_to: segment.duck_video_to,
+            });
+        }
+    }
+
+    if let Some(video_asset) = execution.result.artifact.video.as_mut() {
+        video_asset.url = format!("/api/videos/{}/video.mp4", batch_id);
+    }
+    execution.video_preview = execution.result.artifact.video.as_ref().map(|asset| asset.url.clone());
+    if let Some(poster) = execution.result.artifact.poster.as_mut() {
+        if let Some(url) = poster_url.clone() {
+            poster.url = url;
+        }
+    }
+    execution.poster_preview = execution.result.artifact.poster.as_ref().map(|asset| asset.url.clone());
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let category = request
+        .category
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("cinematic")
+        .to_string();
+    let narration = execution.result.artifact.narration.clone();
+    let manifest = VideoPackageManifest {
+        batch_id: batch_id.clone(),
+        batch_name: execution.result.artifact.metadata.title.clone(),
+        created_at,
+        category,
+        duration_seconds: video.duration_seconds,
+        aspect_ratio: video.aspect_ratio.clone(),
+        keep_veo_audio: video.keep_veo_audio,
+        narration_language: narration
+            .as_ref()
+            .map(|value| value.language.clone())
+            .unwrap_or_else(|| "fr-FR".to_string()),
+        voice_name: narration
+            .as_ref()
+            .map(|value| value.voice_name.clone())
+            .unwrap_or_else(|| "Charon".to_string()),
+        video: VideoPackageFile {
+            url: execution
+                .result
+                .artifact
+                .video
+                .as_ref()
+                .map(|value| value.url.clone())
+                .unwrap_or_else(|| format!("/api/videos/{}/video.mp4", batch_id)),
+            mime_type: video.mime_type.clone(),
+        },
+        poster: execution.result.artifact.poster.as_ref().map(|poster| VideoPackageFile {
+            url: poster.url.clone(),
+            mime_type: poster.mime_type.clone(),
+        }),
+        script: narration
+            .as_ref()
+            .map(|value| value.script.clone())
+            .unwrap_or_default(),
+        description: execution.result.artifact.metadata.description.clone(),
+        tags: execution.result.artifact.metadata.tags.clone(),
+        segments: manifest_segments.clone(),
+    };
+
+    let timeline_json = serde_json::json!({
+        "keepVeoAudio": manifest.keep_veo_audio,
+        "durationSeconds": manifest.duration_seconds,
+        "segments": manifest_segments,
+    });
+    std::fs::write(
+        batch_dir.join("timeline.json"),
+        serde_json::to_string_pretty(&timeline_json)
+            .map_err(|error| format!("serialize timeline: {error}"))?,
+    )
+    .map_err(|error| format!("write timeline: {error}"))?;
+    std::fs::write(
+        batch_dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)
+            .map_err(|error| format!("serialize video manifest: {error}"))?,
+    )
+    .map_err(|error| format!("write video manifest: {error}"))?;
+    std::fs::write(
+        batch_dir.join("generated_media_artifact.json"),
+        serde_json::to_string_pretty(&execution.result)
+            .map_err(|error| format!("serialize video artifact: {error}"))?,
+    )
+    .map_err(|error| format!("write video artifact: {error}"))?;
+
+    if let Some(metadata) = execution
+        .result
+        .transcript
+        .tool_arguments
+        .as_object_mut()
+    {
+        metadata.insert(
+            "persistedVideoBatchId".to_string(),
+            serde_json::Value::String(batch_id),
+        );
+    }
+
+    Ok(())
+}
+
 fn infer_media_song_tempo(request: &media_audio::GenerateMediaAudioRequest) -> String {
     let haystack = format!(
         "{} {} {} {} {}",
@@ -4014,6 +4472,195 @@ mod media_audio_persistence_tests {
             path,
             std::path::PathBuf::from("generated/demo-output").join("job-1234")
         );
+    }
+}
+
+#[cfg(test)]
+mod media_video_persistence_tests {
+    use super::{
+        cloud_key_to_local, guess_content_type, local_to_cloud_key,
+        persist_generated_media_video_package, AppState, RefineLimiter,
+        SupabaseStorageConfig, VideoPackageManifest,
+    };
+    use crate::media_audio::InterleavedTranscript;
+    use crate::jobs::JobRecord;
+    use crate::media_video::{
+        GenerateMediaVideoRequest, GeneratedMediaNarration, GeneratedMediaVideoArtifact,
+        GeneratedMediaVideoAsset, GeneratedMediaVideoResult, MediaVideoExecution,
+    };
+    use serde_json::json;
+    use std::{
+        collections::HashMap,
+        fs,
+        path::PathBuf,
+        sync::{
+            atomic::AtomicUsize,
+            Arc, Mutex,
+        },
+        time::{SystemTime, UNIX_EPOCH},
+    };
+    use tokio::sync::Semaphore;
+
+    fn dummy_state(root: &std::path::Path) -> AppState {
+        let jobs = Arc::new(Mutex::new(HashMap::<String, JobRecord>::new()));
+        let limiter = RefineLimiter {
+            semaphore: Arc::new(Semaphore::new(1)),
+            max_concurrent: 1,
+            max_queue: 1,
+            outstanding: Arc::new(AtomicUsize::new(0)),
+        };
+        AppState {
+            jobs,
+            quest_runtime: crate::quest_ai::QuestRuntime::from_env(false, Arc::new(Mutex::new(HashMap::new()))),
+            exploration_runtime: crate::exploration_jobs::ExplorationGenerationRuntime::from_env(false, Arc::new(Mutex::new(HashMap::new()))),
+            planets_dir: root.join("planets"),
+            planet_root: root.join("planets"),
+            characters_dir: root.join("characters"),
+            character_portraits_dir: root.join("characters").join("portraits"),
+            icons_dir: root.join("Icons"),
+            icons_export_dir: root.join("Icons"),
+            textures_dir: root.join("Textures"),
+            textures_export_dir: root.join("Textures"),
+            sprites_dir: root.join("Sprites"),
+            songs_dir: root.join("Songs"),
+            generated_media_dir: root.join("generated").join("media-audio"),
+            videos_dir: root.join("Videos"),
+            generated_media_video_dir: root.join("generated").join("media-video"),
+            isolated_dir: root.join("Isolated"),
+            packs_dir: root.join("Packs"),
+            refine_limiter: limiter,
+            supabase: None,
+        }
+    }
+
+    #[test]
+    fn persists_generated_media_video_into_video_manifest() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("ashtrail-media-video-{unique}"));
+        let videos_dir = root.join("Videos");
+        let output_root = root.join("generated-media-video").join("job-vid");
+        fs::create_dir_all(videos_dir.clone()).expect("videos dir");
+        fs::create_dir_all(output_root.join("narration")).expect("output dir");
+        fs::write(output_root.join("video.mp4"), b"mp4demo").expect("video");
+        fs::write(output_root.join("poster.png"), b"\x89PNGdemo").expect("poster");
+        fs::write(output_root.join("narration").join("seg_001.wav"), b"RIFFdemo").expect("narration");
+
+        let request = GenerateMediaVideoRequest {
+            prompt: "Night assault cinematic".to_string(),
+            duration_seconds: Some(8),
+            aspect_ratio: Some("16:9".to_string()),
+            style: Some("grim cinematic".to_string()),
+            intent: Some("combat intro".to_string()),
+            category: Some("cinematic".to_string()),
+            mood: Some("tense".to_string()),
+            camera_direction: Some("slow push".to_string()),
+            narration_tone: Some("grave".to_string()),
+            narration_intent: Some("frame the raid".to_string()),
+            voice_name: Some("Charon".to_string()),
+            negative_prompt: Some("avoid comedy".to_string()),
+            global_direction: Some("tribal clash at night".to_string()),
+            keep_veo_audio: Some(true),
+        };
+        let mut execution = MediaVideoExecution {
+            result: GeneratedMediaVideoResult {
+                artifact: GeneratedMediaVideoArtifact {
+                    artifact_type: "generated_media_video".to_string(),
+                    status: crate::media_audio::GeneratedMediaStatus::Success,
+                    video: Some(GeneratedMediaVideoAsset {
+                        url: "/api/generated-media-video/job-vid/video.mp4".to_string(),
+                        duration_seconds: 8,
+                        mime_type: "video/mp4".to_string(),
+                        aspect_ratio: "16:9".to_string(),
+                        resolution: "720p".to_string(),
+                        keep_veo_audio: true,
+                    }),
+                    poster: Some(crate::media_audio::GeneratedMediaImageAsset {
+                        url: "/api/generated-media-video/job-vid/poster.png".to_string(),
+                        mime_type: "image/png".to_string(),
+                    }),
+                    narration: Some(GeneratedMediaNarration {
+                        language: "fr-FR".to_string(),
+                        voice_name: "Charon".to_string(),
+                        script: "La nuit ferme le camp.".to_string(),
+                        segments: vec![crate::media_video::GeneratedMediaNarrationSegment {
+                            segment_id: "seg-001".to_string(),
+                            start_ms: 0,
+                            end_ms: 2200,
+                            text: "La nuit ferme le camp.".to_string(),
+                            audio_url: "/api/generated-media-video/job-vid/narration/seg_001.wav".to_string(),
+                            mime_type: "audio/wav".to_string(),
+                            duck_video_to: 0.3,
+                        }],
+                    }),
+                    metadata: crate::media_audio::GeneratedMediaMetadata {
+                        title: "Ashfall Raid".to_string(),
+                        description: "A hard cinematic opener.".to_string(),
+                        intent: "combat intro".to_string(),
+                        tags: vec!["cinematic".to_string(), "lore".to_string()],
+                    },
+                    warnings: Vec::new(),
+                },
+                transcript: InterleavedTranscript {
+                    model: "gemini-3-flash-preview".to_string(),
+                    logical_tool_name: "generatemedia.video".to_string(),
+                    api_tool_name: "generatemedia_video".to_string(),
+                    tool_called: true,
+                    thought_signature_detected: true,
+                    tool_arguments: json!({ "prompt": request.prompt }),
+                    final_response_text: "Ashfall Raid ready.".to_string(),
+                },
+            },
+            video_preview: Some("/api/generated-media-video/job-vid/video.mp4".to_string()),
+            poster_preview: Some("/api/generated-media-video/job-vid/poster.png".to_string()),
+        };
+
+        persist_generated_media_video_package(
+            &videos_dir,
+            "job-video-1234",
+            &output_root,
+            &request,
+            &mut execution,
+        )
+        .expect("persisted");
+
+        let entries = fs::read_dir(&videos_dir)
+            .expect("read videos dir")
+            .map(|entry| entry.expect("entry").path())
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 1);
+        let batch_dir = &entries[0];
+        let manifest = fs::read_to_string(batch_dir.join("manifest.json")).expect("manifest");
+        let manifest_json: VideoPackageManifest = serde_json::from_str(&manifest).expect("manifest json");
+        assert_eq!(manifest_json.video.mime_type, "video/mp4");
+        assert!(batch_dir.join("video.mp4").exists());
+        assert!(batch_dir.join("poster.png").exists());
+        assert!(batch_dir.join("narration").join("seg_001.wav").exists());
+        assert!(batch_dir.join("timeline.json").exists());
+    }
+
+    #[test]
+    fn maps_video_paths_for_cloud_sync_and_content_type() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("ashtrail-video-sync-{unique}"));
+        let state = dummy_state(&root);
+        let cfg = SupabaseStorageConfig {
+            url: "https://example.supabase.co".to_string(),
+            service_role_key: "service-role".to_string(),
+            bucket: "ashtrail".to_string(),
+            prefix: "ashtrail".to_string(),
+        };
+        let local_path = PathBuf::from(&state.videos_dir).join("batch-1").join("video.mp4");
+        let key = local_to_cloud_key(&state, &cfg, &local_path).expect("cloud key");
+        assert_eq!(key, "ashtrail/videos/batch-1/video.mp4");
+        let roundtrip = cloud_key_to_local(&state, &cfg, &key).expect("local path");
+        assert_eq!(roundtrip, local_path);
+        assert_eq!(guess_content_type("video.mp4"), "video/mp4");
     }
 }
 
@@ -5676,6 +6323,9 @@ async fn generate_locations_job(
     let spawned_job_id = job_id.clone();
     let request_for_job = request.clone();
     tokio::task::spawn(async move {
+        let panic_jobs = jobs.clone();
+        let panic_job_id = spawned_job_id.clone();
+        let worker = tokio::task::spawn(async move {
         set_location_job_state(
             &jobs,
             &spawned_job_id,
@@ -5803,6 +6453,18 @@ async fn generate_locations_job(
                     Some(error),
                 );
             }
+        }
+        });
+        if let Err(join_error) = worker.await {
+            error!("Humanity worker panicked for job {}: {}", panic_job_id, join_error);
+            set_location_job_state(
+                &panic_jobs,
+                &panic_job_id,
+                JobStatus::Failed,
+                100.0,
+                "Humanity worker panicked",
+                Some(format!("Humanity worker panicked: {}", join_error)),
+            );
         }
     });
 
@@ -8279,6 +8941,149 @@ async fn get_song_batch(
     Ok(Json(manifest))
 }
 
+async fn list_video_batches(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let videos_dir = state.videos_dir.clone();
+    let batches = tokio::task::spawn_blocking(move || -> Result<Vec<VideoPackageSummary>, String> {
+        let mut result = Vec::new();
+        if !videos_dir.exists() {
+            return Ok(result);
+        }
+        let dir = std::fs::read_dir(&videos_dir).map_err(|e| format!("read dir: {e}"))?;
+        for entry in dir {
+            let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let manifest_path = path.join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let data =
+                std::fs::read_to_string(&manifest_path).map_err(|e| format!("read manifest: {e}"))?;
+            let manifest: VideoPackageManifest =
+                serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
+            result.push(VideoPackageSummary {
+                batch_id: manifest.batch_id,
+                batch_name: manifest.batch_name,
+                created_at: manifest.created_at,
+                category: manifest.category,
+                duration_seconds: manifest.duration_seconds,
+                narration_language: manifest.narration_language,
+                thumbnail_url: manifest.poster.map(|poster| poster.url),
+            });
+        }
+        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(result)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task error: {e}"),
+        )
+    })?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(batches))
+}
+
+async fn get_video_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let manifest_path = state.videos_dir.join(&batch_id).join("manifest.json");
+    if !manifest_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Video batch not found".to_string()));
+    }
+    let data = tokio::fs::read_to_string(&manifest_path)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Read error: {e}"),
+            )
+        })?;
+    let manifest: VideoPackageManifest = serde_json::from_str(&data).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Parse error: {e}"),
+        )
+    })?;
+    Ok(Json(manifest))
+}
+
+async fn save_video_batch_to_gallery(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let batch_dir = state.videos_dir.join(&batch_id);
+    if !batch_dir.join("manifest.json").exists() {
+        return Err((StatusCode::NOT_FOUND, "Video batch not found".to_string()));
+    }
+
+    let Some(cfg) = state.supabase.as_ref() else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Supabase storage is not configured".to_string(),
+        ));
+    };
+
+    let client = reqwest::Client::new();
+    ensure_supabase_bucket_exists(&client, cfg)
+        .await
+        .map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+
+    let prefix = format!("{}/videos/{}", cfg.prefix, batch_id);
+    let remote_files = list_supabase_objects_recursive(&client, cfg, &prefix)
+        .await
+        .unwrap_or_default();
+    let remote_map = remote_files
+        .iter()
+        .map(|object| (object.path.clone(), object.clone()))
+        .collect::<HashMap<_, _>>();
+
+    let mut local_files = Vec::new();
+    collect_files_recursive(&batch_dir, &mut local_files);
+
+    let mut uploaded = 0usize;
+    let mut skipped = 0usize;
+    let mut failed = 0usize;
+
+    for local_path in &local_files {
+        let Some(cloud_key) = local_to_cloud_key(&state, cfg, local_path) else {
+            failed += 1;
+            continue;
+        };
+
+        let local_time = local_modified_at(local_path);
+        let remote_time = remote_map
+            .get(&cloud_key)
+            .and_then(|object| remote_updated_at(object.updated_at.as_deref()));
+        if remote_time.is_some() && local_time.is_some() && remote_time >= local_time {
+            skipped += 1;
+            continue;
+        }
+
+        match std::fs::read(local_path) {
+            Ok(bytes) => match upload_to_supabase(&client, cfg, &cloud_key, bytes).await {
+                Ok(()) => uploaded += 1,
+                Err(_) => failed += 1,
+            },
+            Err(_) => failed += 1,
+        }
+    }
+
+    Ok(Json(VideoBatchSaveResponse {
+        batch_id,
+        uploaded,
+        skipped,
+        failed,
+    }))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateMetadataRequest {
@@ -9172,6 +9977,10 @@ fn is_audio_file(path: &str) -> bool {
     lower.ends_with(".wav") || lower.ends_with(".mp3") || lower.ends_with(".ogg")
 }
 
+fn is_video_file(path: &str) -> bool {
+    path.to_ascii_lowercase().ends_with(".mp4")
+}
+
 fn guess_content_type(path: &str) -> &'static str {
     let lower = path.to_ascii_lowercase();
     if lower.ends_with(".png") {
@@ -9188,6 +9997,8 @@ fn guess_content_type(path: &str) -> &'static str {
         "audio/mpeg"
     } else if lower.ends_with(".ogg") {
         "audio/ogg"
+    } else if lower.ends_with(".mp4") {
+        "video/mp4"
     } else if lower.ends_with(".json") {
         "application/json"
     } else {
@@ -9239,6 +10050,9 @@ fn local_to_cloud_key(
     if let Ok(rel) = local_path.strip_prefix(&state.songs_dir) {
         return Some(format!("{}/songs/{}", cfg.prefix, normalize_slashes(rel)));
     }
+    if let Ok(rel) = local_path.strip_prefix(&state.videos_dir) {
+        return Some(format!("{}/videos/{}", cfg.prefix, normalize_slashes(rel)));
+    }
     if let Ok(rel) = local_path.strip_prefix(&state.isolated_dir) {
         return Some(format!(
             "{}/isolated/{}",
@@ -9259,6 +10073,7 @@ fn cloud_key_to_local(state: &AppState, cfg: &SupabaseStorageConfig, key: &str) 
     let textures_prefix = format!("{}/textures/", cfg.prefix);
     let sprites_prefix = format!("{}/sprites/", cfg.prefix);
     let songs_prefix = format!("{}/songs/", cfg.prefix);
+    let videos_prefix = format!("{}/videos/", cfg.prefix);
     let isolated_prefix = format!("{}/isolated/", cfg.prefix);
     let packs_prefix = format!("{}/packs/", cfg.prefix);
     if let Some(rel) = key.strip_prefix(&planets_prefix) {
@@ -9278,6 +10093,9 @@ fn cloud_key_to_local(state: &AppState, cfg: &SupabaseStorageConfig, key: &str) 
     }
     if let Some(rel) = key.strip_prefix(&songs_prefix) {
         return Some(state.songs_dir.join(rel));
+    }
+    if let Some(rel) = key.strip_prefix(&videos_prefix) {
+        return Some(state.videos_dir.join(rel));
     }
     if let Some(rel) = key.strip_prefix(&isolated_prefix) {
         return Some(state.isolated_dir.join(rel));
@@ -9439,6 +10257,7 @@ fn append_inventory_item(tabs: &mut GalleryInventoryTabs, tab: &str, item: Galle
         "isolated" => tabs.isolated.push(item),
         "sprites" => tabs.sprites.push(item),
         "songs" => tabs.songs.push(item),
+        "videos" => tabs.videos.push(item),
         "packs" => tabs.packs.push(item),
         _ => {}
     }
@@ -9772,6 +10591,53 @@ fn load_local_song_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
     drafts
 }
 
+fn load_local_video_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
+    let mut drafts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&state.videos_dir) {
+        for entry in entries.flatten() {
+            let manifest_path = entry.path().join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let Ok(data) = std::fs::read_to_string(&manifest_path) else {
+                continue;
+            };
+            let Ok(manifest) = serde_json::from_str::<VideoPackageManifest>(&data) else {
+                continue;
+            };
+            let local_path = parse_api_asset_path(&manifest.video.url, "videos", &state.videos_dir)
+                .or_else(|| Some(state.videos_dir.join(&manifest.batch_id).join("video.mp4")));
+            drafts.push(GalleryInventoryDraft {
+                tab: "videos",
+                item: build_gallery_item(
+                    format!("video-{}", manifest.batch_id),
+                    "video",
+                    manifest.batch_name.clone(),
+                    manifest.category.clone(),
+                    manifest.poster.as_ref().map(|poster| poster.url.clone()).or_else(|| Some(manifest.video.url.clone())),
+                    Some(manifest.created_at.clone()),
+                    None,
+                    serde_json::json!({
+                        "batchId": manifest.batch_id,
+                        "batchName": manifest.batch_name,
+                        "videoUrl": manifest.video.url,
+                        "posterUrl": manifest.poster.as_ref().map(|poster| poster.url.clone()),
+                        "durationSeconds": manifest.duration_seconds,
+                        "aspectRatio": manifest.aspect_ratio,
+                        "keepVeoAudio": manifest.keep_veo_audio,
+                        "narrationLanguage": manifest.narration_language,
+                        "voiceName": manifest.voice_name,
+                        "script": manifest.script,
+                        "segments": manifest.segments,
+                    }),
+                ),
+                local_path,
+            });
+        }
+    }
+    drafts
+}
+
 fn load_local_character_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
     let mut drafts = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&state.characters_dir) {
@@ -10002,6 +10868,7 @@ async fn list_supabase_inventory_objects(
         "textures",
         "sprites",
         "songs",
+        "videos",
         "isolated",
         "packs",
     ];
@@ -10077,6 +10944,20 @@ fn build_cloud_only_inventory_draft(
             serde_json::json!({
                 "batchId": segments.get(1).copied().unwrap_or_default(),
                 "filename": file_name,
+            }),
+        ),
+        "videos" if is_video_file(&remote.path) && segments.len() >= 3 => build_gallery_item(
+            format!("video-cloud-{}", remote.path),
+            "video",
+            file_name.trim_end_matches(".mp4").to_string(),
+            "videos".to_string(),
+            None,
+            remote.updated_at.clone(),
+            None,
+            serde_json::json!({
+                "batchId": segments.get(1).copied().unwrap_or_default(),
+                "filename": file_name,
+                "videoUrl": public_url.clone(),
             }),
         ),
         "characters"
@@ -10163,6 +11044,7 @@ fn build_cloud_only_inventory_draft(
             "textures" => "textures",
             "sprites" => "sprites",
             "songs" => "songs",
+            "videos" => "videos",
             "characters" => "characters",
             "isolated" => "isolated",
             "planets" => "planets",
@@ -10192,6 +11074,7 @@ async fn get_gallery_inventory(State(state): State<AppState>) -> impl IntoRespon
     drafts.extend(load_local_isolated_drafts(&state));
     drafts.extend(load_local_sprite_drafts(&state));
     drafts.extend(load_local_song_drafts(&state));
+    drafts.extend(load_local_video_drafts(&state));
     drafts.extend(load_local_pack_drafts(&state));
 
     let mut supabase = build_supabase_health_snapshot(state.supabase.as_ref()).await;
@@ -10570,6 +11453,7 @@ async fn sync_supabase_storage(
     let textures_prefix = format!("{}/textures", cfg.prefix);
     let sprites_prefix = format!("{}/sprites", cfg.prefix);
     let songs_prefix = format!("{}/songs", cfg.prefix);
+    let videos_prefix = format!("{}/videos", cfg.prefix);
     let isolated_prefix = format!("{}/isolated", cfg.prefix);
     let packs_prefix = format!("{}/packs", cfg.prefix);
     let remote_planets = match list_supabase_objects_recursive(&client, cfg, &planets_prefix).await
@@ -10625,6 +11509,16 @@ async fn sync_supabase_storage(
                 .into_response();
         }
     };
+    let remote_videos = match list_supabase_objects_recursive(&client, cfg, &videos_prefix).await {
+        Ok(v) => v,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": err })),
+            )
+                .into_response();
+        }
+    };
     let remote_isolated =
         match list_supabase_objects_recursive(&client, cfg, &isolated_prefix).await {
             Ok(v) => v,
@@ -10664,6 +11558,7 @@ async fn sync_supabase_storage(
         .chain(remote_textures.into_iter())
         .chain(remote_sprites.into_iter())
         .chain(remote_songs.into_iter())
+        .chain(remote_videos.into_iter())
         .chain(remote_isolated.into_iter())
         .chain(remote_packs.into_iter())
         .collect::<Vec<_>>();
@@ -10679,6 +11574,7 @@ async fn sync_supabase_storage(
     collect_files_recursive(&state.textures_dir, &mut local_files);
     collect_files_recursive(&state.sprites_dir, &mut local_files);
     collect_files_recursive(&state.songs_dir, &mut local_files);
+    collect_files_recursive(&state.videos_dir, &mut local_files);
     collect_files_recursive(&state.isolated_dir, &mut local_files);
     collect_files_recursive(&state.packs_dir, &mut local_files);
 

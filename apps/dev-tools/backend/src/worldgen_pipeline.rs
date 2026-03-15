@@ -20,7 +20,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
-use worldgen_core::export::PipelineStatus;
+use worldgen_core::export::{decode_id_rgb, PipelineStatus};
 use worldgen_core::*;
 
 use crate::{gemini, AppState, JobRecord, JobStatus};
@@ -3060,10 +3060,7 @@ fn load_seeds_json(path: &std::path::Path) -> Result<Vec<sampling::Seed>, String
 fn load_id_texture(path: &std::path::Path, _w: u32, _h: u32) -> Result<Vec<u32>, String> {
     let img = image::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
     let rgb = img.to_rgb8();
-    Ok(rgb
-        .pixels()
-        .map(|p| p[0] as u32 | ((p[1] as u32) << 8) | ((p[2] as u32) << 16))
-        .collect())
+    Ok(rgb.pixels().map(|p| decode_id_rgb(p.0)).collect())
 }
 
 fn build_continents(

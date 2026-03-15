@@ -55,6 +55,7 @@ interface GalleryInventoryResponse {
         isolated: GalleryInventoryItem[];
         sprites: GalleryInventoryItem[];
         songs: GalleryInventoryItem[];
+        videos: GalleryInventoryItem[];
         packs: GalleryInventoryItem[];
     };
 }
@@ -226,6 +227,7 @@ export function GalleryPage() {
 
     const isImageObject = (object: CloudObject) => /\.(png|jpe?g|webp|gif)$/i.test(object.path);
     const isAudioObject = (object: CloudObject) => /\.(wav|mp3|ogg)$/i.test(object.path);
+    const isVideoObject = (object: CloudObject) => /\.(mp4)$/i.test(object.path);
 
     return (
         <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-300 font-sans tracking-wide overflow-hidden relative">
@@ -413,6 +415,10 @@ export function GalleryPage() {
                                                 <source src={obj.publicUrl} />
                                             </audio>
                                         </div>
+                                    ) : isVideoObject(obj) ? (
+                                        <video controls preload="metadata" className="h-28 w-full bg-black/50 object-cover">
+                                            <source src={obj.publicUrl} />
+                                        </video>
                                     ) : (
                                         <div className="flex h-28 items-center justify-center bg-black/50 text-[10px] uppercase tracking-widest text-gray-500">
                                             File

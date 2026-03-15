@@ -7,6 +7,7 @@ interface WorkflowBarProps {
 }
 
 export function WorkflowBar({ activeStep, onStepChange }: WorkflowBarProps) {
+    const isExtended = WORKFLOW_STEPS.length > 4;
     return (
         <div className="flex items-center bg-[#1e1e1e]/60 backdrop-blur-md border border-white/5 rounded-full p-1 shadow-lg">
             {WORKFLOW_STEPS.map((step, idx) => {
@@ -19,6 +20,7 @@ export function WorkflowBar({ activeStep, onStepChange }: WorkflowBarProps) {
                     GEOGRAPHY: { bg: "bg-cyan-500/20", text: "text-cyan-300" },
                     ECO: { bg: "bg-green-500/20", text: "text-green-300" },
                     HUMANITY: { bg: "bg-orange-500/20", text: "text-orange-300" },
+                    DEMO_TRAVEL: { bg: "bg-amber-500/20", text: "text-amber-200" },
                 };
                 const colorSettings = colorMap[step] ?? colorMap.HUMANITY;
 
@@ -29,10 +31,10 @@ export function WorkflowBar({ activeStep, onStepChange }: WorkflowBarProps) {
                     <button
                         key={step}
                         onClick={() => onStepChange(step)}
-                        className={`flex items-center gap-2 px-4 py-1.5 rounded-full transition-all duration-300 ${bgClass} ${textClass}`}
+                        className={`flex items-center rounded-full transition-all duration-300 ${isExtended ? "gap-1.5 px-3 py-1.5" : "gap-2 px-4 py-1.5"} ${bgClass} ${textClass}`}
                     >
-                        <span className="text-[10px] font-black opacity-60">0{idx + 1}</span>
-                        <span className="text-[10px] font-bold tracking-widest">{WORKFLOW_LABELS[step].toUpperCase()}</span>
+                        <span className={`${isExtended ? "text-[9px]" : "text-[10px]"} font-black opacity-60`}>0{idx + 1}</span>
+                        <span className={`${isExtended ? "text-[9px] tracking-[0.22em]" : "text-[10px] tracking-widest"} font-bold`}>{WORKFLOW_LABELS[step].toUpperCase()}</span>
                     </button>
                 );
             })}

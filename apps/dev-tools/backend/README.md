@@ -8,7 +8,16 @@ This backend powers `/worldgen`, generation history, image jobs, and local asset
 
 `GEMINI_API_KEY`
 - Required for image/text generation endpoints.
+- Also required for `generatemedia.audio` prompt normalization/image generation and `generatemedia.video` interleaved Gemini + Veo + TTS flows.
 - If missing, model catalog still returns but models are marked unavailable.
+
+`GEMINI_VEO_MODEL`
+- Optional.
+- Default: `veo-3.1-generate-preview`
+
+`GEMINI_TTS_MODEL`
+- Optional.
+- Default: `gemini-2.5-flash-preview-tts`
 
 ### Required for Lyria / Vertex AI song generation
 
@@ -94,6 +103,8 @@ Notes:
 
 ```env
 GEMINI_API_KEY=your_key
+GEMINI_VEO_MODEL=veo-3.1-generate-preview
+GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
 VERTEX_API_KEY=your_vertex_api_key
 VERTEX_PROJECT_ID=your_gcp_project
 GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json

@@ -77,4 +77,22 @@ describe("AssetGeneratorPage songs", () => {
         expect(screen.getByText("Sound Brief")).toBeInTheDocument();
         expect(screen.getByText("Duration")).toBeInTheDocument();
     });
+
+    it("opens the videos tab from query params and renders video controls", async () => {
+        render(
+            <MemoryRouter initialEntries={["/devtools/asset-generator?tab=videos"]}>
+                <Routes>
+                    <Route path="/devtools/asset-generator" element={<AssetGeneratorPage />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText("MEDIA VIDEO CONFIG")).toBeInTheDocument();
+        });
+
+        expect(screen.getByText("Gemini 3 Interleaved Video")).toBeInTheDocument();
+        expect(screen.getByText("Video Brief")).toBeInTheDocument();
+        expect(screen.getByText("Narration Tone")).toBeInTheDocument();
+    });
 });

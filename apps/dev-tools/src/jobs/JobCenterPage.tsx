@@ -2,6 +2,8 @@ import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import { isGeneratedMediaAudioResult, type GeneratedMediaAudioResult } from "../media/generatedMediaAudio";
+import { SyncedNarratedVideoPlayer } from "../media/SyncedNarratedVideoPlayer";
+import { isGeneratedMediaVideoResult, type GeneratedMediaVideoResult } from "../media/generatedMediaVideo";
 import {
     PRODUCT_TOOL_AREA_LABELS,
     PRODUCT_TOOL_AREA_ORDER,
@@ -72,7 +74,7 @@ function scopeFilterLabel(scope: FamilyScope, count: number): string {
     return `${scope} (${count})`;
 }
 
-function artifactStatusTone(status: GeneratedMediaAudioResult["artifact"]["status"]): string {
+function artifactStatusTone(status: GeneratedMediaAudioResult["artifact"]["status"] | GeneratedMediaVideoResult["artifact"]["status"]): string {
     switch (status) {
         case "success":
             return "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
@@ -351,6 +353,9 @@ export function JobCenterPage() {
     const activeOutputs = selectedNode?.outputRefs || [];
     const activeWorldName = selectedFamily?.worldId ? (worldNames[selectedFamily.worldId] || selectedFamily.worldId) : null;
     const activeMediaArtifact = selectedDetail && isGeneratedMediaAudioResult(selectedDetail.result)
+        ? selectedDetail.result
+        : null;
+    const activeVideoArtifact = selectedDetail && isGeneratedMediaVideoResult(selectedDetail.result)
         ? selectedDetail.result
         : null;
 
@@ -710,6 +715,71 @@ export function JobCenterPage() {
                                                             <p><span className="text-gray-500">API tool:</span> {activeMediaArtifact.transcript.apiToolName}</p>
                                                             <p><span className="text-gray-500">Thought signature:</span> {activeMediaArtifact.transcript.thoughtSignatureDetected ? "preserved" : "not detected"}</p>
                                                             <p><span className="text-gray-500">Intent:</span> {activeMediaArtifact.artifact.metadata.intent}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </SectionCard>
+                                    )}
+                                    {activeVideoArtifact && (
+                                        <SectionCard title="Generated Media Video Artifact">
+                                            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                                                <div className="rounded-2xl border border-white/8 bg-[#04090e] p-4">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${artifactStatusTone(activeVideoArtifact.artifact.status)}`}>
+                                                            {activeVideoArtifact.artifact.status.replace("_", " ")}
+                                                        </span>
+                                                        {activeVideoArtifact.artifact.metadata.tags.map((tag) => (
+                                                            <span key={tag} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-gray-300">
+                                                                {tag}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                    <h3 className="mt-4 text-xl font-black tracking-[0.06em] text-white">{activeVideoArtifact.artifact.metadata.title}</h3>
+                                                    <p className="mt-3 text-sm leading-6 text-gray-300">{activeVideoArtifact.artifact.metadata.description}</p>
+                                                    {activeVideoArtifact.artifact.video && (
+                                                        <div className="mt-5 rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-4">
+                                                            <div className="mb-3 flex items-center justify-between gap-3 text-[11px] font-black uppercase tracking-[0.18em] text-fuchsia-100">
+                                                                <span>Video</span>
+                                                                <span>{activeVideoArtifact.artifact.video.durationSeconds}s</span>
+                                                            </div>
+                                                            <SyncedNarratedVideoPlayer
+                                                                videoUrl={activeVideoArtifact.artifact.video.url}
+                                                                posterUrl={activeVideoArtifact.artifact.poster?.url}
+                                                                durationSeconds={activeVideoArtifact.artifact.video.durationSeconds}
+                                                                segments={activeVideoArtifact.artifact.narration?.segments || []}
+                                                                keepVideoAudioDefault={activeVideoArtifact.artifact.video.keepVeoAudio}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    {activeVideoArtifact.transcript.finalResponseText && (
+                                                        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                                                            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">Gemini Final Response</div>
+                                                            <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-gray-200">{activeVideoArtifact.transcript.finalResponseText}</p>
+                                                        </div>
+                                                    )}
+                                                    {!!activeVideoArtifact.artifact.warnings?.length && (
+                                                        <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+                                                            {activeVideoArtifact.artifact.warnings.join(" ")}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="space-y-4">
+                                                    {activeVideoArtifact.artifact.poster && (
+                                                        <div className="rounded-2xl border border-white/8 bg-[#04090e] p-4">
+                                                            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">Poster</div>
+                                                            <img src={activeVideoArtifact.artifact.poster.url} alt={activeVideoArtifact.artifact.metadata.title} className="mt-4 w-full rounded-2xl border border-white/10 bg-black/20 object-cover" />
+                                                        </div>
+                                                    )}
+                                                    <div className="rounded-2xl border border-white/8 bg-[#04090e] p-4">
+                                                        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">Interleaved Trace</div>
+                                                        <div className="mt-4 space-y-2 text-sm text-gray-300">
+                                                            <p><span className="text-gray-500">Model:</span> {activeVideoArtifact.transcript.model}</p>
+                                                            <p><span className="text-gray-500">Logical tool:</span> {activeVideoArtifact.transcript.logicalToolName}</p>
+                                                            <p><span className="text-gray-500">API tool:</span> {activeVideoArtifact.transcript.apiToolName}</p>
+                                                            <p><span className="text-gray-500">Thought signature:</span> {activeVideoArtifact.transcript.thoughtSignatureDetected ? "preserved" : "not detected"}</p>
+                                                            <p><span className="text-gray-500">Intent:</span> {activeVideoArtifact.artifact.metadata.intent}</p>
+                                                            <p><span className="text-gray-500">Narration:</span> {activeVideoArtifact.artifact.narration?.language || "n/a"} / {activeVideoArtifact.artifact.narration?.voiceName || "n/a"}</p>
                                                         </div>
                                                     </div>
                                                 </div>

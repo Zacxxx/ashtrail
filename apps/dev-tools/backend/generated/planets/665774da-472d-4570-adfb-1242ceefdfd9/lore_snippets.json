@@ -1,0 +1,16 @@
+[
+  {
+    "content": "",
+    "date": null,
+    "id": "main-lore",
+    "involvedCharacters": [],
+    "involvedFactions": [],
+    "isCustomized": true,
+    "location": "World",
+    "locationId": null,
+    "priority": "main",
+    "provinceRegionId": null,
+    "source": "manual",
+    "title": "Main Lore"
+  }
+]

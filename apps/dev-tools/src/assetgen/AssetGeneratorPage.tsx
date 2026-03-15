@@ -12,6 +12,11 @@ import {
     type GeneratedMediaAudioResult,
     type GeneratedMediaStatus,
 } from "../media/generatedMediaAudio";
+import { SyncedNarratedVideoPlayer } from "../media/SyncedNarratedVideoPlayer";
+import {
+    isGeneratedMediaVideoResult,
+    type GeneratedMediaVideoResult,
+} from "../media/generatedMediaVideo";
 
 // Presets removed; reference image serves as style
 const API_BASE = "http://127.0.0.1:8787";
@@ -208,7 +213,7 @@ interface AssetPackManifest {
     sprites: PackSpritePointer[];
 }
 
-type AssetGeneratorTab = "icons" | "battlemaps" | "world-assets" | "game-assets" | "ecology-illustrations" | "sprites" | "songs" | "packs";
+type AssetGeneratorTab = "icons" | "battlemaps" | "world-assets" | "game-assets" | "ecology-illustrations" | "sprites" | "songs" | "videos" | "packs";
 
 const SONG_GENRE_OPTIONS = [
     "cinematic",
@@ -276,6 +281,33 @@ function buildPendingMediaResult(title: string, stage: string, status: "queued" 
             model: "pending",
             logicalToolName: "generatemedia.audio",
             apiToolName: "generatemedia.audio",
+            toolCalled: status !== "queued",
+            thoughtSignatureDetected: false,
+            finalResponseText: stage,
+        },
+    };
+}
+
+function buildPendingMediaVideoResult(title: string, stage: string, status: "queued" | "running" | "completed" | "failed" | "cancelled"): GeneratedMediaVideoResult {
+    return {
+        artifact: {
+            type: "generated_media_video",
+            status: status === "failed" ? "error" : "partial_success",
+            video: null,
+            poster: null,
+            narration: null,
+            metadata: {
+                title,
+                description: stage,
+                intent: "scene support",
+                tags: [status === "failed" ? "error" : "pending"],
+            },
+            warnings: status === "failed" ? ["The media video job failed before returning a complete artifact."] : ["The media video job is still packaging the unified artifact."],
+        },
+        transcript: {
+            model: "pending",
+            logicalToolName: "generatemedia.video",
+            apiToolName: "generatemedia.video",
             toolCalled: status !== "queued",
             thoughtSignatureDetected: false,
             finalResponseText: stage,
@@ -596,7 +628,7 @@ export function AssetGeneratorPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const requestedTab = searchParams.get("tab");
     const initialTab: AssetGeneratorTab =
-        requestedTab === "battlemaps" || requestedTab === "world-assets" || requestedTab === "game-assets" || requestedTab === "ecology-illustrations" || requestedTab === "sprites" || requestedTab === "songs" || requestedTab === "packs"
+        requestedTab === "battlemaps" || requestedTab === "world-assets" || requestedTab === "game-assets" || requestedTab === "ecology-illustrations" || requestedTab === "sprites" || requestedTab === "songs" || requestedTab === "videos" || requestedTab === "packs"
             ? requestedTab
             : "icons";
     const [activeTab, setActiveTab] = useState<AssetGeneratorTab>(initialTab);
@@ -654,6 +686,8 @@ export function AssetGeneratorPage() {
         setActiveSpriteBatch(null);
         setActiveMediaJobId(null);
         setActiveMediaResult(null);
+        setActiveVideoJobId(null);
+        setActiveVideoResult(null);
         setActivePack(null);
         setHoveredIcon(null);
         setHoveredTexture(null);
@@ -701,7 +735,7 @@ export function AssetGeneratorPage() {
             if (activeTab === "sprites") {
                 return false;
             }
-            if (activeTab === "songs") {
+            if (activeTab === "songs" || activeTab === "videos") {
                 return false;
             }
             return false;
@@ -783,6 +817,23 @@ export function AssetGeneratorPage() {
     const [songDurationSeconds, setSongDurationSeconds] = useState(18);
     const [activeMediaJobId, setActiveMediaJobId] = useState<string | null>(null);
     const [activeMediaResult, setActiveMediaResult] = useState<GeneratedMediaAudioResult | null>(null);
+    const [videoCategory, setVideoCategory] = useState<"cinematic" | "cutscene" | "trailer" | "lore">("cinematic");
+    const [videoDurationSeconds, setVideoDurationSeconds] = useState<4 | 6 | 8>(8);
+    const [videoAspectRatio, setVideoAspectRatio] = useState<"16:9" | "9:16">("16:9");
+    const [videoVisualStyle, setVideoVisualStyle] = useState("cinematic");
+    const [videoMoods, setVideoMoods] = useState<string[]>(["mysterious"]);
+    const [videoCameraDirection, setVideoCameraDirection] = useState("slow cinematic push");
+    const [videoNarrationIntent, setVideoNarrationIntent] = useState("introduce the scene");
+    const [videoNarrationTone, setVideoNarrationTone] = useState("grave, cinematic");
+    const [videoVoiceName, setVideoVoiceName] = useState("Charon");
+    const [videoNegativePrompt, setVideoNegativePrompt] = useState("");
+    const [videoGlobalDirection, setVideoGlobalDirection] = useState("");
+    const [keepVeoAudio, setKeepVeoAudio] = useState(true);
+    const [activeVideoJobId, setActiveVideoJobId] = useState<string | null>(null);
+    const [activeVideoResult, setActiveVideoResult] = useState<GeneratedMediaVideoResult | null>(null);
+    const [isSavingVideoToGallery, setIsSavingVideoToGallery] = useState(false);
+    const [videoSaveNotice, setVideoSaveNotice] = useState<string | null>(null);
+    const [videoSaveError, setVideoSaveError] = useState<string | null>(null);
 
     // ── Pack Management Modal State ──
     const [isAddToPackModalOpen, setIsAddToPackModalOpen] = useState(false);
@@ -805,10 +856,24 @@ export function AssetGeneratorPage() {
             .sort((left, right) => right.updatedAt - left.updatedAt),
         [jobs],
     );
+    const mediaVideoJobs = useMemo(
+        () => jobs
+            .filter((job) => job.tool === "generatemedia.video")
+            .sort((left, right) => right.updatedAt - left.updatedAt),
+        [jobs],
+    );
     const activeMediaJob = useMemo(
         () => activeMediaJobId ? mediaAudioJobs.find((job) => job.jobId === activeMediaJobId) ?? null : null,
         [activeMediaJobId, mediaAudioJobs],
     );
+    const activeVideoJob = useMemo(
+        () => activeVideoJobId ? mediaVideoJobs.find((job) => job.jobId === activeVideoJobId) ?? null : null,
+        [activeVideoJobId, mediaVideoJobs],
+    );
+    const activeVideoBatchId = useMemo(() => {
+        const value = activeVideoResult?.transcript.toolArguments?.persistedVideoBatchId;
+        return typeof value === "string" && value.trim().length > 0 ? value : null;
+    }, [activeVideoResult]);
 
     const assignableCharacters = useMemo(
         () =>
@@ -825,7 +890,7 @@ export function AssetGeneratorPage() {
 
     // ── Parse prompts from textarea ──
     const parsePrompts = useCallback((): string[] => {
-        if (activeTab === "songs") {
+        if (activeTab === "songs" || activeTab === "videos") {
             const prompt = iconListText.trim();
             return prompt ? [prompt] : [];
         }
@@ -910,6 +975,7 @@ export function AssetGeneratorPage() {
         if (nextTab === "packs") setActiveTab("packs");
         if (nextTab === "sprites") setActiveTab("sprites");
         if (nextTab === "songs") setActiveTab("songs");
+        if (nextTab === "videos") setActiveTab("videos");
         if (nextTab === "game-assets") setActiveTab("game-assets");
         if (nextTab === "world-assets") setActiveTab("world-assets");
         if (nextTab === "ecology-illustrations") setActiveTab("ecology-illustrations");
@@ -1211,6 +1277,55 @@ export function AssetGeneratorPage() {
                     next.set("jobId", accepted.jobId);
                     return next;
                 }, { replace: true });
+            } else if (activeTab === "videos") {
+                const accepted = await launchTrackedJob<{ jobId: string }, Record<string, unknown>>({
+                    url: "/api/media/video/jobs",
+                    request: {
+                        prompt: pendingPrompts[0],
+                        durationSeconds: videoDurationSeconds,
+                        aspectRatio: videoAspectRatio,
+                        style: videoVisualStyle,
+                        intent: videoNarrationIntent,
+                        category: videoCategory,
+                        mood: videoMoods.slice(0, 3).join(", "),
+                        cameraDirection: videoCameraDirection,
+                        narrationTone: videoNarrationTone,
+                        narrationIntent: videoNarrationIntent,
+                        voiceName: videoVoiceName,
+                        negativePrompt: videoNegativePrompt,
+                        globalDirection: videoGlobalDirection,
+                        keepVeoAudio,
+                    },
+                    restore: {
+                        route: "/devtools/asset-generator",
+                        search: { tab: "videos" },
+                        payload: { tab: "videos" },
+                    },
+                    metadata: {
+                        category: videoCategory,
+                        durationSeconds: videoDurationSeconds,
+                        aspectRatio: videoAspectRatio,
+                    },
+                    optimisticJob: {
+                        kind: "interleaved.generatemedia.video.v1",
+                        title: "Generate Media Video",
+                        tool: "generatemedia.video",
+                        status: "queued",
+                        currentStage: "Queued",
+                    },
+                });
+                setActiveVideoJobId(accepted.jobId);
+                const detail = await waitForJob(accepted.jobId);
+                if (!isGeneratedMediaVideoResult(detail.result)) {
+                    throw new Error(detail.error || "Media video generation did not return a unified artifact");
+                }
+                setActiveVideoResult(detail.result);
+                setSearchParams((previous) => {
+                    const next = new URLSearchParams(previous);
+                    next.set("tab", "videos");
+                    next.set("jobId", accepted.jobId);
+                    return next;
+                }, { replace: true });
             } else {
                 payload.category = activeTab === "battlemaps"
                     ? textureCategory
@@ -1279,7 +1394,7 @@ export function AssetGeneratorPage() {
             setIsGenerating(false);
             setGenProgress({ current: 0, total: 0 });
         }
-    }, [pendingPrompts, referenceImage, batchName, stylePrompt, temperature, activeTab, textureCategory, textureSubCategory, loadBatches, loadTextureBatches, loadSpriteBatches, gameAssetType, isBuildingNatural, isBuildingPassable, isBuildingHidden, isTerrainNatural, terrainMoveEfficiency, terrainFertility, gameAssetGroupType, gameAssetGroupName, structureDescription, selectedBiome, spriteType, spriteMode, includeSpriteIllustration, activeWorldId, spriteTargetKind, spriteTargetId, faunaTarget?.biomeIds, floraTarget?.biomeIds, selectedBiomeId, updateFaunaIllustrationLinks, bindSpriteToTarget, assetTargetKind, assetTargetId, updateFloraAssetLinks, songCategory, songGenre, songGenreCustom, songMoods, songInstrumentation, songTempo, songRhythmicFeel, songSoundscape, songProductionStyle, songNegativePrompt, songGlobalDirection, songDurationSeconds, launchTrackedJob, setSearchParams, waitForJob]);
+    }, [pendingPrompts, referenceImage, batchName, stylePrompt, temperature, activeTab, textureCategory, textureSubCategory, loadBatches, loadTextureBatches, loadSpriteBatches, gameAssetType, isBuildingNatural, isBuildingPassable, isBuildingHidden, isTerrainNatural, terrainMoveEfficiency, terrainFertility, gameAssetGroupType, gameAssetGroupName, structureDescription, selectedBiome, spriteType, spriteMode, includeSpriteIllustration, activeWorldId, spriteTargetKind, spriteTargetId, faunaTarget?.biomeIds, floraTarget?.biomeIds, selectedBiomeId, updateFaunaIllustrationLinks, bindSpriteToTarget, assetTargetKind, assetTargetId, updateFloraAssetLinks, songCategory, songGenre, songGenreCustom, songMoods, songInstrumentation, songTempo, songRhythmicFeel, songSoundscape, songProductionStyle, songNegativePrompt, songGlobalDirection, songDurationSeconds, videoDurationSeconds, videoAspectRatio, videoVisualStyle, videoCategory, videoMoods, videoCameraDirection, videoNarrationIntent, videoNarrationTone, videoVoiceName, videoNegativePrompt, videoGlobalDirection, keepVeoAudio, launchTrackedJob, setSearchParams, waitForJob]);
 
     // ── Load a batch ──
     const selectBatch = useCallback(async (batchId: string) => {
@@ -1332,6 +1447,49 @@ export function AssetGeneratorPage() {
         }
     }, [getJobDetail]);
 
+    const selectVideoJob = useCallback(async (jobId: string) => {
+        setActiveVideoJobId(jobId);
+        setVideoSaveNotice(null);
+        setVideoSaveError(null);
+        const detail = await getJobDetail(jobId);
+        if (detail && isGeneratedMediaVideoResult(detail.result)) {
+            setActiveVideoResult(detail.result);
+        } else {
+            setActiveVideoResult(buildPendingMediaVideoResult(
+                detail?.title || "Generate Media Video",
+                detail?.currentStage || "Waiting for artifact",
+                detail?.status || "queued",
+            ));
+        }
+    }, [getJobDetail]);
+
+    const saveVideoToGallery = useCallback(async () => {
+        if (!activeVideoBatchId) {
+            setVideoSaveError("This video package is not persisted yet.");
+            return;
+        }
+        setIsSavingVideoToGallery(true);
+        setVideoSaveNotice(null);
+        setVideoSaveError(null);
+        try {
+            const res = await fetch(`/api/videos/batches/${activeVideoBatchId}/save`, {
+                method: "POST",
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(payload?.error || "Video save to gallery failed");
+            }
+            setVideoSaveNotice(
+                `Saved to gallery and synced to bucket - uploaded: ${payload.uploaded ?? 0}, skipped: ${payload.skipped ?? 0}, failed: ${payload.failed ?? 0}`,
+            );
+        } catch (e) {
+            const message = e instanceof Error ? e.message : "Video save to gallery failed";
+            setVideoSaveError(message);
+        } finally {
+            setIsSavingVideoToGallery(false);
+        }
+    }, [activeVideoBatchId]);
+
     useEffect(() => {
         if (activeTab !== "songs") return;
         const requestedJobId = searchParams.get("jobId");
@@ -1343,6 +1501,18 @@ export function AssetGeneratorPage() {
             void selectMediaJob(mediaAudioJobs[0].jobId);
         }
     }, [activeMediaJobId, activeTab, mediaAudioJobs, searchParams, selectMediaJob]);
+
+    useEffect(() => {
+        if (activeTab !== "videos") return;
+        const requestedJobId = searchParams.get("jobId");
+        if (requestedJobId) {
+            void selectVideoJob(requestedJobId);
+            return;
+        }
+        if (!activeVideoJobId && mediaVideoJobs.length > 0) {
+            void selectVideoJob(mediaVideoJobs[0].jobId);
+        }
+    }, [activeTab, activeVideoJobId, mediaVideoJobs, searchParams, selectVideoJob]);
 
     const updateMetadata = useCallback(async (filename: string, metadata: any) => {
         if (!activeTextureBatch) return;
@@ -1867,6 +2037,15 @@ export function AssetGeneratorPage() {
                             SONGS
                         </button>
                         <button
+                            onClick={() => handleTabChange("videos")}
+                            className={`px-4 py-1.5 rounded-md text-[10px] font-bold tracking-widest transition-all ${activeTab === "videos"
+                                ? "bg-[#E6E6FA]/20 text-[#E6E6FA] shadow-lg shadow-black/20"
+                                : "text-gray-500 hover:text-gray-300"
+                                }`}
+                        >
+                            VIDEOS
+                        </button>
+                        <button
                             onClick={() => handleTabChange("packs")}
                             className={`px-4 py-1.5 rounded-md text-[10px] font-bold tracking-widest transition-all ${activeTab === "packs"
                                 ? "bg-[#E6E6FA]/20 text-[#E6E6FA] shadow-lg shadow-black/20"
@@ -1881,10 +2060,10 @@ export function AssetGeneratorPage() {
                 <div className="flex items-center gap-3 scale-90">
                     <button
                         onClick={handleExport}
-                        disabled={isExporting || activeTab === "sprites" || activeTab === "songs" || (activeTab === "icons" ? batches.length === 0 : textureBatches.length === 0)}
+                        disabled={isExporting || activeTab === "sprites" || activeTab === "songs" || activeTab === "videos" || (activeTab === "icons" ? batches.length === 0 : textureBatches.length === 0)}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-all text-[10px] font-bold tracking-[0.1em] ${isExporting
                             ? "border-white/5 bg-white/5 text-gray-500 cursor-wait"
-                            : activeTab === "sprites" || activeTab === "songs" || (activeTab === "icons" ? batches.length === 0 : textureBatches.length === 0)
+                            : activeTab === "sprites" || activeTab === "songs" || activeTab === "videos" || (activeTab === "icons" ? batches.length === 0 : textureBatches.length === 0)
                                 ? "border-white/5 bg-white/5 text-gray-600 cursor-not-allowed"
                                 : "border-emerald-500/20 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
                             }`}
@@ -1905,7 +2084,7 @@ export function AssetGeneratorPage() {
                             <Card className="!bg-[#0f1520] !border-white/5 shrink-0">
                                 <CardHeader className="!bg-transparent !border-white/5 !py-2.5">
                                     <h3 className="text-[9px] font-bold tracking-[0.15em] text-[#E6E6FA]">
-                                        {activeTab === "icons" ? "PROMPTING" : activeTab === "ecology-illustrations" ? "ILLUSTRATION CONFIG" : activeTab === "songs" ? "MEDIA AUDIO CONFIG" : "TEXTURE CONFIG"}
+                                        {activeTab === "icons" ? "PROMPTING" : activeTab === "ecology-illustrations" ? "ILLUSTRATION CONFIG" : activeTab === "songs" ? "MEDIA AUDIO CONFIG" : activeTab === "videos" ? "MEDIA VIDEO CONFIG" : "TEXTURE CONFIG"}
                                     </h3>
                                 </CardHeader>
                                 <CardContent className="space-y-3 max-h-[800px] overflow-y-auto">
@@ -2024,6 +2203,100 @@ export function AssetGeneratorPage() {
                                             <div>
                                                 <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Constraints</label>
                                                 <input type="text" value={songNegativePrompt} onChange={(e) => setSongNegativePrompt(e.target.value)} placeholder="avoid bright pop energy, avoid dialogue..." className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#E6E6FA]/30" />
+                                            </div>
+                                        </div>
+                                    )}
+                                    {activeTab === "videos" && (
+                                        <div className="space-y-4">
+                                            <div className="rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 p-3">
+                                                <p className="text-[8px] font-bold uppercase tracking-[0.15em] text-fuchsia-300">Gemini 3 Interleaved Video</p>
+                                                <p className="mt-1 text-[10px] text-gray-300">One business tool returns a unified cinematic package: video, poster, narration script, timed TTS segments, and metadata.</p>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Category</label>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        {(["cinematic", "cutscene", "trailer", "lore"] as const).map((category) => (
+                                                            <button
+                                                                key={category}
+                                                                onClick={() => setVideoCategory(category)}
+                                                                className={`px-2 py-1.5 rounded-lg text-[9px] font-bold tracking-wider border transition-all ${videoCategory === category ? "bg-fuchsia-500/10 border-fuchsia-500/40 text-fuchsia-200" : "bg-white/[0.02] border-white/5 text-gray-500 hover:border-white/20 hover:text-gray-300"}`}
+                                                            >
+                                                                {category.toUpperCase()}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Duration</label>
+                                                    <select value={videoDurationSeconds} onChange={(event) => setVideoDurationSeconds(Number(event.target.value) as 4 | 6 | 8)} className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 focus:outline-none focus:border-fuchsia-400/40">
+                                                        {[4, 6, 8].map((value) => <option key={value} value={value}>{value}s</option>)}
+                                                    </select>
+                                                    <label className="mt-3 block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Aspect Ratio</label>
+                                                    <select value={videoAspectRatio} onChange={(event) => setVideoAspectRatio(event.target.value as "16:9" | "9:16")} className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 focus:outline-none focus:border-fuchsia-400/40">
+                                                        {(["16:9", "9:16"] as const).map((value) => <option key={value} value={value}>{value}</option>)}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Visual Style</label>
+                                                    <input type="text" value={videoVisualStyle} onChange={(event) => setVideoVisualStyle(event.target.value)} placeholder="ruined neon realism, smoky tribal war..." className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-fuchsia-400/40" />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Camera Direction</label>
+                                                    <input type="text" value={videoCameraDirection} onChange={(event) => setVideoCameraDirection(event.target.value)} placeholder="slow push through fire, rising drone..." className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-fuchsia-400/40" />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Mood / Emotion</label>
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    {SONG_MOOD_OPTIONS.map((mood) => {
+                                                        const selected = videoMoods.includes(mood);
+                                                        return (
+                                                            <button
+                                                                key={mood}
+                                                                onClick={() => setVideoMoods((current) => selected ? current.filter((value) => value !== mood) : current.length >= 3 ? [...current.slice(1), mood] : [...current, mood])}
+                                                                className={`px-2 py-1.5 rounded-lg text-[9px] font-bold tracking-wider border transition-all ${selected ? "bg-amber-500/10 border-amber-500/40 text-amber-200" : "bg-white/[0.02] border-white/5 text-gray-500 hover:border-white/20 hover:text-gray-300"}`}
+                                                            >
+                                                                {mood}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Narration Intent</label>
+                                                    <input type="text" value={videoNarrationIntent} onChange={(event) => setVideoNarrationIntent(event.target.value)} placeholder="introduce danger, frame the raid..." className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-fuchsia-400/40" />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Narration Tone</label>
+                                                    <input type="text" value={videoNarrationTone} onChange={(event) => setVideoNarrationTone(event.target.value)} placeholder="grave, legendary, intimate..." className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-fuchsia-400/40" />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Narrator Voice</label>
+                                                    <input type="text" value={videoVoiceName} onChange={(event) => setVideoVoiceName(event.target.value)} placeholder="Charon" className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-fuchsia-400/40" />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Global Direction</label>
+                                                    <input type="text" value={videoGlobalDirection} onChange={(event) => setVideoGlobalDirection(event.target.value)} placeholder="grim opener, no UI, no text overlays..." className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-fuchsia-400/40" />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Negative Prompt</label>
+                                                    <input type="text" value={videoNegativePrompt} onChange={(event) => setVideoNegativePrompt(event.target.value)} placeholder="avoid comedy, avoid bright daylight..." className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-fuchsia-400/40" />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">Keep Veo Audio Under Narration</label>
+                                                    <button type="button" onClick={() => setKeepVeoAudio((current) => !current)} className={`mt-0.5 flex w-full items-center justify-between rounded-lg border px-3 py-2 text-xs transition-all ${keepVeoAudio ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-white/10 bg-[#080d14] text-gray-400"}`}>
+                                                        <span>{keepVeoAudio ? "enabled" : "disabled"}</span>
+                                                        <span className="text-[9px] uppercase tracking-[0.18em]">{keepVeoAudio ? "on" : "off"}</span>
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -2164,7 +2437,7 @@ export function AssetGeneratorPage() {
                                         </div>
                                     )}
 
-                                    {activeTab !== "songs" ? (
+                                    {activeTab !== "songs" && activeTab !== "videos" ? (
                                         <>
                                             <div>
                                                 <label className="block text-[8px] text-gray-500 tracking-wider mb-1.5 uppercase">
@@ -2200,7 +2473,7 @@ export function AssetGeneratorPage() {
                                                 />
                                             </div>
                                         </>
-                                    ) : (
+                                    ) : activeTab === "songs" ? (
                                         <>
                                             <div>
                                                 <div className="flex items-center justify-between mb-1.5">
@@ -2218,13 +2491,31 @@ export function AssetGeneratorPage() {
                                                 />
                                             </div>
                                         </>
+                                    ) : (
+                                        <>
+                                            <div>
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <label className="block text-[8px] text-gray-500 tracking-wider uppercase">Video Brief</label>
+                                                    <span className="text-[8px] text-[#E6E6FA] font-mono bg-[#E6E6FA]/10 px-1.5 py-0.5 rounded">
+                                                        {iconListText.trim().length} CHARS
+                                                    </span>
+                                                </div>
+                                                <textarea
+                                                    value={iconListText}
+                                                    onChange={(e) => setIconListText(e.target.value)}
+                                                    placeholder={"A brutal night raid against tribal fighters, embers drifting through darkness, handheld advance, narrator framing the danger and momentum."}
+                                                    rows={5}
+                                                    className="w-full bg-[#080d14] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#E6E6FA]/30 resize-none transition-colors font-mono leading-relaxed"
+                                                />
+                                            </div>
+                                        </>
                                     )}
 
 
                                 </CardContent>
                             </Card>
                             {/* Reference Image */}
-                            {activeTab !== "songs" && <Card className="!bg-[#0f1520] !border-white/5 shrink-0">
+                            {activeTab !== "songs" && activeTab !== "videos" && <Card className="!bg-[#0f1520] !border-white/5 shrink-0">
                                 <CardHeader
                                     className="!bg-transparent !border-white/5 !py-2.5 flex flex-row items-center justify-between cursor-pointer hover:bg-white/[0.02] transition-colors"
                                     onClick={() => setShowReferenceImage(!showReferenceImage)}
@@ -2284,7 +2575,7 @@ export function AssetGeneratorPage() {
                             </Card>}
 
                             {/* Settings */}
-                            {activeTab !== "songs" && <Card className="!bg-[#0f1520] !border-white/5 shrink-0">
+                            {activeTab !== "songs" && activeTab !== "videos" && <Card className="!bg-[#0f1520] !border-white/5 shrink-0">
                                 <CardHeader
                                     className="!bg-transparent !border-white/5 !py-2.5 flex flex-row items-center justify-between cursor-pointer hover:bg-white/[0.02] transition-colors"
                                     onClick={() => setShowSettings(!showSettings)}
@@ -2339,6 +2630,8 @@ export function AssetGeneratorPage() {
                                 ) : (
                                     activeTab === "songs"
                                         ? "GENERATE MEDIA ARTIFACT"
+                                        : activeTab === "videos"
+                                            ? "GENERATE VIDEO PACKAGE"
                                         : `⚡ BAKE ${rawLineCount > 0 ? rawLineCount : ""} ${activeTab === "icons" ? "ICON" : activeTab === "battlemaps" ? "BATTLEMAP" : activeTab === "sprites" ? "SPRITE" : activeTab === "ecology-illustrations" ? "ILLUSTRATION" : "ASSET"}${rawLineCount !== 1 ? "S" : ""}`
                                 )}
                             </Button>
@@ -2356,7 +2649,7 @@ export function AssetGeneratorPage() {
                 <div className="w-[200px] shrink-0 border-r border-white/5 bg-[#080d14] overflow-y-auto">
                     <div className="p-3 border-b border-white/5">
                         <h3 className="text-[10px] font-bold tracking-[0.15em] text-gray-500 uppercase">
-                            {activeTab === "icons" ? "Icon Batches" : activeTab === "battlemaps" ? "Battlemap Batches" : activeTab === "sprites" ? "Sprite Batches" : activeTab === "songs" ? "Media Jobs" : activeTab === "ecology-illustrations" ? "Illustration Batches" : "Asset Batches"}
+                            {activeTab === "icons" ? "Icon Batches" : activeTab === "battlemaps" ? "Battlemap Batches" : activeTab === "sprites" ? "Sprite Batches" : activeTab === "songs" ? "Media Jobs" : activeTab === "videos" ? "Video Jobs" : activeTab === "ecology-illustrations" ? "Illustration Batches" : "Asset Batches"}
                         </h3>
                     </div>
                     {activeTab === "icons" ? (
@@ -2454,6 +2747,38 @@ export function AssetGeneratorPage() {
                                             }`}
                                     >
                                         <div className="w-8 h-8 rounded border border-white/10 bg-white/5 shrink-0 flex items-center justify-center text-xs">AUDIO</div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-[10px] font-bold text-gray-300 tracking-wider truncate">
+                                                {job.title}
+                                            </div>
+                                            <div className="text-[8px] text-gray-500 uppercase tracking-[0.05em] mb-0.5">
+                                                {job.status} · {job.currentStage}
+                                            </div>
+                                            <div className="text-[9px] text-gray-600">
+                                                {new Date(job.updatedAt).toLocaleDateString()}
+                                            </div>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        )
+                    ) : activeTab === "videos" ? (
+                        mediaVideoJobs.length === 0 ? (
+                            <div className="p-4 text-center text-[10px] text-gray-600 tracking-wider uppercase">
+                                No Video Jobs
+                            </div>
+                        ) : (
+                            <div className="flex flex-col">
+                                {mediaVideoJobs.map((job) => (
+                                    <button
+                                        key={job.jobId}
+                                        onClick={() => void selectVideoJob(job.jobId)}
+                                        className={`flex items-center gap-3 px-3 py-3 text-left border-b border-white/5 transition-all ${activeVideoJobId === job.jobId
+                                            ? "bg-[#E6E6FA]/10 border-l-2 !border-l-[#E6E6FA]/50"
+                                            : "hover:bg-white/[0.03]"
+                                            }`}
+                                    >
+                                        <div className="w-8 h-8 rounded border border-white/10 bg-white/5 shrink-0 flex items-center justify-center text-xs">VIDEO</div>
                                         <div className="min-w-0 flex-1">
                                             <div className="text-[10px] font-bold text-gray-300 tracking-wider truncate">
                                                 {job.title}
@@ -2654,9 +2979,9 @@ export function AssetGeneratorPage() {
                                 </div>
                             </div>
                         )
-                    ) : ((activeTab === "icons" && !activeBatch) || (activeTab === "sprites" && !activeSpriteBatch) || (activeTab === "songs" && !activeMediaJob) || ((activeTab === "battlemaps" || activeTab === "world-assets" || activeTab === "game-assets" || activeTab === "ecology-illustrations") && !activeTextureBatch)) && !isGenerating ? (
+                    ) : ((activeTab === "icons" && !activeBatch) || (activeTab === "sprites" && !activeSpriteBatch) || (activeTab === "songs" && !activeMediaJob) || (activeTab === "videos" && !activeVideoJob) || ((activeTab === "battlemaps" || activeTab === "world-assets" || activeTab === "game-assets" || activeTab === "ecology-illustrations") && !activeTextureBatch)) && !isGenerating ? (
                         <div className="flex flex-col items-center justify-center h-full text-center">
-                            <div className="text-6xl mb-6 opacity-30">{activeTab === "icons" ? "🎨" : activeTab === "sprites" ? "🧬" : "🖼️"}</div>
+                            <div className="text-6xl mb-6 opacity-30">{activeTab === "icons" ? "🎨" : activeTab === "sprites" ? "🧬" : activeTab === "videos" ? "🎬" : "🖼️"}</div>
                             <h2 className="text-lg font-bold text-gray-500 tracking-wider mb-2">NO BATCH SELECTED</h2>
                             <p className="text-sm text-gray-600 max-w-sm">
                                 {activeTab === "icons"
@@ -2665,9 +2990,11 @@ export function AssetGeneratorPage() {
                                         ? "Enter one subject per line, choose a sprite type and mode, and generate a sprite batch."
                                     : activeTab === "songs"
                                         ? "Write one sound brief, launch the interleaved Gemini 3 job, and inspect the unified media artifact here."
-                                    : activeTab === "ecology-illustrations"
-                                        ? "Enter one ecology subject per line, add a guiding art direction if needed, and generate an illustration batch."
-                                        : `Select a category, enter a texture list, and click Generate.`}
+                                        : activeTab === "videos"
+                                            ? "Write one cinematic brief, launch the interleaved Gemini 3 job, and inspect the unified video package here."
+                                        : activeTab === "ecology-illustrations"
+                                            ? "Enter one ecology subject per line, add a guiding art direction if needed, and generate an illustration batch."
+                                            : `Select a category, enter a texture list, and click Generate.`}
                             </p>
                         </div>
                     ) : (activeTab === "songs" && activeMediaJob) ? (
@@ -2763,6 +3090,135 @@ export function AssetGeneratorPage() {
                                     </div>
                                     {activeMediaJob.error && (
                                         <p className="mt-4 text-sm text-red-300">{activeMediaJob.error}</p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ) : (activeTab === "videos" && activeVideoJob) ? (
+                        <div className="space-y-6">
+                            <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+                                <div>
+                                    <h2 className="text-[10px] font-bold tracking-[0.15em] text-gray-500">
+                                        <span className="text-[#E6E6FA]">{activeVideoResult?.artifact.metadata.title || activeVideoJob.title}</span>
+                                    </h2>
+                                    <p className="mt-2 text-[9px] text-gray-500 uppercase tracking-widest">
+                                        {activeVideoJob.status} · {activeVideoJob.currentStage}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setActiveVideoJobId(null);
+                                        setActiveVideoResult(null);
+                                    }}
+                                    className="text-[10px] tracking-wider text-gray-600 hover:text-gray-300 transition-colors"
+                                >
+                                    CLOSE
+                                </button>
+                            </div>
+
+                            {activeVideoResult ? (
+                                <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                                    <div className="rounded-2xl border border-white/10 bg-[#0f1520] p-5 shadow-lg">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${mediaStatusTone(activeVideoResult.artifact.status)}`}>
+                                                {activeVideoResult.artifact.status.replace("_", " ")}
+                                            </span>
+                                            {activeVideoResult.artifact.metadata.tags.map((tag) => (
+                                                <span key={tag} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-gray-300">
+                                                    {tag}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <div className="mt-4 flex flex-wrap items-center gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => void saveVideoToGallery()}
+                                                disabled={isSavingVideoToGallery || !activeVideoBatchId}
+                                                className={`rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] transition-all ${isSavingVideoToGallery || !activeVideoBatchId
+                                                    ? "cursor-not-allowed border-white/10 bg-white/5 text-gray-500"
+                                                    : "border-emerald-500/30 bg-emerald-500/12 text-emerald-100 hover:bg-emerald-500/18"}`}
+                                            >
+                                                {isSavingVideoToGallery ? "Saving..." : "Save To Gallery + Bucket"}
+                                            </button>
+                                            {activeVideoBatchId && (
+                                                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-gray-400">
+                                                    {activeVideoBatchId}
+                                                </span>
+                                            )}
+                                        </div>
+                                        {videoSaveNotice && (
+                                            <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+                                                {videoSaveNotice}
+                                            </div>
+                                        )}
+                                        {videoSaveError && (
+                                            <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-100">
+                                                {videoSaveError}
+                                            </div>
+                                        )}
+                                        <h3 className="mt-4 text-2xl font-black tracking-[0.04em] text-white">{activeVideoResult.artifact.metadata.title}</h3>
+                                        <p className="mt-3 max-w-3xl text-sm leading-6 text-gray-300">{activeVideoResult.artifact.metadata.description}</p>
+                                        {activeVideoResult.artifact.video && (
+                                            <div className="mt-5 rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-4">
+                                                <div className="mb-3 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-fuchsia-100">
+                                                    <span>Video Package</span>
+                                                    <span>{activeVideoResult.artifact.video.durationSeconds}s</span>
+                                                </div>
+                                                <SyncedNarratedVideoPlayer
+                                                    videoUrl={activeVideoResult.artifact.video.url}
+                                                    posterUrl={activeVideoResult.artifact.poster?.url}
+                                                    durationSeconds={activeVideoResult.artifact.video.durationSeconds}
+                                                    segments={activeVideoResult.artifact.narration?.segments || []}
+                                                    keepVideoAudioDefault={activeVideoResult.artifact.video.keepVeoAudio}
+                                                />
+                                            </div>
+                                        )}
+                                        {activeVideoResult.transcript.finalResponseText && (
+                                            <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                                                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">Gemini Final Response</div>
+                                                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-gray-200">{activeVideoResult.transcript.finalResponseText}</p>
+                                            </div>
+                                        )}
+                                        {!!activeVideoResult.artifact.warnings?.length && (
+                                            <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+                                                {activeVideoResult.artifact.warnings.join(" ")}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="space-y-5">
+                                        {activeVideoResult.artifact.poster && (
+                                            <div className="rounded-2xl border border-white/10 bg-[#0f1520] p-4 shadow-lg">
+                                                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">Poster</div>
+                                                <img
+                                                    src={activeVideoResult.artifact.poster.url}
+                                                    alt={activeVideoResult.artifact.metadata.title}
+                                                    className="mt-4 w-full rounded-xl border border-white/10 bg-black/20 object-cover"
+                                                />
+                                            </div>
+                                        )}
+                                        <div className="rounded-2xl border border-white/10 bg-[#0f1520] p-4 shadow-lg">
+                                            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">Interleaved Trace</div>
+                                            <div className="mt-4 space-y-2 text-sm text-gray-300">
+                                                <p><span className="text-gray-500">Model:</span> {activeVideoResult.transcript.model}</p>
+                                                <p><span className="text-gray-500">Logical tool:</span> {activeVideoResult.transcript.logicalToolName}</p>
+                                                <p><span className="text-gray-500">API tool:</span> {activeVideoResult.transcript.apiToolName}</p>
+                                                <p><span className="text-gray-500">Thought signature:</span> {activeVideoResult.transcript.thoughtSignatureDetected ? "preserved" : "not detected"}</p>
+                                                <p><span className="text-gray-500">Intent:</span> {activeVideoResult.artifact.metadata.intent}</p>
+                                                <p><span className="text-gray-500">Narration:</span> {activeVideoResult.artifact.narration?.language || "n/a"} / {activeVideoResult.artifact.narration?.voiceName || "n/a"}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="rounded-2xl border border-white/10 bg-[#0f1520] p-6">
+                                    <div className="flex items-center gap-3">
+                                        <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${activeVideoJob.status === "failed" ? "border-red-500/30 bg-red-500/10 text-red-100" : activeVideoJob.status === "completed" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-cyan-500/30 bg-cyan-500/10 text-cyan-100"}`}>
+                                            {activeVideoJob.status}
+                                        </span>
+                                        <span className="text-sm text-gray-400">{activeVideoJob.currentStage}</span>
+                                    </div>
+                                    {activeVideoJob.error && (
+                                        <p className="mt-4 text-sm text-red-300">{activeVideoJob.error}</p>
                                     )}
                                 </div>
                             )}
@@ -3113,11 +3569,11 @@ export function AssetGeneratorPage() {
                         <div className="flex items-center justify-between bg-[#0f1520] border border-white/5 rounded-lg p-4">
                             <div>
                                 <p className="text-[10px] text-gray-500 tracking-wider mb-1">
-                                    {activeTab === "icons" ? "ICONS TO GENERATE" : activeTab === "sprites" ? "SPRITES TO GENERATE" : activeTab === "songs" ? "MEDIA ARTIFACTS TO GENERATE" : "ASSETS TO GENERATE"}
+                                    {activeTab === "icons" ? "ICONS TO GENERATE" : activeTab === "sprites" ? "SPRITES TO GENERATE" : activeTab === "songs" ? "MEDIA ARTIFACTS TO GENERATE" : activeTab === "videos" ? "VIDEO PACKAGES TO GENERATE" : "ASSETS TO GENERATE"}
                                 </p>
                                 <p className="text-3xl font-black text-[#E6E6FA]">{pendingPrompts.length}</p>
                             </div>
-                            {referenceImage && activeTab !== "songs" && (
+                            {referenceImage && activeTab !== "songs" && activeTab !== "videos" && (
                                 <div className="text-right pl-4 border-l border-white/10">
                                     <p className="text-[10px] text-[#E6E6FA] tracking-wider mb-1">REF IMAGE</p>
                                     <img src={`data:image/png;base64,${referenceImage}`} className="w-8 h-8 rounded shrink-0 object-cover" alt="ref" />
@@ -3154,6 +3610,8 @@ export function AssetGeneratorPage() {
                             >
                                 {activeTab === "songs"
                                     ? "LAUNCH INTERLEAVED MEDIA JOB"
+                                    : activeTab === "videos"
+                                        ? "LAUNCH INTERLEAVED VIDEO JOB"
                                     : `⚡ BAKE ${pendingPrompts.length} ${activeTab === "icons" ? "ICONS" : activeTab === "sprites" ? "SPRITES" : "TEXTURES"}`}
                             </button>
                         </div>

@@ -56,6 +56,9 @@ apps/dev-tools/generated/media-audio/*
 !apps/dev-tools/generated/media-audio/.gitkeep
 apps/dev-tools/generated/demo-output/*
 !apps/dev-tools/generated/demo-output/.gitkeep
+apps/dev-tools/generated/media-video/*
+!apps/dev-tools/generated/media-video/.gitkeep
+apps/dev-tools/generated/tts/*
 apps/dev-tools/generated/upscale/*
 apps/dev-tools/generated/planets/*
 apps/dev-tools/generated/characters/portraits/*
@@ -87,6 +90,8 @@ game-assets/assets/Icons/security/005.png
 game-assets/assets/Textures/
 game-assets/assets/Songs/*
 !game-assets/assets/Songs/.gitkeep
+game-assets/assets/Videos/*
+!game-assets/assets/Videos/.gitkeep
 game-assets/assets/IsolatedRegions/
 game-assets/assets/IsolatedRegions/*
 gen-lang-client-0415457494-7d9044b9ea9f.json

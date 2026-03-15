@@ -51,28 +51,28 @@ struct GeminiRequest {
     generation_config: GenerationConfig,
 }
 
-#[derive(Deserialize, Debug)]
-struct GeminiCandidate {
-    content: Option<GeminiMessageContent>,
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeminiCandidate {
+    pub content: Option<GeminiMessageContent>,
 }
 
-#[derive(Deserialize, Debug)]
-struct GeminiMessageContent {
-    parts: Option<Vec<GeminiResponsePart>>,
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeminiMessageContent {
+    pub parts: Option<Vec<GeminiResponsePart>>,
 }
 
-#[derive(Deserialize, Debug)]
-struct GeminiResponsePart {
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeminiResponsePart {
     #[serde(rename = "inlineData")]
-    inline_data: Option<GeminiInlineData>,
-    text: Option<String>,
+    pub inline_data: Option<GeminiInlineData>,
+    pub text: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
-struct GeminiInlineData {
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeminiInlineData {
     #[serde(rename = "mimeType")]
-    mime_type: String,
-    data: String,
+    pub mime_type: String,
+    pub data: String,
 }
 
 #[derive(Serialize)]
@@ -468,6 +468,103 @@ pub async fn generate_text_with_options(
     Err((
         StatusCode::INTERNAL_SERVER_ERROR,
         "No text generated".to_string(),
+    ))
+}
+
+pub async fn generate_multimodal(
+    prompt: &str,
+    modalities: Vec<String>,
+    temperature: f32,
+) -> Result<Vec<GeminiResponsePart>, (StatusCode, String)> {
+    let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
+        let msg = "GEMINI_API_KEY environment variable not set";
+        error!(msg);
+        (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string())
+    })?;
+
+    // Use the functional interleaved model or fallback to the image catalog
+    let model_id = env::var("GEMINI_INTERLEAVED_MODEL")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| {
+            let model_catalog = image_model_catalog();
+            if modalities.contains(&"IMAGE".to_string()) {
+                model_catalog.default_model_id.clone()
+            } else {
+                "gemini-2.0-flash".to_string()
+            }
+        });
+
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        model_id, api_key
+    );
+
+    let image_config = if modalities.contains(&"IMAGE".to_string()) {
+        Some(ImageConfig {
+            aspect_ratio: Some("1:1".to_string()),
+            image_size: Some("1K".to_string()),
+        })
+    } else {
+        None
+    };
+
+    let req_body = GeminiRequest {
+        contents: vec![GeminiContent {
+            parts: vec![GeminiPart {
+                text: Some(prompt.to_string()),
+                inline_data: None,
+            }],
+        }],
+        generation_config: GenerationConfig {
+            response_modalities: modalities,
+            temperature: Some(temperature),
+            image_config,
+            speech_config: None,
+        },
+    };
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(&url)
+        .json(&req_body)
+        .send()
+        .await
+        .map_err(|e| {
+            error!("Reqwest error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+
+    let status = res.status();
+    let gemini_resp: GeminiResponse = res.json().await.map_err(|e| {
+        error!("Failed to parse Gemini multimodal response: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+
+    if !status.is_success() {
+        let err_msg = gemini_resp
+            .error
+            .map(|e| e.message)
+            .unwrap_or_else(|| "Unknown API error".to_string());
+        error!("Gemini API error: {}", err_msg);
+        return Err((StatusCode::BAD_REQUEST, err_msg));
+    }
+
+    if let Some(candidates) = gemini_resp.candidates {
+        if let Some(candidate) = candidates.first() {
+            if let Some(content) = &candidate.content {
+                if let Some(parts) = &content.parts {
+                    return Ok(parts.clone());
+                }
+            }
+        }
+    }
+
+    error!("No predictions returned from Gemini multimodal call");
+    Err((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "No predictions returned".to_string(),
     ))
 }
 
