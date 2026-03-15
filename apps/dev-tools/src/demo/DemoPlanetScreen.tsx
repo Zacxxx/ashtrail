@@ -54,8 +54,9 @@ export function DemoPlanetScreen() {
     const enteredFromLaunch = Boolean((location.state as { fromLaunch?: boolean } | null)?.fromLaunch);
     const activeJob = activeJobId ? jobs.find((job) => job.jobId === activeJobId) : null;
     const introBody = useMemo(() => DEMO_STEP_ONE_INTRO_LINES.join("\n\n"), []);
+    const soundtrackUrl = result?.artifact.audio?.url ?? searchParams.get("soundtrack");
 
-    useSceneAudio(result?.artifact.audio?.url ?? null, phase === "choose" && Boolean(result?.artifact.audio?.url));
+    useSceneAudio(soundtrackUrl, phase === "choose" && Boolean(soundtrackUrl));
 
     useEffect(() => {
         setTypedIntroLength(0);
@@ -129,6 +130,17 @@ export function DemoPlanetScreen() {
 
     useEffect(() => {
         let cancelled = false;
+
+        if (
+            result
+            && jobIdParam
+            && activeJobId === jobIdParam
+            && selectionJobId === selectionJobIdParam
+        ) {
+            return () => {
+                cancelled = true;
+            };
+        }
 
         const resolveJob = async (jobId: string) => {
             setActiveJobId(jobId);
@@ -220,7 +232,17 @@ export function DemoPlanetScreen() {
         return () => {
             cancelled = true;
         };
-    }, [attemptKey, jobIdParam, launchTrackedJob, selectionJobIdParam, setSearchParams, waitForJob]);
+    }, [
+        activeJobId,
+        attemptKey,
+        jobIdParam,
+        launchTrackedJob,
+        result,
+        selectionJobId,
+        selectionJobIdParam,
+        setSearchParams,
+        waitForJob,
+    ]);
 
     const textureUrl = result?.artifact.image?.url ?? null;
     const worldLabel = result?.artifact.metadata.title || "Orbital Survey";
@@ -374,6 +396,9 @@ export function DemoPlanetScreen() {
         }
         if (selectionJobId) {
             params.set("selectionJobId", selectionJobId);
+        }
+        if (soundtrackUrl) {
+            params.set("soundtrack", soundtrackUrl);
         }
 
         const target = {

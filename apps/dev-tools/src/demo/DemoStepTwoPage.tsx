@@ -5,6 +5,7 @@ import { Button, ScreenShell } from "@ashtrail/ui";
 import { GameRegistry, type Character, type Item } from "@ashtrail/core";
 import { CharacterSheetPanel } from "../components/CharacterSheetPanel";
 import { useHomepageAudio } from "./useHomepageAudio";
+import { useSceneAudio } from "./useSceneAudio";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import { useJobs } from "../jobs/useJobs";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
@@ -310,8 +311,19 @@ async function persistStepTwoArtifact(stepOneJobId: string | null, artifact: Per
 }
 
 async function resolveCombatReadyCharacter(character: Character) {
-    const response = await postJson("/api/progression/resolve-character", character);
-    return await response.json() as Character;
+    const portraitUrl = character.portraitUrl;
+    const portraitName = character.portraitName;
+    const response = await postJson("/api/progression/resolve-character", {
+        ...character,
+        portraitUrl: portraitUrl?.startsWith("data:") ? undefined : portraitUrl,
+        portraitName,
+    });
+    const resolved = await response.json() as Character;
+    return {
+        ...resolved,
+        portraitUrl: portraitUrl ?? resolved.portraitUrl,
+        portraitName: portraitName ?? resolved.portraitName,
+    };
 }
 
 async function findPersistedCharacter(characterId: string) {
@@ -503,12 +515,15 @@ export function DemoStepTwoPage() {
     const selectionJobId = searchParams.get("selectionJobId");
     const planetTexture = searchParams.get("planetTexture");
     const planetTitle = searchParams.get("planetTitle");
+    const soundtrackUrl = searchParams.get("soundtrack");
     const heroVariantParam = searchParams.get("hero");
     const resolvedWorldId = activeWorldId ?? history[0]?.id ?? null;
     const activeJob = currentJobId ? jobs.find((job) => job.jobId === currentJobId) : null;
     const [heroIdentity, setHeroIdentity] = useState<DemoHeroIdentity>(() =>
-        buildDemoHeroIdentity(heroVariantParam || pickRandomDemoHeroVariant()),
+        buildDemoHeroIdentity(heroVariantParam || "john"),
     );
+
+    useSceneAudio(soundtrackUrl, Boolean(soundtrackUrl));
 
     useEffect(() => {
         const node = audioRef.current;
@@ -624,17 +639,7 @@ export function DemoStepTwoPage() {
         if (heroVariantParam === "john" || heroVariantParam === "jane") {
             const nextIdentity = buildDemoHeroIdentity(heroVariantParam);
             setHeroIdentity((current) => current.variant === nextIdentity.variant ? current : nextIdentity);
-            return;
         }
-
-        const variant = pickRandomDemoHeroVariant();
-        const nextIdentity = buildDemoHeroIdentity(variant);
-        setHeroIdentity(nextIdentity);
-        setSearchParams((previous) => {
-            const next = new URLSearchParams(previous);
-            next.set("hero", variant);
-            return next;
-        }, { replace: true });
     }, [heroVariantParam, setSearchParams]);
 
     useEffect(() => {
@@ -669,11 +674,39 @@ export function DemoStepTwoPage() {
                 const worldContext = await resolveStepOneContext(waitForJob, stepOneJobId, selectionJobId, planetTitle);
                 if (cancelled) return;
 
-                const persisted = await loadPersistedStepTwoArtifact(stepOneJobId, heroIdentity.variant);
-                if (cancelled) return;
+                const requestedHeroVariant = heroVariantParam === "john" || heroVariantParam === "jane"
+                    ? heroVariantParam
+                    : null;
+                const heroVariantsToProbe = requestedHeroVariant
+                    ? [requestedHeroVariant]
+                    : ["john", "jane"];
+
+                let persisted: PersistedDemoStepTwoArtifact | null = null;
+                let resolvedHeroVariant = heroIdentity.variant;
+                for (const heroVariant of heroVariantsToProbe) {
+                    const candidate = await loadPersistedStepTwoArtifact(stepOneJobId, heroVariant);
+                    if (cancelled) return;
+                    if (!candidate) {
+                        continue;
+                    }
+                    persisted = candidate;
+                    resolvedHeroVariant = heroVariant;
+                    break;
+                }
+
                 if (persisted) {
+                    if (heroIdentity.variant !== resolvedHeroVariant) {
+                        setHeroIdentity(buildDemoHeroIdentity(resolvedHeroVariant));
+                    }
+                    if (heroVariantParam !== resolvedHeroVariant) {
+                        setSearchParams((previous) => {
+                            const next = new URLSearchParams(previous);
+                            next.set("hero", resolvedHeroVariant);
+                            return next;
+                        }, { replace: true });
+                    }
                     const baseCharacter = buildDemoHeroCharacter(
-                        heroIdentity,
+                        buildDemoHeroIdentity(resolvedHeroVariant),
                         persisted.draft,
                         persisted.loreText,
                         persisted.portraitUrl ?? undefined,
@@ -709,6 +742,19 @@ export function DemoStepTwoPage() {
                         loreInsights: persisted.loreInsights ?? [],
                     });
                     setPhase("ready");
+                    return;
+                }
+
+                if (!requestedHeroVariant) {
+                    const randomHeroVariant = pickRandomDemoHeroVariant();
+                    if (heroIdentity.variant !== randomHeroVariant) {
+                        setHeroIdentity(buildDemoHeroIdentity(randomHeroVariant));
+                    }
+                    setSearchParams((previous) => {
+                        const next = new URLSearchParams(previous);
+                        next.set("hero", randomHeroVariant);
+                        return next;
+                    }, { replace: true });
                     return;
                 }
 
