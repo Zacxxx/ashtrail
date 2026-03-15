@@ -1,6 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { SimulationConfig } from "../modules/geo/types";
-import type { GenerationProgress, PlanetWorld, ContinentConfig, HumanityScopeTarget } from "./types";
+import type {
+    GenerationProgress,
+    PlanetWorld,
+    ContinentConfig,
+    HumanityScopeTarget,
+    HumanityTerminalState,
+} from "./types";
 import type { GenerationHistoryItem } from "../hooks/useGenerationHistory";
 import { BIOME_META } from "../modules/geo/biomes";
 import { useJobs } from "../jobs/useJobs";
@@ -62,6 +68,7 @@ export function useWorldGeneration({
         stage: "",
         jobId: null,
     });
+    const [humanityTerminalState, setHumanityTerminalState] = useState<HumanityTerminalState | null>(null);
 
     const [isGeneratingText, setIsGeneratingText] = useState(false);
     const [regionLore, setRegionLore] = useState<any | null>(null);
@@ -76,6 +83,10 @@ export function useWorldGeneration({
             if (pollRef.current) clearInterval(pollRef.current);
         };
     }, []);
+
+    useEffect(() => {
+        setHumanityTerminalState(null);
+    }, [activeWorldId]);
 
     // Poll job status
     const pollJobProgress = useCallback((jobId: string, endpointBase: string = "http://127.0.0.1:8787/api/planet/hybrid") => {
@@ -295,6 +306,7 @@ Parameters: Vegetation Density: ${ecoVegetation}, Fauna Hotspots: ${ecoFauna}${r
             return;
         }
 
+        setHumanityTerminalState(null);
         setGenProgress({ isActive: true, progress: 0, stage: "Preparing location simulation...", jobId: null });
 
         try {
@@ -355,6 +367,10 @@ Parameters: Vegetation Density: ${ecoVegetation}, Fauna Hotspots: ${ecoFauna}${r
                         if (pollRef.current) clearInterval(pollRef.current);
                         pollRef.current = null;
                         await onHumanityGenerated?.();
+                        setHumanityTerminalState({
+                            status: "success",
+                            message: "Locations ready",
+                        });
                         setGenProgress({
                             isActive: false,
                             progress: 100,
@@ -364,10 +380,15 @@ Parameters: Vegetation Density: ${ecoVegetation}, Fauna Hotspots: ${ecoFauna}${r
                     } else if (data.status === "failed" || data.status === "cancelled") {
                         if (pollRef.current) clearInterval(pollRef.current);
                         pollRef.current = null;
+                        const message = data.error || "Location simulation failed";
+                        setHumanityTerminalState({
+                            status: "failed",
+                            message,
+                        });
                         setGenProgress({
                             isActive: false,
                             progress: 0,
-                            stage: data.error || "Location simulation failed",
+                            stage: message,
                             jobId: null,
                         });
                     }
@@ -377,6 +398,10 @@ Parameters: Vegetation Density: ${ecoVegetation}, Fauna Hotspots: ${ecoFauna}${r
             }, 700);
         } catch (error) {
             console.error(error);
+            setHumanityTerminalState({
+                status: "failed",
+                message: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+            });
             setGenProgress({
                 isActive: false, progress: 0, stage: `Error: ${error instanceof Error ? error.message : "Unknown error"}`, jobId: null,
             });
@@ -539,6 +564,7 @@ Parameters: Vegetation Density: ${ecoVegetation}, Fauna Hotspots: ${ecoFauna}${r
 
     return {
         genProgress,
+        humanityTerminalState,
         isGeneratingText,
         regionLore,
         isFetchingLore,

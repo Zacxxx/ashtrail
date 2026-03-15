@@ -5332,6 +5332,9 @@ async fn generate_locations_job(
     let spawned_job_id = job_id.clone();
     let request_for_job = request.clone();
     tokio::task::spawn(async move {
+        let panic_jobs = jobs.clone();
+        let panic_job_id = spawned_job_id.clone();
+        let worker = tokio::task::spawn(async move {
         set_location_job_state(
             &jobs,
             &spawned_job_id,
@@ -5459,6 +5462,18 @@ async fn generate_locations_job(
                     Some(error),
                 );
             }
+        }
+        });
+        if let Err(join_error) = worker.await {
+            error!("Humanity worker panicked for job {}: {}", panic_job_id, join_error);
+            set_location_job_state(
+                &panic_jobs,
+                &panic_job_id,
+                JobStatus::Failed,
+                100.0,
+                "Humanity worker panicked",
+                Some(format!("Humanity worker panicked: {}", join_error)),
+            );
         }
     });
 

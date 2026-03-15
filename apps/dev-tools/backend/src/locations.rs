@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
+use worldgen_core::export::decode_id_rgb;
 use worldgen_core::graph::ProvinceAdjacency;
 
 use crate::gemini;
@@ -454,9 +455,10 @@ pub fn adopt_existing_humanity_output(
     scope_mode: &LocationGenerationScopeMode,
     scope_targets: &[LocationScopeTarget],
 ) -> Result<Vec<LocationRecord>, String> {
-    let target_provinces = resolve_scope_province_ids(planets_dir, world_id, scope_mode, scope_targets)?
-        .into_iter()
-        .collect::<HashSet<_>>();
+    let target_provinces =
+        resolve_scope_province_ids(planets_dir, world_id, scope_mode, scope_targets)?
+            .into_iter()
+            .collect::<HashSet<_>>();
     let adopted = read_locations(planets_dir, world_id)
         .into_iter()
         .map(|mut location| {
@@ -477,12 +479,18 @@ fn resolve_scope_province_ids_from_hierarchy(
     kingdoms: &[KingdomRecord],
 ) -> Result<Vec<u32>, String> {
     if request.scope_mode == LocationGenerationScopeMode::World {
-        let mut ids = provinces.iter().map(|province| province.id).collect::<Vec<_>>();
+        let mut ids = provinces
+            .iter()
+            .map(|province| province.id)
+            .collect::<Vec<_>>();
         ids.sort_unstable();
         return Ok(ids);
     }
     if request.scope_targets.is_empty() {
-        return Err("Scoped Humanity runs require at least one kingdom, duchy, or province target.".to_string());
+        return Err(
+            "Scoped Humanity runs require at least one kingdom, duchy, or province target."
+                .to_string(),
+        );
     }
 
     let duchy_provinces = duchies
@@ -493,7 +501,10 @@ fn resolve_scope_province_ids_from_hierarchy(
         .iter()
         .map(|kingdom| (kingdom.id, kingdom.duchy_ids.clone()))
         .collect::<HashMap<_, _>>();
-    let province_ids = provinces.iter().map(|province| province.id).collect::<HashSet<_>>();
+    let province_ids = provinces
+        .iter()
+        .map(|province| province.id)
+        .collect::<HashSet<_>>();
     let mut selected = HashSet::new();
 
     for target in &request.scope_targets {
@@ -538,7 +549,10 @@ fn should_replace_location(location: &LocationRecord, target_province_ids: &Hash
         && !location.is_customized
 }
 
-fn should_replace_generated_lore(snippet: &LoreSnippetLite, target_province_ids: &HashSet<u32>) -> bool {
+fn should_replace_generated_lore(
+    snippet: &LoreSnippetLite,
+    target_province_ids: &HashSet<u32>,
+) -> bool {
     if snippet.source != RecordSource::HumanityGenerated || snippet.is_customized {
         return false;
     }
@@ -554,7 +568,10 @@ fn should_replace_generated_lore(snippet: &LoreSnippetLite, target_province_ids:
         .unwrap_or(false)
 }
 
-fn prune_removed_lore_links(location: &mut LocationRecord, removed_generated_lore_ids: &HashSet<String>) {
+fn prune_removed_lore_links(
+    location: &mut LocationRecord,
+    removed_generated_lore_ids: &HashSet<String>,
+) {
     if removed_generated_lore_ids.is_empty() {
         return;
     }
@@ -569,7 +586,11 @@ fn prune_removed_lore_links(location: &mut LocationRecord, removed_generated_lor
 
 fn build_generated_lore_snippets(locations: &[LocationRecord]) -> Vec<LoreSnippetLite> {
     let mut sorted = locations.iter().collect::<Vec<_>>();
-    sorted.sort_by(|a, b| b.importance.cmp(&a.importance).then_with(|| a.name.cmp(&b.name)));
+    sorted.sort_by(|a, b| {
+        b.importance
+            .cmp(&a.importance)
+            .then_with(|| a.name.cmp(&b.name))
+    });
 
     let mut selected = Vec::new();
     let mut selected_ids = HashSet::new();
@@ -689,10 +710,25 @@ pub async fn simulate_locations(
         read_optional_json(planets_dir.join(world_id).join("cell_features.json"));
     let existing_locations = read_locations(planets_dir, world_id);
     let existing_lore_snippets: Vec<LoreSnippetLite> =
-        read_optional_json(planets_dir.join(world_id).join("lore_snippets.json")).unwrap_or_default();
+        read_optional_json(planets_dir.join(world_id).join("lore_snippets.json"))
+            .unwrap_or_default();
     let world_context = load_world_context(planets_dir, world_id, request)?;
     let requested_province_ids =
         resolve_scope_province_ids_from_hierarchy(request, &provinces, &duchies, &kingdoms)?;
+    let resolved_province_ids = if request.scope_mode == LocationGenerationScopeMode::World {
+        let mut ids = provinces
+            .iter()
+            .map(|province| province.id)
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids
+    } else {
+        requested_province_ids
+    };
+    let resolved_province_set = resolved_province_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
 
     let province_id_image = image::open(worldgen_dir.join("province_id.png"))
         .map_err(|e| format!("Failed to read province_id.png: {e}"))?
@@ -708,6 +744,21 @@ pub async fn simulate_locations(
         &height,
         cell_features.as_ref(),
     );
+    let raster_scope_matches = resolved_province_ids
+        .iter()
+        .filter(|province_id| {
+            raster_stats
+                .get(province_id)
+                .map(|stats| stats.total_pixels > 0)
+                .unwrap_or(false)
+        })
+        .count();
+    if !resolved_province_ids.is_empty() && raster_scope_matches == 0 {
+        return Err(
+            "Humanity input mismatch: province_id.png does not match provinces.json for the selected scope."
+                .to_string(),
+        );
+    }
 
     let continent_by_province = build_continent_index(&continents);
     let duchy_map: HashMap<u32, DuchyRecord> = duchies.into_iter().map(|d| (d.id, d)).collect();
@@ -777,15 +828,6 @@ pub async fn simulate_locations(
 
     mark_seats(&mut contexts);
 
-    let resolved_province_ids = if request.scope_mode == LocationGenerationScopeMode::World {
-        let mut ids = contexts.iter().map(|ctx| ctx.province.id).collect::<Vec<_>>();
-        ids.sort_unstable();
-        ids
-    } else {
-        requested_province_ids
-    };
-    let resolved_province_set = resolved_province_ids.iter().copied().collect::<HashSet<_>>();
-
     let mut preserved_locations = existing_locations
         .into_iter()
         .filter(|location| !should_replace_location(location, &resolved_province_set))
@@ -829,8 +871,12 @@ pub async fn simulate_locations(
             continue;
         }
 
-        let desired_node_count = compute_node_count(context, area_quartile, request.settlement_density);
-        let preserved_count = preserved_counts.get(&context.province.id).copied().unwrap_or(0);
+        let desired_node_count =
+            compute_node_count(context, area_quartile, request.settlement_density);
+        let preserved_count = preserved_counts
+            .get(&context.province.id)
+            .copied()
+            .unwrap_or(0);
         let node_count = desired_node_count.saturating_sub(preserved_count);
         if node_count == 0 {
             continue;
@@ -871,7 +917,8 @@ pub async fn simulate_locations(
     }
 
     let generated_location_count = generated_locations.len();
-    let ai_detail_pass = apply_ai_details(&world_context, &contexts, &mut generated_locations).await;
+    let ai_detail_pass =
+        apply_ai_details(&world_context, &contexts, &mut generated_locations).await;
 
     let removed_generated_lore_ids = existing_lore_snippets
         .iter()
@@ -888,7 +935,10 @@ pub async fn simulate_locations(
         HashMap::<String, Vec<String>>::new(),
         |mut links, snippet| {
             if let Some(location_id) = &snippet.location_id {
-                links.entry(location_id.clone()).or_default().push(snippet.id.clone());
+                links
+                    .entry(location_id.clone())
+                    .or_default()
+                    .push(snippet.id.clone());
             }
             links
         },
@@ -902,8 +952,13 @@ pub async fn simulate_locations(
         .for_each(|location| prune_removed_lore_links(location, &removed_generated_lore_ids));
     generated_locations.iter_mut().for_each(|location| {
         if let Some(linked_ids) = generated_lore_links.get(&location.id) {
-            location.history_hooks.linked_lore_snippet_ids =
-                unique_strings([location.history_hooks.linked_lore_snippet_ids.clone(), linked_ids.clone()].concat());
+            location.history_hooks.linked_lore_snippet_ids = unique_strings(
+                [
+                    location.history_hooks.linked_lore_snippet_ids.clone(),
+                    linked_ids.clone(),
+                ]
+                .concat(),
+            );
         }
     });
 
@@ -2349,12 +2404,21 @@ fn build_generation_metadata(
     seed_hash: &str,
     ai_detail_pass: AiDetailPassSummary,
 ) -> LocationGenerationMetadata {
+    let resolved_province_set = resolved_province_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
     let viable_provinces = contexts
         .iter()
+        .filter(|context| resolved_province_set.contains(&context.province.id))
         .filter(|context| context.viability.is_viable_land)
         .map(|context| context.province.id)
         .collect::<HashSet<_>>();
-    let covered_provinces = locations
+    let scoped_locations = locations
+        .iter()
+        .filter(|location| resolved_province_set.contains(&location.province_id))
+        .collect::<Vec<_>>();
+    let covered_provinces = scoped_locations
         .iter()
         .map(|location| location.province_id)
         .collect::<HashSet<_>>();
@@ -2365,11 +2429,11 @@ fn build_generation_metadata(
 
     let mut counts_by_category = BTreeMap::new();
     let mut counts_by_subtype = BTreeMap::new();
-    let settlement_count = locations
+    let settlement_count = scoped_locations
         .iter()
         .filter(|location| location.category == LocationCategory::Settlement)
         .count();
-    for location in locations {
+    for location in &scoped_locations {
         *counts_by_category
             .entry(format!("{:?}", location.category).to_lowercase())
             .or_insert(0usize) += 1;
@@ -2390,9 +2454,9 @@ fn build_generation_metadata(
             generated_at: now_unix_ms(),
         },
         coverage: CoverageSummary {
-            total_locations: locations.len(),
+            total_locations: scoped_locations.len(),
             settlement_count,
-            non_settlement_count: locations.len().saturating_sub(settlement_count),
+            non_settlement_count: scoped_locations.len().saturating_sub(settlement_count),
             viable_province_count: viable_provinces.len(),
             covered_viable_province_count: covered_provinces
                 .intersection(&viable_provinces)
@@ -2622,7 +2686,7 @@ fn short_hash(input: &str) -> u32 {
 }
 
 fn decode_rgb_id(rgb: [u8; 3]) -> u32 {
-    ((rgb[0] as u32) << 16) | ((rgb[1] as u32) << 8) | rgb[2] as u32
+    decode_id_rgb(rgb)
 }
 
 fn is_coastal_pixel(x: u32, y: u32, landmask: &image::GrayImage) -> bool {
@@ -2844,5 +2908,399 @@ fn parse_record_source(value: Option<&str>) -> RecordSource {
     match value.unwrap_or("manual") {
         "humanity_generated" => RecordSource::HumanityGenerated,
         _ => RecordSource::Manual,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{GrayImage, ImageBuffer, Luma, Rgb, RgbImage};
+    use std::env;
+    use std::fs;
+    use uuid::Uuid;
+    use worldgen_core::graph::EdgeInfo;
+
+    fn test_root(label: &str) -> PathBuf {
+        env::temp_dir().join(format!("ashtrail-locations-{label}-{}", Uuid::new_v4()))
+    }
+
+    fn write_json<T: Serialize>(path: &Path, value: &T) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent dir");
+        }
+        fs::write(path, serde_json::to_string_pretty(value).expect("json")).expect("write json");
+    }
+
+    fn write_rgb(path: &Path, width: u32, height: u32, fill: Rgb<u8>) {
+        let mut image = RgbImage::new(width, height);
+        for pixel in image.pixels_mut() {
+            *pixel = fill;
+        }
+        image.save(path).expect("save rgb");
+    }
+
+    fn write_gray(path: &Path, width: u32, height: u32, value: u8) {
+        let mut image = GrayImage::new(width, height);
+        for pixel in image.pixels_mut() {
+            *pixel = Luma([value]);
+        }
+        image.save(path).expect("save gray");
+    }
+
+    fn write_height(path: &Path, width: u32, height: u32, value: u16) {
+        let image: ImageBuffer<Luma<u16>, Vec<u16>> =
+            ImageBuffer::from_fn(width, height, |_x, _y| Luma([value]));
+        image.save(path).expect("save height");
+    }
+
+    fn make_world_fixture(root: &Path, encoded_province_id: u32) {
+        let world_dir = root.join("world-1");
+        let worldgen_dir = world_dir.join("worldgen");
+        let ecology_dir = world_dir.join("ecology");
+        fs::create_dir_all(&worldgen_dir).expect("worldgen dir");
+        fs::create_dir_all(&ecology_dir).expect("ecology dir");
+
+        let province = ProvinceRecord {
+            id: 105,
+            seed_x: 0,
+            seed_y: 0,
+            area: 16,
+            duchy_id: 10,
+            kingdom_id: 10,
+            biome_primary: 1,
+            biome_primary_id: Some("plains".to_string()),
+            biome_confidence: Some(1.0),
+            biome_candidate_ids: vec!["plains".to_string()],
+            name: "Province 106".to_string(),
+            wealth: None,
+            development: None,
+            population: None,
+        };
+        write_json(&worldgen_dir.join("provinces.json"), &vec![province]);
+        write_json(
+            &worldgen_dir.join("duchies.json"),
+            &vec![DuchyRecord {
+                id: 10,
+                province_ids: vec![105],
+                kingdom_id: 10,
+                name: "Duchy 11".to_string(),
+            }],
+        );
+        write_json(
+            &worldgen_dir.join("kingdoms.json"),
+            &vec![KingdomRecord {
+                id: 10,
+                duchy_ids: vec![10],
+                name: "Kingdom 11".to_string(),
+            }],
+        );
+        write_json(
+            &worldgen_dir.join("adjacency.json"),
+            &vec![ProvinceAdjacency {
+                province_id: 105,
+                neighbors: vec![EdgeInfo {
+                    neighbor_id: 106,
+                    shared_border_length: 5,
+                    crosses_river: false,
+                    mean_border_height: 0.1,
+                }],
+            }],
+        );
+        write_rgb(
+            &worldgen_dir.join("province_id.png"),
+            8,
+            8,
+            Rgb([
+                (encoded_province_id & 0xFF) as u8,
+                ((encoded_province_id >> 8) & 0xFF) as u8,
+                ((encoded_province_id >> 16) & 0xFF) as u8,
+            ]),
+        );
+        write_gray(&worldgen_dir.join("landmask.png"), 8, 8, 255);
+        write_gray(&worldgen_dir.join("river_mask.png"), 8, 8, 0);
+        write_height(&worldgen_dir.join("height16.png"), 8, 8, 50_000);
+        write_json(
+            &ecology_dir.join("provinces.json"),
+            &Vec::<serde_json::Value>::new(),
+        );
+        write_json(
+            &world_dir.join("metadata.json"),
+            &serde_json::json!({
+                "name": "Test World",
+                "prompt": "A world of caravan roads."
+            }),
+        );
+        write_json(
+            &world_dir.join("gm_settings.json"),
+            &serde_json::json!({
+                "worldPrompt": "Grounded worldbuilding"
+            }),
+        );
+        write_json(
+            &world_dir.join("lore_snippets.json"),
+            &vec![serde_json::json!({
+                "id": "main-lore",
+                "priority": "main",
+                "location": "World",
+                "content": "Canonical main lore for humanity simulation.",
+                "source": "manual",
+                "isCustomized": false
+            })],
+        );
+    }
+
+    fn scoped_request() -> LocationGenerationRequest {
+        LocationGenerationRequest {
+            prompt: "Build trade cities along travel routes.".to_string(),
+            settlement_density: 0.6,
+            tech_level: 0.4,
+            scope_mode: LocationGenerationScopeMode::Scoped,
+            scope_targets: vec![LocationScopeTarget {
+                kind: LocationScopeTargetKind::Kingdom,
+                id: 10,
+            }],
+            redo_mode: "replace_scope".to_string(),
+        }
+    }
+
+    #[test]
+    fn decode_rgb_id_matches_writer_layout() {
+        assert_eq!(decode_rgb_id([105, 0, 0]), 105);
+    }
+
+    #[tokio::test]
+    async fn simulate_locations_generates_locations_when_raster_ids_match() {
+        let root = test_root("valid");
+        make_world_fixture(&root, 105);
+
+        let output = simulate_locations(&root, "world-1", &scoped_request())
+            .await
+            .expect("simulate locations");
+
+        assert!(output.generated_location_count > 0);
+        assert_eq!(output.metadata.config.resolved_province_ids, vec![105]);
+        assert_eq!(
+            output.metadata.coverage.total_locations,
+            output.locations.len()
+        );
+        assert!(output.metadata.coverage.viable_province_count >= 1);
+    }
+
+    #[tokio::test]
+    async fn simulate_locations_rejects_scope_when_raster_ids_do_not_match() {
+        let root = test_root("mismatch");
+        make_world_fixture(&root, 106);
+
+        let error = simulate_locations(&root, "world-1", &scoped_request())
+            .await
+            .expect_err("scope mismatch should fail");
+
+        assert!(error.contains("province_id.png does not match provinces.json"));
+    }
+
+    #[test]
+    fn build_generation_metadata_only_counts_selected_scope() {
+        let contexts = vec![
+            ProvinceContext {
+                province: ProvinceRecord {
+                    id: 1,
+                    seed_x: 0,
+                    seed_y: 0,
+                    area: 10,
+                    duchy_id: 1,
+                    kingdom_id: 1,
+                    biome_primary: 1,
+                    biome_primary_id: Some("plains".to_string()),
+                    biome_confidence: None,
+                    biome_candidate_ids: Vec::new(),
+                    name: "Province 2".to_string(),
+                    wealth: None,
+                    development: None,
+                    population: None,
+                },
+                duchy: None,
+                kingdom: None,
+                continent_id: None,
+                biome_id: "plains".to_string(),
+                ecology: None,
+                adjacency: ProvinceAdjacency {
+                    province_id: 1,
+                    neighbors: Vec::new(),
+                },
+                raster: ProvinceRasterStats {
+                    total_pixels: 4,
+                    land_pixels: 4,
+                    river_pixels: 0,
+                    coast_pixels: 0,
+                    steep_pixels: 0,
+                    sample_count: 1,
+                    mean_elevation: 0.5,
+                    mean_slope: 0.0,
+                    max_slope: 0.0,
+                    candidate_points: vec![CandidatePoint {
+                        x: 0.25,
+                        y: 0.25,
+                        river: false,
+                        coastal: false,
+                        slope: 0.0,
+                        elevation: 0.5,
+                        score: 1.0,
+                    }],
+                },
+                viability: ProvinceViability {
+                    is_viable_land: true,
+                    allows_maritime_location: false,
+                    land_share: 1.0,
+                },
+                scores: ProvinceScores {
+                    habitability: 70,
+                    economic: 60,
+                    strategic: 50,
+                    hazard: 20,
+                    resource_potential: 40,
+                    climate_stability: 80,
+                },
+                is_duchy_seat: false,
+                is_kingdom_capital: false,
+            },
+            ProvinceContext {
+                province: ProvinceRecord {
+                    id: 2,
+                    seed_x: 0,
+                    seed_y: 0,
+                    area: 10,
+                    duchy_id: 1,
+                    kingdom_id: 1,
+                    biome_primary: 1,
+                    biome_primary_id: Some("plains".to_string()),
+                    biome_confidence: None,
+                    biome_candidate_ids: Vec::new(),
+                    name: "Province 3".to_string(),
+                    wealth: None,
+                    development: None,
+                    population: None,
+                },
+                duchy: None,
+                kingdom: None,
+                continent_id: None,
+                biome_id: "plains".to_string(),
+                ecology: None,
+                adjacency: ProvinceAdjacency {
+                    province_id: 2,
+                    neighbors: Vec::new(),
+                },
+                raster: ProvinceRasterStats::new(),
+                viability: ProvinceViability {
+                    is_viable_land: true,
+                    allows_maritime_location: false,
+                    land_share: 1.0,
+                },
+                scores: ProvinceScores {
+                    habitability: 70,
+                    economic: 60,
+                    strategic: 50,
+                    hazard: 20,
+                    resource_potential: 40,
+                    climate_stability: 80,
+                },
+                is_duchy_seat: false,
+                is_kingdom_capital: false,
+            },
+        ];
+        let locations = vec![
+            LocationRecord {
+                id: "loc-1".to_string(),
+                name: "Scope Town".to_string(),
+                category: LocationCategory::Settlement,
+                subtype: "market_town".to_string(),
+                status: LocationStatus::Stable,
+                scale: LocationScale::Small,
+                province_id: 1,
+                province_region_id: province_region_id(1),
+                province_name: "Province 2".to_string(),
+                duchy_id: Some(1),
+                kingdom_id: Some(1),
+                continent_id: None,
+                x: 0.25,
+                y: 0.25,
+                population_estimate: Some(500),
+                importance: 50,
+                habitability_score: 70,
+                economic_score: 60,
+                strategic_score: 50,
+                hazard_score: 20,
+                ruling_faction: "None".to_string(),
+                tags: Vec::new(),
+                placement_drivers: Vec::new(),
+                history_hooks: LocationHistoryHooks {
+                    founding_reason: String::new(),
+                    current_tension: String::new(),
+                    story_seeds: Vec::new(),
+                    linked_lore_snippet_ids: Vec::new(),
+                },
+                lore: String::new(),
+                source: RecordSource::HumanityGenerated,
+                is_customized: false,
+                last_humanity_job_id: None,
+                type_label: "Market Town".to_string(),
+            },
+            LocationRecord {
+                id: "loc-2".to_string(),
+                name: "Outside Scope".to_string(),
+                category: LocationCategory::Settlement,
+                subtype: "market_town".to_string(),
+                status: LocationStatus::Stable,
+                scale: LocationScale::Small,
+                province_id: 2,
+                province_region_id: province_region_id(2),
+                province_name: "Province 3".to_string(),
+                duchy_id: Some(1),
+                kingdom_id: Some(1),
+                continent_id: None,
+                x: 0.75,
+                y: 0.75,
+                population_estimate: Some(500),
+                importance: 50,
+                habitability_score: 70,
+                economic_score: 60,
+                strategic_score: 50,
+                hazard_score: 20,
+                ruling_faction: "None".to_string(),
+                tags: Vec::new(),
+                placement_drivers: Vec::new(),
+                history_hooks: LocationHistoryHooks {
+                    founding_reason: String::new(),
+                    current_tension: String::new(),
+                    story_seeds: Vec::new(),
+                    linked_lore_snippet_ids: Vec::new(),
+                },
+                lore: String::new(),
+                source: RecordSource::HumanityGenerated,
+                is_customized: false,
+                last_humanity_job_id: None,
+                type_label: "Market Town".to_string(),
+            },
+        ];
+
+        let metadata = build_generation_metadata(
+            "world-1",
+            &scoped_request(),
+            &contexts,
+            &locations,
+            &[1],
+            "seed",
+            AiDetailPassSummary {
+                status: "disabled".to_string(),
+                attempted_batches: 0,
+                successful_batches: 0,
+                refined_locations: 0,
+                total_locations: 2,
+            },
+        );
+
+        assert_eq!(metadata.coverage.total_locations, 1);
+        assert_eq!(metadata.coverage.settlement_count, 1);
+        assert_eq!(metadata.coverage.viable_province_count, 1);
+        assert!(metadata.uncovered_province_ids.is_empty());
     }
 }

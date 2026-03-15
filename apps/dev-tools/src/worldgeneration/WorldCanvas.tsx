@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PlanetGlobe } from "../components/PlanetGlobe";
 import { PlanetMap3D } from "../components/PlanetMap3D";
 import { PlanetMap2D, type MapTransform } from "../components/PlanetMap2D";
@@ -44,6 +44,8 @@ interface WorldCanvasProps {
     humanityLocations?: WorldLocation[];
     selectedHumanityLocationId?: string | null;
     onSelectHumanityLocation?: (id: string | null) => void;
+    demoTravelEnabled?: boolean;
+    demoTravelReplayToken?: string;
 }
 
 export function WorldCanvas({
@@ -73,8 +75,15 @@ export function WorldCanvas({
     humanityLocations = [],
     selectedHumanityLocationId = null,
     onSelectHumanityLocation,
+    demoTravelEnabled = false,
+    demoTravelReplayToken = "",
 }: WorldCanvasProps) {
     const [mapTransform, setMapTransform] = useState<MapTransform>({ x: 0, y: 0, scale: 1 });
+    const [demoTravelStartToken, setDemoTravelStartToken] = useState(0);
+
+    useEffect(() => {
+        setDemoTravelStartToken(0);
+    }, [demoTravelEnabled, demoTravelReplayToken]);
 
     const categoryColor = (category: WorldLocation["category"]) => {
         switch (category) {
@@ -157,10 +166,31 @@ export function WorldCanvas({
 
         return (
             <div className="w-full h-full rounded-2xl border border-white/5 overflow-hidden relative bg-black/50 shadow-2xl">
-                <PlanetGlobe world={globeWorld} onCellHover={onCellHover} onCellClick={onCellClick} showHexGrid={showHexGrid} />
+                <PlanetGlobe
+                    world={globeWorld}
+                    onCellHover={onCellHover}
+                    onCellClick={onCellClick}
+                    showHexGrid={showHexGrid}
+                    demoTravelEnabled={demoTravelEnabled}
+                    demoTravelReplayToken={demoTravelReplayToken}
+                    demoTravelStartToken={demoTravelStartToken}
+                />
+
+                {demoTravelEnabled && (
+                    <div className="absolute left-1/2 top-5 z-20 -translate-x-1/2">
+                        <button
+                            type="button"
+                            onClick={() => setDemoTravelStartToken((previous) => previous + 1)}
+                            className="group relative overflow-hidden rounded-full border border-amber-400/25 bg-[#05080c]/85 px-5 py-2 text-[10px] font-black uppercase tracking-[0.24em] text-amber-100 shadow-[0_0_25px_rgba(251,191,36,0.12)] transition-all duration-300 hover:border-amber-300/45 hover:bg-[#0a1018] hover:shadow-[0_0_35px_rgba(251,191,36,0.24)]"
+                        >
+                            <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/12 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                            <span className="relative z-10">{demoTravelStartToken > 0 ? "Replay travel" : "Start travel"}</span>
+                        </button>
+                    </div>
+                )}
 
                 {/* Base Texture Mini-Map */}
-                {globeWorld.textureUrl && (
+                {globeWorld.textureUrl && !demoTravelEnabled && (
                     <div className="absolute bottom-6 left-6 border border-white/10 rounded-xl overflow-hidden shadow-2xl opacity-50 hover:opacity-100 transition-all group max-w-[240px]">
                         <div className="absolute top-0 inset-x-0 bg-gradient-to-b from-black/80 to-transparent p-2 z-10">
                             <p className="text-[8px] font-extrabold tracking-[0.2em] text-white">BASE TEXTURE</p>
