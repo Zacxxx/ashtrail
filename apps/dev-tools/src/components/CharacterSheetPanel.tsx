@@ -1,5 +1,16 @@
-import { Button } from "@ashtrail/ui";
 import { type Character, type Stats } from "@ashtrail/core";
+import {
+    Activity,
+    Brain,
+    Footprints,
+    Handshake,
+    HeartPulse,
+    Mountain,
+    ShieldPlus,
+    Sparkles,
+    Star,
+    Swords,
+} from "lucide-react";
 
 interface GeneratedWeaponView {
     weapon: {
@@ -19,12 +30,8 @@ interface GeneratedWeaponView {
 
 interface CharacterSheetPanelProps {
     character: Character;
-    currentLocationLabel?: string;
     className?: string;
     generatedWeapon?: GeneratedWeaponView | null;
-    onGenerateWeapon?: () => void;
-    isGeneratingWeapon?: boolean;
-    weaponError?: string | null;
 }
 
 function healthStatusFor(character: Character) {
@@ -43,14 +50,29 @@ function deriveTacticalStats(character: Character) {
     };
 }
 
+function iconForStat(stat: keyof Stats) {
+    switch (stat) {
+        case "strength":
+            return Swords;
+        case "agility":
+            return Footprints;
+        case "intelligence":
+            return Brain;
+        case "wisdom":
+            return Sparkles;
+        case "endurance":
+            return Mountain;
+        case "charisma":
+            return Handshake;
+        default:
+            return Activity;
+    }
+}
+
 export function CharacterSheetPanel({
     character,
-    currentLocationLabel = "No Current Location",
     className = "",
     generatedWeapon = null,
-    onGenerateWeapon,
-    isGeneratingWeapon = false,
-    weaponError = null,
 }: CharacterSheetPanelProps) {
     const healthStatus = healthStatusFor(character);
     const characterTitle = character.title || character.faction || "No Title";
@@ -91,10 +113,10 @@ export function CharacterSheetPanel({
                     <div className="flex min-h-0 flex-1 flex-col space-y-2">
                         <section className="border border-white/5 bg-black/40 p-4 shadow-2xl">
                             <div className="space-y-2.5 font-mono">
-                                <div className="space-y-4">
-                                    <div className="mx-auto w-full max-w-[360px]">
+                                <div className="grid items-start gap-4 md:grid-cols-[minmax(220px,0.92fr)_minmax(0,1.08fr)]">
+                                    <div className="mx-auto w-full max-w-[308px] md:max-w-none">
                                         <div className="relative overflow-hidden border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.2))] shadow-[0_24px_48px_rgba(0,0,0,0.32)]">
-                                            <div className="aspect-[0.84/1] w-full" />
+                                            <div className="aspect-[1.13/1] w-full" />
                                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(194,65,12,0.12),transparent_48%)]" />
                                             <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:18px_18px] opacity-30" />
                                             <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
@@ -121,13 +143,13 @@ export function CharacterSheetPanel({
                                         </div>
                                     </div>
 
-                                    <div className="space-y-3">
-                                        <div className="flex items-center justify-center gap-2">
+                                    <div className="space-y-3 self-stretch">
+                                        <div className="flex items-center gap-2 md:justify-start">
                                             <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.45)]" />
                                             <span className="text-[8px] font-bold uppercase tracking-[0.24em] text-gray-500">Identification</span>
                                         </div>
 
-                                        <div className="space-y-1.5 border-b border-white/5 pb-3 text-center">
+                                        <div className="space-y-1.5 border-b border-white/5 pb-3 text-center md:text-left">
                                             <h3 className="text-[17px] font-bold leading-none tracking-[0.06em] text-white sm:text-[19px]">
                                                 {character.badge && <span className="mr-2 text-orange-500/80 drop-shadow-[0_0_8px_rgba(194,65,12,0.4)]">{character.badge}</span>}
                                                 {character.name || "Unnamed Unit"}
@@ -140,200 +162,173 @@ export function CharacterSheetPanel({
                                             </p>
                                         </div>
 
-                                        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                                            <div className="border border-white/5 bg-black/30 px-3 py-2.5 text-center">
+                                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                            <div className="border border-white/5 bg-black/30 px-3 py-2.5 text-center md:text-left">
                                                 <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Age / Gender</div>
                                                 <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
                                                     {character.age} / {character.gender}
                                                 </div>
                                             </div>
 
-                                            <div className="border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-3 py-2.5 text-center">
-                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]/70">Level</div>
-                                                <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
-                                                    LVL {character.level}
+                                            <div className="border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-3 py-2.5 text-center md:text-left">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#f1c765]/15 bg-black/25 text-[#f6d37a]">
+                                                        <Star className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]/70">Level</div>
+                                                        <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                                            LVL {character.level}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
 
-                                            <div className="border border-white/5 bg-black/30 px-3 py-2.5 text-center">
-                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Current Location</div>
-                                                <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
-                                                    {currentLocationLabel}
+                                            <div className="border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2.5 text-center md:text-left">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-emerald-400/15 bg-black/25 text-emerald-200">
+                                                        <HeartPulse className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Health Status</div>
+                                                        <div className={`mt-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${healthStatus.className}`}>
+                                                            {healthStatus.label}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
 
-                                            <div className="border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2.5 text-center">
-                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Health Status</div>
-                                                <div className={`mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${healthStatus.className}`}>
-                                                    {healthStatus.label}
+                                            <div className="border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-3 py-2.5 sm:col-span-2 lg:col-span-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    {[
+                                                        {
+                                                            label: "HP",
+                                                            value: `${tacticalStats.hp}/${tacticalStats.maxHp}`,
+                                                            icon: Activity,
+                                                        },
+                                                        {
+                                                            label: "AP",
+                                                            value: String(tacticalStats.ap),
+                                                            icon: ShieldPlus,
+                                                        },
+                                                        {
+                                                            label: "MP",
+                                                            value: String(tacticalStats.mp),
+                                                            icon: Footprints,
+                                                        },
+                                                    ].map((entry) => {
+                                                        const Icon = entry.icon;
+                                                        return (
+                                                            <div key={entry.label} className="flex min-w-0 items-center gap-2">
+                                                                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#f1c765]/15 bg-black/25 text-[#f6d37a]">
+                                                                    <Icon className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <div className="text-[7px] font-bold uppercase tracking-[0.2em] text-[#c2410c]/70">{entry.label}</div>
+                                                                    <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-white">
+                                                                        {entry.value}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 border-t border-white/5 pt-2">
+                                            <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
+                                            <span className="text-[8px] font-bold uppercase tracking-[0.24em] text-[#c2410c]">Attributes</span>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-1.5">
+                                            {(Object.entries(effectiveStats) as [keyof Stats, number][]).map(([stat, value]) => (
+                                                <div key={stat} className="border border-white/5 bg-black/30 px-2.5 py-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/8 bg-black/25 text-[#f6d37a]">
+                                                            {(() => {
+                                                                const Icon = iconForStat(stat);
+                                                                return <Icon className="h-3.5 w-3.5" strokeWidth={2.1} aria-hidden="true" />;
+                                                            })()}
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <div className="text-[6px] font-bold uppercase tracking-[0.16em] text-gray-500">{stat}</div>
+                                                            <div className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.04em] text-white">
+                                                                {value}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
-                                </div>
-                                <div className="grid gap-2 md:grid-cols-3">
-                                    {[
-                                        { label: "HP", value: `${tacticalStats.hp}/${tacticalStats.maxHp}` },
-                                        { label: "AP", value: String(tacticalStats.ap) },
-                                        { label: "MP", value: String(tacticalStats.mp) },
-                                    ].map((entry) => (
-                                        <div key={entry.label} className="border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-3 py-2.5 text-center">
-                                            <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]/70">{entry.label}</div>
-                                            <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
-                                                {entry.value}
-                                            </div>
-                                        </div>
-                                    ))}
                                 </div>
                             </div>
                         </section>
 
                         <section className="border border-white/5 bg-black/40 p-3 shadow-2xl">
-                            <div className="mb-3 flex items-center gap-2">
-                                <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.55)]" />
-                                <h4 className="text-[9px] font-bold uppercase tracking-[0.28em] text-[#c2410c]">Operational Profile</h4>
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-                                {(Object.entries(effectiveStats) as [keyof Stats, number][]).map(([stat, value]) => (
-                                    <div key={stat} className="border border-white/5 bg-black/30 p-2.5">
-                                        <div className="mb-2 flex items-start justify-between gap-2">
-                                            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">{stat}</span>
-                                            <span className="shrink-0 text-[12px] font-bold uppercase tracking-[0.08em] text-white">{value}</span>
-                                        </div>
-                                        <div className="relative h-2 overflow-hidden border border-white/8 bg-black/50">
-                                            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:12px_100%] opacity-40" />
-                                            <div
-                                                className="relative h-full bg-[#c2410c] shadow-[0_0_12px_rgba(194,65,12,0.28)]"
-                                                style={{ width: `${Math.min((value / 10) * 100, 100)}%` }}
-                                            />
-                                        </div>
-                                        <div className="mt-1.5 flex items-center justify-between text-[7px] font-medium uppercase tracking-[0.18em] text-gray-600">
-                                            <span className="font-bold text-gray-500">Base {value}</span>
-                                            <span>{Math.min(value, 10)}/10</span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="mt-3 grid gap-2 md:grid-cols-[0.92fr_1.08fr]">
+                            <div className="grid gap-3 md:grid-cols-[1.2fr_0.8fr]">
                                 <div className="border border-white/5 bg-black/30 p-3">
                                     <div className="text-[8px] font-black uppercase tracking-[0.24em] text-gray-500">Equipped</div>
-                                    <div className="mt-3 space-y-2">
-                                        {equipmentEntries.length > 0 ? equipmentEntries.map(([slot, item]) => (
-                                            <div key={slot} className="border border-white/5 bg-black/40 px-3 py-2">
-                                                <div className="text-[7px] font-black uppercase tracking-[0.22em] text-cyan-200">{slot}</div>
-                                                <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white">
-                                                    {item?.name || "Empty"}
+                                    <div className="mt-3 grid gap-2">
+                                        {equipmentEntries.length > 0 ? equipmentEntries.map(([slot, item]) => {
+                                            const imageUrl = slot === "mainHand" && generatedWeapon?.image?.url
+                                                ? generatedWeapon.image.url
+                                                : (typeof item?.icon === "string" && item.icon.startsWith("/")) ? item.icon : null;
+                                            const weaponStats = slot === "mainHand" && generatedWeapon?.weapon
+                                                ? [
+                                                    `${generatedWeapon.weapon.weaponType}`,
+                                                    `Range ${generatedWeapon.weapon.weaponRange}`,
+                                                    `Damage ${generatedWeapon.weapon.baseDamage}`,
+                                                ]
+                                                : [];
+                                            return (
+                                                <div key={slot} className="border border-white/5 bg-black/40 px-3 py-2">
+                                                    <div className="flex gap-3">
+                                                        {imageUrl && (
+                                                            <div className="h-16 w-16 shrink-0 overflow-hidden border border-white/8 bg-black/40">
+                                                                <img src={imageUrl} alt={item?.name || slot} className="h-full w-full object-cover" />
+                                                            </div>
+                                                        )}
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="text-[7px] font-black uppercase tracking-[0.22em] text-cyan-200">{slot}</div>
+                                                            <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white">
+                                                                {item?.name || "Empty"}
+                                                            </div>
+                                                            {weaponStats.length > 0 && (
+                                                                <div className="mt-1 flex flex-wrap gap-2 text-[7px] font-black uppercase tracking-[0.2em] text-[#f6d37a]">
+                                                                    {weaponStats.map((entry) => (
+                                                                        <span key={entry}>{entry}</span>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                            {"description" in (item || {}) && item?.description && (
+                                                                <p className="mt-1 text-[10px] leading-relaxed text-gray-400">{item.description}</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                {"description" in (item || {}) && item?.description && (
-                                                    <p className="mt-1 text-[10px] leading-relaxed text-gray-400">{item.description}</p>
-                                                )}
-                                            </div>
-                                        )) : (
+                                            );
+                                        }) : (
                                             <div className="text-[10px] italic leading-relaxed text-gray-600">No equipment slotted.</div>
                                         )}
                                     </div>
                                 </div>
 
                                 <div className="border border-white/5 bg-black/30 p-3">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div className="text-[8px] font-black uppercase tracking-[0.24em] text-gray-500">Weapon Forge</div>
-                                        {onGenerateWeapon && (
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                variant="glass"
-                                                onClick={onGenerateWeapon}
-                                                disabled={isGeneratingWeapon}
-                                                className="min-w-[150px] rounded px-4 py-2 text-[9px] font-black uppercase tracking-[0.3em] disabled:opacity-60"
+                                    <div className="text-[8px] font-black uppercase tracking-[0.24em] text-gray-500">Traits</div>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {traitEntries.length > 0 ? traitEntries.map((trait) => (
+                                            <span
+                                                key={trait.id}
+                                                className="border border-[#c2410c]/20 bg-[#c2410c]/10 px-2.5 py-1.5 text-[8px] font-black uppercase tracking-[0.18em] text-[#f6d37a]"
                                             >
-                                                {isGeneratingWeapon ? "Forging..." : generatedWeapon ? "Reforge Weapon" : "Forge Weapon"}
-                                            </Button>
+                                                {trait.name}
+                                            </span>
+                                        )) : (
+                                            <div className="text-[10px] italic leading-relaxed text-gray-600">No traits assigned.</div>
                                         )}
                                     </div>
-
-                                    {weaponError && (
-                                        <div className="mt-3 rounded border border-red-500/25 bg-red-500/10 px-3 py-2 text-[10px] leading-relaxed text-red-100">
-                                            {weaponError}
-                                        </div>
-                                    )}
-
-                                    {generatedWeapon ? (
-                                        <div className="mt-3 space-y-3">
-                                            <div className="overflow-hidden border border-white/8 bg-black/40">
-                                                <div className="aspect-[1/1] w-full overflow-hidden bg-black/40">
-                                                    <img
-                                                        src={generatedWeapon.image.url}
-                                                        alt={generatedWeapon.weapon.name}
-                                                        className="h-full w-full object-cover"
-                                                    />
-                                                </div>
-                                                <div className="space-y-2 px-3 py-3">
-                                                    <div className="flex flex-wrap items-center gap-2">
-                                                        <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-white">
-                                                            {generatedWeapon.weapon.name}
-                                                        </div>
-                                                        <span className="border border-[#c2410c]/20 bg-[#c2410c]/10 px-2 py-1 text-[7px] font-black uppercase tracking-[0.22em] text-[#f6d37a]">
-                                                            {generatedWeapon.weapon.rarity}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-2 text-[7px] font-black uppercase tracking-[0.22em] text-gray-400">
-                                                        <span>{generatedWeapon.weapon.weaponType}</span>
-                                                        <span>Range {generatedWeapon.weapon.weaponRange}</span>
-                                                        <span>Damage {generatedWeapon.weapon.baseDamage}</span>
-                                                    </div>
-                                                    <p className="text-[10px] leading-relaxed text-gray-300">
-                                                        {generatedWeapon.weapon.description}
-                                                    </p>
-                                                    <p className="text-[10px] italic leading-relaxed text-[#f6d37a]/90">
-                                                        {generatedWeapon.loreText}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="mt-3 space-y-2">
-                                            {inventoryItems.length > 0 ? inventoryItems.map((item) => (
-                                                <div key={item.id} className="border border-white/5 bg-black/40 px-3 py-2">
-                                                    <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-white">{item.name}</div>
-                                                    <div className="mt-1 text-[7px] font-black uppercase tracking-[0.22em] text-[#c2410c]">
-                                                        {item.category}
-                                                    </div>
-                                                </div>
-                                            )) : (
-                                                <div className="text-[10px] italic leading-relaxed text-gray-600">No inventory recorded.</div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {isGeneratingWeapon && (
-                                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
-                                            <div className="relative h-full w-full">
-                                                <div className="absolute inset-0 rounded-full bg-cyan-200/10" />
-                                                <div
-                                                    className="absolute left-0 top-0 h-full w-14 rounded-full bg-gradient-to-r from-transparent via-white to-cyan-200 shadow-[0_0_18px_rgba(165,243,252,0.55)]"
-                                                    style={{ animation: "demo-step-ping-bar 1.15s ease-in-out infinite alternate" }}
-                                                />
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="mt-3 border border-white/5 bg-black/30 p-3">
-                                <div className="text-[8px] font-black uppercase tracking-[0.24em] text-gray-500">Traits</div>
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                    {traitEntries.length > 0 ? traitEntries.map((trait) => (
-                                        <span
-                                            key={trait.id}
-                                            className="border border-[#c2410c]/20 bg-[#c2410c]/10 px-2.5 py-1.5 text-[8px] font-black uppercase tracking-[0.18em] text-[#f6d37a]"
-                                        >
-                                            {trait.name}
-                                        </span>
-                                    )) : (
-                                        <div className="text-[10px] italic leading-relaxed text-gray-600">No traits assigned.</div>
-                                    )}
                                 </div>
                             </div>
                         </section>

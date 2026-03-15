@@ -135,7 +135,7 @@
     "worldId": "665774da-472d-4570-adfb-1242ceefdfd9"
   },
   "portraitName": "John Gemini",
-  "portraitUrl": "/api/character-portraits/john-gemini-665774da-472d-4570-adfb-1242ceefdfd9.png?v=1773571305331",
+  "portraitUrl": "/api/demo-output/e84c79a9-48e2-407b-8d27-2a0e900473de/step-2/john/portrait.png",
   "progression": {
     "attributeUpgrades": {
       "agility": 0,
