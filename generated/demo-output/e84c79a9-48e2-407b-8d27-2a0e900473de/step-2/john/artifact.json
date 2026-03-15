@@ -43,7 +43,7 @@
       },
       "loreText": "The Cinder Sifter is not merely a weapon, but the very extension of John Gemini's relentless quest, a testament to his unique understanding of Ashtrail. Forged from the petrified spine of a forgotten titan he meticulously excavated from the Obsidian Reach and integrated with a pulsating, crystalline core he unearthed from the deepest ash-drifts, its very essence hums with the dormant energy of the Old World. Its reputation precedes him, whispered among the scattered settlements as the 'Truth-Teller's Rod,' capable of not only sifting through millennia of silver soot to reveal hidden histories but also of unleashing focused bursts of superheated ash that can scour both ancient glyphs and encroaching threats with equal precision. This tool belongs solely to John Gemini because it embodies his philosophy: that the past, however deeply buried or fiercely guarded, holds the key to the future, and that sometimes, to unearth the truth, one must be prepared to fight the very forces that sought to conceal it.",
       "weapon": {
-        "baseDamage": 75,
+        "baseDamage": 15,
         "description": "A reinforced, multi-modal archaeological staff, tipped with a vibrating, ash-sifting head and an integrated sonic emitter. Crafted from petrified titan bone and ancient crystalline components, it manipulates the very soot of Ashtrail for both delicate excavation and forceful defense.",
         "id": "ASH-J-G-001",
         "name": "The Cinder Sifter",

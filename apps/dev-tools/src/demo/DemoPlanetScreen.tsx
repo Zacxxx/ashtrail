@@ -444,10 +444,13 @@ export function DemoPlanetScreen() {
                                     {phase === "launching" ? "Launching Job" : phase === "running" ? (activeJob?.currentStage || "Generating Scene Package") : "Preparing"}
                                 </div>
                                 <div className="h-1.5 w-40 overflow-hidden rounded-full bg-white/10">
-                                    <div
-                                        className="h-full rounded-full bg-gradient-to-r from-cyan-300 via-white to-cyan-200 transition-all duration-500"
-                                        style={{ width: `${Math.max(12, Math.min(100, activeJob?.progress ?? (phase === "launching" ? 18 : 30)))}%` }}
-                                    />
+                                    <div className="relative h-full w-full">
+                                        <div className="absolute inset-0 rounded-full bg-cyan-200/10" />
+                                        <div
+                                            className="absolute left-0 top-0 h-full w-14 rounded-full bg-gradient-to-r from-transparent via-white to-cyan-200 shadow-[0_0_18px_rgba(165,243,252,0.55)]"
+                                            style={{ animation: "demo-step-ping-bar 1.15s ease-in-out infinite alternate" }}
+                                        />
+                                    </div>
                                 </div>
                                 {error && (
                                     <div className="mt-3 flex flex-col items-center gap-4">

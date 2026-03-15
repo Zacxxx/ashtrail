@@ -8,7 +8,7 @@
     "cost": 1350,
     "equipSlot": "mainHand",
     "weaponType": "melee",
-    "weaponRange": 1,
+    "weaponRange": 2,
     "weaponAreaType": "single",
     "weaponAreaSize": 0,
     "icon": "/api/demo-output/e84c79a9-48e2-407b-8d27-2a0e900473de/step-2/john/weapon.png",
@@ -19,7 +19,7 @@
         "description": "A reinforced, multi-modal archaeological staff, tipped with a vibrating, ash-sifting head and an integrated sonic emitter. Crafted from petrified titan bone and ancient crystalline components, it manipulates the very soot of Ashtrail for both delicate excavation and forceful defense.",
         "type": "COMBAT_BONUS",
         "target": "damage",
-        "value": 75,
+        "value": 15,
         "trigger": "passive",
         "scope": "combat"
       }

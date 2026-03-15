@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Headphones, LoaderCircle, Pause, Play } from "lucide-react";
 import { Button, ScreenShell } from "@ashtrail/ui";
@@ -205,10 +205,7 @@ function renderInteractiveLoreParagraph(
     interactiveTerms: string[],
     activeInsightKey: string | null,
     activeInsightTerm: string | null,
-    activeInsight: DemoStepTwoLoreInsightArtifact | null,
-    isGeneratingInsight: boolean,
-    insightError: string | null,
-    onActivate: (term: string, key: string) => void,
+    onActivate: (term: string, key: string, element: HTMLElement) => void,
     onDeactivate: () => void,
 ) {
     if (!paragraph.trim() || interactiveTerms.length === 0) {
@@ -247,9 +244,9 @@ function renderInteractiveLoreParagraph(
             >
                 <button
                     type="button"
-                    onMouseEnter={() => onActivate(matchedTerm, termKey)}
-                    onFocus={() => onActivate(matchedTerm, termKey)}
-                    onClick={() => onActivate(matchedTerm, termKey)}
+                    onMouseEnter={(event) => onActivate(matchedTerm, termKey, event.currentTarget)}
+                    onFocus={(event) => onActivate(matchedTerm, termKey, event.currentTarget)}
+                    onClick={(event) => onActivate(matchedTerm, termKey, event.currentTarget)}
                     onBlur={onDeactivate}
                     className={`rounded-sm border-b border-dashed px-0.5 text-left transition-colors ${
                         isActive
@@ -259,56 +256,6 @@ function renderInteractiveLoreParagraph(
                 >
                     {part}
                 </button>
-
-                {isActive && (
-                    <span className="absolute left-1/2 top-full z-[200] mt-3 block w-[min(20rem,80vw)] -translate-x-1/2">
-                        <span className="block rounded-[20px] border border-cyan-200/12 bg-[#071018]/95 p-3 shadow-[0_18px_48px_rgba(0,0,0,0.45)] backdrop-blur-md">
-                            {activeInsight ? (
-                                <span className="grid gap-3 sm:grid-cols-[88px_minmax(0,1fr)]">
-                                    <span className="overflow-hidden rounded-[16px] border border-cyan-200/10 bg-black/30">
-                                        <img
-                                            src={activeInsight.image.url}
-                                            alt={activeInsight.title}
-                                            className="aspect-square h-full w-full object-cover"
-                                        />
-                                    </span>
-                                    <span className="min-w-0">
-                                        <span className="block text-[10px] font-black uppercase tracking-[0.24em] text-cyan-100">
-                                            {activeInsight.title}
-                                        </span>
-                                        <span className="mt-2 block text-xs leading-5 text-slate-200">
-                                            {activeInsight.explanation}
-                                        </span>
-                                    </span>
-                                </span>
-                            ) : (
-                                <span className="block space-y-2">
-                                    <span className="block text-[10px] font-black uppercase tracking-[0.28em] text-cyan-100/90">
-                                        {insightError ? matchedTerm : `Interpreting ${matchedTerm}`}
-                                    </span>
-                                    {insightError ? (
-                                        <span className="block text-xs leading-5 text-red-200">
-                                            {insightError}
-                                        </span>
-                                    ) : (
-                                        <span className="block">
-                                            <span className="relative block h-1.5 overflow-hidden rounded-full bg-white/10">
-                                                <span className="absolute inset-0 rounded-full bg-cyan-200/10" />
-                                                <span
-                                                    className="absolute left-0 top-0 h-full w-14 rounded-full bg-gradient-to-r from-transparent via-white to-cyan-200 shadow-[0_0_18px_rgba(165,243,252,0.55)]"
-                                                    style={{ animation: "demo-step-ping-bar 1.15s ease-in-out infinite alternate" }}
-                                                />
-                                            </span>
-                                            <span className="mt-2 block text-xs leading-5 text-slate-300">
-                                                {isGeneratingInsight ? "Generating contextual note and visual reference." : "Loading contextual note."}
-                                            </span>
-                                        </span>
-                                    )}
-                                </span>
-                            )}
-                        </span>
-                    </span>
-                )}
             </span>
         );
     });
@@ -543,8 +490,15 @@ export function DemoStepTwoPage() {
     const [activeInsightKey, setActiveInsightKey] = useState<string | null>(null);
     const [activeInsightTerm, setActiveInsightTerm] = useState<string | null>(null);
     const [activeInsight, setActiveInsight] = useState<DemoStepTwoLoreInsightArtifact | null>(null);
+    const [activeInsightAnchor, setActiveInsightAnchor] = useState<{
+        centerX: number;
+        top: number;
+        bottom: number;
+    } | null>(null);
+    const [activeInsightPlacement, setActiveInsightPlacement] = useState<{ left: number; top: number } | null>(null);
     const [typedLoreLength, setTypedLoreLength] = useState(0);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const activeInsightCardRef = useRef<HTMLDivElement | null>(null);
     const stepOneJobId = searchParams.get("stepOneJobId");
     const selectionJobId = searchParams.get("selectionJobId");
     const planetTexture = searchParams.get("planetTexture");
@@ -582,13 +536,60 @@ export function DemoStepTwoPage() {
 
     const clearActiveInsight = () => {
         setActiveInsightKey(null);
+        setActiveInsightAnchor(null);
+        setActiveInsightPlacement(null);
     };
 
     useEffect(() => {
         setTypedLoreLength(0);
         setActiveInsight(null);
         setActiveInsightTerm(null);
+        setActiveInsightAnchor(null);
+        setActiveInsightPlacement(null);
     }, [result?.loreText]);
+
+    useEffect(() => {
+        if (!activeInsightKey) {
+            return;
+        }
+        const clear = () => {
+            setActiveInsightKey(null);
+            setActiveInsightAnchor(null);
+            setActiveInsightPlacement(null);
+        };
+        window.addEventListener("scroll", clear, true);
+        window.addEventListener("resize", clear);
+        return () => {
+            window.removeEventListener("scroll", clear, true);
+            window.removeEventListener("resize", clear);
+        };
+    }, [activeInsightKey]);
+
+    useLayoutEffect(() => {
+        if (!activeInsightKey || !activeInsightAnchor || !activeInsightCardRef.current) {
+            return;
+        }
+
+        const cardRect = activeInsightCardRef.current.getBoundingClientRect();
+        const margin = 16;
+        const offset = 12;
+        const maxLeft = Math.max(margin, window.innerWidth - cardRect.width - margin);
+        const unclampedLeft = activeInsightAnchor.centerX - (cardRect.width / 2);
+        const left = Math.min(Math.max(unclampedLeft, margin), maxLeft);
+
+        const fitsBelow = activeInsightAnchor.bottom + offset + cardRect.height <= window.innerHeight - margin;
+        const belowTop = activeInsightAnchor.bottom + offset;
+        const aboveTop = activeInsightAnchor.top - cardRect.height - offset;
+        const top = fitsBelow
+            ? belowTop
+            : Math.max(margin, Math.min(aboveTop, window.innerHeight - cardRect.height - margin));
+
+        setActiveInsightPlacement((current) => (
+            current && current.left === left && current.top === top
+                ? current
+                : { left, top }
+        ));
+    }, [activeInsight, activeInsightAnchor, activeInsightKey, insightError, isGeneratingInsight]);
 
     useEffect(() => {
         if (phase !== "ready" || !result?.loreText) {
@@ -1234,13 +1235,20 @@ export function DemoStepTwoPage() {
         void generateLoreIllustrations(result);
     }, [phase, result, isGeneratingIllustrations, illustrationError]);
 
-    const activateLoreInsight = async (term: string, key: string) => {
+    const activateLoreInsight = async (term: string, key: string, element: HTMLElement) => {
         const normalizedTerm = normalizeLoreInsightTerm(term);
         if (!normalizedTerm) {
             return;
         }
+        const rect = element.getBoundingClientRect();
         setActiveInsightKey(key);
         setActiveInsightTerm(term);
+        setActiveInsightAnchor({
+            centerX: rect.left + (rect.width / 2),
+            top: rect.top,
+            bottom: rect.bottom,
+        });
+        setActiveInsightPlacement(null);
         setInsightError(null);
 
         const cachedInsight = result?.loreInsights.find(
@@ -1475,8 +1483,8 @@ export function DemoStepTwoPage() {
 
             {phase === "ready" && result && (
                 <div className="relative z-10 grid h-full w-full items-stretch gap-6 px-6 py-8 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:px-8 xl:px-12">
-                    <div className="min-h-0 overflow-hidden">
-                        <div className="animate-demo-panel-settle flex h-full flex-col rounded-[28px] border border-[#f1c765]/15 bg-black/12 px-6 py-8 backdrop-blur-[2px] md:px-8">
+                    <div className="relative z-30 min-h-0 overflow-visible">
+                        <div className="animate-demo-panel-settle relative flex h-full flex-col overflow-visible rounded-[28px] border border-[#f1c765]/15 bg-black/12 px-6 py-8 backdrop-blur-[2px] md:px-8">
                             <div className="mb-5 flex items-start justify-between gap-4">
                                 <div className="min-w-0">
                                     <h2 className="mt-1 text-[2rem] font-black uppercase tracking-[0.14em] text-[#f6d37a] drop-shadow-[0_0_14px_rgba(246,211,122,0.16)] md:text-[2.35rem]">
@@ -1506,7 +1514,7 @@ export function DemoStepTwoPage() {
                                     </span>
                                 </button>
                             </div>
-                            <div className="min-h-0 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                            <div className="min-h-0 flex-1 overflow-y-auto pr-6 custom-scrollbar">
                                 <div className="space-y-6 text-[0.92rem] font-medium leading-[1.82] tracking-[0.012em] text-[#f6d37a] drop-shadow-[0_0_10px_rgba(246,211,122,0.12)] md:text-[1rem]">
                                     {loreParagraphs.map((paragraph, index) => (
                                         <div key={`${index}-${paragraph.slice(0, 24)}`} className="space-y-5">
@@ -1516,10 +1524,7 @@ export function DemoStepTwoPage() {
                                                     interactiveTerms,
                                                     activeInsightKey,
                                                     activeInsightTerm,
-                                                    activeInsight,
-                                                    isGeneratingInsight,
-                                                    insightError,
-                                                    (term, key) => { void activateLoreInsight(term, key); },
+                                                    (term, key, element) => { void activateLoreInsight(term, key, element); },
                                                     clearActiveInsight,
                                                 )}
                                             </p>
@@ -1580,7 +1585,7 @@ export function DemoStepTwoPage() {
                         </div>
                     </div>
 
-                    <div className="min-h-0 h-full overflow-hidden">
+                    <div className="relative z-10 min-h-0 h-full overflow-hidden">
                         <div className="relative h-full">
                             <CharacterSheetPanel
                                 character={result.character}
@@ -1599,6 +1604,65 @@ export function DemoStepTwoPage() {
                                     </Button>
                                 )}
                             />
+                        </div>
+                    </div>
+                </div>
+            )}
+            {phase === "ready" && activeInsightKey && activeInsightAnchor && (
+                <div className="pointer-events-none fixed inset-0 z-[250]">
+                    <div
+                        ref={activeInsightCardRef}
+                        className="absolute w-[min(28rem,calc(100vw-2rem))]"
+                        style={{
+                            left: `${activeInsightPlacement?.left ?? activeInsightAnchor.centerX}px`,
+                            top: `${activeInsightPlacement?.top ?? activeInsightAnchor.bottom + 12}px`,
+                            visibility: activeInsightPlacement ? "visible" : "hidden",
+                        }}
+                    >
+                        <div className="rounded-[20px] border border-cyan-200/12 bg-[#071018]/95 p-3 shadow-[0_18px_48px_rgba(0,0,0,0.45)] backdrop-blur-md">
+                            {activeInsight ? (
+                                <div className="grid items-start gap-4 sm:grid-cols-[156px_minmax(0,1fr)]">
+                                    <div className="overflow-hidden rounded-[16px] border border-cyan-200/10 bg-black/30">
+                                        <img
+                                            src={activeInsight.image.url}
+                                            alt={activeInsight.title}
+                                            className="block h-auto w-full object-contain"
+                                        />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <div className="block text-[10px] font-black uppercase tracking-[0.24em] text-cyan-100">
+                                            {activeInsight.title}
+                                        </div>
+                                        <div className="mt-2 block text-xs leading-5 text-slate-200">
+                                            {activeInsight.explanation}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="block space-y-2">
+                                    <div className="block text-[10px] font-black uppercase tracking-[0.28em] text-cyan-100/90">
+                                        {insightError ? activeInsightTerm : `Interpreting ${activeInsightTerm ?? "term"}`}
+                                    </div>
+                                    {insightError ? (
+                                        <div className="block text-xs leading-5 text-red-200">
+                                            {insightError}
+                                        </div>
+                                    ) : (
+                                        <div className="block">
+                                            <div className="relative block h-1.5 overflow-hidden rounded-full bg-white/10">
+                                                <div className="absolute inset-0 rounded-full bg-cyan-200/10" />
+                                                <div
+                                                    className="absolute left-0 top-0 h-full w-14 rounded-full bg-gradient-to-r from-transparent via-white to-cyan-200 shadow-[0_0_18px_rgba(165,243,252,0.55)]"
+                                                    style={{ animation: "demo-step-ping-bar 1.15s ease-in-out infinite alternate" }}
+                                                />
+                                            </div>
+                                            <div className="mt-2 block text-xs leading-5 text-slate-300">
+                                                {isGeneratingInsight ? "Generating contextual note and visual reference." : "Loading contextual note."}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
