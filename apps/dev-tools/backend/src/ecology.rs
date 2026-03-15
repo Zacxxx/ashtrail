@@ -511,6 +511,15 @@ pub struct BulkEcologyGenerationRequest {
     pub biome_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiosphereBriefingRequest {
+    pub zone_title: String,
+    pub biome_label: String,
+    pub context: String,
+    pub count: u32,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BulkFloraGenerationResponse {
@@ -673,6 +682,28 @@ pub async fn generate_fauna_batch(
         .await
         .map_err(|err| (StatusCode::BAD_REQUEST, err))?;
     Ok(Json(BulkFaunaGenerationResponse { entries }))
+}
+
+pub async fn generate_briefing_fauna(
+    State(state): State<AppState>,
+    Path(world_id): Path<String>,
+    Json(request): Json<BiosphereBriefingRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let entries = generate_briefing_fauna_impl(&state.planets_dir, &world_id, request)
+        .await
+        .map_err(|err| (StatusCode::BAD_REQUEST, err))?;
+    Ok(Json(BulkFaunaGenerationResponse { entries }))
+}
+
+pub async fn generate_briefing_flora(
+    State(state): State<AppState>,
+    Path(world_id): Path<String>,
+    Json(request): Json<BiosphereBriefingRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let entries = generate_briefing_flora_impl(&state.planets_dir, &world_id, request)
+        .await
+        .map_err(|err| (StatusCode::BAD_REQUEST, err))?;
+    Ok(Json(BulkFloraGenerationResponse { entries }))
 }
 
 pub async fn refresh_derived_stats(
@@ -1096,6 +1127,92 @@ async fn generate_fauna_batch_impl(
     let mut next_fauna = created_entries.clone();
     next_fauna.extend(bundle.fauna);
     bundle.fauna = next_fauna;
+    save_ecology_bundle(planets_dir, world_id, &bundle)?;
+    Ok(created_entries)
+}
+
+async fn generate_briefing_fauna_impl(
+    planets_dir: &FsPath,
+    world_id: &str,
+    request: BiosphereBriefingRequest,
+) -> Result<Vec<FaunaEntry>, String> {
+    let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
+    let hierarchy = load_hierarchy(planets_dir, world_id).ok();
+    if let Some(hierarchy) = hierarchy.as_ref() {
+        let report = load_biome_report(planets_dir, world_id);
+        sync_biomes_with_hierarchy(hierarchy, &mut bundle, report.as_ref());
+    }
+
+    let requested_count = request.count.clamp(1, 5) as usize;
+    let generation_prompt = build_briefing_fauna_prompt(&bundle, &request, requested_count);
+    
+    let draft_response: FaunaBatchDraftResponse = generate_structured_text(
+        "briefing fauna",
+        &generation_prompt,
+        "{\"entries\":[{\"name\":\"...\",\"category\":\"herbivore\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"domesticationPotential\":0,\"dangerLevel\":0,\"earthAnalog\":\"...\",\"ancestralStock\":\"...\",\"evolutionaryPressures\":[\"...\"],\"mutationSummary\":\"...\",\"divergenceSummary\":\"...\",\"combatProfile\":{\"level\":1,\"strength\":10,\"agility\":10,\"intelligence\":5,\"wisdom\":5,\"endurance\":10,\"charisma\":5,\"critChance\":0.1,\"resistance\":0.1,\"socialBonus\":0.0,\"baseEvasion\":5,\"baseDefense\":2,\"baseHpBonus\":4,\"baseApBonus\":0,\"baseMpBonus\":0},\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"lengthMeters\":1,\"weightKg\":1,\"locomotion\":\"walker\",\"naturalWeapon\":\"bite\",\"armorClass\":\"furred\"},\"behaviorProfile\":{\"temperament\":\"docile\",\"activityCycle\":\"diurnal\",\"packSizeMin\":1,\"packSizeMax\":4,\"perception\":50,\"stealth\":20,\"trainability\":20}}]}",
+    )
+    .await?;
+
+    let mut created_entries = Vec::new();
+    for draft in draft_response.entries.into_iter().take(requested_count) {
+        let draft = sanitize_fauna_draft(draft);
+        if draft.name.is_empty() || draft.description.is_empty() {
+            continue;
+        }
+        let entry = fauna_entry_from_draft(draft, &[]);
+        created_entries.push(entry);
+    }
+
+    if created_entries.is_empty() {
+        return Err("Briefing fauna generation returned no usable entries".to_string());
+    }
+
+    let mut next_fauna = created_entries.clone();
+    next_fauna.extend(bundle.fauna);
+    bundle.fauna = next_fauna;
+    save_ecology_bundle(planets_dir, world_id, &bundle)?;
+    Ok(created_entries)
+}
+
+async fn generate_briefing_flora_impl(
+    planets_dir: &FsPath,
+    world_id: &str,
+    request: BiosphereBriefingRequest,
+) -> Result<Vec<FloraEntry>, String> {
+    let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
+    let hierarchy = load_hierarchy(planets_dir, world_id).ok();
+    if let Some(hierarchy) = hierarchy.as_ref() {
+        let report = load_biome_report(planets_dir, world_id);
+        sync_biomes_with_hierarchy(hierarchy, &mut bundle, report.as_ref());
+    }
+
+    let requested_count = request.count.clamp(1, 5) as usize;
+    let generation_prompt = build_briefing_flora_prompt(&bundle, &request, requested_count);
+    
+    let draft_response: FloraBatchDraftResponse = generate_structured_text(
+        "briefing flora",
+        &generation_prompt,
+        "{\"entries\":[{\"name\":\"...\",\"category\":\"tree\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"edibility\":\"none\",\"agricultureValue\":0,\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"spreadMeters\":1,\"rootDepthMeters\":1,\"biomassKg\":1,\"lifespanYears\":1,\"growthRate\":50},\"resourceProfile\":{\"rarity\":0,\"yieldPerHarvest\":0,\"regrowthDays\":1,\"harvestDifficulty\":0,\"nutritionValue\":0,\"medicinalValue\":0,\"fuelValue\":0,\"structuralValue\":0,\"concealmentValue\":0},\"hazardProfile\":{\"toxicity\":0,\"irritation\":0,\"thorniness\":0,\"flammability\":0,\"resilience\":0}}]}",
+    )
+    .await?;
+
+    let mut created_entries = Vec::new();
+    for draft in draft_response.entries.into_iter().take(requested_count) {
+        let draft = sanitize_flora_draft(draft);
+        if draft.name.is_empty() || draft.description.is_empty() {
+            continue;
+        }
+        let entry = flora_entry_from_draft(draft, &[]);
+        created_entries.push(entry);
+    }
+
+    if created_entries.is_empty() {
+        return Err("Briefing flora generation returned no usable entries".to_string());
+    }
+
+    let mut next_flora = created_entries.clone();
+    next_flora.extend(bundle.flora);
+    bundle.flora = next_flora;
     save_ecology_bundle(planets_dir, world_id, &bundle)?;
     Ok(created_entries)
 }
