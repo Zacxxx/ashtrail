@@ -3,7 +3,7 @@ export interface DemoStepTwoGenerateRequest {
 }
 
 export const DEMO_STEP_TWO_INTRO_LINES = [
-    "Ashtrail now turns that world into a playable hero package.",
-    "One tracked generation pass assembles the character sheet, portrait, signature weapon, unique skills, long-form lore, and a voiced reading of that lore.",
-    "The result is ready to hand off into the builder and the history system without a second manual authoring pass.",
+    "Ashtrail now turns that world into a playable hero by leaning on the same generation stack used in the character builder.",
+    "The world canon chosen in step one is carried forward as context so the portrait, sheet, and lore all feel native to the world you just authored.",
+    "The result is a builder-ready protagonist that can move directly into the existing character and history flows.",
 ];

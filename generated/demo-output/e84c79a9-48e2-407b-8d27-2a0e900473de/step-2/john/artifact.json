@@ -1,0 +1,77 @@
+{
+  "type": "demo_step_artifact",
+  "step": 2,
+  "runId": "e84c79a9-48e2-407b-8d27-2a0e900473de",
+  "source": "pregenerated",
+  "createdAt": "1773571950801",
+  "artifact": {
+    "heroVariant": "john",
+    "heroName": "John Gemini",
+    "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
+    "draft": {
+      "name": "John Gemini",
+      "age": 30,
+      "gender": "Male",
+      "level": 6,
+      "stats": {
+        "strength": 8,
+        "agility": 7,
+        "intelligence": 10,
+        "wisdom": 9,
+        "endurance": 11,
+        "charisma": 6
+      },
+      "history": "John Gemini's earliest memories are of the ceaseless silver soot, the biting wind, and the skeletal remains of forgotten behemoths that dotted the obsidian plains. Born in the settlement of Cinderfall, a huddle of shacks built into the lee of a half-buried ancient wall, he was raised on scarcity and the whispers of elders who spoke of a time before the Great Ashfall. Unlike others who merely survived, John found solace and purpose in the silent language of the past. As a child, he stumbled upon a pair of intricately carved, petrified stone tablets – a 'twin' set – half-buried near the settlement's edge. These relics, unlike anything he'd seen, ignited an insatiable curiosity within him, driving him to devour any scrap of lore, any fractured diagram, any fragment of ceramic he could find.\n\nHe spent his youth sifting through the shallow ash-drifts, learning to discern the true whispers of history from the mere detritus of recent eras. His natural aptitude for observation and deduction grew, sharpened by the harsh realities of Ashtrail. He became known for his uncanny ability to 'read' the ground, to feel the subtle shifts in the ash that indicated hidden structures or buried artifacts. This wasn't just a pastime; it became his obsession, a quest to understand the architects of the silent cities and the meaning of the cataclysm that buried them.\n\nHis journey led him far from Cinderfall, pushing him deeper into the desolate plains where the ancient echoes resonated strongest. He honed his skills as an Ashen Archaeologist, mapping forgotten trade routes by the unique composition of their ash, deciphering pictograms on crumbling monoliths, and carefully excavating sites that had lain undisturbed for millennia. Each discovery, each unearthed truth, felt like a vital clue in a cosmic puzzle, a personal mission to piece together the shattered narrative of a world that refused to truly die.",
+      "backstory": "Currently, John Gemini is tracking a persistent, unusual energy signature emanating from the heart of the perilous Obsidian Reach. Ancient texts he painstakingly pieced together speak of a 'World Heart Archive' – a legendary repository of knowledge said to hold the fundamental truths of Ashtrail's genesis and demise. He believes this signature is a beacon from that very archive, possibly reactivating due to unstable geological shifts or the meddling of other forces. He stands on the precipice of a vast, recently exposed crater, the air thick with the scent of ozone and ancient earth, knowing that what lies beneath could either illuminate Ashtrail's path forward or unleash a forgotten cataclysm.",
+      "traitNames": [
+        "Relic Seeker",
+        "Ash-Hardened",
+        "Determined"
+      ],
+      "occupationName": "Ashen Archaeologist"
+    },
+    "loreText": "The world John Gemini inherited was already suffocated under the Great Ashfall, a ceaseless silver soot that coated everything and redefined the horizon. Yet, his earliest memories were not of a void, but of the elder’s whispers in Cinderfall—tales of a vibrant ‘Old World’ before the heavens cracked. They spoke of a time when the sun was not a distant memory, when life thrived beyond the skeletal remains of forgotten behemoths on the obsidian plains. These stories, though fragmented and worn thin by repetition, painted a vision that resonated deeply within the young John, a stark contrast to the scarcity that defined his every waking moment. When he unearthed the intricately carved, petrified twin stone tablets as a child, they were not just relics; they were tangible proof of that lost era, igniting an insatiable, dangerous curiosity that replaced mere survival with the pursuit of a forgotten dream.\n\nThe terrifying transition of 'La Chute' had long passed before John’s birth, but its specter was the very air he breathed. His reality was the aftermath: a world where the sun had become a dying ember, its light choked by the perpetual ash, and the remnants of civilization were shards scattered across the desolate plains. The collapse was not a memory for him, but a pervasive condition—the biting wind, the constant struggle against the encroaching soot, the very ground a testament to a cataclysm that had broken not just empires, but the fundamental order of things. This was the inheritance of 'La Chute': a broken world where the knowledge of what had been was as vital, and as elusive, as clean water, shaping every aspect of his existence and fueling his unique path.\n\nSurvival in the nascent settlement of Cinderfall was a stark lesson in resource management and brutal pragmatism. While others focused on scavenging for immediate sustenance or fighting over the meager spoils of the immediate periphery, John’s instinct for survival manifested differently. He sought not the last scraps of food, but the first whispers of history, understanding that knowledge of the past might hold the key to a different kind of future. The 'resource wars' for him were battles against oblivion, fought with a brush and a keen eye, sifting through shallow ash-drifts. His descent was not into deep vaults, but into the silent, buried archives of the ash, deciphering ancient patterns and discerning true historical fragments from mere detritus, believing that understanding the architects of their ruin was the only path to true security.\n\nOver the long cycles, the 'structural shell' of Cinderfall proved too confining for John's burgeoning ambition. His adaptation was a deliberate transformation, a hardening forged in the unforgiving wastes beyond the settlement's meager protection. He shed the passive acceptance of his kin, embracing the harsh realities of the Ashtrail as his true classroom. He honed his skills into an uncanny ability to 'read' the ground, discerning hidden structures by subtle shifts in the ash, mapping forgotten routes by the unique composition of their dust. He became the Ashen Archaeologist, his body tempered by exposure, his mind sharpened by relentless deduction, his every action a calculated step towards understanding the world that had made him, and what it could become.\n\nToday, John Gemini stands on the precipice of a journey that could either illuminate Ashtrail’s path forward or unleash a forgotten cataclysm. His standing in the scattered settlements is one of a revered, if eccentric, savant; his life’s work has brought him to the perilous Obsidian Reach, drawn by a persistent, unusual energy signature. This signal, he believes, emanates from the legendary 'World Heart Archive' – a repository said to hold the fundamental truths of Ashtrail's genesis and demise, hinted at in the most esoteric of texts he has meticulously reassembled. The air, thick with ozone and ancient earth, heralds a profound discovery. The 'survival math' of this moment is clear: the risk of disturbing a sleeping titan is immense, but the potential reward – the complete, unvarnished truth of their world – outweighs any personal cost. He begins his descent, not as a mere survivor, but as the designated chronicler of Ashtrail's ultimate confession.",
+    "worldContext": {
+      "worldTitle": "Ashtrail",
+      "worldLore": "Behold Ashtrail: a world forged in the furnace of a dying era. Here, the very sky is a shroud of silver soot, veiling obsidian plains that hold the weight of forgotten eons. It is a place where the wind whispers in cinders and the ground remembers the touch of the first stars. On this ragged edge of the known reach, fire does not just consume—it creates, carves, and conceals. Step lightly, traveler, for beneath these shifting trails of ash lies a history that refused to burn out.\n\nHere, every shovel-full of ash is a whisper from a forgotten age, a sifting through the very dust of time. Ancient structures, half-swallowed by the encroaching soot, hint at civilizations that once thrived under a different sky. The ground, though seemingly barren, cradles fragments of a past that yearns to be rediscovered, its secrets etched into petrified stone and shattered ceramic.\n\nTo unearth these relics is to awaken echoes long dormant, to feel the lingering pulse of those who walked these plains when the stars were bright. Beware, however, for not all histories wish to be disturbed, and the fires that once shaped this world might still guard their deepest truths. Yet, the call of the deep past is undeniable, promising not just knowledge, but perhaps the very key to Ashtrail’s enduring mystery.",
+      "selectedDirectionTitle": "Unearth Ancient Echoes"
+    },
+    "weaponArtifact": {
+      "image": {
+        "mimeType": "image/png",
+        "url": "/api/demo-output/e84c79a9-48e2-407b-8d27-2a0e900473de/step-2/john/weapon.png"
+      },
+      "loreText": "The Cinder Sifter is not merely a weapon, but the very extension of John Gemini's relentless quest, a testament to his unique understanding of Ashtrail. Forged from the petrified spine of a forgotten titan he meticulously excavated from the Obsidian Reach and integrated with a pulsating, crystalline core he unearthed from the deepest ash-drifts, its very essence hums with the dormant energy of the Old World. Its reputation precedes him, whispered among the scattered settlements as the 'Truth-Teller's Rod,' capable of not only sifting through millennia of silver soot to reveal hidden histories but also of unleashing focused bursts of superheated ash that can scour both ancient glyphs and encroaching threats with equal precision. This tool belongs solely to John Gemini because it embodies his philosophy: that the past, however deeply buried or fiercely guarded, holds the key to the future, and that sometimes, to unearth the truth, one must be prepared to fight the very forces that sought to conceal it.",
+      "weapon": {
+        "baseDamage": 75,
+        "description": "A reinforced, multi-modal archaeological staff, tipped with a vibrating, ash-sifting head and an integrated sonic emitter. Crafted from petrified titan bone and ancient crystalline components, it manipulates the very soot of Ashtrail for both delicate excavation and forceful defense.",
+        "id": "ASH-J-G-001",
+        "name": "The Cinder Sifter",
+        "rarity": "specialized",
+        "weaponRange": 1,
+        "weaponType": "melee"
+      }
+    },
+    "voiceAsset": {
+      "mimeType": "audio/wav",
+      "url": "/api/demo-output/e84c79a9-48e2-407b-8d27-2a0e900473de/step-2/john/lore.wav"
+    },
+    "loreIllustrations": [
+      {
+        "image": {
+          "mimeType": "image/png",
+          "url": "/api/demo-output/e84c79a9-48e2-407b-8d27-2a0e900473de/step-2/john/lore-illustration-1.png"
+        },
+        "paragraphIndex": 0
+      },
+      {
+        "image": {
+          "mimeType": "image/png",
+          "url": "/api/demo-output/e84c79a9-48e2-407b-8d27-2a0e900473de/step-2/john/lore-illustration-2.png"
+        },
+        "paragraphIndex": 1
+      }
+    ],
+    "loreInsights": []
+  }
+}

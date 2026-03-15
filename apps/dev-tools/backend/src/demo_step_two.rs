@@ -1,20 +1,31 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::{gemini, AppState};
+use crate::{demo_output, gemini, AppState};
 
 const DEMO_STEP_TWO_TTS_VOICE: &str = "Kore";
-const DEMO_OUTPUT_API_ROOT: &str = "/api/demo-output";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DemoStepTwoGenerateRequest {
     #[serde(default)]
     pub world_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoArtifactQuery {
+    #[serde(default)]
+    pub step_one_job_id: Option<String>,
+    #[serde(default)]
+    pub hero: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +37,178 @@ pub struct DemoStepTwoStats {
     pub wisdom: u8,
     pub endurance: u8,
     pub charisma: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoBuilderDraft {
+    pub name: String,
+    pub age: u8,
+    pub gender: String,
+    pub level: u8,
+    pub stats: DemoStepTwoStats,
+    pub history: String,
+    pub backstory: String,
+    #[serde(default)]
+    pub trait_names: Vec<String>,
+    pub occupation_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoWorldContext {
+    pub world_title: String,
+    pub world_lore: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_direction_title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedDemoStepTwoArtifact {
+    pub hero_variant: String,
+    pub hero_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world_id: Option<String>,
+    pub draft: DemoStepTwoBuilderDraft,
+    pub lore_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portrait_url: Option<String>,
+    pub world_context: DemoStepTwoWorldContext,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weapon_artifact: Option<DemoStepTwoGeneratedWeaponArtifact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_asset: Option<DemoStepTwoAssetRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lore_illustrations: Vec<DemoStepTwoLoreIllustrationAsset>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lore_insights: Vec<DemoStepTwoLoreInsightArtifact>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistDemoStepTwoArtifactRequest {
+    #[serde(default)]
+    pub step_one_job_id: Option<String>,
+    pub hero_variant: String,
+    pub hero_name: String,
+    #[serde(default)]
+    pub world_id: Option<String>,
+    pub draft: DemoStepTwoBuilderDraft,
+    pub lore_text: String,
+    #[serde(default)]
+    pub portrait_url: Option<String>,
+    pub world_context: DemoStepTwoWorldContext,
+    #[serde(default)]
+    pub weapon_artifact: Option<DemoStepTwoGeneratedWeaponArtifact>,
+    #[serde(default)]
+    pub voice_asset: Option<DemoStepTwoAssetRef>,
+    #[serde(default)]
+    pub lore_illustrations: Vec<DemoStepTwoLoreIllustrationAsset>,
+    #[serde(default)]
+    pub lore_insights: Vec<DemoStepTwoLoreInsightArtifact>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoVoiceJobRequest {
+    #[serde(default)]
+    pub step_one_job_id: Option<String>,
+    pub hero_variant: String,
+    pub hero_name: String,
+    #[serde(default)]
+    pub world_id: Option<String>,
+    pub lore_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoVoiceGenerationResult {
+    pub voice: DemoStepTwoAssetRef,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoLoreIllustrationsJobRequest {
+    #[serde(default)]
+    pub step_one_job_id: Option<String>,
+    pub hero_variant: String,
+    pub hero_name: String,
+    pub world_title: String,
+    pub world_lore: String,
+    pub lore_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoLoreIllustrationAsset {
+    pub paragraph_index: usize,
+    pub image: DemoStepTwoAssetRef,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoLoreIllustrationsGenerationResult {
+    pub illustrations: Vec<DemoStepTwoLoreIllustrationAsset>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoLoreInsightJobRequest {
+    #[serde(default)]
+    pub step_one_job_id: Option<String>,
+    pub hero_variant: String,
+    pub hero_name: String,
+    pub world_title: String,
+    pub world_lore: String,
+    pub lore_text: String,
+    pub term: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoLoreInsightArtifact {
+    pub term: String,
+    pub title: String,
+    pub explanation: String,
+    pub image: DemoStepTwoAssetRef,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoLoreInsightGenerationResult {
+    pub artifact: DemoStepTwoLoreInsightArtifact,
+    pub raw_json: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoWeaponJobRequest {
+    #[serde(default)]
+    pub step_one_job_id: Option<String>,
+    pub hero_variant: String,
+    pub hero_name: String,
+    #[serde(default)]
+    pub world_id: Option<String>,
+    pub world_title: String,
+    pub world_lore: String,
+    pub occupation_name: String,
+    pub character_lore: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoGeneratedWeaponArtifact {
+    pub weapon: DemoStepTwoWeapon,
+    pub lore_text: String,
+    pub image: DemoStepTwoAssetRef,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoStepTwoWeaponGenerationResult {
+    pub artifact: DemoStepTwoGeneratedWeaponArtifact,
+    pub raw_json: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,6 +298,419 @@ pub struct DemoStepTwoExecution {
     pub result: DemoStepTwoResult,
 }
 
+fn normalize_demo_hero_variant(value: Option<&str>) -> &'static str {
+    match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("jane") => "jane",
+        _ => "john",
+    }
+}
+
+fn normalize_generated_weapon(mut weapon: DemoStepTwoWeapon) -> DemoStepTwoWeapon {
+    weapon.id = weapon.id.trim().to_string();
+    if weapon.id.is_empty() {
+        weapon.id = format!("demo-step-two-weapon-{}", Uuid::new_v4().simple());
+    }
+
+    weapon.name = weapon.name.trim().to_string();
+    if weapon.name.is_empty() {
+        weapon.name = "Ashtrail Field Arm".to_string();
+    }
+
+    weapon.description = weapon.description.trim().to_string();
+    if weapon.description.is_empty() {
+        weapon.description =
+            "A combat-ready field weapon balanced for Ashtrail skirmishes.".to_string();
+    }
+
+    weapon.rarity = match weapon.rarity.trim().to_ascii_lowercase().as_str() {
+        "salvaged" | "reinforced" | "pre-ash" | "specialized" | "relic" | "ashmarked" => {
+            weapon.rarity.trim().to_ascii_lowercase()
+        }
+        _ => "specialized".to_string(),
+    };
+
+    weapon.weapon_type = match weapon.weapon_type.trim().to_ascii_lowercase().as_str() {
+        "ranged" => "ranged".to_string(),
+        _ => "melee".to_string(),
+    };
+
+    weapon.weapon_range = match weapon.weapon_type.as_str() {
+        "ranged" => weapon.weapon_range.clamp(2, 6),
+        _ => weapon.weapon_range.clamp(1, 2),
+    };
+    weapon.base_damage = weapon.base_damage.max(18);
+    weapon
+}
+
+fn string_field(value: &Value, key: &str) -> Option<String> {
+    value.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn u8_field(value: &Value, key: &str) -> Option<u8> {
+    match value.get(key) {
+        Some(Value::Number(number)) => number.as_u64().and_then(|entry| u8::try_from(entry).ok()),
+        Some(Value::String(text)) => {
+            let trimmed = text.trim();
+            if trimmed.eq_ignore_ascii_case("melee") {
+                Some(1)
+            } else if trimmed.eq_ignore_ascii_case("ranged") {
+                Some(4)
+            } else {
+                trimmed.parse::<u8>().ok()
+            }
+        }
+        _ => None,
+    }
+}
+
+fn i32_field(value: &Value, key: &str) -> Option<i32> {
+    match value.get(key) {
+        Some(Value::Number(number)) => number.as_i64().and_then(|entry| i32::try_from(entry).ok()),
+        Some(Value::String(text)) => text.trim().parse::<i32>().ok(),
+        _ => None,
+    }
+}
+
+fn decode_generated_weapon_payload(value: &Value) -> Result<DemoStepTwoWeapon, (StatusCode, String)> {
+    let id = string_field(value, "id").unwrap_or_else(|| format!("demo-step-two-weapon-{}", Uuid::new_v4().simple()));
+    let name = string_field(value, "name").unwrap_or_else(|| "Ashtrail Field Arm".to_string());
+    let description = string_field(value, "description")
+        .unwrap_or_else(|| "A combat-ready field weapon balanced for Ashtrail skirmishes.".to_string());
+    let rarity = string_field(value, "rarity").unwrap_or_else(|| "specialized".to_string());
+    let weapon_type = string_field(value, "weaponType")
+        .or_else(|| string_field(value, "type"))
+        .unwrap_or_else(|| "melee".to_string());
+    let weapon_range = u8_field(value, "weaponRange")
+        .or_else(|| u8_field(value, "range"))
+        .unwrap_or(1);
+    let base_damage = i32_field(value, "baseDamage")
+        .or_else(|| i32_field(value, "damage"))
+        .unwrap_or(18);
+
+    Ok(normalize_generated_weapon(DemoStepTwoWeapon {
+        id,
+        name,
+        description,
+        rarity,
+        weapon_type,
+        weapon_range,
+        base_damage,
+    }))
+}
+
+fn demo_step_two_run_root(state: &AppState, step_one_job_id: Option<&str>) -> PathBuf {
+    let run_id = if state.demo_step_one_use_pregenerated {
+        state.demo_step_one_pregenerated_folder.clone()
+    } else {
+        step_one_job_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("live")
+            .to_string()
+    };
+    state.demo_output_dir.join(run_id).join("step-2")
+}
+
+fn demo_step_two_output_root(
+    state: &AppState,
+    step_one_job_id: Option<&str>,
+    hero_variant: Option<&str>,
+) -> PathBuf {
+    demo_step_two_run_root(state, step_one_job_id).join(normalize_demo_hero_variant(hero_variant))
+}
+
+fn demo_output_asset_url(output_root: &Path, file_name: &str) -> String {
+    demo_output::api_asset_url(Path::new("generated/demo-output"), output_root, file_name)
+}
+
+fn infer_step_two_voice_asset(output_root: &Path) -> Option<DemoStepTwoAssetRef> {
+    for file_name in ["lore.wav", "audio.wav"] {
+        if output_root.join(file_name).is_file() {
+            return Some(DemoStepTwoAssetRef {
+                url: demo_output_asset_url(output_root, file_name),
+                mime_type: "audio/wav".to_string(),
+            });
+        }
+    }
+    None
+}
+
+fn infer_step_two_portrait_file_name(output_root: &Path) -> Option<String> {
+    for file_name in [
+        "portrait.png",
+        "portrait.jpg",
+        "portrait.jpeg",
+        "portrait.webp",
+        "portrait.gif",
+    ] {
+        if output_root.join(file_name).is_file() {
+            return Some(file_name.to_string());
+        }
+    }
+
+    let entries = fs::read_dir(output_root).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let stem = path.file_stem().and_then(|value| value.to_str());
+        let file_name = path.file_name().and_then(|value| value.to_str());
+        if stem == Some("portrait") {
+            return file_name.map(ToOwned::to_owned);
+        }
+    }
+
+    None
+}
+
+fn infer_step_two_portrait_url(output_root: &Path) -> Option<String> {
+    infer_step_two_portrait_file_name(output_root)
+        .map(|file_name| demo_output_asset_url(output_root, &file_name))
+}
+
+fn extract_character_portrait_file_name(url: &str) -> Option<String> {
+    let path = url.split('?').next().unwrap_or(url);
+    path.strip_prefix("/api/character-portraits/")
+        .map(str::to_string)
+        .filter(|name| !name.is_empty() && !name.contains("..") && !name.contains('/'))
+}
+
+fn sync_demo_step_two_portrait_snapshot(
+    state: &AppState,
+    output_root: &Path,
+    portrait_url: Option<&str>,
+) -> Result<Option<String>, (StatusCode, String)> {
+    if let Some(url) = infer_step_two_portrait_url(output_root) {
+        return Ok(Some(url));
+    }
+
+    let Some(source_url) = portrait_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+
+    let Some(file_name) = extract_character_portrait_file_name(source_url) else {
+        return Ok(Some(source_url.to_string()));
+    };
+
+    let source_path = state.character_portraits_dir.join(&file_name);
+    if !source_path.is_file() {
+        return Ok(Some(source_url.to_string()));
+    }
+
+    fs::create_dir_all(output_root).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create demo step 2 portrait directory: {error}"),
+        )
+    })?;
+
+    let extension = source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("png");
+    let target_name = format!("portrait.{extension}");
+    fs::copy(&source_path, output_root.join(&target_name)).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to snapshot demo step 2 portrait: {error}"),
+        )
+    })?;
+
+    Ok(Some(demo_output_asset_url(output_root, &target_name)))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredCharacterPortraitRecord {
+    name: Option<String>,
+    portrait_url: Option<String>,
+}
+
+fn find_recent_character_portrait_url(
+    characters_dir: &Path,
+    candidate_names: &[&str],
+) -> Option<String> {
+    let normalized_names = candidate_names
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    if normalized_names.is_empty() {
+        return None;
+    }
+
+    let mut candidates = Vec::new();
+    for entry in fs::read_dir(characters_dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+
+        let modified = entry.metadata().ok()?.modified().ok()?;
+        let raw = fs::read_to_string(&path).ok()?;
+        let record = serde_json::from_str::<StoredCharacterPortraitRecord>(&raw).ok()?;
+        let name = record.name.as_deref()?.trim().to_ascii_lowercase();
+        if !normalized_names.iter().any(|candidate| candidate == &name) {
+            continue;
+        }
+        let portrait_url = record
+            .portrait_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?
+            .to_string();
+        candidates.push((modified, portrait_url));
+    }
+
+    candidates.sort_by(|left, right| right.0.cmp(&left.0));
+    candidates.into_iter().next().map(|(_, url)| url)
+}
+
+fn repair_loaded_demo_step_two_artifact(
+    state: &AppState,
+    output_root: &Path,
+    artifact: &mut PersistedDemoStepTwoArtifact,
+) {
+    if let Some(url) = infer_step_two_portrait_url(output_root) {
+        artifact.portrait_url = Some(url);
+    } else {
+        let recovered = sync_demo_step_two_portrait_snapshot(
+            state,
+            output_root,
+            artifact.portrait_url.as_deref(),
+        )
+        .ok()
+        .flatten()
+        .or_else(|| {
+            let fallback = find_recent_character_portrait_url(
+                &state.characters_dir,
+                &[artifact.hero_name.as_str(), artifact.draft.name.as_str()],
+            )?;
+            sync_demo_step_two_portrait_snapshot(state, output_root, Some(&fallback))
+                .ok()
+                .flatten()
+                .or(Some(fallback))
+        });
+        if let Some(url) = recovered {
+            artifact.portrait_url = Some(url);
+        }
+    }
+
+    if let Some(voice) = infer_step_two_voice_asset(output_root) {
+        artifact.voice_asset = Some(voice);
+    }
+}
+
+pub fn load_persisted_demo_step_two_artifact(
+    state: &AppState,
+    query: &DemoStepTwoArtifactQuery,
+) -> Result<PersistedDemoStepTwoArtifact, (StatusCode, String)> {
+    let output_root = demo_step_two_output_root(
+        state,
+        query.step_one_job_id.as_deref(),
+        query.hero.as_deref(),
+    );
+    let envelope = demo_output::load_demo_artifact::<PersistedDemoStepTwoArtifact>(&output_root)
+        .map_err(|message| (StatusCode::NOT_FOUND, message))?;
+    let mut artifact = envelope.artifact;
+    repair_loaded_demo_step_two_artifact(state, &output_root, &mut artifact);
+    Ok(artifact)
+}
+
+pub fn persist_demo_step_two_artifact_for_demo(
+    state: &AppState,
+    payload: &PersistDemoStepTwoArtifactRequest,
+) -> Result<PersistedDemoStepTwoArtifact, (StatusCode, String)> {
+    let output_root = demo_step_two_output_root(
+        state,
+        payload.step_one_job_id.as_deref(),
+        Some(payload.hero_variant.as_str()),
+    );
+    let portrait_url =
+        sync_demo_step_two_portrait_snapshot(state, &output_root, payload.portrait_url.as_deref())?;
+    let artifact = PersistedDemoStepTwoArtifact {
+        hero_variant: normalize_demo_hero_variant(Some(payload.hero_variant.as_str())).to_string(),
+        hero_name: payload.hero_name.trim().to_string(),
+        world_id: payload.world_id.clone(),
+        draft: payload.draft.clone(),
+        lore_text: payload.lore_text.trim().to_string(),
+        portrait_url: portrait_url.or_else(|| payload.portrait_url.clone()),
+        world_context: payload.world_context.clone(),
+        weapon_artifact: payload.weapon_artifact.clone(),
+        voice_asset: infer_step_two_voice_asset(&output_root)
+            .or_else(|| payload.voice_asset.clone()),
+        lore_illustrations: payload.lore_illustrations.clone(),
+        lore_insights: payload.lore_insights.clone(),
+    };
+    let run_id = output_root
+        .parent()
+        .and_then(|value| value.parent())
+        .and_then(|value| value.file_name())
+        .and_then(|value| value.to_str())
+        .unwrap_or("live")
+        .to_string();
+    let envelope = demo_output::DemoStoredArtifactEnvelope {
+        envelope_type: "demo_step_artifact".to_string(),
+        step: 2,
+        phase: None,
+        run_id,
+        source: if state.demo_step_one_use_pregenerated {
+            "pregenerated".to_string()
+        } else {
+            "live".to_string()
+        },
+        created_at: demo_output::now_created_at(),
+        artifact: artifact.clone(),
+        transcript: None,
+        context: None,
+    };
+    demo_output::persist_demo_artifact(&output_root, &envelope)
+        .map_err(|message| (StatusCode::INTERNAL_SERVER_ERROR, message))?;
+    Ok(artifact)
+}
+
+pub fn demo_step_two_weapon_output_root(
+    state: &AppState,
+    step_one_job_id: Option<&str>,
+    hero_variant: Option<&str>,
+) -> PathBuf {
+    demo_step_two_output_root(state, step_one_job_id, hero_variant)
+}
+
+pub fn demo_step_two_voice_output_root(
+    state: &AppState,
+    step_one_job_id: Option<&str>,
+    hero_variant: Option<&str>,
+) -> PathBuf {
+    demo_step_two_output_root(state, step_one_job_id, hero_variant)
+}
+
+pub fn demo_step_two_lore_illustration_output_root(
+    state: &AppState,
+    step_one_job_id: Option<&str>,
+    hero_variant: Option<&str>,
+) -> PathBuf {
+    demo_step_two_output_root(state, step_one_job_id, hero_variant)
+}
+
+pub fn demo_step_two_lore_insight_output_root(
+    state: &AppState,
+    step_one_job_id: Option<&str>,
+    hero_variant: Option<&str>,
+) -> PathBuf {
+    demo_step_two_output_root(state, step_one_job_id, hero_variant)
+}
+
 pub fn build_demo_step_two_error_result(
     request: &DemoStepTwoGenerateRequest,
     message: &str,
@@ -201,6 +797,291 @@ pub async fn run_demo_step_two(
     })
 }
 
+pub async fn run_demo_step_two_weapon(
+    request: &DemoStepTwoWeaponJobRequest,
+    output_root: &Path,
+) -> Result<DemoStepTwoWeaponGenerationResult, (StatusCode, String)> {
+    fs::create_dir_all(output_root).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create demo step 2 weapon directory: {error}"),
+        )
+    })?;
+
+    let prompt = format!(
+        "Return strict JSON only for one Ashtrail weapon package.\n\
+The output must be a single JSON object with exactly these keys: weapon, loreText.\n\
+weapon must contain: id, name, description, rarity, weaponType, weaponRange, baseDamage.\n\
+loreText must be one rich paragraph describing the weapon's origin, reputation, and why it belongs to this hero.\n\
+Design the weapon for hero: {hero_name}.\n\
+Occupation: {occupation_name}.\n\
+World title: {world_title}.\n\
+World lore: {world_lore}.\n\
+Character lore: {character_lore}.\n\
+No markdown. No commentary outside the JSON.",
+        hero_name = request.hero_name.trim(),
+        occupation_name = request.occupation_name.trim(),
+        world_title = request.world_title.trim(),
+        world_lore = request.world_lore.trim(),
+        character_lore = request.character_lore.trim(),
+    );
+
+    let raw = gemini::generate_text_with_options(&prompt, 0.65).await?;
+    let cleaned = sanitize_json_payload(&raw);
+    let raw_json = serde_json::from_str::<Value>(&cleaned).map_err(|error| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Failed to parse generated demo step 2 weapon JSON: {error}"),
+        )
+    })?;
+    let weapon = decode_generated_weapon_payload(raw_json.get("weapon").unwrap_or(&Value::Null))?;
+    let lore_text = raw_json
+        .get("loreText")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_GATEWAY,
+                "Weapon generation did not return loreText.".to_string(),
+            )
+        })?
+        .to_string();
+
+    let image_prompt = format!(
+        "A high-detail concept illustration of a sci-fi fantasy weapon. \
+Weapon: {}. Description: {}. Lore cue: {}. \
+Render as a clean hero asset on a dark atmospheric background, centered, readable silhouette, cinematic light, no text, no frame.",
+        weapon.name, weapon.description, lore_text
+    );
+    let bytes =
+        gemini::generate_image_bytes(&image_prompt, Some(0.7), 1024, 1024, Some("1:1")).await?;
+    fs::write(output_root.join("weapon.png"), bytes).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to write demo step 2 weapon illustration: {error}"),
+        )
+    })?;
+    let image = DemoStepTwoAssetRef {
+        url: demo_output_asset_url(output_root, "weapon.png"),
+        mime_type: "image/png".to_string(),
+    };
+
+    Ok(DemoStepTwoWeaponGenerationResult {
+        artifact: DemoStepTwoGeneratedWeaponArtifact {
+            weapon,
+            lore_text,
+            image,
+        },
+        raw_json,
+    })
+}
+
+pub async fn run_demo_step_two_voice(
+    request: &DemoStepTwoVoiceJobRequest,
+    output_root: &Path,
+) -> Result<DemoStepTwoVoiceGenerationResult, (StatusCode, String)> {
+    if request.lore_text.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Demo step 2 voice generation requires lore text.".to_string(),
+        ));
+    }
+
+    fs::create_dir_all(output_root).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create demo step 2 voice directory: {error}"),
+        )
+    })?;
+
+    let voice = generate_lore_voice(output_root, request.lore_text.trim()).await?;
+    Ok(DemoStepTwoVoiceGenerationResult { voice })
+}
+
+pub async fn run_demo_step_two_lore_illustrations(
+    request: &DemoStepTwoLoreIllustrationsJobRequest,
+    output_root: &Path,
+) -> Result<DemoStepTwoLoreIllustrationsGenerationResult, (StatusCode, String)> {
+    fs::create_dir_all(output_root).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create demo step 2 lore illustration directory: {error}"),
+        )
+    })?;
+
+    let paragraphs = request
+        .lore_text
+        .split('\n')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if paragraphs.is_empty() {
+        return Ok(DemoStepTwoLoreIllustrationsGenerationResult {
+            illustrations: Vec::new(),
+        });
+    }
+
+    let selected = paragraphs
+        .iter()
+        .enumerate()
+        .filter(|(_, paragraph)| paragraph.len() > 80)
+        .take(2)
+        .collect::<Vec<_>>();
+
+    let mut illustrations = Vec::new();
+    for (index, paragraph) in selected {
+        let prompt = format!(
+            "Create a cinematic narrative illustration for the Ashtrail demo. \
+Hero: {}. World: {}. World lore: {}. \
+Scene excerpt: {}. \
+Render a moody, readable, storybook-like sci-fi fantasy scene with no text, no frame, and clear focal action.",
+            request.hero_name.trim(),
+            request.world_title.trim(),
+            request.world_lore.trim(),
+            paragraph,
+        );
+        let bytes =
+            gemini::generate_image_bytes(&prompt, Some(0.72), 1024, 1024, Some("1:1")).await?;
+        let file_name = format!("lore-illustration-{}.png", index + 1);
+        fs::write(output_root.join(&file_name), bytes).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write demo step 2 lore illustration: {error}"),
+            )
+        })?;
+        illustrations.push(DemoStepTwoLoreIllustrationAsset {
+            paragraph_index: index,
+            image: DemoStepTwoAssetRef {
+                url: demo_output_asset_url(output_root, &file_name),
+                mime_type: "image/png".to_string(),
+            },
+        });
+    }
+
+    Ok(DemoStepTwoLoreIllustrationsGenerationResult { illustrations })
+}
+
+pub async fn run_demo_step_two_lore_insight(
+    request: &DemoStepTwoLoreInsightJobRequest,
+    output_root: &Path,
+) -> Result<DemoStepTwoLoreInsightGenerationResult, (StatusCode, String)> {
+    if request.term.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Lore insight requires a term.".to_string(),
+        ));
+    }
+
+    fs::create_dir_all(output_root).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create demo step 2 lore insight directory: {error}"),
+        )
+    })?;
+
+    let prompt = format!(
+        "Return strict JSON only for an Ashtrail lore insight panel.\n\
+The output must be a single JSON object with exactly these keys: title, explanation.\n\
+title must be a short evocative title for the term.\n\
+explanation must be 2-3 concise sentences explaining the meaning of the term in-world, in a sober but atmospheric tone.\n\
+No markdown. No commentary outside JSON.\n\
+Hero: {hero_name}\n\
+World: {world_title}\n\
+World lore: {world_lore}\n\
+Lore text: {lore_text}\n\
+Focus term: {term}",
+        hero_name = request.hero_name.trim(),
+        world_title = request.world_title.trim(),
+        world_lore = request.world_lore.trim(),
+        lore_text = request.lore_text.trim(),
+        term = request.term.trim(),
+    );
+
+    let raw = gemini::generate_text_with_options(&prompt, 0.55).await?;
+    let cleaned = sanitize_json_payload(&raw);
+    let raw_json = serde_json::from_str::<Value>(&cleaned).map_err(|error| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Failed to parse generated demo step 2 lore insight JSON: {error}"),
+        )
+    })?;
+    let title = raw_json
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(request.term.trim())
+        .to_string();
+    let explanation = raw_json
+        .get("explanation")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_GATEWAY,
+                "Lore insight generation did not return explanation.".to_string(),
+            )
+        })?
+        .to_string();
+
+    let image_prompt = format!(
+        "Create a cinematic explanatory illustration for an Ashtrail lore insight panel. \
+Term: {}. Title: {}. Explanation: {}. World: {}. \
+Render a single atmospheric scene or object study with clear visual readability, no text, no border, no frame.",
+        request.term.trim(),
+        title,
+        explanation,
+        request.world_title.trim(),
+    );
+    let bytes =
+        gemini::generate_image_bytes(&image_prompt, Some(0.68), 1024, 1024, Some("1:1")).await?;
+    let slug = request
+        .term
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let file_name = format!(
+        "insight-{}.png",
+        if slug.is_empty() {
+            "term"
+        } else {
+            slug.as_str()
+        }
+    );
+    fs::write(output_root.join(&file_name), bytes).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to write demo step 2 lore insight illustration: {error}"),
+        )
+    })?;
+    let image = DemoStepTwoAssetRef {
+        url: demo_output_asset_url(output_root, &file_name),
+        mime_type: "image/png".to_string(),
+    };
+
+    Ok(DemoStepTwoLoreInsightGenerationResult {
+        artifact: DemoStepTwoLoreInsightArtifact {
+            term: request.term.trim().to_string(),
+            title,
+            explanation,
+            image,
+        },
+        raw_json,
+    })
+}
+
 async fn generate_character_package_json(
     world_id: Option<&str>,
     world_context: Option<&str>,
@@ -256,13 +1137,7 @@ Subject: {}. Title: {}. Occupation: {}. Visual direction: {}. The image must be 
         )
     })?;
     Ok(DemoStepTwoAssetRef {
-        url: format!(
-            "{DEMO_OUTPUT_API_ROOT}/{}/portrait.png",
-            output_root
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or_default()
-        ),
+        url: demo_output_asset_url(output_root, "portrait.png"),
         mime_type: "image/png".to_string(),
     })
 }
@@ -285,13 +1160,7 @@ async fn generate_lore_voice(
         )
     })?;
     Ok(DemoStepTwoAssetRef {
-        url: format!(
-            "{DEMO_OUTPUT_API_ROOT}/{}/lore.wav",
-            output_root
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or_default()
-        ),
+        url: demo_output_asset_url(output_root, "lore.wav"),
         mime_type: "audio/wav".to_string(),
     })
 }
@@ -434,24 +1303,41 @@ fn short_job_suffix(job_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::DEMO_OUTPUT_API_ROOT;
+    use super::{demo_output_asset_url, infer_step_two_voice_asset};
     use std::path::Path;
 
     #[test]
     fn demo_step_two_asset_urls_use_demo_output_route() {
-        let output_root = Path::new("generated/demo-output/job-1234");
-        let file_name = output_root
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default();
+        assert_eq!(
+            demo_output_asset_url(
+                Path::new("generated/demo-output/job-1234/step-2/john"),
+                "portrait.png",
+            ),
+            "/api/demo-output/job-1234/step-2/john/portrait.png"
+        );
+        assert_eq!(
+            demo_output_asset_url(
+                Path::new("generated/demo-output/job-1234/step-2/john"),
+                "lore.wav",
+            ),
+            "/api/demo-output/job-1234/step-2/john/lore.wav"
+        );
+    }
 
-        assert_eq!(
-            format!("{DEMO_OUTPUT_API_ROOT}/{file_name}/portrait.png"),
-            "/api/demo-output/job-1234/portrait.png"
+    #[test]
+    fn infer_step_two_voice_asset_accepts_audio_wav_override() {
+        let unique = format!(
+            "ashtrail-step-two-audio-override-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
         );
-        assert_eq!(
-            format!("{DEMO_OUTPUT_API_ROOT}/{file_name}/lore.wav"),
-            "/api/demo-output/job-1234/lore.wav"
-        );
+        let dir = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        std::fs::write(dir.join("audio.wav"), b"wav").expect("audio");
+
+        let voice = infer_step_two_voice_asset(&dir).expect("voice");
+        assert!(voice.url.ends_with("/audio.wav"));
     }
 }

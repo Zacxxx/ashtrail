@@ -257,6 +257,7 @@ pub fn load_pregenerated_demo_step_one(
     };
 
     sanitize_loaded_demo_step_one_result(&mut result);
+    hydrate_loaded_demo_step_one_assets(cache_dir, &mut result);
     validate_demo_step_one_assets(cache_dir, folder_name, &result)?;
     rewrite_demo_step_one_asset_urls(&mut result, folder_name);
     Ok(result)
@@ -271,7 +272,10 @@ pub fn rewrite_demo_step_one_asset_urls(result: &mut DemoStepOneResult, folder_n
     }
 }
 
-pub fn persist_demo_step_one_result(output_root: &Path, result: &DemoStepOneResult) -> Result<(), String> {
+pub fn persist_demo_step_one_result(
+    output_root: &Path,
+    result: &DemoStepOneResult,
+) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(result)
         .map_err(|error| format!("Failed to serialize demo step 1 artifact manifest: {error}"))?;
     fs::write(output_root.join("artifact.json"), bytes)
@@ -365,9 +369,8 @@ pub async fn run_demo_step_one_selection(
         },
     };
 
-    persist_demo_step_one_selection_result(output_root, &result).map_err(|message| {
-        (StatusCode::INTERNAL_SERVER_ERROR, message)
-    })?;
+    persist_demo_step_one_selection_result(output_root, &result)
+        .map_err(|message| (StatusCode::INTERNAL_SERVER_ERROR, message))?;
 
     Ok(result)
 }
@@ -481,7 +484,10 @@ Metadata description: {description}",
     if options.len() != 4 {
         return Err((
             StatusCode::BAD_GATEWAY,
-            format!("Expected exactly 4 story options, received {}", options.len()),
+            format!(
+                "Expected exactly 4 story options, received {}",
+                options.len()
+            ),
         ));
     }
     for (index, option) in options.iter_mut().enumerate() {
@@ -574,7 +580,10 @@ Selected direction seed: {option_seed}",
     if paragraphs.len() != 2 {
         return Err((
             StatusCode::BAD_GATEWAY,
-            format!("Expected exactly 2 lore paragraphs, received {}", paragraphs.len()),
+            format!(
+                "Expected exactly 2 lore paragraphs, received {}",
+                paragraphs.len()
+            ),
         ));
     }
     Ok(DemoStepOneSelectionPayload {
@@ -687,6 +696,23 @@ fn sanitize_loaded_demo_step_one_result(result: &mut DemoStepOneResult) {
     }
 }
 
+fn hydrate_loaded_demo_step_one_assets(cache_dir: &Path, result: &mut DemoStepOneResult) {
+    if result.artifact.audio.is_none() && cache_dir.join("audio.wav").is_file() {
+        result.artifact.audio = Some(GeneratedMediaAudioAsset {
+            url: String::new(),
+            duration_seconds: 0,
+            mime_type: "audio/wav".to_string(),
+        });
+    }
+
+    if result.artifact.image.is_none() && cache_dir.join("image.png").is_file() {
+        result.artifact.image = Some(GeneratedMediaImageAsset {
+            url: String::new(),
+            mime_type: "image/png".to_string(),
+        });
+    }
+}
+
 fn fallback_planet_name(metadata: &GeneratedMediaMetadata) -> String {
     let title = metadata.title.trim();
     if !title.is_empty() && !title.eq_ignore_ascii_case("orbital survey") {
@@ -737,14 +763,17 @@ fn extract_user_facing_lore(raw: &str) -> Option<String> {
 }
 
 fn extract_quoted_story_candidate(raw: &str) -> Option<String> {
-    let normalized = raw
-        .replace(['“', '”'], "\"")
-        .replace(['‘', '’'], "'");
+    let normalized = raw.replace(['“', '”'], "\"").replace(['‘', '’'], "'");
     let lower = normalized.to_ascii_lowercase();
-    let anchor = ["passage idea", "here’s the passage", "here's the passage", "welcome to the edge"]
-        .iter()
-        .filter_map(|needle| lower.find(needle))
-        .min()?;
+    let anchor = [
+        "passage idea",
+        "here’s the passage",
+        "here's the passage",
+        "welcome to the edge",
+    ]
+    .iter()
+    .filter_map(|needle| lower.find(needle))
+    .min()?;
     let slice = &normalized[anchor..];
     let start = slice.find('"')?;
     let remainder = &slice[start + 1..];
@@ -841,7 +870,7 @@ fn validate_demo_step_one_assets(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_demo_step_one_lore_text, parse_boolish_enabled, load_pregenerated_demo_step_one,
+        build_demo_step_one_lore_text, load_pregenerated_demo_step_one, parse_boolish_enabled,
         rewrite_demo_step_one_asset_urls, DemoStepOneArtifact, DemoStepOneResult,
     };
     use crate::media_audio::{
@@ -920,21 +949,78 @@ mod tests {
         )
         .expect("artifact");
 
-        let result =
-            load_pregenerated_demo_step_one(&dir, "71d2edea-0dff-443f-b65b-a37d023f71b2")
-                .expect("loaded");
+        let result = load_pregenerated_demo_step_one(&dir, "71d2edea-0dff-443f-b65b-a37d023f71b2")
+            .expect("loaded");
 
         assert_eq!(result.artifact.artifact_type, "demo_step_one_interleaved");
         assert_eq!(
-            result.artifact.audio.as_ref().map(|audio| audio.url.as_str()),
+            result
+                .artifact
+                .audio
+                .as_ref()
+                .map(|audio| audio.url.as_str()),
             Some("/api/demo-output/71d2edea-0dff-443f-b65b-a37d023f71b2/audio.wav")
         );
         assert_eq!(
-            result.artifact.image.as_ref().map(|image| image.url.as_str()),
+            result
+                .artifact
+                .image
+                .as_ref()
+                .map(|image| image.url.as_str()),
             Some("/api/demo-output/71d2edea-0dff-443f-b65b-a37d023f71b2/image.png")
         );
         assert_eq!(result.artifact.lore_text, "Lore body");
         assert_eq!(result.artifact.story_options.len(), 4);
+    }
+
+    #[test]
+    fn loads_pregenerated_artifact_and_infers_audio_from_disk() {
+        let dir = temp_dir("demo-step-one-infer-audio");
+        fs::write(dir.join("audio.wav"), b"wav").expect("audio");
+        fs::write(dir.join("image.png"), b"png").expect("image");
+        fs::write(
+            dir.join("artifact.json"),
+            serde_json::to_vec_pretty(&json!({
+                "artifact": {
+                    "type": "demo_step_one_interleaved",
+                    "status": "success",
+                    "image": {
+                        "url": "/api/demo-output/original/image.png",
+                        "mimeType": "image/png"
+                    },
+                    "loreText": "Lore body",
+                    "metadata": {
+                        "title": "Ashtrail",
+                        "description": "A demo world.",
+                        "intent": "world introduction demo beat",
+                        "tags": ["ost"]
+                    },
+                    "storyOptions": []
+                },
+                "transcript": {
+                    "model": "gemini-3-flash-preview",
+                    "logicalToolName": "generatemedia.audio",
+                    "apiToolName": "generatemedia.audio",
+                    "toolCalled": true,
+                    "thoughtSignatureDetected": false,
+                    "toolArguments": {},
+                    "finalResponseText": "Lore body"
+                }
+            }))
+            .expect("json"),
+        )
+        .expect("artifact");
+
+        let result = load_pregenerated_demo_step_one(&dir, "folder-4").expect("loaded");
+
+        assert_eq!(
+            result
+                .artifact
+                .audio
+                .as_ref()
+                .map(|audio| audio.url.as_str()),
+            Some("/api/demo-output/folder-4/audio.wav")
+        );
     }
 
     #[test]
@@ -985,11 +1071,19 @@ mod tests {
         rewrite_demo_step_one_asset_urls(&mut result, "folder-3");
 
         assert_eq!(
-            result.artifact.audio.as_ref().map(|audio| audio.url.as_str()),
+            result
+                .artifact
+                .audio
+                .as_ref()
+                .map(|audio| audio.url.as_str()),
             Some("/api/demo-output/folder-3/audio.wav")
         );
         assert_eq!(
-            result.artifact.image.as_ref().map(|image| image.url.as_str()),
+            result
+                .artifact
+                .image
+                .as_ref()
+                .map(|image| image.url.as_str()),
             Some("/api/demo-output/folder-3/image.png")
         );
     }

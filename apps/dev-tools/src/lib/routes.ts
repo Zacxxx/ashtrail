@@ -1,5 +1,6 @@
 export const DEMO_ROUTE = "/";
 export const DEMO_ALIAS_ROUTE = "/demo";
+export const DEMO_STEP_ROUTE = "/demo/:step";
 export const DEMO_STEP_ONE_ROUTE = "/demo/1";
 export const DEMO_STEP_TWO_ROUTE = "/demo/2";
 export const DEVTOOLS_BASE = "/devtools";

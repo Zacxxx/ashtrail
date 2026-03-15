@@ -1,0 +1,425 @@
+{
+  "age": 30,
+  "appearancePrompt": "Currently, John Gemini is tracking a persistent, unusual energy signature emanating from the heart of the perilous Obsidian Reach. Ancient texts he painstakingly pieced together speak of a 'World Heart Archive' – a legendary repository of knowledge said to hold the fundamental truths of Ashtrail's genesis and demise. He believes this signature is a beacon from that very archive, possibly reactivating due to unstable geological shifts or the meddling of other forces. He stands on the precipice of a vast, recently exposed crater, the air thick with the scent of ozone and ancient earth, knowing that what lies beneath could either illuminate Ashtrail's path forward or unleash a forgotten cataclysm.",
+  "backstory": "The world John Gemini inherited was already suffocated under the Great Ashfall, a ceaseless silver soot that coated everything and redefined the horizon. Yet, his earliest memories were not of a void, but of the elder’s whispers in Cinderfall—tales of a vibrant ‘Old World’ before the heavens cracked. They spoke of a time when the sun was not a distant memory, when life thrived beyond the skeletal remains of forgotten behemoths on the obsidian plains. These stories, though fragmented and worn thin by repetition, painted a vision that resonated deeply within the young John, a stark contrast to the scarcity that defined his every waking moment. When he unearthed the intricately carved, petrified twin stone tablets as a child, they were not just relics; they were tangible proof of that lost era, igniting an insatiable, dangerous curiosity that replaced mere survival with the pursuit of a forgotten dream.\n\nThe terrifying transition of 'La Chute' had long passed before John’s birth, but its specter was the very air he breathed. His reality was the aftermath: a world where the sun had become a dying ember, its light choked by the perpetual ash, and the remnants of civilization were shards scattered across the desolate plains. The collapse was not a memory for him, but a pervasive condition—the biting wind, the constant struggle against the encroaching soot, the very ground a testament to a cataclysm that had broken not just empires, but the fundamental order of things. This was the inheritance of 'La Chute': a broken world where the knowledge of what had been was as vital, and as elusive, as clean water, shaping every aspect of his existence and fueling his unique path.\n\nSurvival in the nascent settlement of Cinderfall was a stark lesson in resource management and brutal pragmatism. While others focused on scavenging for immediate sustenance or fighting over the meager spoils of the immediate periphery, John’s instinct for survival manifested differently. He sought not the last scraps of food, but the first whispers of history, understanding that knowledge of the past might hold the key to a different kind of future. The 'resource wars' for him were battles against oblivion, fought with a brush and a keen eye, sifting through shallow ash-drifts. His descent was not into deep vaults, but into the silent, buried archives of the ash, deciphering ancient patterns and discerning true historical fragments from mere detritus, believing that understanding the architects of their ruin was the only path to true security.\n\nOver the long cycles, the 'structural shell' of Cinderfall proved too confining for John's burgeoning ambition. His adaptation was a deliberate transformation, a hardening forged in the unforgiving wastes beyond the settlement's meager protection. He shed the passive acceptance of his kin, embracing the harsh realities of the Ashtrail as his true classroom. He honed his skills into an uncanny ability to 'read' the ground, discerning hidden structures by subtle shifts in the ash, mapping forgotten routes by the unique composition of their dust. He became the Ashen Archaeologist, his body tempered by exposure, his mind sharpened by relentless deduction, his every action a calculated step towards understanding the world that had made him, and what it could become.\n\nToday, John Gemini stands on the precipice of a journey that could either illuminate Ashtrail’s path forward or unleash a forgotten cataclysm. His standing in the scattered settlements is one of a revered, if eccentric, savant; his life’s work has brought him to the perilous Obsidian Reach, drawn by a persistent, unusual energy signature. This signal, he believes, emanates from the legendary 'World Heart Archive' – a repository said to hold the fundamental truths of Ashtrail's genesis and demise, hinted at in the most esoteric of texts he has meticulously reassembled. The air, thick with ozone and ancient earth, heralds a profound discovery. The 'survival math' of this moment is clear: the risk of disturbing a sleeping titan is immense, but the potential reward – the complete, unvarnished truth of their world – outweighs any personal cost. He begins his descent, not as a mere survivor, but as the designated chronicler of Ashtrail's ultimate confession.",
+  "credits": {
+    "copper": 0,
+    "gold": 10,
+    "silver": 24
+  },
+  "equipped": {
+    "boots": null,
+    "chest": null,
+    "gloves": null,
+    "head": null,
+    "legs": null,
+    "mainHand": {
+      "category": "weapon",
+      "cost": 1350,
+      "description": "A reinforced, multi-modal archaeological staff, tipped with a vibrating, ash-sifting head and an integrated sonic emitter. Crafted from petrified titan bone and ancient crystalline components, it manipulates the very soot of Ashtrail for both delicate excavation and forceful defense.",
+      "effects": [
+        {
+          "description": "A reinforced, multi-modal archaeological staff, tipped with a vibrating, ash-sifting head and an integrated sonic emitter. Crafted from petrified titan bone and ancient crystalline components, it manipulates the very soot of Ashtrail for both delicate excavation and forceful defense.",
+          "id": "ASH-J-G-001-damage",
+          "name": "Weapon Damage",
+          "scope": "combat",
+          "target": "damage",
+          "trigger": "passive",
+          "type": "COMBAT_BONUS",
+          "value": 75
+        }
+      ],
+      "equipSlot": "mainHand",
+      "icon": "/api/demo-output/e84c79a9-48e2-407b-8d27-2a0e900473de/step-2/john/weapon.png",
+      "id": "ASH-J-G-001",
+      "name": "The Cinder Sifter",
+      "rarity": "specialized",
+      "weaponAreaSize": 0,
+      "weaponAreaType": "single",
+      "weaponRange": 1,
+      "weaponType": "melee"
+    },
+    "offHand": null,
+    "waist": null
+  },
+  "gender": "Male",
+  "history": "The world John Gemini inherited was already suffocated under the Great Ashfall, a ceaseless silver soot that coated everything and redefined the horizon. Yet, his earliest memories were not of a void, but of the elder’s whispers in Cinderfall—tales of a vibrant ‘Old World’ before the heavens cracked. They spoke of a time when the sun was not a distant memory, when life thrived beyond the skeletal remains of forgotten behemoths on the obsidian plains. These stories, though fragmented and worn thin by repetition, painted a vision that resonated deeply within the young John, a stark contrast to the scarcity that defined his every waking moment. When he unearthed the intricately carved, petrified twin stone tablets as a child, they were not just relics; they were tangible proof of that lost era, igniting an insatiable, dangerous curiosity that replaced mere survival with the pursuit of a forgotten dream.\n\nThe terrifying transition of 'La Chute' had long passed before John’s birth, but its specter was the very air he breathed. His reality was the aftermath: a world where the sun had become a dying ember, its light choked by the perpetual ash, and the remnants of civilization were shards scattered across the desolate plains. The collapse was not a memory for him, but a pervasive condition—the biting wind, the constant struggle against the encroaching soot, the very ground a testament to a cataclysm that had broken not just empires, but the fundamental order of things. This was the inheritance of 'La Chute': a broken world where the knowledge of what had been was as vital, and as elusive, as clean water, shaping every aspect of his existence and fueling his unique path.\n\nSurvival in the nascent settlement of Cinderfall was a stark lesson in resource management and brutal pragmatism. While others focused on scavenging for immediate sustenance or fighting over the meager spoils of the immediate periphery, John’s instinct for survival manifested differently. He sought not the last scraps of food, but the first whispers of history, understanding that knowledge of the past might hold the key to a different kind of future. The 'resource wars' for him were battles against oblivion, fought with a brush and a keen eye, sifting through shallow ash-drifts. His descent was not into deep vaults, but into the silent, buried archives of the ash, deciphering ancient patterns and discerning true historical fragments from mere detritus, believing that understanding the architects of their ruin was the only path to true security.\n\nOver the long cycles, the 'structural shell' of Cinderfall proved too confining for John's burgeoning ambition. His adaptation was a deliberate transformation, a hardening forged in the unforgiving wastes beyond the settlement's meager protection. He shed the passive acceptance of his kin, embracing the harsh realities of the Ashtrail as his true classroom. He honed his skills into an uncanny ability to 'read' the ground, discerning hidden structures by subtle shifts in the ash, mapping forgotten routes by the unique composition of their dust. He became the Ashen Archaeologist, his body tempered by exposure, his mind sharpened by relentless deduction, his every action a calculated step towards understanding the world that had made him, and what it could become.\n\nToday, John Gemini stands on the precipice of a journey that could either illuminate Ashtrail’s path forward or unleash a forgotten cataclysm. His standing in the scattered settlements is one of a revered, if eccentric, savant; his life’s work has brought him to the perilous Obsidian Reach, drawn by a persistent, unusual energy signature. This signal, he believes, emanates from the legendary 'World Heart Archive' – a repository said to hold the fundamental truths of Ashtrail's genesis and demise, hinted at in the most esoteric of texts he has meticulously reassembled. The air, thick with ozone and ancient earth, heralds a profound discovery. The 'survival math' of this moment is clear: the risk of disturbing a sleeping titan is immense, but the potential reward – the complete, unvarnished truth of their world – outweighs any personal cost. He begins his descent, not as a mere survivor, but as the designated chronicler of Ashtrail's ultimate confession.",
+  "hp": 65,
+  "id": "john-gemini-665774da-472d-4570-adfb-1242ceefdfd9",
+  "inventory": [
+    {
+      "category": "weapon",
+      "cost": 1350,
+      "description": "A reinforced, multi-modal archaeological staff, tipped with a vibrating, ash-sifting head and an integrated sonic emitter. Crafted from petrified titan bone and ancient crystalline components, it manipulates the very soot of Ashtrail for both delicate excavation and forceful defense.",
+      "effects": [
+        {
+          "description": "A reinforced, multi-modal archaeological staff, tipped with a vibrating, ash-sifting head and an integrated sonic emitter. Crafted from petrified titan bone and ancient crystalline components, it manipulates the very soot of Ashtrail for both delicate excavation and forceful defense.",
+          "id": "ASH-J-G-001-damage",
+          "name": "Weapon Damage",
+          "scope": "combat",
+          "target": "damage",
+          "trigger": "passive",
+          "type": "COMBAT_BONUS",
+          "value": 75
+        }
+      ],
+      "equipSlot": "mainHand",
+      "icon": "/api/demo-output/e84c79a9-48e2-407b-8d27-2a0e900473de/step-2/john/weapon.png",
+      "id": "ASH-J-G-001",
+      "name": "The Cinder Sifter",
+      "rarity": "specialized",
+      "weaponAreaSize": 0,
+      "weaponAreaType": "single",
+      "weaponRange": 1,
+      "weaponType": "melee"
+    },
+    {
+      "category": "weapon",
+      "cost": 180,
+      "description": "A close-quarters field blade balanced for brutal efficiency in ruined corridors and drifting dust.",
+      "effects": [
+        {
+          "description": "Baseline combat damage for the Ashtrail demo protagonist.",
+          "id": "john-gemini-starter-weapon-damage",
+          "name": "Weapon Damage",
+          "scope": "combat",
+          "target": "damage",
+          "trigger": "passive",
+          "type": "COMBAT_BONUS",
+          "value": 10
+        }
+      ],
+      "equipSlot": "mainHand",
+      "icon": "🗡️",
+      "id": "john-gemini-starter-weapon",
+      "name": "Gemini Traverse Blade",
+      "rarity": "specialized",
+      "weaponAreaSize": 0,
+      "weaponAreaType": "single",
+      "weaponRange": 1,
+      "weaponType": "melee"
+    }
+  ],
+  "isNPC": false,
+  "level": 6,
+  "maxHp": 65,
+  "name": "John Gemini",
+  "occupation": {
+    "category": "FIELD",
+    "description": "Ashen Archaeologist generated by the builder flow for demo step 2.",
+    "id": "ashen-archaeologist",
+    "name": "Ashen Archaeologist",
+    "shortDescription": "Ashen Archaeologist"
+  },
+  "occupations": [
+    {
+      "availableTalentPoints": 5,
+      "isPrimary": true,
+      "level": 1,
+      "occupation": {
+        "category": "FIELD",
+        "description": "Ashen Archaeologist generated by the builder flow for demo step 2.",
+        "id": "ashen-archaeologist",
+        "name": "Ashen Archaeologist",
+        "shortDescription": "Ashen Archaeologist"
+      },
+      "occupationId": "ashen-archaeologist",
+      "spentPioneerPoints": 0,
+      "spentTalentPoints": 0,
+      "unlockPointCost": 1,
+      "unlockedTalentNodeIds": []
+    }
+  ],
+  "origin": {
+    "system": "builder",
+    "worldId": "665774da-472d-4570-adfb-1242ceefdfd9"
+  },
+  "portraitName": "John Gemini",
+  "portraitUrl": "/api/character-portraits/john-gemini-665774da-472d-4570-adfb-1242ceefdfd9.png?v=1773571305331",
+  "progression": {
+    "attributeUpgrades": {
+      "agility": 0,
+      "charisma": 0,
+      "endurance": 0,
+      "intelligence": 0,
+      "strength": 0,
+      "wisdom": 0
+    },
+    "availableTalentPoints": 5,
+    "occupationStates": [
+      {
+        "availableTalentPoints": 5,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "FIELD",
+          "description": "Ashen Archaeologist generated by the builder flow for demo step 2.",
+          "id": "ashen-archaeologist",
+          "name": "Ashen Archaeologist",
+          "shortDescription": "Ashen Archaeologist"
+        },
+        "occupationId": "ashen-archaeologist",
+        "spentPioneerPoints": 0,
+        "spentTalentPoints": 0,
+        "unlockPointCost": 1,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "spentPioneerOccupationPoints": 0,
+    "spentPioneerStatPoints": 0,
+    "spentStatPoints": 0,
+    "spentTalentPoints": 0,
+    "treeOccupationId": "ashen-archaeologist",
+    "unlockedTalentNodeIds": []
+  },
+  "resolvedProgression": {
+    "availablePioneerPoints": 0,
+    "availableStatPoints": 2,
+    "availableTalentPoints": 5,
+    "currentLevelCumulativeXp": 5890,
+    "isMaxLevel": false,
+    "level": 6,
+    "maxLevel": 30,
+    "nextLevelCumulativeXp": 9155,
+    "nextLevelXp": 3265,
+    "occupationPointsTotal": 6,
+    "occupationTalentPointsSpent": 0,
+    "occupationUnlockPointsSpent": 1,
+    "occupations": [
+      {
+        "availableTalentPoints": 5,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "FIELD",
+          "description": "Ashen Archaeologist generated by the builder flow for demo step 2.",
+          "id": "ashen-archaeologist",
+          "name": "Ashen Archaeologist",
+          "shortDescription": "Ashen Archaeologist"
+        },
+        "occupationId": "ashen-archaeologist",
+        "spentPioneerPoints": 0,
+        "spentTalentPoints": 0,
+        "unlockPointCost": 1,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "pioneerLevel": 0,
+    "pioneerPointsTotal": 0,
+    "progressPct": 0,
+    "statPointsTotal": 2,
+    "totalXp": 5890,
+    "xpIntoLevel": 0,
+    "xpToNextLevel": 3265
+  },
+  "skills": [
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 0,
+      "damage": 5,
+      "description": "Strike with your equipped weapon. Replaces base damage with weapon's flat damage modifier. Melee: scales with Strength. Ranged: fixed damage only.",
+      "effectType": "physical",
+      "effects": [
+        {
+          "description": "Replaces skill base damage with the equipped weapon's flat damage value.",
+          "id": "effect-1773078073638",
+          "name": "Weapon Damage Replacement",
+          "target": "mainHand",
+          "trigger": "passive",
+          "type": "WEAPON_DAMAGE_REPLACEMENT",
+          "value": 0
+        }
+      ],
+      "icon": "⚔️",
+      "id": "use-weapon",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Use Weapon",
+      "targetType": "cell"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Basic medical patch-up.",
+      "effectType": "support",
+      "healing": 15,
+      "icon": "🩹",
+      "id": "first-aid",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "First Aid",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Push an enemy back and potentially cause shock damage.",
+      "effectType": "physical",
+      "icon": "✋",
+      "id": "shove",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Shove",
+      "pushDistance": 2,
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Protect an ally for 1 turn. You tank damage redirected to them with reductions based on your Endurance vs Incoming Damage.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "PROTECTION_STANCE",
+          "value": 0
+        }
+      ],
+      "icon": "🛡️",
+      "id": "defend",
+      "maxRange": 2,
+      "minRange": 1,
+      "name": "Defend",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Become invisible to enemies. Any damage taken will reveal you. Duration increases with Wisdom.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "STEALTH",
+          "value": 0
+        }
+      ],
+      "icon": "👤",
+      "id": "hide",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Hide",
+      "targetType": "self"
+    },
+    {
+      "apCost": 2,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 2,
+      "description": "A quick burst of speed. +3 Movement Points for the current turn.",
+      "effects": [
+        {
+          "description": "Increases Movement Points.",
+          "duration": 1,
+          "id": "effect-sprint-mp",
+          "name": "Sprint Bonus",
+          "target": "mp",
+          "trigger": "passive",
+          "type": "STAT_MODIFIER",
+          "value": 3
+        }
+      ],
+      "icon": "👟",
+      "id": "sprint",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Sprint",
+      "targetType": "self"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Bother the enemy with your charisma, reducing their MP based on your Charisma vs target Wisdom.",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 1,
+          "target": "mp",
+          "type": "STAT_MODIFIER",
+          "value": 0
+        }
+      ],
+      "icon": "🎭",
+      "id": "distract",
+      "maxRange": 4,
+      "minRange": 1,
+      "name": "Distract",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Find weaknesses in the target, increasing critical chance for all attackers based on your Intelligence. (Max difference: 5 levels)",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 2,
+          "type": "ANALYZED",
+          "value": 0
+        }
+      ],
+      "icon": "🔍",
+      "id": "analyze",
+      "maxRange": 5,
+      "minRange": 1,
+      "name": "Analyze",
+      "targetType": "enemy"
+    }
+  ],
+  "stats": {
+    "agility": 7,
+    "charisma": 6,
+    "endurance": 11,
+    "intelligence": 10,
+    "strength": 8,
+    "wisdom": 9
+  },
+  "title": "Hero of the Day",
+  "traits": [
+    {
+      "cost": 0,
+      "description": "Obsessed with Old World tech. Special POIs appear more often.",
+      "effects": [
+        {
+          "id": "t-relic-seeker-effect-1",
+          "isPercentage": true,
+          "name": "Exploration Clarity",
+          "scope": "exploration",
+          "stacking": "multiplicative",
+          "target": "poiRevealChance",
+          "trigger": "passive",
+          "type": "EXPLORATION_BONUS",
+          "value": 25
+        }
+      ],
+      "id": "t-relic-seeker",
+      "name": "Relic Seeker",
+      "type": "neutral"
+    }
+  ],
+  "type": "Human",
+  "worldId": "665774da-472d-4570-adfb-1242ceefdfd9",
+  "xp": 5890
+}

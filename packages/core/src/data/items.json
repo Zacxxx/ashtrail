@@ -1,5 +1,31 @@
 [
   {
+    "id": "ASH-J-G-001",
+    "name": "The Cinder Sifter",
+    "category": "weapon",
+    "rarity": "specialized",
+    "description": "A reinforced, multi-modal archaeological staff, tipped with a vibrating, ash-sifting head and an integrated sonic emitter. Crafted from petrified titan bone and ancient crystalline components, it manipulates the very soot of Ashtrail for both delicate excavation and forceful defense.",
+    "cost": 1350,
+    "equipSlot": "mainHand",
+    "weaponType": "melee",
+    "weaponRange": 1,
+    "weaponAreaType": "single",
+    "weaponAreaSize": 0,
+    "icon": "/api/demo-output/e84c79a9-48e2-407b-8d27-2a0e900473de/step-2/john/weapon.png",
+    "effects": [
+      {
+        "id": "ASH-J-G-001-damage",
+        "name": "Weapon Damage",
+        "description": "A reinforced, multi-modal archaeological staff, tipped with a vibrating, ash-sifting head and an integrated sonic emitter. Crafted from petrified titan bone and ancient crystalline components, it manipulates the very soot of Ashtrail for both delicate excavation and forceful defense.",
+        "type": "COMBAT_BONUS",
+        "target": "damage",
+        "value": 75,
+        "trigger": "passive",
+        "scope": "combat"
+      }
+    ]
+  },
+  {
     "category": "consumable",
     "cost": 1000,
     "description": "A potion tainted by ashes that regenerates your health when you drink it. \nBeware of the mutation side effect. ",

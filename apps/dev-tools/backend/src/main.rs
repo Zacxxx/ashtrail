@@ -5,6 +5,7 @@ mod asset_packs;
 mod cell_analyzer;
 mod cms;
 mod combat_engine;
+mod demo_output;
 mod demo_step_one;
 mod demo_step_two;
 mod ecology;
@@ -247,9 +248,7 @@ fn demo_output_job_dir(demo_output_dir: &std::path::Path, folder: &str) -> PathB
     demo_output_dir.join(folder)
 }
 
-fn build_demo_step_one_output_refs(
-    result: &demo_step_one::DemoStepOneResult,
-) -> Vec<JobOutputRef> {
+fn build_demo_step_one_output_refs(result: &demo_step_one::DemoStepOneResult) -> Vec<JobOutputRef> {
     let mut refs = vec![build_text_output_ref(
         "World Introduction",
         &result.artifact.lore_text,
@@ -1298,6 +1297,26 @@ async fn main() {
         .route(
             "/api/demo/step-1/selection/jobs",
             post(start_demo_step_one_selection_job),
+        )
+        .route(
+            "/api/demo/step-2/artifact",
+            get(get_demo_step_two_artifact).post(save_demo_step_two_artifact),
+        )
+        .route(
+            "/api/demo/step-2/weapon/jobs",
+            post(start_demo_step_two_weapon_job),
+        )
+        .route(
+            "/api/demo/step-2/voice/jobs",
+            post(start_demo_step_two_voice_job),
+        )
+        .route(
+            "/api/demo/step-2/lore-illustrations/jobs",
+            post(start_demo_step_two_lore_illustrations_job),
+        )
+        .route(
+            "/api/demo/step-2/lore-insight/jobs",
+            post(start_demo_step_two_lore_insight_job),
         )
         .route("/api/demo/step-2/jobs", post(start_demo_step_two_job))
         .route("/api/ai/image-models", get(get_ai_image_models))
@@ -2912,11 +2931,7 @@ async fn start_demo_step_one_job(
                         "failed to persist demo step 1 artifact {}: {}",
                         spawned_job_id, message
                     );
-                    execution
-                        .result
-                        .artifact
-                        .warnings
-                        .push(message);
+                    execution.result.artifact.warnings.push(message);
                 }
 
                 if let Ok(mut map) = jobs.lock() {
@@ -3251,6 +3266,418 @@ async fn start_demo_step_two_job(
                             demo_step_two::build_demo_step_two_error_result(&request, &message),
                         )
                         .ok();
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn get_demo_step_two_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_two::DemoStepTwoArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_two::load_persisted_demo_step_two_artifact(&state, &query)?;
+    Ok(Json(artifact))
+}
+
+async fn save_demo_step_two_artifact(
+    State(state): State<AppState>,
+    Json(payload): Json<demo_step_two::PersistDemoStepTwoArtifactRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_two::persist_demo_step_two_artifact_for_demo(&state, &payload)?;
+    Ok(Json(artifact))
+}
+
+async fn start_demo_step_two_weapon_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoWeaponJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.weapon.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Weapon"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.weapon"),
+            "Queued",
+            request.world_id.clone(),
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_weapon_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    24.0,
+                    "Designing weapon package".to_string(),
+                );
+            }
+        }
+
+        let execution = demo_step_two::run_demo_step_two_weapon(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = vec![
+                            build_text_output_ref("Weapon Lore", &result.artifact.lore_text),
+                            JobOutputRef {
+                                id: "demo-step-2-weapon-image".to_string(),
+                                label: "Open Weapon Illustration".to_string(),
+                                kind: "asset".to_string(),
+                                href: Some(result.artifact.image.url.clone()),
+                                route: None,
+                                preview_text: None,
+                            },
+                        ];
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_voice_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoVoiceJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.voice.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Voice"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.voice"),
+            "Queued",
+            request.world_id.clone(),
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_voice_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    35.0,
+                    "Voicing generated lore".to_string(),
+                );
+            }
+        }
+
+        let execution = demo_step_two::run_demo_step_two_voice(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = vec![JobOutputRef {
+                            id: "demo-step-2-voice".to_string(),
+                            label: "Open Voice".to_string(),
+                            kind: "asset".to_string(),
+                            href: Some(result.voice.url.clone()),
+                            route: None,
+                            preview_text: None,
+                        }];
+                    }
+                }
+            }
+            Err((status, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(format!("{}: {}", status, message));
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_lore_illustrations_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoLoreIllustrationsJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.lore-illustrations.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Lore Illustrations"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.lore-illustrations"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_lore_illustration_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    28.0,
+                    "Painting lore illustrations".to_string(),
+                );
+            }
+        }
+
+        let execution =
+            demo_step_two::run_demo_step_two_lore_illustrations(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = result
+                            .illustrations
+                            .iter()
+                            .enumerate()
+                            .map(|(index, illustration)| JobOutputRef {
+                                id: format!("demo-step-2-lore-illustration-{index}"),
+                                label: format!("Open Lore Illustration {}", index + 1),
+                                kind: "asset".to_string(),
+                                href: Some(illustration.image.url.clone()),
+                                route: None,
+                                preview_text: None,
+                            })
+                            .collect();
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_lore_insight_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoLoreInsightJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.lore-insight.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Lore Insight"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.lore-insight"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_lore_insight_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    26.0,
+                    "Interpreting highlighted lore term".to_string(),
+                );
+            }
+        }
+
+        let execution = demo_step_two::run_demo_step_two_lore_insight(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = vec![
+                            build_text_output_ref("Lore Insight", &result.artifact.explanation),
+                            JobOutputRef {
+                                id: "demo-step-2-lore-insight-image".to_string(),
+                                label: "Open Lore Insight Illustration".to_string(),
+                                kind: "asset".to_string(),
+                                href: Some(result.artifact.image.url.clone()),
+                                route: None,
+                                preview_text: None,
+                            },
+                        ];
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
                     }
                 }
             }

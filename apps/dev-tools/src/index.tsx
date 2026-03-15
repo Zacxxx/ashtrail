@@ -16,13 +16,11 @@ import { JobCenterPage } from "./jobs/JobCenterPage";
 import { QuestPage } from "./quests";
 import { StoryLoopPage } from "./story-loop";
 import { DemoLandingPage } from "./demo/DemoLandingPage";
-import { DemoPlanetScreen } from "./demo/DemoPlanetScreen";
-import { DemoStepTwoPage } from "./demo/DemoStepTwoPage";
+import { DemoFlowPage } from "./demo/DemoFlowPage";
 import {
     DEMO_ALIAS_ROUTE,
     DEMO_ROUTE,
-    DEMO_STEP_ONE_ROUTE,
-    DEMO_STEP_TWO_ROUTE,
+    DEMO_STEP_ROUTE,
     DEVTOOLS_BASE,
     LEGACY_DEVTOOLS_REDIRECTS,
 } from "./lib/routes";
@@ -45,12 +43,8 @@ const router = createBrowserRouter([
                 element: <DemoLandingPage />,
             },
             {
-                path: DEMO_STEP_ONE_ROUTE,
-                element: <DemoPlanetScreen />,
-            },
-            {
-                path: DEMO_STEP_TWO_ROUTE,
-                element: <DemoStepTwoPage />,
+                path: DEMO_STEP_ROUTE,
+                element: <DemoFlowPage />,
             },
             {
                 path: DEVTOOLS_BASE,
