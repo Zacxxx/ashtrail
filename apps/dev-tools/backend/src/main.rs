@@ -20,6 +20,7 @@ mod media_audio;
 mod media_video;
 mod progression;
 mod quest_ai;
+mod tts;
 mod worldgen_pipeline;
 
 use axum::{
@@ -1265,6 +1266,7 @@ async fn main() {
         .route("/api/songs/batches/{batch_id}", get(get_song_batch))
         .route("/api/media/audio/jobs", post(start_generate_media_audio_job))
         .route("/api/demo/step-1/jobs", post(start_demo_step_one_job))
+        .route("/api/tts/generate", post(tts::generate_tts_handler))
         .route("/api/media/video/jobs", post(start_generate_media_video_job))
         .route("/api/videos/batches", get(list_video_batches))
         .route("/api/videos/batches/{batch_id}", get(get_video_batch))
@@ -1416,6 +1418,7 @@ async fn main() {
         .nest_service("/api/sprites", ServeDir::new(sprites_dir.clone()))
         .nest_service("/api/songs", ServeDir::new(songs_dir.clone()))
         .nest_service("/api/generated-media", ServeDir::new(generated_media_dir.clone()))
+        .nest_service("/api/tts", ServeDir::new("generated/tts"))
         .nest_service("/api/videos", ServeDir::new(videos_dir.clone()))
         .nest_service(
             "/api/generated-media-video",

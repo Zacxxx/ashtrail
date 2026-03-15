@@ -327,6 +327,18 @@ export function WorldCanvas({
     const launchTrackedJob = useTrackedJobLauncher();
     const { waitForJob } = useJobs();
 
+    // ── Briefing Panel State ──
+    const [briefingOpen, setBriefingOpen] = useState(false);
+    const [briefingGenerating, setBriefingGenerating] = useState(false);
+    const [briefingFauna, setBriefingFauna] = useState<Array<{ name: string; description: string; imageUrl: string | null }>>([]);
+    const [briefingFlora, setBriefingFlora] = useState<Array<{ name: string; description: string; imageUrl: string | null }>>([]);
+    const [briefingLore, setBriefingLore] = useState<string | null>(null);
+    const [briefingTtsUrl, setBriefingTtsUrl] = useState<string | null>(null);
+    const [briefingLoreTyped, setBriefingLoreTyped] = useState("");
+    const briefingAudioRef = useRef<HTMLAudioElement | null>(null);
+    const [briefingAudioPlaying, setBriefingAudioPlaying] = useState(false);
+    const briefingGeneratedRef = useRef(false);
+
     const resetDemoTravelPanel = useCallback(() => {
         demoTravelRequestKeyRef.current = null;
         if (demoTravelOpenTimeoutRef.current !== null) {
@@ -566,18 +578,190 @@ export function WorldCanvas({
         }
     }, [activeHistoryId, getDemoTravelCacheKey, globeWorld, launchTrackedJob, waitForJob]);
 
-    const handleDemoTravelStartClick = useCallback(() => {
-        resetDemoTravelPanel();
-        if (demoTravelDestinationPayload) {
-            void startDemoTravelInterleavedGeneration(demoTravelDestinationPayload, false);
-        }
-        setDemoTravelStartToken((previous) => previous + 1);
-    }, [demoTravelDestinationPayload, resetDemoTravelPanel, startDemoTravelInterleavedGeneration]);
+    // ── Briefing Generation Pipeline ──
+    const startBriefingGeneration = useCallback(async () => {
+        if (!activeHistoryId || !globeWorld || briefingGeneratedRef.current) return;
+        briefingGeneratedRef.current = true;
+        setBriefingGenerating(true);
 
-    const handleDemoTravelNextPlaceholder = useCallback(() => {
-        if (!demoTravelPanel.triggerPayload) return;
-        console.info("Demo travel NEXT placeholder", demoTravelPanel.triggerPayload);
-    }, [demoTravelPanel.triggerPayload]);
+        const demoTravelText = parseDemoTravelTextContent(demoTravelPanel.textContent, demoTravelPanel.zoneInfo?.zoneTitle || "Travel Zone");
+        const realZoneTitle = demoTravelText.title || demoTravelPanel.zoneInfo?.zoneTitle || "Travel Zone";
+        const biomeLabel = demoTravelPanel.zoneInfo?.biomeLabel || "Unknown";
+        const terrainContext = demoTravelPanel.zoneInfo?.promptContext || `Zone: ${realZoneTitle}`;
+
+        // Parallel generation: fauna, flora, lore, images
+        const faunaTask = (async () => {
+            try {
+                const r = await fetch(`${API_BASE}/api/planet/ecology-data/${activeHistoryId}/generate/fauna-batch`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ 
+                        prompt: `Generate exactly 3 dangerous creature species native to a ${biomeLabel} zone called "${realZoneTitle}". Each must have a unique alien name and a vivid field-guide description. Use these categories: herbivore, predator, omnivore, scavenger, avian, aquatic, alien_other. Context: ${terrainContext}`, 
+                        count: 3, 
+                        biomeIds: [] 
+                    }),
+                });
+                if (!r.ok) throw new Error(await r.text());
+                const data = await r.json();
+                const entries = Array.isArray(data?.entries) ? data.entries : [];
+                return entries.map((e: any) => ({ name: e.name || "Unknown creature", description: e.description || "", imageUrl: null as string | null }));
+            } catch { return []; }
+        })();
+
+        const floraTask = (async () => {
+            try {
+                const r = await fetch(`${API_BASE}/api/planet/ecology-data/${activeHistoryId}/generate/flora-batch`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt: `Generate 3 unique alien plants native to a ${biomeLabel} zone called "${realZoneTitle}". Each must have a unique evocative name and a vivid description of appearance and properties. Context: ${terrainContext}`, count: 3, biomeIds: [] }),
+                });
+                if (!r.ok) throw new Error(await r.text());
+                const data = await r.json();
+                const entries = Array.isArray(data?.entries) ? data.entries : [];
+                return entries.map((e: any) => ({ name: e.name || "Unknown plant", description: e.description || "", imageUrl: null as string | null }));
+            } catch { return []; }
+        })();
+
+        const loreTask = (async () => {
+            try {
+                const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                    url: "/api/text/generate",
+                    request: { prompt: `Write a short, evocative lore passage (3-4 sentences) about a planetary zone called "${realZoneTitle}" (${biomeLabel}). Set the tone for an expedition. Mention ancient ruins, environmental hazards, or mysterious phenomena. End with a hook that teases an upcoming quest. Return ONLY the raw text, no JSON, no markdown. Context: ${terrainContext}` },
+                    optimisticJob: { kind: "worldgen.demo-travel.lore", title: "Generate Zone Lore", tool: "worldgen", status: "queued", currentStage: "Queued", worldId: activeHistoryId || undefined, metadata: { step: "DEMO_TRAVEL_LORE" } },
+                    restore: { route: DEVTOOLS_ROUTES.worldgen, search: { step: "DEMO_TRAVEL" }, payload: {} },
+                });
+                const detail = await waitForJob(accepted.jobId);
+                if (detail.status !== "completed") return null;
+                return String((detail.result as any)?.text || "").trim() || null;
+            } catch { return null; }
+        })();
+
+        const [faunaResults, floraResults, loreText] = await Promise.all([faunaTask, floraTask, loreTask]);
+
+        // Generate images for fauna + flora in parallel
+        const allEntries = [...faunaResults.map((f: any) => ({ ...f, kind: "fauna" })), ...floraResults.map((f: any) => ({ ...f, kind: "flora" }))];
+        const imagePrompts = allEntries.map((e: any) => `Detailed illustration of an alien ${e.kind === "fauna" ? "creature" : "plant"} called "${e.name}": ${e.description}. Expedition field guide style, dark atmospheric background, cinematic lighting.`);
+
+        if (imagePrompts.length > 0) {
+            try {
+                const r = await fetch(`${API_BASE}/api/textures/generate-batch`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        prompts: imagePrompts,
+                        stylePrompt: "alien creature/plant field guide illustration, dark atmosphere, expedition dossier",
+                        temperature: 0.6,
+                        category: "ecology_illustrations",
+                        subCategory: "demo_briefing",
+                        batchName: `${activeHistoryId}-briefing-${Date.now()}`,
+                    }),
+                });
+                if (r.ok) {
+                    const manifest = await r.json() as { batchId?: string; textures?: Array<{ filename?: string; url?: string; imageUrl?: string }> };
+                    const textures = manifest.textures || [];
+                    textures.forEach((tex, i) => {
+                        const rawUrl = tex.url || tex.imageUrl || (manifest.batchId && tex.filename ? `/api/textures/${manifest.batchId}/${tex.filename}` : null);
+                        const imageUrl = rawUrl ? (rawUrl.startsWith("http") ? rawUrl : `${API_BASE}${rawUrl}`) : null;
+                        if (imageUrl && i < allEntries.length) {
+                            allEntries[i].imageUrl = imageUrl;
+                        }
+                    });
+                }
+            } catch { /* image gen failed, proceed without */ }
+        }
+
+        const finalFauna = allEntries.filter((e: any) => e.kind === "fauna").map(({ kind, ...rest }: any) => rest);
+        const finalFlora = allEntries.filter((e: any) => e.kind === "flora").map(({ kind, ...rest }: any) => rest);
+
+        setBriefingFauna(finalFauna);
+        setBriefingFlora(finalFlora);
+        setBriefingLore(loreText);
+
+        // Generate TTS from a combined briefing script
+        const ttsScript = [
+            `Mission briefing for ${realZoneTitle}.`,
+            ...(finalFauna.length > 0 ? [`Hostile fauna detected: ${finalFauna.map((f: any) => f.name).join(", ")}.`] : []),
+            ...(finalFlora.length > 0 ? [`Notable flora identified: ${finalFlora.map((f: any) => f.name).join(", ")}.`] : []),
+            loreText || "",
+        ].filter(Boolean).join(" ");
+
+        if (ttsScript.length > 20) {
+            try {
+                const r = await fetch(`${API_BASE}/api/tts/generate`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: ttsScript, voiceName: "Kore" }),
+                });
+                if (r.ok) {
+                    const data = await r.json() as { audioUrl: string };
+                    setBriefingTtsUrl(data.audioUrl ? (data.audioUrl.startsWith("http") ? data.audioUrl : `${API_BASE}${data.audioUrl}`) : null);
+                }
+            } catch { /* TTS failed, proceed without */ }
+        }
+
+        setBriefingGenerating(false);
+    }, [activeHistoryId, globeWorld, demoTravelPanel.zoneInfo, launchTrackedJob, waitForJob]);
+
+    const handleDemoTravelStartClick = useCallback(() => {
+        // ZONE FREEZE: Do NOT reset the panel or regenerate the zone.
+        // Only replay the node animation. Penumbra Pass stays.
+        setDemoTravelPanelPhase("hidden");
+        setDemoTravelPanelVisible(false);
+        setDemoTravelStartToken((previous) => previous + 1);
+    }, []);
+
+    // NEW: Auto-trigger briefing generation as soon as zone name is ready to ensure pre-generation
+    useEffect(() => {
+        if (demoTravelPanel.textStatus === "success" && !briefingGeneratedRef.current && activeHistoryId && globeWorld) {
+            void startBriefingGeneration();
+        }
+    }, [demoTravelPanel.textStatus, activeHistoryId, globeWorld, startBriefingGeneration]);
+
+    const handleOpenBriefing = useCallback(() => {
+        setBriefingOpen(true);
+        setBriefingLoreTyped("");
+    }, []);
+
+    const handleCloseBriefing = useCallback(() => {
+        setBriefingOpen(false);
+        if (briefingAudioRef.current) {
+            briefingAudioRef.current.pause();
+            briefingAudioRef.current = null;
+            setBriefingAudioPlaying(false);
+        }
+    }, []);
+
+    const handleToggleBriefingAudio = useCallback(() => {
+        if (!briefingTtsUrl) return;
+        if (briefingAudioRef.current) {
+            if (briefingAudioPlaying) {
+                briefingAudioRef.current.pause();
+                setBriefingAudioPlaying(false);
+            } else {
+                briefingAudioRef.current.play();
+                setBriefingAudioPlaying(true);
+            }
+            return;
+        }
+        const audio = new Audio(briefingTtsUrl);
+        briefingAudioRef.current = audio;
+        audio.onended = () => setBriefingAudioPlaying(false);
+        audio.play();
+        setBriefingAudioPlaying(true);
+    }, [briefingTtsUrl, briefingAudioPlaying]);
+
+    // Typing animation for lore
+    useEffect(() => {
+        if (!briefingOpen || !briefingLore) return;
+        let i = 0;
+        setBriefingLoreTyped("");
+        const interval = setInterval(() => {
+            i++;
+            setBriefingLoreTyped(briefingLore.slice(0, i));
+            if (i >= briefingLore.length) clearInterval(interval);
+        }, 22);
+        return () => clearInterval(interval);
+    }, [briefingOpen, briefingLore]);
 
     const resolveDemoTravelAnchor = useCallback((payload: DemoTravelFinalTriggerPayload): DemoTravelPanelAnchor => {
         const stage = demoTravelStageRef.current;
@@ -891,11 +1075,21 @@ export function WorldCanvas({
                                     <div className="mt-4 flex items-center justify-end border-t border-white/6 pt-3">
                                         <button
                                             type="button"
-                                            onClick={handleDemoTravelNextPlaceholder}
-                                            className="group inline-flex items-center gap-2 rounded-full border border-[#B3EBF2]/14 bg-[#B3EBF2]/6 px-4 py-2 text-[10px] font-black uppercase tracking-[0.24em] text-cyan-50 transition-colors hover:bg-[#B3EBF2]/12"
+                                            onClick={handleOpenBriefing}
+                                            disabled={briefingGenerating && briefingFauna.length === 0}
+                                            className="group inline-flex items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/8 px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.24em] text-amber-100 transition-all hover:bg-amber-400/16 hover:border-amber-400/35 hover:shadow-[0_0_20px_rgba(251,191,36,0.15)] disabled:opacity-40 disabled:cursor-wait"
                                         >
-                                            <span className="text-[12px] transition-transform duration-300 group-hover:translate-x-0.5">&#8594;</span>
-                                            <span>NEXT</span>
+                                            {briefingGenerating && briefingFauna.length === 0 ? (
+                                                <>
+                                                    <span className="inline-block w-3 h-3 border-2 border-amber-300/40 border-t-amber-300 rounded-full animate-spin" />
+                                                    <span>PREPARING...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <svg className="w-3.5 h-3.5 transition-transform duration-300 group-hover:scale-110" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                                                    <span>OPEN BRIEF</span>
+                                                </>
+                                            )}
                                         </button>
                                     </div>
                                 </div>
@@ -911,6 +1105,177 @@ export function WorldCanvas({
                             <p className="text-[8px] font-extrabold tracking-[0.2em] text-white">BASE TEXTURE</p>
                         </div>
                         <img src={globeWorld.textureUrl} alt="AI Map" className="w-full h-auto object-contain bg-black group-hover:scale-105 transition-transform duration-500" />
+                    </div>
+                )}
+
+                {/* ── BRIEFING OVERLAY ── */}
+                {briefingOpen && (
+                    <div className="absolute inset-0 z-50 flex items-center justify-center" style={{ backdropFilter: "blur(12px)" }}>
+                        <div className="absolute inset-0 bg-[#04070d]/75" onClick={handleCloseBriefing} />
+                        <div
+                            className="relative z-10 w-[94%] max-w-[960px] max-h-[92vh] flex flex-col rounded-[32px] border border-[#B3EBF2]/12 bg-[linear-gradient(160deg,rgba(10,16,24,0.96),rgba(5,8,12,0.92))] shadow-[0_32px_100px_rgba(0,0,0,0.5)] backdrop-blur-2xl"
+                            style={{ animation: "briefingIn 420ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards" }}
+                        >
+                            <style>{`
+                                @keyframes briefingIn {
+                                    from { opacity: 0; transform: scale(0.92) translateY(16px); }
+                                    to { opacity: 1; transform: scale(1) translateY(0); }
+                                }
+                                @keyframes typeCursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+                            `}</style>
+                            <div className="absolute inset-0 rounded-[32px] bg-[radial-gradient(ellipse_at_top_left,rgba(179,235,242,0.06),transparent_50%)]" />
+
+                            {/* Header */}
+                            <div className="relative flex items-center justify-between px-7 pt-6 pb-4 border-b border-white/6">
+                                <div className="flex items-center gap-4">
+                                    {briefingTtsUrl && (
+                                        <button
+                                            type="button"
+                                            onClick={handleToggleBriefingAudio}
+                                            className="flex items-center justify-center w-10 h-10 rounded-full border border-amber-400/20 bg-amber-400/8 text-amber-200 hover:bg-amber-400/16 transition-all shadow-[0_0_16px_rgba(251,191,36,0.1)]"
+                                            title={briefingAudioPlaying ? "Pause briefing" : "Play briefing"}
+                                        >
+                                            {briefingAudioPlaying ? (
+                                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                                            ) : (
+                                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                                            )}
+                                        </button>
+                                    )}
+                                    <div>
+                                        <div className="text-[10px] font-black uppercase tracking-[0.3em] text-[#B3EBF2]/60">Mission Briefing</div>
+                                        <div className="text-[18px] font-black uppercase tracking-[0.04em] text-white leading-tight mt-0.5">
+                                            {demoTravelText.title || demoTravelPanel.zoneInfo?.zoneTitle || "Zone Briefing"}
+                                        </div>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleCloseBriefing}
+                                    className="flex items-center justify-center w-9 h-9 rounded-full border border-white/10 bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+
+                            <div className="relative flex-1 overflow-y-auto px-7 py-5 space-y-9 custom-scrollbar">
+                                {/* ── BESTIAIRE ── */}
+                                <section>
+                                    <div className="flex gap-6">
+                                        <div className="shrink-0 w-[160px] h-[140px] rounded-[18px] border border-red-400/12 bg-[linear-gradient(135deg,rgba(239,68,68,0.08),rgba(20,10,10,0.5))] flex flex-col items-center justify-center">
+                                            <svg className="w-8 h-8 text-red-400/50 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                                            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-red-300/70">Bestiaire</div>
+                                            <div className="text-[8px] uppercase tracking-[0.15em] text-red-400/40 mt-0.5">Hostile Fauna</div>
+                                        </div>
+                                        <div className="flex-1 space-y-2.5">
+                                            {briefingFauna.length > 0 ? briefingFauna.map((creature, i) => (
+                                                <div key={i} className="flex gap-3 items-start rounded-xl border border-white/5 bg-white/[0.02] p-2.5 hover:bg-white/[0.04] transition-colors">
+                                                    <div className="shrink-0 w-[52px] h-[52px] rounded-lg border border-white/8 bg-black/30 overflow-hidden">
+                                                        {creature.imageUrl ? (
+                                                            <img src={creature.imageUrl} alt={creature.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-[8px] text-white/20 animate-pulse">GEN</div>
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="text-[11px] font-bold text-white leading-tight">{creature.name}</div>
+                                                        <div className="text-[10px] text-slate-400 leading-[1.4] mt-0.5 line-clamp-2">{creature.description}</div>
+                                                    </div>
+                                                </div>
+                                            )) : (
+                                                <div className="space-y-2">
+                                                    {[0,1,2].map(i => <div key={i} className="h-14 rounded-xl bg-white/[0.03] animate-pulse" />)}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </section>
+
+                                {/* ── FLORE ── */}
+                                <section>
+                                    <div className="flex gap-6">
+                                        <div className="shrink-0 w-[160px] h-[140px] rounded-[18px] border border-emerald-400/12 bg-[linear-gradient(135deg,rgba(34,197,94,0.08),rgba(10,20,10,0.5))] flex flex-col items-center justify-center">
+                                            <svg className="w-8 h-8 text-emerald-400/50 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
+                                            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-300/70">Flore</div>
+                                            <div className="text-[8px] uppercase tracking-[0.15em] text-emerald-400/40 mt-0.5">Native Flora</div>
+                                        </div>
+                                        <div className="flex-1 space-y-2.5">
+                                            {briefingFlora.length > 0 ? briefingFlora.map((plant, i) => (
+                                                <div key={i} className="flex gap-3 items-start rounded-xl border border-white/5 bg-white/[0.02] p-2.5 hover:bg-white/[0.04] transition-colors">
+                                                    <div className="shrink-0 w-[52px] h-[52px] rounded-lg border border-white/8 bg-black/30 overflow-hidden">
+                                                        {plant.imageUrl ? (
+                                                            <img src={plant.imageUrl} alt={plant.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-[8px] text-white/20 animate-pulse">GEN</div>
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="text-[11px] font-bold text-white leading-tight">{plant.name}</div>
+                                                        <div className="text-[10px] text-slate-400 leading-[1.4] mt-0.5 line-clamp-2">{plant.description}</div>
+                                                    </div>
+                                                </div>
+                                            )) : (
+                                                <div className="space-y-2">
+                                                    {[0,1,2].map(i => <div key={i} className="h-14 rounded-xl bg-white/[0.03] animate-pulse" />)}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </section>
+
+                                {/* ── LORE ── */}
+                                <section>
+                                    <div className="flex gap-6">
+                                        <div className="shrink-0 w-[160px] h-[160px] rounded-[18px] border border-amber-400/12 bg-black/30 overflow-hidden relative">
+                                            {demoTravelPanel.imageUrl ? (
+                                                <img src={demoTravelPanel.imageUrl} alt="Zone" className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="w-full h-full flex flex-col items-center justify-center">
+                                                    <svg className="w-8 h-8 text-amber-400/40 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                                                    <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-300/70">Lore</div>
+                                                </div>
+                                            )}
+                                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+                                                <div className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-200/80">Zone Lore</div>
+                                            </div>
+                                        </div>
+                                        <div className="flex-1">
+                                            {briefingLore ? (
+                                                <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+                                                    <p className="text-[12px] leading-[1.7] text-slate-200 font-light">
+                                                        {briefingLoreTyped}
+                                                        {briefingLoreTyped.length < (briefingLore?.length || 0) && (
+                                                            <span className="inline-block w-[2px] h-[14px] bg-amber-300/80 ml-0.5 align-middle" style={{ animation: "typeCursor 600ms steps(1) infinite" }} />
+                                                        )}
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-3 pt-2">
+                                                    <div className="h-4 w-5/6 rounded-full bg-white/6 animate-pulse" />
+                                                    <div className="h-4 w-full rounded-full bg-white/6 animate-pulse" />
+                                                    <div className="h-4 w-3/4 rounded-full bg-white/6 animate-pulse" />
+                                                    <div className="h-4 w-4/5 rounded-full bg-white/6 animate-pulse" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="relative px-7 py-4 border-t border-white/6 flex items-center justify-between">
+                                <div className="text-[9px] uppercase tracking-[0.2em] text-white/25">
+                                    {briefingGenerating ? "Generating intel..." : `${briefingFauna.length} fauna • ${briefingFlora.length} flora`}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleCloseBriefing}
+                                    className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-5 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-white/70 hover:bg-white/10 hover:text-white transition-all"
+                                >
+                                    Close Briefing
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
