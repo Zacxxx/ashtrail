@@ -9,7 +9,7 @@ import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import { useJobs } from "../jobs/useJobs";
 import { useGenerationHistory } from "../hooks/useGenerationHistory";
 import { useActiveWorld } from "../hooks/useActiveWorld";
-import { DEMO_STEP_TWO_ROUTE } from "../lib/routes";
+import { DEMO_STEP_THREE_ROUTE, DEMO_STEP_TWO_ROUTE } from "../lib/routes";
 import {
     buildDemoHeroIdentity,
     buildDemoHeroCharacter,
@@ -1382,6 +1382,24 @@ export function DemoStepTwoPage() {
         [heroIdentity.name, result],
     );
 
+    const handleNext = () => {
+        const next = new URLSearchParams(searchParams);
+        next.set("hero", heroIdentity.variant);
+        if (stepOneJobId) {
+            next.set("stepOneJobId", stepOneJobId);
+        }
+        if (selectionJobId) {
+            next.set("selectionJobId", selectionJobId);
+        }
+        if (planetTexture) {
+            next.set("planetTexture", planetTexture);
+        }
+        if (planetTitle) {
+            next.set("planetTitle", planetTitle);
+        }
+        window.location.assign(`${DEMO_STEP_THREE_ROUTE}?${next.toString()}`);
+    };
+
     return (
         <ScreenShell variant="technical">
             <style>{`
@@ -1456,17 +1474,7 @@ export function DemoStepTwoPage() {
             )}
 
             {phase === "ready" && result && (
-                <div className="relative z-10 grid h-full w-full items-stretch gap-6 px-6 py-8 lg:grid-cols-[minmax(0,1.22fr)_minmax(0,0.78fr)] lg:px-8 xl:px-12">
-                    <div className="min-h-0 h-full overflow-hidden">
-                        <div className="relative h-full">
-                            <CharacterSheetPanel
-                                character={result.character}
-                                className="h-full"
-                                generatedWeapon={result.weaponArtifact ?? null}
-                            />
-                        </div>
-                    </div>
-
+                <div className="relative z-10 grid h-full w-full items-stretch gap-6 px-6 py-8 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:px-8 xl:px-12">
                     <div className="min-h-0 overflow-hidden">
                         <div className="animate-demo-panel-settle flex h-full flex-col rounded-[28px] border border-[#f1c765]/15 bg-black/12 px-6 py-8 backdrop-blur-[2px] md:px-8">
                             <div className="mb-5 flex items-start justify-between gap-4">
@@ -1568,6 +1576,28 @@ export function DemoStepTwoPage() {
                                 src={result.voiceAsset?.url || undefined}
                                 preload="metadata"
                                 className="hidden"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="min-h-0 h-full overflow-hidden">
+                        <div className="relative h-full">
+                            <CharacterSheetPanel
+                                character={result.character}
+                                className="h-full"
+                                generatedWeapon={result.weaponArtifact ?? null}
+                                footerOverlay={(
+                                    <Button
+                                        size="lg"
+                                        variant="glass"
+                                        onClick={handleNext}
+                                        className="group relative min-w-[220px] overflow-hidden rounded px-0 py-6 text-sm font-black tracking-[0.52em] transition-all duration-500 bg-white/[0.03] hover:bg-white/[0.08]"
+                                    >
+                                        <span className="relative z-10 flex translate-x-[0.26em] items-center justify-center drop-shadow-[0_0_10px_rgba(255,255,255,0.2)] transition-all duration-700 group-hover:scale-105 group-hover:text-white">
+                                            NEXT
+                                        </span>
+                                    </Button>
+                                )}
                             />
                         </div>
                     </div>

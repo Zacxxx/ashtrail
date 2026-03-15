@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { type Character, type Stats } from "@ashtrail/core";
 import {
     Activity,
@@ -32,6 +33,7 @@ interface CharacterSheetPanelProps {
     character: Character;
     className?: string;
     generatedWeapon?: GeneratedWeaponView | null;
+    footerOverlay?: ReactNode;
 }
 
 function healthStatusFor(character: Character) {
@@ -73,6 +75,7 @@ export function CharacterSheetPanel({
     character,
     className = "",
     generatedWeapon = null,
+    footerOverlay,
 }: CharacterSheetPanelProps) {
     const healthStatus = healthStatusFor(character);
     const characterTitle = character.title || character.faction || "No Title";
@@ -102,7 +105,7 @@ export function CharacterSheetPanel({
                 }
             `}</style>
             <div className={`animate-character-sheet-settle h-full px-0 py-1 ${className}`}>
-                <div className="flex h-full flex-col border border-white/5 bg-black/30 p-2 shadow-2xl backdrop-blur-md">
+                <div className="relative flex h-full flex-col overflow-hidden border border-white/5 bg-black/30 p-2 shadow-2xl backdrop-blur-md">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-2">
                         <div className="flex items-center gap-2">
                             <div className="h-3 w-1.5 bg-[#c2410c]" />
@@ -110,7 +113,7 @@ export function CharacterSheetPanel({
                         </div>
                     </div>
 
-                    <div className="flex min-h-0 flex-1 flex-col space-y-2">
+                    <div className={`flex min-h-0 flex-1 flex-col space-y-2 ${footerOverlay ? "pb-24" : ""}`}>
                         <section className="border border-white/5 bg-black/40 p-4 shadow-2xl">
                             <div className="space-y-2.5 font-mono">
                                 <div className="grid items-start gap-4 md:grid-cols-[minmax(220px,0.92fr)_minmax(0,1.08fr)]">
@@ -333,6 +336,15 @@ export function CharacterSheetPanel({
                             </div>
                         </section>
                     </div>
+
+                    {footerOverlay && (
+                        <div className="pointer-events-none absolute inset-x-2 bottom-2 z-20">
+                            <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-[#02060b] via-[#02060b]/92 to-transparent" />
+                            <div className="pointer-events-auto relative flex items-end justify-center px-4 pb-2 pt-10">
+                                {footerOverlay}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </>
