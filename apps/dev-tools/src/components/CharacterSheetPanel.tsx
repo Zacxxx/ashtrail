@@ -89,92 +89,101 @@ export function CharacterSheetPanel({
                     </div>
 
                     <div className="flex min-h-0 flex-1 flex-col space-y-2">
-                        <section className="border border-white/5 bg-black/40 p-3 shadow-2xl">
+                        <section className="border border-white/5 bg-black/40 p-4 shadow-2xl">
                             <div className="space-y-2.5 font-mono">
-                                <div className="grid grid-cols-1 gap-2.5 md:grid-cols-[132px_minmax(0,1fr)] md:items-start">
-                                    <div className="relative h-[132px] w-full overflow-hidden border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.2))] shadow-lg md:w-[132px]">
-                                        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:18px_18px] opacity-30" />
-                                        <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/30 to-transparent" />
-                                        {character.portraitUrl ? (
-                                            <img src={character.portraitUrl} alt={character.name} className="absolute inset-0 h-full w-full object-cover" />
-                                        ) : (
-                                            <div className="absolute inset-0 flex items-center justify-center">
-                                                <svg
-                                                    viewBox="0 0 64 64"
-                                                    className="h-16 w-16 animate-pulse text-[#1f1f1f] opacity-80"
-                                                    fill="currentColor"
-                                                    aria-hidden="true"
-                                                >
-                                                    <circle cx="32" cy="21" r="11" />
-                                                    <path d="M14 56c1-11 8-19 18-19s17 8 18 19H14z" />
-                                                </svg>
-                                            </div>
-                                        )}
-                                        <div className="absolute inset-0 bg-black/35" />
+                                <div className="space-y-4">
+                                    <div className="mx-auto w-full max-w-[360px]">
+                                        <div className="relative overflow-hidden border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.2))] shadow-[0_24px_48px_rgba(0,0,0,0.32)]">
+                                            <div className="aspect-[0.84/1] w-full" />
+                                            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(194,65,12,0.12),transparent_48%)]" />
+                                            <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:18px_18px] opacity-30" />
+                                            <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                                            {character.portraitUrl ? (
+                                                <img
+                                                    src={character.portraitUrl}
+                                                    alt={character.name}
+                                                    className="absolute inset-0 h-full w-full object-cover object-center"
+                                                />
+                                            ) : (
+                                                <div className="absolute inset-0 flex items-center justify-center">
+                                                    <svg
+                                                        viewBox="0 0 64 64"
+                                                        className="h-24 w-24 animate-pulse text-[#1f1f1f] opacity-80"
+                                                        fill="currentColor"
+                                                        aria-hidden="true"
+                                                    >
+                                                        <circle cx="32" cy="21" r="11" />
+                                                        <path d="M14 56c1-11 8-19 18-19s17 8 18 19H14z" />
+                                                    </svg>
+                                                </div>
+                                            )}
+                                            <div className="absolute inset-0 bg-black/18" />
+                                        </div>
                                     </div>
 
-                                    <div className="min-w-0 space-y-1.5">
-                                        <div className="flex items-center gap-2">
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-center gap-2">
                                             <div className="h-1.5 w-1.5 bg-[#c2410c] shadow-[0_0_8px_rgba(194,65,12,0.45)]" />
                                             <span className="text-[8px] font-bold uppercase tracking-[0.24em] text-gray-500">Identification</span>
                                         </div>
-                                        <div className="space-y-1 border-b border-white/5 pb-1.5">
-                                            <h3 className="text-[15px] font-bold uppercase leading-none tracking-[0.07em] text-white">
+
+                                        <div className="space-y-1.5 border-b border-white/5 pb-3 text-center">
+                                            <h3 className="text-[17px] font-bold leading-none tracking-[0.06em] text-white sm:text-[19px]">
                                                 {character.badge && <span className="mr-2 text-orange-500/80 drop-shadow-[0_0_8px_rgba(194,65,12,0.4)]">{character.badge}</span>}
                                                 {character.name || "Unnamed Unit"}
                                             </h3>
-                                            <p className="pt-0.5 text-[9px] font-medium uppercase leading-none tracking-[0.18em] text-gray-400">
+                                            <p className="text-[9px] font-medium uppercase tracking-[0.2em] text-gray-400">
                                                 {character.occupation?.name || "No Occupation"}
                                             </p>
-                                            <p className="pt-0.5 text-[9px] font-medium uppercase leading-none tracking-[0.16em] text-gray-600">
+                                            <p className="text-[9px] font-medium uppercase tracking-[0.16em] text-gray-600">
                                                 {characterTitle}
                                             </p>
                                         </div>
 
-                                        <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2 pt-1">
-                                            <div className="border border-white/5 bg-black/30 px-2.5 py-2">
+                                        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                                            <div className="border border-white/5 bg-black/30 px-3 py-2.5 text-center">
                                                 <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Age / Gender</div>
                                                 <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
                                                     {character.age} / {character.gender}
                                                 </div>
                                             </div>
-                                            <div className="border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-2.5 py-2">
+
+                                            <div className="border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-3 py-2.5 text-center">
                                                 <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]/70">Level</div>
                                                 <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
                                                     LVL {character.level}
                                                 </div>
                                             </div>
+
+                                            <div className="border border-white/5 bg-black/30 px-3 py-2.5 text-center">
+                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Current Location</div>
+                                                <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                                    {currentLocationLabel}
+                                                </div>
+                                            </div>
+
+                                            <div className="border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2.5 text-center">
+                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Health Status</div>
+                                                <div className={`mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${healthStatus.className}`}>
+                                                    {healthStatus.label}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-
-                                <div className="grid gap-2 md:grid-cols-[1.15fr_0.9fr_1.1fr]">
-                                    <div className="border border-white/5 bg-black/30 px-3 py-2">
-                                        <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Current Location</div>
-                                        <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">{currentLocationLabel}</div>
-                                    </div>
-
-                                    <div className="border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2">
-                                        <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-gray-600">Health Status</div>
-                                        <div className={`mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${healthStatus.className}`}>
-                                            {healthStatus.label}
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {[
-                                            { label: "HP", value: `${tacticalStats.hp}/${tacticalStats.maxHp}` },
-                                            { label: "AP", value: String(tacticalStats.ap) },
-                                            { label: "MP", value: String(tacticalStats.mp) },
-                                        ].map((entry) => (
-                                            <div key={entry.label} className="border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-3 py-2 text-center">
-                                                <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]/70">{entry.label}</div>
-                                                <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
-                                                    {entry.value}
-                                                </div>
+                                <div className="grid gap-2 md:grid-cols-3">
+                                    {[
+                                        { label: "HP", value: `${tacticalStats.hp}/${tacticalStats.maxHp}` },
+                                        { label: "AP", value: String(tacticalStats.ap) },
+                                        { label: "MP", value: String(tacticalStats.mp) },
+                                    ].map((entry) => (
+                                        <div key={entry.label} className="border border-[#c2410c]/25 bg-[#c2410c]/[0.07] px-3 py-2.5 text-center">
+                                            <div className="text-[7px] font-bold uppercase tracking-[0.22em] text-[#c2410c]/70">{entry.label}</div>
+                                            <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                                {entry.value}
                                             </div>
-                                        ))}
-                                    </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         </section>
