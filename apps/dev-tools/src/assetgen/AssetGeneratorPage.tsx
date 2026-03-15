@@ -831,6 +831,9 @@ export function AssetGeneratorPage() {
     const [keepVeoAudio, setKeepVeoAudio] = useState(true);
     const [activeVideoJobId, setActiveVideoJobId] = useState<string | null>(null);
     const [activeVideoResult, setActiveVideoResult] = useState<GeneratedMediaVideoResult | null>(null);
+    const [isSavingVideoToGallery, setIsSavingVideoToGallery] = useState(false);
+    const [videoSaveNotice, setVideoSaveNotice] = useState<string | null>(null);
+    const [videoSaveError, setVideoSaveError] = useState<string | null>(null);
 
     // ── Pack Management Modal State ──
     const [isAddToPackModalOpen, setIsAddToPackModalOpen] = useState(false);
@@ -867,6 +870,10 @@ export function AssetGeneratorPage() {
         () => activeVideoJobId ? mediaVideoJobs.find((job) => job.jobId === activeVideoJobId) ?? null : null,
         [activeVideoJobId, mediaVideoJobs],
     );
+    const activeVideoBatchId = useMemo(() => {
+        const value = activeVideoResult?.transcript.toolArguments?.persistedVideoBatchId;
+        return typeof value === "string" && value.trim().length > 0 ? value : null;
+    }, [activeVideoResult]);
 
     const assignableCharacters = useMemo(
         () =>
@@ -1442,6 +1449,8 @@ export function AssetGeneratorPage() {
 
     const selectVideoJob = useCallback(async (jobId: string) => {
         setActiveVideoJobId(jobId);
+        setVideoSaveNotice(null);
+        setVideoSaveError(null);
         const detail = await getJobDetail(jobId);
         if (detail && isGeneratedMediaVideoResult(detail.result)) {
             setActiveVideoResult(detail.result);
@@ -1453,6 +1462,33 @@ export function AssetGeneratorPage() {
             ));
         }
     }, [getJobDetail]);
+
+    const saveVideoToGallery = useCallback(async () => {
+        if (!activeVideoBatchId) {
+            setVideoSaveError("This video package is not persisted yet.");
+            return;
+        }
+        setIsSavingVideoToGallery(true);
+        setVideoSaveNotice(null);
+        setVideoSaveError(null);
+        try {
+            const res = await fetch(`/api/videos/batches/${activeVideoBatchId}/save`, {
+                method: "POST",
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(payload?.error || "Video save to gallery failed");
+            }
+            setVideoSaveNotice(
+                `Saved to gallery and synced to bucket - uploaded: ${payload.uploaded ?? 0}, skipped: ${payload.skipped ?? 0}, failed: ${payload.failed ?? 0}`,
+            );
+        } catch (e) {
+            const message = e instanceof Error ? e.message : "Video save to gallery failed";
+            setVideoSaveError(message);
+        } finally {
+            setIsSavingVideoToGallery(false);
+        }
+    }, [activeVideoBatchId]);
 
     useEffect(() => {
         if (activeTab !== "songs") return;
@@ -3093,6 +3129,33 @@ export function AssetGeneratorPage() {
                                                 </span>
                                             ))}
                                         </div>
+                                        <div className="mt-4 flex flex-wrap items-center gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => void saveVideoToGallery()}
+                                                disabled={isSavingVideoToGallery || !activeVideoBatchId}
+                                                className={`rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] transition-all ${isSavingVideoToGallery || !activeVideoBatchId
+                                                    ? "cursor-not-allowed border-white/10 bg-white/5 text-gray-500"
+                                                    : "border-emerald-500/30 bg-emerald-500/12 text-emerald-100 hover:bg-emerald-500/18"}`}
+                                            >
+                                                {isSavingVideoToGallery ? "Saving..." : "Save To Gallery + Bucket"}
+                                            </button>
+                                            {activeVideoBatchId && (
+                                                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-gray-400">
+                                                    {activeVideoBatchId}
+                                                </span>
+                                            )}
+                                        </div>
+                                        {videoSaveNotice && (
+                                            <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+                                                {videoSaveNotice}
+                                            </div>
+                                        )}
+                                        {videoSaveError && (
+                                            <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-100">
+                                                {videoSaveError}
+                                            </div>
+                                        )}
                                         <h3 className="mt-4 text-2xl font-black tracking-[0.04em] text-white">{activeVideoResult.artifact.metadata.title}</h3>
                                         <p className="mt-3 max-w-3xl text-sm leading-6 text-gray-300">{activeVideoResult.artifact.metadata.description}</p>
                                         {activeVideoResult.artifact.video && (

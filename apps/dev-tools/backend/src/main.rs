@@ -757,6 +757,15 @@ struct SupabaseSyncResponse {
     failed: usize,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoBatchSaveResponse {
+    batch_id: String,
+    uploaded: usize,
+    skipped: usize,
+    failed: usize,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SupabaseHealthResponse {
@@ -1259,6 +1268,7 @@ async fn main() {
         .route("/api/media/video/jobs", post(start_generate_media_video_job))
         .route("/api/videos/batches", get(list_video_batches))
         .route("/api/videos/batches/{batch_id}", get(get_video_batch))
+        .route("/api/videos/batches/{batch_id}/save", post(save_video_batch_to_gallery))
         .route("/api/ai/image-models", get(get_ai_image_models))
         .route("/api/gallery/inventory", get(get_gallery_inventory))
         .route("/api/storage/supabase/health", get(get_supabase_storage_health))
@@ -7996,6 +8006,75 @@ async fn get_video_batch(
         )
     })?;
     Ok(Json(manifest))
+}
+
+async fn save_video_batch_to_gallery(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let batch_dir = state.videos_dir.join(&batch_id);
+    if !batch_dir.join("manifest.json").exists() {
+        return Err((StatusCode::NOT_FOUND, "Video batch not found".to_string()));
+    }
+
+    let Some(cfg) = state.supabase.as_ref() else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Supabase storage is not configured".to_string(),
+        ));
+    };
+
+    let client = reqwest::Client::new();
+    ensure_supabase_bucket_exists(&client, cfg)
+        .await
+        .map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+
+    let prefix = format!("{}/videos/{}", cfg.prefix, batch_id);
+    let remote_files = list_supabase_objects_recursive(&client, cfg, &prefix)
+        .await
+        .unwrap_or_default();
+    let remote_map = remote_files
+        .iter()
+        .map(|object| (object.path.clone(), object.clone()))
+        .collect::<HashMap<_, _>>();
+
+    let mut local_files = Vec::new();
+    collect_files_recursive(&batch_dir, &mut local_files);
+
+    let mut uploaded = 0usize;
+    let mut skipped = 0usize;
+    let mut failed = 0usize;
+
+    for local_path in &local_files {
+        let Some(cloud_key) = local_to_cloud_key(&state, cfg, local_path) else {
+            failed += 1;
+            continue;
+        };
+
+        let local_time = local_modified_at(local_path);
+        let remote_time = remote_map
+            .get(&cloud_key)
+            .and_then(|object| remote_updated_at(object.updated_at.as_deref()));
+        if remote_time.is_some() && local_time.is_some() && remote_time >= local_time {
+            skipped += 1;
+            continue;
+        }
+
+        match std::fs::read(local_path) {
+            Ok(bytes) => match upload_to_supabase(&client, cfg, &cloud_key, bytes).await {
+                Ok(()) => uploaded += 1,
+                Err(_) => failed += 1,
+            },
+            Err(_) => failed += 1,
+        }
+    }
+
+    Ok(Json(VideoBatchSaveResponse {
+        batch_id,
+        uploaded,
+        skipped,
+        failed,
+    }))
 }
 
 #[derive(Deserialize)]
