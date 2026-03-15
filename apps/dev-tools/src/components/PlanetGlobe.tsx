@@ -25,6 +25,8 @@ interface TerrainMask {
   height: number;
   land: Uint8Array;
   quality: Float32Array;
+  distanceToWater: Float32Array;
+  source: "cellData" | "image";
 }
 
 interface TravelCandidate {
@@ -34,6 +36,8 @@ interface TravelCandidate {
   lat: number;
   vec: THREE.Vector3;
   quality: number;
+  inland: number;
+  regionId: number;
 }
 
 interface RouteMetric {
@@ -50,15 +54,32 @@ interface TravelRouteSegment {
 }
 
 interface TravelRoute {
+  regionId: number;
   nodes: TravelCandidate[];
   segments: TravelRouteSegment[];
+  focusVec: THREE.Vector3;
+  focusLon: number;
+  focusLat: number;
 }
 
 interface LandRegionMap {
   ids: Int32Array;
   largestRegionId: number;
   sizes: Map<number, number>;
+  regionCount: number;
 }
+
+type DemoTravelSequenceState =
+  | "idle"
+  | "animating_segment_1"
+  | "arrived_node_2"
+  | "animating_segment_2"
+  | "arrived_node_3"
+  | "animating_segment_3"
+  | "arrived_node_4"
+  | "animating_segment_4"
+  | "arrived_node_5"
+  | "complete";
 
 const WATER_BIOMES = new Set([
   "ABYSSAL_OCEAN",
@@ -71,10 +92,14 @@ const WATER_BIOMES = new Set([
 ]);
 
 const TRAVEL_NODE_COUNT = 5;
+const TRAVEL_NODE_CORE_RADIUS = 1.045;
+const TRAVEL_NODE_GLOW_RADIUS = 1.052;
+const TRAVEL_NODE_WAVE_RADIUS = 1.06;
+const TRAVEL_LINE_BASE_RADIUS = 1.04;
 const ROUTE_SEARCH_PROFILES = [
-  { targetDistance: 0.42, minDistance: 0.2, maxDistance: 0.68, maxWaterFraction: 0.2 },
-  { targetDistance: 0.5, minDistance: 0.24, maxDistance: 0.82, maxWaterFraction: 0.32 },
-  { targetDistance: 0.34, minDistance: 0.16, maxDistance: 0.62, maxWaterFraction: 0.42 },
+  { targetDistance: 0.34, minDistance: 0.2, maxDistance: 0.52, maxWaterFraction: 0.04 },
+  { targetDistance: 0.38, minDistance: 0.22, maxDistance: 0.56, maxWaterFraction: 0.07 },
+  { targetDistance: 0.42, minDistance: 0.24, maxDistance: 0.62, maxWaterFraction: 0.1 },
 ];
 
 function clamp(value: number, min: number, max: number): number {
@@ -162,25 +187,222 @@ function rgbToHsv(r: number, g: number, b: number): { h: number; s: number; v: n
 function isLikelyLandFromPixel(r: number, g: number, b: number): boolean {
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   const { h, s, v } = rgbToHsv(r, g, b);
-  const clearlyWaterHue = h >= 165 && h <= 255 && s > 0.12 && v > 0.08 && v < 0.82;
-  const blueDominant = b > r * 1.08 && b > g * 1.03 && luminance < 0.76;
-  return !(clearlyWaterHue || blueDominant);
+  const waterHue = h >= 168 && h <= 255 && s > 0.14 && v > 0.05 && v < 0.88;
+  const deepBlue = b > r * 1.12 && b > g * 1.05 && luminance < 0.86;
+  const cyanShelf = h >= 180 && h <= 220 && s > 0.08 && b > g && g >= r;
+  if (waterHue || deepBlue || cyanShelf) {
+    return false;
+  }
+
+  const greenLand = g >= b * 0.92 && g >= r * 0.85 && s > 0.08 && v > 0.18;
+  const warmLand = h >= 18 && h <= 150 && s > 0.12 && v > 0.15;
+  const brightLand = luminance > 0.42 && (r + g) > b * 1.45;
+  return greenLand || warmLand || brightLand;
 }
 
 function isLikelyLandCell(cell: PlanetWorldData["cellData"][number] | undefined): boolean {
   if (!cell) return false;
   const terrainCell = cell as Partial<TerrainCell>;
-  if (typeof terrainCell.elevationMeters === "number") {
-    return terrainCell.elevationMeters >= -75;
+  if (terrainCell.isLake) {
+    return false;
   }
-  if (typeof terrainCell.biome === "string") {
-    return !WATER_BIOMES.has(terrainCell.biome);
+  if (typeof terrainCell.biome === "string" && WATER_BIOMES.has(terrainCell.biome)) {
+    return false;
+  }
+  if (typeof terrainCell.elevationMeters === "number") {
+    return terrainCell.elevationMeters >= 0;
+  }
+  if (typeof terrainCell.elevation === "number") {
+    return terrainCell.elevation >= 0.5;
   }
   if (typeof cell.color === "string") {
     const [r, g, b] = hexToRgb(cell.color);
     return isLikelyLandFromPixel(r, g, b);
   }
   return false;
+}
+
+function erodeLandMask(width: number, height: number, source: Uint8Array, radius = 1): Uint8Array {
+  const result = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (!source[idx]) continue;
+      let survives = true;
+      for (let dy = -radius; dy <= radius && survives; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= height) {
+          survives = false;
+          break;
+        }
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = wrapX(x + dx, width);
+          if (!source[ny * width + nx]) {
+            survives = false;
+            break;
+          }
+        }
+      }
+      if (survives) {
+        result[idx] = 1;
+      }
+    }
+  }
+  return result;
+}
+
+function dilateLandMask(width: number, height: number, source: Uint8Array, radius = 1): Uint8Array {
+  const result = new Uint8Array(source);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (source[idx]) continue;
+      let shouldFill = false;
+      for (let dy = -radius; dy <= radius && !shouldFill; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= height) continue;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = wrapX(x + dx, width);
+          if (source[ny * width + nx]) {
+            shouldFill = true;
+            break;
+          }
+        }
+      }
+      if (shouldFill) {
+        result[idx] = 1;
+      }
+    }
+  }
+  return result;
+}
+
+function removeSmallLandMasses(width: number, height: number, source: Uint8Array, minRegionSize: number): Uint8Array {
+  const ids = new Int32Array(width * height);
+  ids.fill(-1);
+  const regionSizes = new Map<number, number>();
+  let nextRegionId = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const startIndex = y * width + x;
+      if (!source[startIndex] || ids[startIndex] !== -1) continue;
+      const stack = [startIndex];
+      ids[startIndex] = nextRegionId;
+      let size = 0;
+
+      while (stack.length > 0) {
+        const current = stack.pop()!;
+        size += 1;
+        const currentY = Math.floor(current / width);
+        const currentX = current % width;
+        const neighbors = [
+          [wrapX(currentX - 1, width), currentY],
+          [wrapX(currentX + 1, width), currentY],
+          [currentX, currentY - 1],
+          [currentX, currentY + 1],
+        ] as const;
+
+        for (const [neighborX, neighborY] of neighbors) {
+          if (neighborY < 0 || neighborY >= height) continue;
+          const neighborIndex = neighborY * width + neighborX;
+          if (!source[neighborIndex] || ids[neighborIndex] !== -1) continue;
+          ids[neighborIndex] = nextRegionId;
+          stack.push(neighborIndex);
+        }
+      }
+
+      regionSizes.set(nextRegionId, size);
+      nextRegionId += 1;
+    }
+  }
+
+  const filtered = new Uint8Array(width * height);
+  for (let i = 0; i < source.length; i++) {
+    if (!source[i]) continue;
+    const regionId = ids[i];
+    if (regionId >= 0 && (regionSizes.get(regionId) ?? 0) >= minRegionSize) {
+      filtered[i] = 1;
+    }
+  }
+  return filtered;
+}
+
+function computeDistanceToWater(width: number, height: number, land: Uint8Array, maxRadius = 10): Float32Array {
+  const distance = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (!land[idx]) continue;
+      let best = maxRadius + 1;
+      for (let radius = 1; radius <= maxRadius; radius++) {
+        let foundWater = false;
+        for (let dy = -radius; dy <= radius && !foundWater; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= height) {
+            foundWater = true;
+            break;
+          }
+          for (let dx = -radius; dx <= radius; dx++) {
+            const nx = wrapX(x + dx, width);
+            if (!land[ny * width + nx]) {
+              foundWater = true;
+              break;
+            }
+          }
+        }
+        if (foundWater) {
+          best = radius;
+          break;
+        }
+      }
+      distance[idx] = best;
+    }
+  }
+  return distance;
+}
+
+function computeLandQuality(width: number, height: number, land: Uint8Array, distanceToWater: Float32Array): Float32Array {
+  const quality = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (!land[idx]) continue;
+      let landHits = 0;
+      let sampleCount = 0;
+      for (let dy = -3; dy <= 3; dy++) {
+        const ny = clamp(y + dy, 0, height - 1);
+        for (let dx = -3; dx <= 3; dx++) {
+          const nx = wrapX(x + dx, width);
+          sampleCount += 1;
+          if (land[ny * width + nx]) {
+            landHits += 1;
+          }
+        }
+      }
+      const density = landHits / sampleCount;
+      const inland = clamp(distanceToWater[idx] / 8, 0, 1);
+      quality[idx] = density * 0.72 + inland * 0.28;
+    }
+  }
+  return quality;
+}
+
+function createTerrainMask(width: number, height: number, rawLand: Uint8Array, source: TerrainMask["source"]): TerrainMask | null {
+  if (!width || !height) return null;
+  const minRegionSize = Math.max(18, Math.round((width * height) * 0.0035));
+  let land = erodeLandMask(width, height, rawLand, 1);
+  land = removeSmallLandMasses(width, height, land, minRegionSize);
+  land = dilateLandMask(width, height, land, 1);
+  const distanceToWater = computeDistanceToWater(width, height, land, 10);
+  return {
+    width,
+    height,
+    land,
+    quality: computeLandQuality(width, height, land, distanceToWater),
+    distanceToWater,
+    source,
+  };
 }
 
 function buildTerrainMaskFromCellData(world: PlanetWorldData): TerrainMask | null {
@@ -192,13 +414,7 @@ function buildTerrainMaskFromCellData(world: PlanetWorldData): TerrainMask | nul
   for (let i = 0; i < world.cellData.length; i++) {
     land[i] = isLikelyLandCell(world.cellData[i]) ? 1 : 0;
   }
-
-  return {
-    width: world.cols,
-    height: world.rows,
-    land,
-    quality: computeLandQuality(world.cols, world.rows, land),
-  };
+  return createTerrainMask(world.cols, world.rows, land, "cellData");
 }
 
 function buildTerrainMaskFromImage(image: HTMLImageElement | HTMLCanvasElement): TerrainMask | null {
@@ -228,37 +444,7 @@ function buildTerrainMaskFromImage(image: HTMLImageElement | HTMLCanvasElement):
       ) ? 1 : 0;
     }
   }
-
-  return {
-    width: sampleWidth,
-    height: sampleHeight,
-    land,
-    quality: computeLandQuality(sampleWidth, sampleHeight, land),
-  };
-}
-
-function computeLandQuality(width: number, height: number, land: Uint8Array): Float32Array {
-  const quality = new Float32Array(width * height);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = y * width + x;
-      if (!land[idx]) continue;
-      let landHits = 0;
-      let sampleCount = 0;
-      for (let dy = -3; dy <= 3; dy++) {
-        const ny = clamp(y + dy, 0, height - 1);
-        for (let dx = -3; dx <= 3; dx++) {
-          const nx = wrapX(x + dx, width);
-          sampleCount += 1;
-          if (land[ny * width + nx]) {
-            landHits += 1;
-          }
-        }
-      }
-      quality[idx] = landHits / sampleCount;
-    }
-  }
-  return quality;
+  return createTerrainMask(sampleWidth, sampleHeight, land, "image");
 }
 
 function buildLandRegionMap(mask: TerrainMask): LandRegionMap | null {
@@ -314,7 +500,7 @@ function buildLandRegionMap(mask: TerrainMask): LandRegionMap | null {
     return null;
   }
 
-  return { ids, largestRegionId, sizes };
+  return { ids, largestRegionId, sizes, regionCount: nextRegionId };
 }
 
 function sampleLand(mask: TerrainMask, lon: number, lat: number): number {
@@ -324,24 +510,35 @@ function sampleLand(mask: TerrainMask, lon: number, lat: number): number {
 }
 
 function collectTravelCandidates(mask: TerrainMask, regionMap: LandRegionMap | null): TravelCandidate[] {
+  if (!regionMap) {
+    return [];
+  }
   const candidates: TravelCandidate[] = [];
-  const xStep = Math.max(4, Math.round(mask.width / 40));
-  const yStep = Math.max(4, Math.round(mask.height / 24));
-  const yStart = Math.round(mask.height * 0.16);
-  const yEnd = Math.round(mask.height * 0.84);
+  const xStep = Math.max(3, Math.round(mask.width / 54));
+  const yStep = Math.max(3, Math.round(mask.height / 30));
+  const yStart = Math.round(mask.height * 0.14);
+  const yEnd = Math.round(mask.height * 0.86);
+  const largestRegionSize = regionMap.sizes.get(regionMap.largestRegionId) ?? 0;
+  const minInland = mask.source === "cellData" ? 3 : 2;
+  const minQuality = mask.source === "cellData" ? 0.76 : 0.8;
+  if (largestRegionSize < 60) {
+    return [];
+  }
 
   for (let y = yStart; y < yEnd; y += yStep) {
     for (let x = 0; x < mask.width; x += xStep) {
       const idx = y * mask.width + x;
       if (!mask.land[idx]) continue;
-      if (regionMap && regionMap.ids[idx] !== regionMap.largestRegionId) continue;
+      if (regionMap.ids[idx] !== regionMap.largestRegionId) continue;
       const quality = mask.quality[idx];
-      if (quality < 0.62) continue;
+      const inland = mask.distanceToWater[idx];
+      if (quality < minQuality || inland < minInland) continue;
       const yNorm = (y + 0.5) / mask.height;
       const lat = (0.5 - yNorm) * Math.PI;
       const lon = ((x + 0.5) / mask.width) * Math.PI * 2 - Math.PI;
+      if (Math.abs(lat) > Math.PI * 0.34) continue;
       const latPenalty = Math.abs(lat) / (Math.PI / 2);
-      const weightedQuality = quality * (1 - latPenalty * 0.35);
+      const weightedQuality = quality * 0.78 + clamp(inland / 8, 0, 1) * 0.22 - latPenalty * 0.14;
       candidates.push({
         x,
         y,
@@ -349,6 +546,8 @@ function collectTravelCandidates(mask: TerrainMask, regionMap: LandRegionMap | n
         lat,
         vec: lonLatToVec3(lon, lat, 1),
         quality: weightedQuality,
+        inland,
+        regionId: regionMap.largestRegionId,
       });
     }
   }
@@ -356,12 +555,12 @@ function collectTravelCandidates(mask: TerrainMask, regionMap: LandRegionMap | n
   candidates.sort((a, b) => b.quality - a.quality || a.y - b.y || a.x - b.x);
   const spreadCandidates: TravelCandidate[] = [];
   for (const candidate of candidates) {
-    const isFarEnough = spreadCandidates.every((existing) => angularDistance(existing.vec, candidate.vec) > 0.12);
+    const isFarEnough = spreadCandidates.every((existing) => angularDistance(existing.vec, candidate.vec) > 0.1);
     if (!isFarEnough) continue;
     spreadCandidates.push(candidate);
-    if (spreadCandidates.length >= 140) break;
+    if (spreadCandidates.length >= 180) break;
   }
-  return spreadCandidates.length >= 40 ? spreadCandidates : candidates.slice(0, 80);
+  return spreadCandidates.length >= 50 ? spreadCandidates : candidates.slice(0, 100);
 }
 
 function computeRouteMetric(
@@ -396,13 +595,13 @@ function computeRouteMetric(
 
 function buildArcPoints(start: TravelCandidate, end: TravelCandidate): THREE.Vector3[] {
   const angle = angularDistance(start.vec, end.vec);
-  const steps = Math.max(28, Math.round(36 + angle * 22));
-  const arcLift = 0.03 + Math.min(0.05, angle * 0.05);
+  const steps = Math.max(40, Math.round(54 + angle * 30));
+  const arcLift = 0.028 + Math.min(0.038, angle * 0.045);
   const points: THREE.Vector3[] = [];
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const point = slerpUnitVectors(start.vec, end.vec, t);
-    const radius = 1.016 + Math.sin(Math.PI * t) * arcLift;
+    const radius = TRAVEL_LINE_BASE_RADIUS + Math.sin(Math.PI * t) * arcLift;
     points.push(point.multiplyScalar(radius));
   }
   return points;
@@ -419,9 +618,13 @@ function scorePath(
   const avgDistance = distances.reduce((sum, distance) => sum + distance, 0) / distances.length;
   const distanceVariance = distances.reduce((sum, distance) => sum + Math.abs(distance - avgDistance), 0) / distances.length;
   const targetPenalty = distances.reduce((sum, distance) => sum + Math.abs(distance - profile.targetDistance), 0);
-  const qualityScore = path.reduce((sum, index) => sum + candidates[index].quality, 0);
+  const qualityScore = path.reduce((sum, index) => sum + candidates[index].quality * 1.2 + clamp(candidates[index].inland / 8, 0, 1) * 0.6, 0);
 
   let turnPenalty = 0;
+  let turnReward = 0;
+  let maxTurn = 0;
+  let directionFlipPenalty = 0;
+  let previousTurnSign = 0;
   for (let i = 1; i < path.length - 1; i++) {
     const previous = candidates[path[i - 1]].vec;
     const current = candidates[path[i]].vec;
@@ -429,14 +632,42 @@ function scorePath(
     const incoming = current.clone().sub(previous).normalize();
     const outgoing = next.clone().sub(current).normalize();
     const turnAngle = Math.acos(clamp(incoming.dot(outgoing), -1, 1));
-    turnPenalty += Math.max(0, turnAngle - 1.1) * 2.2;
+    const turnCross = incoming.clone().cross(outgoing);
+    const turnSign = Math.sign(turnCross.lengthSq() > 0 ? turnCross.y : 0);
+    maxTurn = Math.max(maxTurn, turnAngle);
+    if (turnAngle < 0.22) {
+      turnPenalty += (0.22 - turnAngle) * 5.4;
+    } else if (turnAngle > 1.15) {
+      turnPenalty += (turnAngle - 1.15) * 4.8;
+    } else {
+      turnReward += Math.min(0.44, turnAngle) * 2.1;
+    }
+    if (previousTurnSign !== 0 && turnSign !== 0 && previousTurnSign !== turnSign) {
+      directionFlipPenalty += 1.1;
+    }
+    if (turnSign !== 0) {
+      previousTurnSign = turnSign;
+    }
   }
 
   const pathDistance = distances.reduce((sum, distance) => sum + distance, 0);
   const directDistance = angularDistance(candidates[path[0]].vec, candidates[path[path.length - 1]].vec);
-  const detourPenalty = directDistance > 0.001 ? Math.max(0, pathDistance / directDistance - 1.5) * 3.5 : 3.5;
+  const directness = directDistance > 0.001 ? pathDistance / directDistance : 2;
+  const directnessPenalty = Math.abs(directness - 1.18) * 6.2;
+  const focusVector = path.reduce((sum, candidateIndex) => sum.add(candidates[candidateIndex].vec.clone()), new THREE.Vector3()).normalize();
+  const focusPenalty = path.reduce((sum, candidateIndex) => sum + angularDistance(candidates[candidateIndex].vec, focusVector), 0);
+  const monotonyPenalty = maxTurn < 0.24 ? 3.2 : 0;
 
-  return qualityScore * 1.8 - distanceVariance * 7.5 - targetPenalty * 1.6 - waterPenalty * 4.2 - turnPenalty - detourPenalty;
+  return qualityScore * 2.15
+    + turnReward
+    - distanceVariance * 7.8
+    - targetPenalty * 2.2
+    - waterPenalty * 13
+    - turnPenalty
+    - directionFlipPenalty
+    - directnessPenalty
+    - focusPenalty * 0.7
+    - monotonyPenalty;
 }
 
 function buildTravelRoute(mask: TerrainMask): TravelRoute | null {
@@ -469,17 +700,17 @@ function buildTravelRoute(mask: TerrainMask): TravelRoute | null {
         if (!metric) continue;
         const neighbor = candidates[otherIndex];
         const distanceScore = 1 - Math.abs(metric.distance - profile.targetDistance);
-        const score = neighbor.quality * 1.2 + distanceScore * 0.9 - metric.waterFraction * 1.6;
+        const score = neighbor.quality * 1.35 + clamp(neighbor.inland / 8, 0, 1) * 0.8 + distanceScore * 1.15 - metric.waterFraction * 4.4;
         scoredNeighbors.push({ to: otherIndex, metric, score });
       }
       scoredNeighbors.sort((a, b) => b.score - a.score);
-      return scoredNeighbors.slice(0, 9);
+      return scoredNeighbors.slice(0, 12);
     });
 
     const startIndices = candidates
-      .map((candidate, index) => ({ index, score: candidate.quality - Math.abs(candidate.lat) * 0.12 }))
+      .map((candidate, index) => ({ index, score: candidate.quality + clamp(candidate.inland / 8, 0, 1) * 0.6 - Math.abs(candidate.lat) * 0.12 }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 18)
+      .slice(0, 24)
       .map((entry) => entry.index);
 
     const visit = (path: number[], metricPath: RouteMetric[]) => {
@@ -501,7 +732,7 @@ function buildTravelRoute(mask: TerrainMask): TravelRoute | null {
           const incoming = currentVec.clone().sub(previous).normalize();
           const outgoing = nextVec.clone().sub(currentVec).normalize();
           const turnAngle = Math.acos(clamp(incoming.dot(outgoing), -1, 1));
-          if (turnAngle > 1.65) continue;
+          if (turnAngle < 0.1 || turnAngle > 1.25) continue;
         }
         path.push(neighbor.to);
         metricPath.push(neighbor.metric);
@@ -513,7 +744,7 @@ function buildTravelRoute(mask: TerrainMask): TravelRoute | null {
 
     for (const startIndex of startIndices) {
       visit([startIndex], []);
-      if (bestRoute && bestRoute.score > 4.5) {
+      if (bestRoute && bestRoute.score > 9.5) {
         break;
       }
     }
@@ -535,8 +766,10 @@ function buildTravelRoute(mask: TerrainMask): TravelRoute | null {
     distance: bestRoute.metrics[index].distance,
     waterFraction: bestRoute.metrics[index].waterFraction,
   }));
+  const focusVec = nodes.reduce((sum, node) => sum.add(node.vec.clone()), new THREE.Vector3()).normalize();
+  const { lon: focusLon, lat: focusLat } = vec3ToLonLat(focusVec);
 
-  return { nodes, segments };
+  return { regionId: nodes[0]?.regionId ?? -1, nodes, segments, focusVec, focusLon, focusLat };
 }
 
 function makeTexture(world: PlanetWorldData): THREE.CanvasTexture {
@@ -595,6 +828,36 @@ function makeGlowTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+function makeRingTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Failed to create ring canvas");
+  }
+
+  ctx.clearRect(0, 0, 128, 128);
+  const outerGradient = ctx.createRadialGradient(64, 64, 28, 64, 64, 64);
+  outerGradient.addColorStop(0, "rgba(255,255,255,0)");
+  outerGradient.addColorStop(0.52, "rgba(255,255,255,0)");
+  outerGradient.addColorStop(0.68, "rgba(255,255,255,0.92)");
+  outerGradient.addColorStop(0.82, "rgba(255,255,255,0.16)");
+  outerGradient.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = outerGradient;
+  ctx.fillRect(0, 0, 128, 128);
+
+  ctx.beginPath();
+  ctx.arc(64, 64, 22, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function disposeMaterial(material: THREE.Material | THREE.Material[] | undefined) {
   if (!material) return;
   const materials = Array.isArray(material) ? material : [material];
@@ -626,11 +889,16 @@ export function PlanetGlobe({
   const [hoveredTileId, setHoveredTileId] = useState<string | null>(null);
   const [tiling, setTiling] = useState<PlanetTiling | null>(null);
   const [isGeneratingGeometry, setIsGeneratingGeometry] = useState(false);
+  const demoTravelStartTokenRef = useRef(demoTravelStartToken);
 
   const showHexGridRef = useRef(showHexGrid);
   useEffect(() => {
     showHexGridRef.current = showHexGrid;
   }, [showHexGrid]);
+
+  useEffect(() => {
+    demoTravelStartTokenRef.current = demoTravelStartToken;
+  }, [demoTravelStartToken]);
 
   useEffect(() => {
     setIsGeneratingGeometry(true);
@@ -958,12 +1226,16 @@ export function PlanetGlobe({
     scene.add(stars);
 
     const glowTexture = makeGlowTexture();
+    const ringTexture = makeRingTexture();
 
     interface RuntimeTravelNode {
+      position: THREE.Vector3;
       core: THREE.Mesh;
-      glow: THREE.Sprite;
-      halo: THREE.Sprite;
+      innerGlow: THREE.Sprite;
+      breath: THREE.Sprite;
       ring: THREE.Sprite;
+      wave: THREE.Sprite;
+      halo: THREE.Sprite;
       flash: THREE.Sprite;
       trigger: THREE.Sprite;
     }
@@ -977,6 +1249,7 @@ export function PlanetGlobe({
 
     interface RuntimeTravelOverlay {
       group: THREE.Group;
+      route: TravelRoute;
       nodes: RuntimeTravelNode[];
       segments: RuntimeTravelSegment[];
       head: THREE.Mesh;
@@ -984,70 +1257,186 @@ export function PlanetGlobe({
       tail: THREE.Line;
     }
 
-    let runtimeTravel: RuntimeTravelOverlay | null = null;
-    const travelStartTime = demoTravelStartToken > 0 ? performance.now() : null;
+    interface TravelSequenceRuntime {
+      state: DemoTravelSequenceState;
+      segmentIndex: number;
+      segmentProgress: number;
+      arrivalNodeIndex: number;
+      arrivalProgress: number;
+      finalProgress: number;
+      activeNodeIndex: number;
+      completedSegments: number;
+      lastStartToken: number;
+    }
 
-    const createSpriteMaterial = (color: number, opacity: number) =>
+    let runtimeTravel: RuntimeTravelOverlay | null = null;
+    let hasManualOrbit = false;
+    const sequence: TravelSequenceRuntime = {
+      state: "idle",
+      segmentIndex: 0,
+      segmentProgress: 0,
+      arrivalNodeIndex: -1,
+      arrivalProgress: 0,
+      finalProgress: 0,
+      activeNodeIndex: 0,
+      completedSegments: 0,
+      lastStartToken: 0,
+    };
+
+    const createSpriteMaterial = (
+      texture: THREE.Texture,
+      color: number,
+      opacity: number,
+      blending: THREE.Blending = THREE.AdditiveBlending,
+    ) =>
       new THREE.SpriteMaterial({
-        map: glowTexture,
+        map: texture,
         color,
         opacity,
         transparent: true,
-        blending: THREE.AdditiveBlending,
+        blending,
         depthWrite: false,
+        depthTest: true,
       });
+
+    const setLineDraw = (line: THREE.Line, count: number) => {
+      line.geometry.setDrawRange(0, Math.max(0, count));
+    };
+
+    const animatingStateForSegment = (segmentIndex: number): DemoTravelSequenceState => {
+      const states: DemoTravelSequenceState[] = [
+        "animating_segment_1",
+        "animating_segment_2",
+        "animating_segment_3",
+        "animating_segment_4",
+      ];
+      return states[segmentIndex] ?? "complete";
+    };
+
+    const arrivalStateForNode = (nodeIndex: number): DemoTravelSequenceState => {
+      const states: DemoTravelSequenceState[] = [
+        "idle",
+        "arrived_node_2",
+        "arrived_node_3",
+        "arrived_node_4",
+        "arrived_node_5",
+      ];
+      return states[nodeIndex] ?? "complete";
+    };
+
+    const resetTravelSequence = () => {
+      sequence.state = "idle";
+      sequence.segmentIndex = 0;
+      sequence.segmentProgress = 0;
+      sequence.arrivalNodeIndex = -1;
+      sequence.arrivalProgress = 0;
+      sequence.finalProgress = 0;
+      sequence.activeNodeIndex = 0;
+      sequence.completedSegments = 0;
+
+      if (!runtimeTravel) return;
+      for (const segment of runtimeTravel.segments) {
+        setLineDraw(segment.base, 0);
+        setLineDraw(segment.progress, 0);
+        setLineDraw(segment.highlight, 0);
+        (segment.base.material as THREE.LineBasicMaterial).opacity = 0;
+        (segment.progress.material as THREE.LineBasicMaterial).opacity = 0;
+        (segment.highlight.material as THREE.LineBasicMaterial).opacity = 0;
+      }
+      runtimeTravel.head.visible = false;
+      runtimeTravel.headGlow.visible = false;
+      runtimeTravel.tail.visible = false;
+    };
+
+    const startTravelSequence = (startToken: number) => {
+      if (!runtimeTravel) return;
+      resetTravelSequence();
+      sequence.state = "animating_segment_1";
+      sequence.activeNodeIndex = 0;
+      sequence.lastStartToken = startToken;
+      if (!hasManualOrbit) {
+        const targetNode = runtimeTravel.route.nodes[0];
+        if (targetNode) {
+          setTargetRotationFromLonLat(targetNode.lon, targetNode.lat);
+        }
+      }
+    };
 
     const mountTravelOverlay = (route: TravelRoute) => {
       if (overlayDisposed || runtimeTravel) return;
 
       const group = new THREE.Group();
+      group.renderOrder = 20;
       overlayGroup.add(group);
 
-      const nodeCoreGeometry = new THREE.SphereGeometry(0.017, 18, 18);
-      const headGeometry = new THREE.SphereGeometry(0.014, 16, 16);
-      const lineColor = 0xf7c36f;
-      const baseColor = 0xeaa454;
+      const nodeCoreGeometry = new THREE.SphereGeometry(0.0155, 18, 18);
+      const headGeometry = new THREE.SphereGeometry(0.013, 16, 16);
+      const travelColor = 0xb3ebf2;
+      const travelBaseColor = 0x6fbcc5;
+      const finalColor = 0xffffff;
 
       const nodes = route.nodes.map((node, index): RuntimeTravelNode => {
-        const position = lonLatToVec3(node.lon, node.lat, 1.014);
+        const corePosition = lonLatToVec3(node.lon, node.lat, TRAVEL_NODE_CORE_RADIUS);
+        const glowPosition = lonLatToVec3(node.lon, node.lat, TRAVEL_NODE_GLOW_RADIUS);
+        const wavePosition = lonLatToVec3(node.lon, node.lat, TRAVEL_NODE_WAVE_RADIUS);
+        const isFinalNode = index === route.nodes.length - 1;
         const core = new THREE.Mesh(
           nodeCoreGeometry.clone(),
           new THREE.MeshBasicMaterial({
-            color: index === route.nodes.length - 1 ? 0xffd48e : 0xf9c97c,
+            color: isFinalNode ? finalColor : travelColor,
             transparent: true,
-            opacity: 0.92,
+            opacity: 0.94,
             depthWrite: false,
+            depthTest: true,
           }),
         );
-        core.position.copy(position);
+        core.position.copy(corePosition);
+        core.renderOrder = 24;
         group.add(core);
 
-        const glow = new THREE.Sprite(createSpriteMaterial(index === route.nodes.length - 1 ? 0xffc874 : 0xf4b15b, 0.42));
-        glow.position.copy(position);
-        glow.scale.setScalar(0.13);
-        group.add(glow);
+        const innerGlow = new THREE.Sprite(createSpriteMaterial(glowTexture, isFinalNode ? finalColor : travelColor, isFinalNode ? 0.5 : 0.42));
+        innerGlow.position.copy(glowPosition);
+        innerGlow.scale.setScalar(0.105);
+        innerGlow.renderOrder = 23;
+        group.add(innerGlow);
 
-        const halo = new THREE.Sprite(createSpriteMaterial(index === route.nodes.length - 1 ? 0xffcf7d : 0xffb860, 0.14));
-        halo.position.copy(position);
-        halo.scale.setScalar(0.2);
-        group.add(halo);
+        const breath = new THREE.Sprite(createSpriteMaterial(glowTexture, isFinalNode ? finalColor : travelColor, isFinalNode ? 0.2 : 0.16));
+        breath.position.copy(glowPosition);
+        breath.scale.setScalar(0.15);
+        breath.renderOrder = 22;
+        group.add(breath);
 
-        const ring = new THREE.Sprite(createSpriteMaterial(index === route.nodes.length - 1 ? 0xffe2ac : 0xffd59a, 0.22));
-        ring.position.copy(position);
-        ring.scale.setScalar(0.09);
+        const ring = new THREE.Sprite(createSpriteMaterial(ringTexture, isFinalNode ? finalColor : travelColor, isFinalNode ? 0.28 : 0.24));
+        ring.position.copy(glowPosition);
+        ring.scale.setScalar(0.1);
+        ring.renderOrder = 25;
         group.add(ring);
 
-        const flash = new THREE.Sprite(createSpriteMaterial(0xffe3a4, 0));
-        flash.position.copy(position);
-        flash.scale.setScalar(0.01);
+        const wave = new THREE.Sprite(createSpriteMaterial(ringTexture, isFinalNode ? finalColor : travelColor, 0.1));
+        wave.position.copy(wavePosition);
+        wave.scale.setScalar(0.11);
+        wave.renderOrder = 22;
+        group.add(wave);
+
+        const halo = new THREE.Sprite(createSpriteMaterial(glowTexture, isFinalNode ? finalColor : travelColor, isFinalNode ? 0.1 : 0.08));
+        halo.position.copy(wavePosition);
+        halo.scale.setScalar(0.21);
+        halo.renderOrder = 21;
+        group.add(halo);
+
+        const flash = new THREE.Sprite(createSpriteMaterial(ringTexture, finalColor, 0));
+        flash.position.copy(wavePosition);
+        flash.scale.setScalar(0.08);
+        flash.renderOrder = 26;
         group.add(flash);
 
-        const trigger = new THREE.Sprite(createSpriteMaterial(0xfff0c1, 0));
-        trigger.position.copy(position);
-        trigger.scale.setScalar(0.01);
+        const trigger = new THREE.Sprite(createSpriteMaterial(glowTexture, finalColor, 0));
+        trigger.position.copy(wavePosition);
+        trigger.scale.setScalar(0.1);
+        trigger.renderOrder = 27;
         group.add(trigger);
 
-        return { core, glow, halo, ring, flash, trigger };
+        return { position: wavePosition, core, innerGlow, breath, ring, wave, halo, flash, trigger };
       });
 
       const segments = route.segments.map((segment) => {
@@ -1055,37 +1444,43 @@ export function PlanetGlobe({
         const base = new THREE.Line(
           geometry,
           new THREE.LineBasicMaterial({
-            color: baseColor,
+            color: travelBaseColor,
             transparent: true,
             opacity: 0,
             depthWrite: false,
+            depthTest: true,
           }),
         );
+        base.renderOrder = 18;
         group.add(base);
 
         const progress = new THREE.Line(
           geometry.clone(),
           new THREE.LineBasicMaterial({
-            color: 0xffc26e,
+            color: travelColor,
             transparent: true,
             opacity: 0,
             depthWrite: false,
+            depthTest: true,
           }),
         );
-        progress.geometry.setDrawRange(0, 0);
+        setLineDraw(progress, 0);
+        progress.renderOrder = 19;
         group.add(progress);
 
         const highlight = new THREE.Line(
           geometry.clone(),
           new THREE.LineBasicMaterial({
-            color: lineColor,
+            color: travelColor,
             transparent: true,
             opacity: 0,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
+            depthTest: true,
           }),
         );
-        highlight.geometry.setDrawRange(0, 0);
+        setLineDraw(highlight, 0);
+        highlight.renderOrder = 20;
         group.add(highlight);
 
         return { points: segment.points, base, progress, highlight };
@@ -1094,36 +1489,57 @@ export function PlanetGlobe({
       const head = new THREE.Mesh(
         headGeometry,
         new THREE.MeshBasicMaterial({
-          color: 0xfff0ca,
+          color: travelColor,
           transparent: true,
           opacity: 0.98,
           depthWrite: false,
+          depthTest: true,
         }),
       );
       head.visible = false;
+      head.renderOrder = 28;
       group.add(head);
 
-      const headGlow = new THREE.Sprite(createSpriteMaterial(0xffd89f, 0.86));
-      headGlow.scale.setScalar(0.14);
+      const headGlow = new THREE.Sprite(createSpriteMaterial(glowTexture, travelColor, 0.82));
+      headGlow.scale.setScalar(0.12);
       headGlow.visible = false;
+      headGlow.renderOrder = 29;
       group.add(headGlow);
 
       const tailGeometry = new THREE.BufferGeometry();
-      tailGeometry.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(15 * 3), 3));
+      tailGeometry.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(24 * 3), 3));
       const tail = new THREE.Line(
         tailGeometry,
         new THREE.LineBasicMaterial({
-          color: 0xffd196,
+          color: travelColor,
           transparent: true,
-          opacity: 0.5,
+          opacity: 0.54,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
+          depthTest: true,
         }),
       );
       tail.visible = false;
+      tail.renderOrder = 19;
       group.add(tail);
 
-      runtimeTravel = { group, nodes, segments, head, headGlow, tail };
+      runtimeTravel = { group, route, nodes, segments, head, headGlow, tail };
+      resetTravelSequence();
+
+      if (demoTravelEnabled && !hasManualOrbit) {
+        const firstNode = route.nodes[0];
+        if (firstNode) {
+          setTargetRotationFromLonLat(firstNode.lon, firstNode.lat);
+        } else {
+          setTargetRotationFromLonLat(route.focusLon, route.focusLat);
+        }
+        globe.rotation.x = targetGlobeRotationX;
+        globe.rotation.y = targetGlobeRotationY;
+        atmosphere.rotation.copy(globe.rotation);
+        tileOverlay.rotation.copy(globe.rotation);
+        highlightLine.rotation.copy(globe.rotation);
+        overlayGroup.rotation.copy(globe.rotation);
+      }
     };
 
     const maybeMountTravelOverlay = (mask: TerrainMask | null) => {
@@ -1133,8 +1549,6 @@ export function PlanetGlobe({
         mountTravelOverlay(route);
       }
     };
-
-    maybeMountTravelOverlay(buildTerrainMaskFromCellData(world));
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -1171,6 +1585,8 @@ export function PlanetGlobe({
       overlayGroup.rotation.copy(globe.rotation);
     };
 
+    maybeMountTravelOverlay(buildTerrainMaskFromCellData(world));
+
     const onDown = (event: PointerEvent) => {
       dragging = true;
       hasDragged = false;
@@ -1189,12 +1605,15 @@ export function PlanetGlobe({
         const dy = event.clientY - lastY;
         if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
           hasDragged = true;
+          hasManualOrbit = true;
         }
         lastX = event.clientX;
         lastY = event.clientY;
         globe.rotation.y += dx * 0.005;
         globe.rotation.x += dy * 0.003;
         globe.rotation.x = Math.max(-1.2, Math.min(1.2, globe.rotation.x));
+        targetGlobeRotationX = globe.rotation.x;
+        targetGlobeRotationY = globe.rotation.y;
         syncRotations();
         return;
       }
@@ -1293,111 +1712,199 @@ export function PlanetGlobe({
     }
 
     let raf = 0;
-    const introDuration = 0.7;
-    const segmentDuration = 1.55;
-    const segmentGap = 0.16;
+    let previousFrameTime = performance.now();
+    const segmentDuration = 1.2;
     const arrivalDuration = 0.42;
-    const finalTriggerDuration = 1.8;
+    const stateStartsWith = (value: string, prefix: string) => value.startsWith(prefix);
+    const tempWorldPosition = new THREE.Vector3();
+    const tempSurfaceNormal = new THREE.Vector3();
+    const tempViewDirection = new THREE.Vector3();
+    let targetGlobeRotationX = globe.rotation.x;
+    let targetGlobeRotationY = globe.rotation.y;
+
+    const setTargetRotationFromLonLat = (lon: number, lat: number) => {
+      targetGlobeRotationX = clamp(lat, -0.95, 0.95);
+      targetGlobeRotationY = lon - Math.PI / 2;
+    };
+
+    const updateTravelSequence = (deltaSeconds: number) => {
+      if (!runtimeTravel) return;
+
+      const requestedStartToken = demoTravelStartTokenRef.current;
+      if (requestedStartToken > sequence.lastStartToken) {
+        startTravelSequence(requestedStartToken);
+      }
+
+      if (sequence.state === "idle" || sequence.state === "complete") {
+        if (sequence.state === "complete") {
+          sequence.finalProgress = 1;
+          sequence.activeNodeIndex = runtimeTravel.nodes.length - 1;
+        }
+        return;
+      }
+
+      if (stateStartsWith(sequence.state, "animating_segment")) {
+        sequence.activeNodeIndex = sequence.segmentIndex;
+        sequence.segmentProgress = clamp(sequence.segmentProgress + deltaSeconds / segmentDuration, 0, 1);
+        if (sequence.segmentProgress >= 1) {
+          sequence.completedSegments = Math.max(sequence.completedSegments, sequence.segmentIndex + 1);
+          sequence.arrivalNodeIndex = sequence.segmentIndex + 1;
+          sequence.arrivalProgress = 0;
+          sequence.state = arrivalStateForNode(sequence.arrivalNodeIndex);
+        }
+        return;
+      }
+
+      if (stateStartsWith(sequence.state, "arrived_node")) {
+        sequence.activeNodeIndex = Math.max(0, sequence.arrivalNodeIndex);
+        sequence.arrivalProgress = clamp(sequence.arrivalProgress + deltaSeconds / arrivalDuration, 0, 1);
+        if (sequence.arrivalNodeIndex === runtimeTravel.nodes.length - 1) {
+          sequence.finalProgress = easeOutCubic(sequence.arrivalProgress);
+        }
+        if (sequence.arrivalProgress >= 1) {
+          if (sequence.arrivalNodeIndex === runtimeTravel.nodes.length - 1) {
+            sequence.state = "complete";
+            sequence.finalProgress = 1;
+          } else {
+            sequence.segmentIndex = sequence.arrivalNodeIndex;
+            sequence.segmentProgress = 0;
+            sequence.state = animatingStateForSegment(sequence.segmentIndex);
+          }
+        }
+      }
+    };
 
     const tick = () => {
+      const now = performance.now();
+      const deltaSeconds = Math.min(0.05, (now - previousFrameTime) / 1000);
+      previousFrameTime = now;
+
       const currentZ = camera.position.z;
       if (Math.abs(currentZ - targetZoom) > 0.001) {
         camera.position.z = currentZ + (targetZoom - currentZ) * 0.08;
       }
 
       if (!dragging) {
-        globe.rotation.y += 0.0008;
-        syncRotations();
+        if (demoTravelEnabled) {
+          if (!hasManualOrbit) {
+            if (runtimeTravel) {
+              let focusNode = runtimeTravel.route.nodes[0] ?? null;
+              if (stateStartsWith(sequence.state, "animating_segment")) {
+                focusNode = runtimeTravel.route.nodes[Math.min(runtimeTravel.route.nodes.length - 1, sequence.activeNodeIndex)] ?? focusNode;
+              } else if (stateStartsWith(sequence.state, "arrived_node")) {
+                focusNode = runtimeTravel.route.nodes[Math.min(runtimeTravel.route.nodes.length - 1, Math.max(0, sequence.arrivalNodeIndex))] ?? focusNode;
+              } else if (sequence.state === "complete") {
+                focusNode = runtimeTravel.route.nodes[runtimeTravel.route.nodes.length - 1] ?? focusNode;
+              } else if (sequence.state === "idle") {
+                focusNode = runtimeTravel.route.nodes[0] ?? focusNode;
+              }
+
+              if (focusNode) {
+                setTargetRotationFromLonLat(focusNode.lon, focusNode.lat);
+              }
+            }
+
+            const deltaY = targetGlobeRotationY - globe.rotation.y;
+            const wrappedDeltaY = Math.atan2(Math.sin(deltaY), Math.cos(deltaY));
+            globe.rotation.y += wrappedDeltaY * 0.06 + 0.00006;
+            globe.rotation.x += (targetGlobeRotationX - globe.rotation.x) * 0.055;
+            syncRotations();
+          }
+        } else {
+          globe.rotation.y += 0.0008;
+          syncRotations();
+        }
       }
 
       tileOverlay.visible = showHexGridRef.current ?? false;
 
       if (demoTravelEnabled && runtimeTravel) {
-        const now = performance.now();
-        const elapsed = travelStartTime === null ? 0 : (now - travelStartTime) / 1000;
-        const hasStarted = travelStartTime !== null;
-        const totalSegmentTime = runtimeTravel.segments.length * (segmentDuration + segmentGap) - segmentGap;
-        const finalStart = introDuration + totalSegmentTime;
+        updateTravelSequence(deltaSeconds);
+
+        const isAnimating = stateStartsWith(sequence.state, "animating_segment");
+        const currentSegmentIndex = isAnimating ? sequence.segmentIndex : -1;
+        const easedSegmentProgress = easeInOutCubic(sequence.segmentProgress);
 
         runtimeTravel.nodes.forEach((node, index) => {
-          const pulse = 0.5 + 0.5 * Math.sin(now / 480 + index * 0.7);
-          let arrivalBoost = 0;
-          if (hasStarted && index > 0) {
-            const arrivalAt = introDuration + (index - 1) * (segmentDuration + segmentGap) + segmentDuration;
-            const arrivalT = 1 - clamp((elapsed - arrivalAt) / arrivalDuration, 0, 1);
-            arrivalBoost = easeOutCubic(arrivalT);
-          }
-          const finalBoost = hasStarted && index === runtimeTravel.nodes.length - 1
-            ? easeOutCubic(clamp((elapsed - finalStart) / finalTriggerDuration, 0, 1))
+          node.core.getWorldPosition(tempWorldPosition);
+          tempSurfaceNormal.copy(tempWorldPosition).normalize();
+          tempViewDirection.copy(camera.position).sub(tempWorldPosition).normalize();
+          const facing = tempSurfaceNormal.dot(tempViewDirection);
+          const limbFade = easeInOutCubic(clamp((facing - 0.015) / 0.2, 0, 1));
+          const haloFade = limbFade * limbFade;
+
+          const pulse = 0.5 + 0.5 * Math.sin(now / 620 + index * 0.65);
+          const breathPulse = 0.5 + 0.5 * Math.sin(now / 1180 + index * 0.4);
+          const ringPulse = 0.5 + 0.5 * Math.sin(now / 980 + index * 0.5);
+          const waveCycle = ((now / 1650) + index * 0.17) % 1;
+          const waveEase = easeOutCubic(waveCycle);
+          const activeBoost = sequence.state !== "idle" && index === sequence.activeNodeIndex
+            ? (isAnimating ? 0.32 : 0.2)
             : 0;
+          const arrivalBoost = index === sequence.arrivalNodeIndex
+            ? easeOutCubic(1 - sequence.arrivalProgress)
+            : 0;
+          const finalBoost = index === runtimeTravel.nodes.length - 1 ? sequence.finalProgress : 0;
 
-          node.core.scale.setScalar(0.98 + pulse * 0.12 + arrivalBoost * 0.22 + finalBoost * 0.32);
-          (node.core.material as THREE.MeshBasicMaterial).opacity = 0.84 + pulse * 0.1 + finalBoost * 0.12;
+          node.core.scale.setScalar(0.95 + pulse * 0.08 + activeBoost * 0.16 + arrivalBoost * 0.16 + finalBoost * 0.22);
+          (node.core.material as THREE.MeshBasicMaterial).opacity = (0.84 + pulse * 0.08 + activeBoost * 0.08 + finalBoost * 0.1) * Math.max(0.18, limbFade);
 
-          node.glow.scale.setScalar(0.12 + pulse * 0.026 + arrivalBoost * 0.08 + finalBoost * 0.16);
-          (node.glow.material as THREE.SpriteMaterial).opacity = 0.26 + pulse * 0.11 + arrivalBoost * 0.22 + finalBoost * 0.24;
+          node.innerGlow.scale.setScalar(0.1 + breathPulse * 0.018 + activeBoost * 0.05 + arrivalBoost * 0.04 + finalBoost * 0.08);
+          (node.innerGlow.material as THREE.SpriteMaterial).opacity = (0.28 + breathPulse * 0.1 + activeBoost * 0.16 + arrivalBoost * 0.18 + finalBoost * 0.18) * haloFade;
 
-          node.halo.scale.setScalar(0.18 + pulse * 0.02 + finalBoost * 0.08);
-          (node.halo.material as THREE.SpriteMaterial).opacity = 0.08 + pulse * 0.04 + finalBoost * 0.12;
+          node.breath.scale.setScalar(0.145 + breathPulse * 0.04 + activeBoost * 0.05 + finalBoost * 0.08);
+          (node.breath.material as THREE.SpriteMaterial).opacity = (0.08 + breathPulse * 0.06 + activeBoost * 0.06 + finalBoost * 0.1) * haloFade;
 
-          node.ring.scale.setScalar(0.11 + pulse * 0.08 + arrivalBoost * 0.04 + finalBoost * 0.05);
-          (node.ring.material as THREE.SpriteMaterial).opacity = 0.14 + pulse * 0.08 + finalBoost * 0.06;
+          node.ring.scale.setScalar(0.095 + ringPulse * 0.03 + activeBoost * 0.045 + arrivalBoost * 0.05 + finalBoost * 0.07);
+          (node.ring.material as THREE.SpriteMaterial).opacity = (0.18 + ringPulse * 0.08 + activeBoost * 0.08 + finalBoost * 0.08) * haloFade;
 
-          node.flash.scale.setScalar(0.03 + arrivalBoost * 0.18);
-          (node.flash.material as THREE.SpriteMaterial).opacity = arrivalBoost * 0.42;
+          node.wave.scale.setScalar(0.11 + waveEase * (0.11 + finalBoost * 0.06));
+          (node.wave.material as THREE.SpriteMaterial).opacity = (1 - waveCycle) * (0.12 + activeBoost * 0.08 + finalBoost * 0.08) * haloFade;
 
-          node.trigger.scale.setScalar(0.04 + finalBoost * 0.34 + pulse * 0.05);
-          (node.trigger.material as THREE.SpriteMaterial).opacity = finalBoost * 0.55;
+          node.halo.scale.setScalar(0.19 + breathPulse * 0.03 + arrivalBoost * 0.04 + finalBoost * 0.08);
+          (node.halo.material as THREE.SpriteMaterial).opacity = (0.04 + breathPulse * 0.03 + arrivalBoost * 0.08 + finalBoost * 0.12) * haloFade;
+
+          node.flash.scale.setScalar(0.08 + arrivalBoost * 0.18);
+          (node.flash.material as THREE.SpriteMaterial).opacity = arrivalBoost * 0.58 * haloFade;
+
+          node.trigger.scale.setScalar(0.12 + finalBoost * 0.24 + pulse * 0.02);
+          (node.trigger.material as THREE.SpriteMaterial).opacity = finalBoost * 0.52 * haloFade;
         });
-
-        let activeSegmentIndex = -1;
-        let activeProgress = 0;
 
         runtimeTravel.segments.forEach((segment, index) => {
-          if (!hasStarted) {
-            segment.base.geometry.setDrawRange(0, 0);
-            segment.progress.geometry.setDrawRange(0, 0);
-            segment.highlight.geometry.setDrawRange(0, 0);
-            (segment.base.material as THREE.LineBasicMaterial).opacity = 0;
-            (segment.progress.material as THREE.LineBasicMaterial).opacity = 0;
-            (segment.highlight.material as THREE.LineBasicMaterial).opacity = 0;
-            return;
-          }
-          const startAt = introDuration + index * (segmentDuration + segmentGap);
-          const rawProgress = clamp((elapsed - startAt) / segmentDuration, 0, 1);
-          const easedProgress = easeInOutCubic(rawProgress);
-          const inGap = elapsed > startAt + segmentDuration && elapsed < startAt + segmentDuration + segmentGap;
-          const isActive = rawProgress > 0 && rawProgress < 1;
-          const isComplete = rawProgress >= 1;
-          const drawCount = Math.max(0, Math.min(segment.points.length, Math.round(easedProgress * (segment.points.length - 1)) + 1));
+          const isComplete = index < sequence.completedSegments;
+          const isCurrent = index === currentSegmentIndex;
+          const drawProgress = isCurrent ? easedSegmentProgress : isComplete ? 1 : 0;
+          const drawCount = Math.max(0, Math.min(segment.points.length, Math.round(drawProgress * (segment.points.length - 1)) + (drawProgress > 0 ? 1 : 0)));
 
-          segment.progress.geometry.setDrawRange(0, isComplete ? segment.points.length : drawCount);
-          segment.highlight.geometry.setDrawRange(0, isActive || inGap ? drawCount : 0);
+          setLineDraw(segment.base, isCurrent || isComplete ? segment.points.length : 0);
+          setLineDraw(segment.progress, isCurrent || isComplete ? drawCount : 0);
+          setLineDraw(segment.highlight, isCurrent ? drawCount : 0);
 
-          (segment.base.material as THREE.LineBasicMaterial).opacity = isComplete ? 0.14 : isActive || inGap ? 0.05 : 0;
-          (segment.progress.material as THREE.LineBasicMaterial).opacity = isComplete ? 0.22 : isActive || inGap ? 0.2 : 0;
-          (segment.highlight.material as THREE.LineBasicMaterial).opacity = isActive || inGap ? 0.88 : 0;
-
-          if (isActive || inGap) {
-            activeSegmentIndex = index;
-            activeProgress = easedProgress;
-          }
+          (segment.base.material as THREE.LineBasicMaterial).opacity = isComplete ? 0.18 : isCurrent ? 0.08 : 0;
+          (segment.progress.material as THREE.LineBasicMaterial).opacity = isComplete ? 0.26 : isCurrent ? 0.28 : 0;
+          (segment.highlight.material as THREE.LineBasicMaterial).opacity = isCurrent ? 0.92 : 0;
         });
 
-        if (hasStarted && activeSegmentIndex >= 0) {
-          const segment = runtimeTravel.segments[activeSegmentIndex];
-          const pointIndex = Math.max(0, Math.min(segment.points.length - 1, Math.round(activeProgress * (segment.points.length - 1))));
+        if (isAnimating && currentSegmentIndex >= 0) {
+          const segment = runtimeTravel.segments[currentSegmentIndex];
+          const pointIndex = Math.max(0, Math.min(segment.points.length - 1, Math.round(easedSegmentProgress * (segment.points.length - 1))));
           const headPoint = segment.points[pointIndex];
           runtimeTravel.head.visible = true;
           runtimeTravel.head.position.copy(headPoint);
-          runtimeTravel.head.scale.setScalar(0.92 + Math.sin(now / 110) * 0.06);
+          runtimeTravel.head.scale.setScalar(0.96 + Math.sin(now / 130) * 0.05);
 
           runtimeTravel.headGlow.visible = true;
           runtimeTravel.headGlow.position.copy(headPoint);
-          runtimeTravel.headGlow.scale.setScalar(0.16 + Math.sin(now / 150) * 0.02);
-          (runtimeTravel.headGlow.material as THREE.SpriteMaterial).opacity = 0.78;
+          runtimeTravel.headGlow.scale.setScalar(0.125 + Math.sin(now / 160) * 0.015);
+          runtimeTravel.head.getWorldPosition(tempWorldPosition);
+          tempSurfaceNormal.copy(tempWorldPosition).normalize();
+          tempViewDirection.copy(camera.position).sub(tempWorldPosition).normalize();
+          const headFacing = tempSurfaceNormal.dot(tempViewDirection);
+          const headGlowFade = easeInOutCubic(clamp((headFacing - 0.015) / 0.2, 0, 1));
+          (runtimeTravel.headGlow.material as THREE.SpriteMaterial).opacity = 0.86 * headGlowFade * headGlowFade;
 
-          const trailPoints = segment.points.slice(Math.max(0, pointIndex - 10), pointIndex + 1);
+          const trailPoints = segment.points.slice(Math.max(0, pointIndex - 14), pointIndex + 1);
           const trailAttr = runtimeTravel.tail.geometry.getAttribute("position") as THREE.BufferAttribute;
           const positions = trailAttr.array as Float32Array;
           positions.fill(0);
@@ -1453,6 +1960,7 @@ export function PlanetGlobe({
       }
 
       glowTexture.dispose();
+      ringTexture.dispose();
       globeMaterial.map?.dispose();
       globeMaterial.displacementMap?.dispose();
       globeMaterial.bumpMap?.dispose();
