@@ -1,4 +1,4 @@
-import { DEVTOOLS_ROUTES } from "../lib/routes";
+import { DEMO_STEP_ONE_ROUTE, DEVTOOLS_ROUTES } from "../lib/routes";
 import type { JobModality } from "./types";
 
 export type TechnicalToolCategory =
@@ -166,6 +166,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
         productAreas: ["assets", "narrative-ai"],
         defaultModalities: ["mixed"],
         route: `${DEVTOOLS_ROUTES.assetGenerator}?tab=videos`,
+    },
+    {
+        id: "demo.step1.interleaved",
+        label: "Demo Step 1",
+        description: "Tracked interleaved scene-package generation for the first Ashtrail demo beat.",
+        technicalCategory: "assets",
+        productAreas: ["assets", "narrative-ai", "operations"],
+        defaultModalities: ["mixed"],
+        route: DEMO_STEP_ONE_ROUTE,
     },
     {
         id: "asset-generator",
