@@ -124,6 +124,7 @@ pub struct MediaAudioExecution {
 pub(crate) struct InterleavedAudioRunOptions {
     pub(crate) followup_system_prompt: &'static str,
     pub(crate) image_prompt_override: Option<String>,
+    pub(crate) generate_audio: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,7 +163,9 @@ struct ImageGeneration {
 }
 
 pub fn clamp_duration_seconds(value: Option<u32>) -> u32 {
-    value.unwrap_or(DEFAULT_DURATION_SECONDS).clamp(1, MAX_DURATION_SECONDS)
+    value
+        .unwrap_or(DEFAULT_DURATION_SECONDS)
+        .clamp(1, MAX_DURATION_SECONDS)
 }
 
 pub fn interleaved_model() -> String {
@@ -185,6 +188,7 @@ pub async fn run_interleaved_audio_demo(
         InterleavedAudioRunOptions {
             followup_system_prompt: DEFAULT_FOLLOWUP_SYSTEM_PROMPT,
             image_prompt_override: None,
+            generate_audio: true,
         },
     )
     .await
@@ -225,10 +229,7 @@ pub(crate) async fn run_interleaved_audio_with_options(
     })?;
     let payload = normalize_tool_payload(
         request,
-        &tool_call
-            .get("args")
-            .cloned()
-            .unwrap_or_else(|| json!({})),
+        &tool_call.get("args").cloned().unwrap_or_else(|| json!({})),
     );
     let plan = build_media_plan(&payload, options.image_prompt_override.as_deref()).await;
 
@@ -239,14 +240,17 @@ pub(crate) async fn run_interleaved_audio_with_options(
         )
     })?;
 
-    let (audio, audio_warning) =
+    let (audio, audio_warning) = if options.generate_audio {
         match generate_audio_asset(output_root, &payload, &plan, payload.duration_seconds).await {
             Ok(asset) => (Some(asset), None),
             Err((_code, message)) => {
                 warn!("audio generation failed for {job_id}: {message}");
                 (None, Some(message))
             }
-        };
+        }
+    } else {
+        (None, None)
+    };
     let (image, image_warning) = match generate_image_asset(output_root, &plan).await {
         Ok(asset) => (Some(asset), None),
         Err((_code, message)) => {
@@ -271,7 +275,13 @@ pub(crate) async fn run_interleaved_audio_with_options(
 
     let artifact = GeneratedMediaAudioArtifact {
         artifact_type: "generated_media_audio".to_string(),
-        status: compute_artifact_status(audio.is_some(), image.is_some()),
+        status: if options.generate_audio {
+            compute_artifact_status(audio.is_some(), image.is_some())
+        } else if image.is_some() {
+            GeneratedMediaStatus::Success
+        } else {
+            GeneratedMediaStatus::Error
+        },
         audio: audio.as_ref().map(|asset| GeneratedMediaAudioAsset {
             url: asset.url.clone(),
             mime_type: asset.mime_type.clone(),
@@ -341,8 +351,16 @@ pub(crate) async fn run_interleaved_audio_with_options(
     })?;
 
     Ok(MediaAudioExecution {
-        audio_preview: result.artifact.audio.as_ref().map(|audio| audio.url.clone()),
-        image_preview: result.artifact.image.as_ref().map(|image| image.url.clone()),
+        audio_preview: result
+            .artifact
+            .audio
+            .as_ref()
+            .map(|audio| audio.url.clone()),
+        image_preview: result
+            .artifact
+            .image
+            .as_ref()
+            .map(|image| image.url.clone()),
         song_clip: audio.as_ref().map(|asset| asset.song_clip.clone()),
         result,
     })
@@ -560,7 +578,10 @@ Fallback JSON:\n{fallback}",
     plan
 }
 
-fn fallback_media_plan(payload: &ToolExecutionPayload, image_prompt_override: Option<&str>) -> MediaPlan {
+fn fallback_media_plan(
+    payload: &ToolExecutionPayload,
+    image_prompt_override: Option<&str>,
+) -> MediaPlan {
     let category_tag = normalize_category_tag(&payload.category);
     let title = build_title(&payload.prompt);
     MediaPlan {
@@ -614,7 +635,10 @@ fn normalize_category_tag(category: &str) -> &'static str {
     let normalized = category.trim().to_lowercase();
     if normalized.contains("ost") || normalized.contains("music") {
         "ost"
-    } else if normalized.contains("sfx") || normalized.contains("impact") || normalized.contains("stinger") {
+    } else if normalized.contains("sfx")
+        || normalized.contains("impact")
+        || normalized.contains("stinger")
+    {
         "sfx"
     } else {
         "ambience"
@@ -646,11 +670,9 @@ fn infer_tempo(payload: &ToolExecutionPayload) -> String {
 }
 
 fn infer_rhythmic_feel(payload: &ToolExecutionPayload) -> String {
-    let haystack = format!("{} {} {}", payload.prompt, payload.intent, payload.category).to_lowercase();
-    if haystack.contains("combat")
-        || haystack.contains("battle")
-        || haystack.contains("raid")
-    {
+    let haystack =
+        format!("{} {} {}", payload.prompt, payload.intent, payload.category).to_lowercase();
+    if haystack.contains("combat") || haystack.contains("battle") || haystack.contains("raid") {
         "driving".to_string()
     } else if haystack.contains("sfx") || haystack.contains("stinger") {
         "syncopated".to_string()
@@ -728,10 +750,8 @@ fn trim_wav_to_duration(
                 wav[chunk_data_start + 6],
                 wav[chunk_data_start + 7],
             ]);
-            block_align = u16::from_le_bytes([
-                wav[chunk_data_start + 12],
-                wav[chunk_data_start + 13],
-            ]);
+            block_align =
+                u16::from_le_bytes([wav[chunk_data_start + 12], wav[chunk_data_start + 13]]);
         } else if chunk_id == b"data" {
             data_chunk_offset = Some(cursor);
             data_chunk_size = chunk_size;
@@ -795,7 +815,8 @@ fn parse_media_plan(raw: &str) -> Option<MediaPlan> {
             .get("tags")
             .and_then(Value::as_array)
             .map(|items| {
-                items.iter()
+                items
+                    .iter()
                     .filter_map(Value::as_str)
                     .map(|value| value.trim().to_lowercase())
                     .filter(|value| !value.is_empty())
@@ -834,7 +855,8 @@ async fn generate_audio_asset(
         soundscape: payload.prompt.clone(),
         production_style: payload.style.clone(),
         global_direction: plan.music_direction.clone(),
-        negative_prompt: "No vocals, no lyrics, no spoken word, no narration, no announcer.".to_string(),
+        negative_prompt: "No vocals, no lyrics, no spoken word, no narration, no announcer."
+            .to_string(),
     };
     let normalized = lyria::normalize_song_prompt(&spec).await;
     let mut variants = lyria::generate_music_variations(&normalized, 1).await?;
@@ -855,7 +877,9 @@ async fn generate_audio_asset(
     .unwrap_or_else(|| {
         (
             generated.audio_bytes.clone(),
-            generated.duration_seconds.min(target_duration_seconds as f32),
+            generated
+                .duration_seconds
+                .min(target_duration_seconds as f32),
         )
     });
 
@@ -875,7 +899,9 @@ async fn generate_audio_asset(
                 .unwrap_or_default()
         ),
         mime_type: generated.mime_type.clone(),
-        duration_seconds: actual_duration_seconds.round().clamp(1.0, MAX_DURATION_SECONDS as f32) as u32,
+        duration_seconds: actual_duration_seconds
+            .round()
+            .clamp(1.0, MAX_DURATION_SECONDS as f32) as u32,
         song_clip: MediaAudioSongClipDetails {
             title: normalized.title,
             prompt: payload.prompt.clone(),
@@ -898,14 +924,9 @@ async fn generate_image_asset(
     } else {
         (1024, 1024, Some("1:1"))
     };
-    let bytes = gemini::generate_image_bytes(
-        &plan.image_prompt,
-        Some(0.8),
-        width,
-        height,
-        aspect_ratio,
-    )
-    .await?;
+    let bytes =
+        gemini::generate_image_bytes(&plan.image_prompt, Some(0.8), width, height, aspect_ratio)
+            .await?;
     let bytes = if use_equirectangular {
         normalize_to_equirectangular_png(&bytes, width, height)?
     } else {
@@ -946,13 +967,13 @@ fn normalize_to_equirectangular_png(
     let source_ratio = source_width as f32 / source_height as f32;
 
     let cropped = if source_ratio > target_ratio {
-        let cropped_width = ((source_height as f32 * target_ratio).round() as u32)
-            .clamp(1, source_width);
+        let cropped_width =
+            ((source_height as f32 * target_ratio).round() as u32).clamp(1, source_width);
         let left = (source_width.saturating_sub(cropped_width)) / 2;
         image::imageops::crop_imm(&rgba, left, 0, cropped_width, source_height).to_image()
     } else if source_ratio < target_ratio {
-        let cropped_height = ((source_width as f32 / target_ratio).round() as u32)
-            .clamp(1, source_height);
+        let cropped_height =
+            ((source_width as f32 / target_ratio).round() as u32).clamp(1, source_height);
         let top = (source_height.saturating_sub(cropped_height)) / 2;
         image::imageops::crop_imm(&rgba, 0, top, source_width, cropped_height).to_image()
     } else {
@@ -1061,8 +1082,7 @@ fn contains_thought_signature(content: &Value) -> bool {
         .and_then(Value::as_array)
         .map(|parts| {
             parts.iter().any(|part| {
-                part.get("thoughtSignature").is_some()
-                    || part.get("thought_signature").is_some()
+                part.get("thoughtSignature").is_some() || part.get("thought_signature").is_some()
             })
         })
         .unwrap_or(false)
@@ -1103,14 +1123,16 @@ mod tests {
 
     #[test]
     fn parses_media_plan_from_json() {
-        let plan = parse_media_plan(r#"{
+        let plan = parse_media_plan(
+            r#"{
             "title":"Dust Relay",
             "description":"A tense ambience cue.",
             "intent":"combat setup",
             "tags":["ambience","tension"],
             "imagePrompt":"dust storm relay tower",
             "musicDirection":"Instrumental tense combat ambience, no vocals."
-        }"#)
+        }"#,
+        )
         .expect("plan");
         assert_eq!(plan.title, "Dust Relay");
         assert_eq!(plan.tags[0], "ambience");
@@ -1163,11 +1185,17 @@ mod tests {
 
     #[test]
     fn computes_partial_status() {
-        assert_eq!(compute_artifact_status(true, true), GeneratedMediaStatus::Success);
+        assert_eq!(
+            compute_artifact_status(true, true),
+            GeneratedMediaStatus::Success
+        );
         assert_eq!(
             compute_artifact_status(true, false),
             GeneratedMediaStatus::PartialSuccess
         );
-        assert_eq!(compute_artifact_status(false, false), GeneratedMediaStatus::Error);
+        assert_eq!(
+            compute_artifact_status(false, false),
+            GeneratedMediaStatus::Error
+        );
     }
 }

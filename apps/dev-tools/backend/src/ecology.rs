@@ -709,23 +709,16 @@ async fn spawn_ecology_job(
                 "job store lock poisoned".to_string(),
             )
         })?;
-        jobs.insert(
-            job_id.clone(),
-            {
-                let mut job = JobRecord::new(
-                    "ecology.generate",
-                    "Generate Ecology Data",
-                    "ecology",
-                );
-                job.world_id = Some(world_id.clone());
-                job.transition(
-                    JobStatus::Queued,
-                    0.0,
-                    "Queued ecology generation".to_string(),
-                );
-                job
-            },
-        );
+        jobs.insert(job_id.clone(), {
+            let mut job = JobRecord::new("ecology.generate", "Generate Ecology Data", "ecology");
+            job.world_id = Some(world_id.clone());
+            job.transition(
+                JobStatus::Queued,
+                0.0,
+                "Queued ecology generation".to_string(),
+            );
+            job
+        });
     }
 
     let jobs = state.jobs.clone();

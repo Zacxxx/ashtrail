@@ -45,7 +45,10 @@ impl ExplorationSim {
         selected_pawn_id: Option<String>,
         tick_rate_hz: u64,
     ) -> Self {
-        let normalized_pawns = pawns.into_iter().map(normalize_pawn_runtime).collect::<Vec<_>>();
+        let normalized_pawns = pawns
+            .into_iter()
+            .map(normalize_pawn_runtime)
+            .collect::<Vec<_>>();
         let mut objects = chunks
             .values()
             .flat_map(|chunk| chunk.objects.iter().cloned())
@@ -143,7 +146,8 @@ impl ExplorationSim {
         center_col: u32,
         radius: u32,
     ) -> ExplorationSessionEvent {
-        let previous_ids = self.current_subscription_chunks()
+        let previous_ids = self
+            .current_subscription_chunks()
             .into_iter()
             .map(|chunk| chunk.id)
             .collect::<HashSet<_>>();
@@ -253,40 +257,40 @@ impl ExplorationSim {
             return Ok(vec![pawn_id.to_string()]);
         }
 
-        let target_interior_id = get_tile(self, target_row, target_col).and_then(|tile| tile.interior_id);
+        let target_interior_id =
+            get_tile(self, target_row, target_col).and_then(|tile| tile.interior_id);
         if let Some(interior_id) = target_interior_id.as_deref() {
             let _ = open_adjacent_interior_door(self, start_row, start_col, interior_id);
         }
 
-        let path = find_path(self, Some(pawn_id), start_row, start_col, target_row, target_col)
-            .or_else(|| {
-                target_interior_id
-                    .as_deref()
-                    .and_then(|interior_id| {
-                        find_interior_entry_path(
-                            self,
-                            Some(pawn_id),
-                            start_row,
-                            start_col,
-                            &interior_id,
-                        )
-                    })
+        let path = find_path(
+            self,
+            Some(pawn_id),
+            start_row,
+            start_col,
+            target_row,
+            target_col,
+        )
+        .or_else(|| {
+            target_interior_id.as_deref().and_then(|interior_id| {
+                find_interior_entry_path(self, Some(pawn_id), start_row, start_col, &interior_id)
             })
-            .or_else(|| {
-                if allow_partial {
-                    find_nearest_reachable_target(
-                        self,
-                        Some(pawn_id),
-                        start_row,
-                        start_col,
-                        target_row,
-                        target_col,
-                    )
-                } else {
-                    None
-                }
-            })
-            .ok_or_else(|| "No valid path to target".to_string())?;
+        })
+        .or_else(|| {
+            if allow_partial {
+                find_nearest_reachable_target(
+                    self,
+                    Some(pawn_id),
+                    start_row,
+                    start_col,
+                    target_row,
+                    target_col,
+                )
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| "No valid path to target".to_string())?;
 
         let pawn = &mut self.pawns[start_index];
         pawn.route = to_route_nodes(&path);
@@ -393,7 +397,8 @@ impl ExplorationSim {
 
         let mut updated = Vec::with_capacity(self.pawns.len());
         for pawn in &self.pawns {
-            let (next_pawn, pawn_changed) = advance_pawn(pawn, delta_seconds, self.tick, self.tick_rate_hz);
+            let (next_pawn, pawn_changed) =
+                advance_pawn(pawn, delta_seconds, self.tick, self.tick_rate_hz);
             if pawn_changed {
                 changed_pawn_ids.push(next_pawn.id.clone());
             }
@@ -601,7 +606,8 @@ fn advance_pawn(
 ) -> (ExplorationPawn, bool) {
     let Some(target) = pawn.route.get(pawn.route_index) else {
         let mut next = pawn.clone();
-        if next.moving || next.target_x.is_some() || next.target_y.is_some() || next.path.is_some() {
+        if next.moving || next.target_x.is_some() || next.target_y.is_some() || next.path.is_some()
+        {
             clear_route_state(&mut next);
             next.tile_row = next.y.round() as i32;
             next.tile_col = next.x.round() as i32;
@@ -661,7 +667,10 @@ fn advance_pawn(
     next.y = pawn.y + (dy / distance) * step;
     next.tile_row = next.y.round() as i32;
     next.tile_col = next.x.round() as i32;
-    next.segment_progress = (1.0 - (((target.col as f32 - next.x).powi(2) + (target.row as f32 - next.y).powi(2)).sqrt() / segment_length)).clamp(0.0, 0.999);
+    next.segment_progress = (1.0
+        - (((target.col as f32 - next.x).powi(2) + (target.row as f32 - next.y).powi(2)).sqrt()
+            / segment_length))
+        .clamp(0.0, 0.999);
     next.facing = Some(facing.to_string());
     update_route_targets(&mut next);
     (next, true)
@@ -760,12 +769,17 @@ fn find_nearest_reachable_target(
                 if get_cell_move_cost(session, row, col) <= 0.0 {
                     continue;
                 }
-                candidates.push((row, col, (row - target_row).abs() + (col - target_col).abs()));
+                candidates.push((
+                    row,
+                    col,
+                    (row - target_row).abs() + (col - target_col).abs(),
+                ));
             }
         }
         candidates.sort_by_key(|entry| entry.2);
         for (row, col, _) in candidates {
-            if let Some(path) = find_path(session, selected_pawn_id, start_row, start_col, row, col) {
+            if let Some(path) = find_path(session, selected_pawn_id, start_row, start_col, row, col)
+            {
                 return Some(path);
             }
         }
@@ -781,7 +795,11 @@ fn find_interior_entry_path(
     interior_id: &str,
 ) -> Option<Vec<PathNode>> {
     let mut doorway_candidates = collect_interior_doorway_candidates(session, interior_id);
-    doorway_candidates.sort_by(|left, right| left.2.partial_cmp(&right.2).unwrap_or(std::cmp::Ordering::Equal));
+    doorway_candidates.sort_by(|left, right| {
+        left.2
+            .partial_cmp(&right.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     for (row, col, _) in doorway_candidates {
         if let Some(path) = find_path(session, selected_pawn_id, start_row, start_col, row, col) {
             return Some(path);
@@ -804,7 +822,12 @@ fn open_adjacent_interior_door(
         let Some(door_id) = object.door_id.as_deref() else {
             continue;
         };
-        if session.visibility.opened_door_ids.iter().any(|entry| entry == door_id) {
+        if session
+            .visibility
+            .opened_door_ids
+            .iter()
+            .any(|entry| entry == door_id)
+        {
             continue;
         }
         if (object.y as i32 - start_row).abs() <= 1 && (object.x as i32 - start_col).abs() <= 1 {
@@ -824,7 +847,12 @@ fn open_adjacent_interior_door(
         let Some(door_id) = tile.door_id.as_deref() else {
             continue;
         };
-        if !session.visibility.opened_door_ids.iter().any(|entry| entry == door_id) {
+        if !session
+            .visibility
+            .opened_door_ids
+            .iter()
+            .any(|entry| entry == door_id)
+        {
             door_ids_to_open.push(door_id.to_string());
         }
     }
@@ -988,8 +1016,14 @@ fn find_path(
             let mut walk = current_key;
             while let Some(previous) = came_from.get(&walk).cloned() {
                 let parts = walk.split(':').collect::<Vec<_>>();
-                let walk_row = parts.first().and_then(|entry| entry.parse::<i32>().ok()).unwrap_or(0);
-                let walk_col = parts.get(1).and_then(|entry| entry.parse::<i32>().ok()).unwrap_or(0);
+                let walk_row = parts
+                    .first()
+                    .and_then(|entry| entry.parse::<i32>().ok())
+                    .unwrap_or(0);
+                let walk_col = parts
+                    .get(1)
+                    .and_then(|entry| entry.parse::<i32>().ok())
+                    .unwrap_or(0);
                 path.push(PathNode {
                     x: walk_col,
                     y: walk_row,
@@ -1047,10 +1081,7 @@ fn find_path(
     None
 }
 
-fn build_occupied_set(
-    session: &ExplorationSim,
-    selected_pawn_id: Option<&str>,
-) -> HashSet<String> {
+fn build_occupied_set(session: &ExplorationSim, selected_pawn_id: Option<&str>) -> HashSet<String> {
     let mut occupied = HashSet::new();
     for pawn in &session.pawns {
         if selected_pawn_id == Some(pawn.id.as_str()) {
@@ -1078,7 +1109,11 @@ fn get_cell_move_cost(session: &ExplorationSim, row: i32, col: i32) -> f32 {
         return 0.0;
     }
 
-    let mut move_cost = if tile.move_cost > 0.0 { tile.move_cost } else { 1.0 };
+    let mut move_cost = if tile.move_cost > 0.0 {
+        tile.move_cost
+    } else {
+        1.0
+    };
     for object in &session.objects {
         if !object_footprint_contains(&object, row, col) {
             continue;
@@ -1132,7 +1167,9 @@ fn get_tile_from_chunks<'a>(
     if local_row >= chunk.height || local_col >= chunk.width {
         return None;
     }
-    chunk.tiles.get((local_row * chunk.width + local_col) as usize)
+    chunk
+        .tiles
+        .get((local_row * chunk.width + local_col) as usize)
 }
 
 fn octile_heuristic(row: i32, col: i32, target_row: i32, target_col: i32) -> f32 {
@@ -1354,7 +1391,10 @@ mod tests {
             .handle_interaction(Some(4), Some(6), Some("door-object".to_string()), None)
             .unwrap();
         assert_eq!(result.label, "Opened door-a");
-        assert!(sim.visibility.opened_door_ids.contains(&"door-a".to_string()));
+        assert!(sim
+            .visibility
+            .opened_door_ids
+            .contains(&"door-a".to_string()));
     }
 
     #[test]
@@ -1394,7 +1434,10 @@ mod tests {
         let result = sim.move_pawn("player", 6, 6, true);
 
         assert!(result.is_ok());
-        assert!(sim.visibility.opened_door_ids.contains(&"door-a".to_string()));
+        assert!(sim
+            .visibility
+            .opened_door_ids
+            .contains(&"door-a".to_string()));
         let route = &sim.pawns[0].route;
         assert!(!route.is_empty());
         let last = route.last().expect("route should have an endpoint");

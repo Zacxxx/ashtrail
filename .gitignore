@@ -54,6 +54,8 @@ apps/dev-tools/generated/world-cache/*
 apps/dev-tools/backend/bin/*
 apps/dev-tools/generated/media-audio/*
 !apps/dev-tools/generated/media-audio/.gitkeep
+apps/dev-tools/generated/demo-output/*
+!apps/dev-tools/generated/demo-output/.gitkeep
 apps/dev-tools/generated/upscale/*
 apps/dev-tools/generated/planets/*
 apps/dev-tools/generated/characters/portraits/*

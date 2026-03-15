@@ -1,4 +1,4 @@
-import { DEMO_STEP_ONE_ROUTE, DEVTOOLS_ROUTES } from "../lib/routes";
+import { DEMO_STEP_ONE_ROUTE, DEMO_STEP_TWO_ROUTE, DEVTOOLS_ROUTES } from "../lib/routes";
 import type { JobModality } from "./types";
 
 export type TechnicalToolCategory =
@@ -166,6 +166,24 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
         productAreas: ["assets", "narrative-ai", "operations"],
         defaultModalities: ["mixed"],
         route: DEMO_STEP_ONE_ROUTE,
+    },
+    {
+        id: "demo.step1.selection",
+        label: "Demo Step 1 Selection",
+        description: "Tracked narrative continuation for the chosen world direction in demo step 1.",
+        technicalCategory: "ai-text",
+        productAreas: ["narrative-ai", "operations"],
+        defaultModalities: ["text"],
+        route: DEMO_STEP_ONE_ROUTE,
+    },
+    {
+        id: "demo.step2.interleaved",
+        label: "Demo Step 2",
+        description: "Tracked interleaved hero-package generation for the second Ashtrail demo beat.",
+        technicalCategory: "ai-text",
+        productAreas: ["characters", "narrative-ai", "operations"],
+        defaultModalities: ["mixed"],
+        route: DEMO_STEP_TWO_ROUTE,
     },
     {
         id: "asset-generator",

@@ -780,7 +780,8 @@ pub async fn generate_quest_run_handler(
     let mut warnings = Vec::new();
     let run_id = format!("quest-{}", Uuid::new_v4());
     let timestamp = now_ms();
-    let mut chain = load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
+    let mut chain =
+        load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
     let max_node_count = run_length_to_node_count(
         payload
             .seed

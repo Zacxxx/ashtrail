@@ -378,8 +378,14 @@ fn load_character_summary(
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())?;
     Some(CharacterSummary {
         id: value.get("id").and_then(Value::as_str).map(str::to_string),
-        name: value.get("name").and_then(Value::as_str).map(str::to_string),
-        kind: value.get("type").and_then(Value::as_str).map(str::to_string),
+        name: value
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        kind: value
+            .get("type")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         sprite: value.get("explorationSprite").cloned(),
     })
 }
@@ -450,5 +456,7 @@ fn get_tile_from_chunks<'a>(
     if local_row >= chunk.height || local_col >= chunk.width {
         return None;
     }
-    chunk.tiles.get((local_row * chunk.width + local_col) as usize)
+    chunk
+        .tiles
+        .get((local_row * chunk.width + local_col) as usize)
 }

@@ -454,9 +454,10 @@ pub fn adopt_existing_humanity_output(
     scope_mode: &LocationGenerationScopeMode,
     scope_targets: &[LocationScopeTarget],
 ) -> Result<Vec<LocationRecord>, String> {
-    let target_provinces = resolve_scope_province_ids(planets_dir, world_id, scope_mode, scope_targets)?
-        .into_iter()
-        .collect::<HashSet<_>>();
+    let target_provinces =
+        resolve_scope_province_ids(planets_dir, world_id, scope_mode, scope_targets)?
+            .into_iter()
+            .collect::<HashSet<_>>();
     let adopted = read_locations(planets_dir, world_id)
         .into_iter()
         .map(|mut location| {
@@ -477,12 +478,18 @@ fn resolve_scope_province_ids_from_hierarchy(
     kingdoms: &[KingdomRecord],
 ) -> Result<Vec<u32>, String> {
     if request.scope_mode == LocationGenerationScopeMode::World {
-        let mut ids = provinces.iter().map(|province| province.id).collect::<Vec<_>>();
+        let mut ids = provinces
+            .iter()
+            .map(|province| province.id)
+            .collect::<Vec<_>>();
         ids.sort_unstable();
         return Ok(ids);
     }
     if request.scope_targets.is_empty() {
-        return Err("Scoped Humanity runs require at least one kingdom, duchy, or province target.".to_string());
+        return Err(
+            "Scoped Humanity runs require at least one kingdom, duchy, or province target."
+                .to_string(),
+        );
     }
 
     let duchy_provinces = duchies
@@ -493,7 +500,10 @@ fn resolve_scope_province_ids_from_hierarchy(
         .iter()
         .map(|kingdom| (kingdom.id, kingdom.duchy_ids.clone()))
         .collect::<HashMap<_, _>>();
-    let province_ids = provinces.iter().map(|province| province.id).collect::<HashSet<_>>();
+    let province_ids = provinces
+        .iter()
+        .map(|province| province.id)
+        .collect::<HashSet<_>>();
     let mut selected = HashSet::new();
 
     for target in &request.scope_targets {
@@ -538,7 +548,10 @@ fn should_replace_location(location: &LocationRecord, target_province_ids: &Hash
         && !location.is_customized
 }
 
-fn should_replace_generated_lore(snippet: &LoreSnippetLite, target_province_ids: &HashSet<u32>) -> bool {
+fn should_replace_generated_lore(
+    snippet: &LoreSnippetLite,
+    target_province_ids: &HashSet<u32>,
+) -> bool {
     if snippet.source != RecordSource::HumanityGenerated || snippet.is_customized {
         return false;
     }
@@ -554,7 +567,10 @@ fn should_replace_generated_lore(snippet: &LoreSnippetLite, target_province_ids:
         .unwrap_or(false)
 }
 
-fn prune_removed_lore_links(location: &mut LocationRecord, removed_generated_lore_ids: &HashSet<String>) {
+fn prune_removed_lore_links(
+    location: &mut LocationRecord,
+    removed_generated_lore_ids: &HashSet<String>,
+) {
     if removed_generated_lore_ids.is_empty() {
         return;
     }
@@ -569,7 +585,11 @@ fn prune_removed_lore_links(location: &mut LocationRecord, removed_generated_lor
 
 fn build_generated_lore_snippets(locations: &[LocationRecord]) -> Vec<LoreSnippetLite> {
     let mut sorted = locations.iter().collect::<Vec<_>>();
-    sorted.sort_by(|a, b| b.importance.cmp(&a.importance).then_with(|| a.name.cmp(&b.name)));
+    sorted.sort_by(|a, b| {
+        b.importance
+            .cmp(&a.importance)
+            .then_with(|| a.name.cmp(&b.name))
+    });
 
     let mut selected = Vec::new();
     let mut selected_ids = HashSet::new();
@@ -689,7 +709,8 @@ pub async fn simulate_locations(
         read_optional_json(planets_dir.join(world_id).join("cell_features.json"));
     let existing_locations = read_locations(planets_dir, world_id);
     let existing_lore_snippets: Vec<LoreSnippetLite> =
-        read_optional_json(planets_dir.join(world_id).join("lore_snippets.json")).unwrap_or_default();
+        read_optional_json(planets_dir.join(world_id).join("lore_snippets.json"))
+            .unwrap_or_default();
     let world_context = load_world_context(planets_dir, world_id, request)?;
     let requested_province_ids =
         resolve_scope_province_ids_from_hierarchy(request, &provinces, &duchies, &kingdoms)?;
@@ -778,13 +799,19 @@ pub async fn simulate_locations(
     mark_seats(&mut contexts);
 
     let resolved_province_ids = if request.scope_mode == LocationGenerationScopeMode::World {
-        let mut ids = contexts.iter().map(|ctx| ctx.province.id).collect::<Vec<_>>();
+        let mut ids = contexts
+            .iter()
+            .map(|ctx| ctx.province.id)
+            .collect::<Vec<_>>();
         ids.sort_unstable();
         ids
     } else {
         requested_province_ids
     };
-    let resolved_province_set = resolved_province_ids.iter().copied().collect::<HashSet<_>>();
+    let resolved_province_set = resolved_province_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
 
     let mut preserved_locations = existing_locations
         .into_iter()
@@ -829,8 +856,12 @@ pub async fn simulate_locations(
             continue;
         }
 
-        let desired_node_count = compute_node_count(context, area_quartile, request.settlement_density);
-        let preserved_count = preserved_counts.get(&context.province.id).copied().unwrap_or(0);
+        let desired_node_count =
+            compute_node_count(context, area_quartile, request.settlement_density);
+        let preserved_count = preserved_counts
+            .get(&context.province.id)
+            .copied()
+            .unwrap_or(0);
         let node_count = desired_node_count.saturating_sub(preserved_count);
         if node_count == 0 {
             continue;
@@ -871,7 +902,8 @@ pub async fn simulate_locations(
     }
 
     let generated_location_count = generated_locations.len();
-    let ai_detail_pass = apply_ai_details(&world_context, &contexts, &mut generated_locations).await;
+    let ai_detail_pass =
+        apply_ai_details(&world_context, &contexts, &mut generated_locations).await;
 
     let removed_generated_lore_ids = existing_lore_snippets
         .iter()
@@ -888,7 +920,10 @@ pub async fn simulate_locations(
         HashMap::<String, Vec<String>>::new(),
         |mut links, snippet| {
             if let Some(location_id) = &snippet.location_id {
-                links.entry(location_id.clone()).or_default().push(snippet.id.clone());
+                links
+                    .entry(location_id.clone())
+                    .or_default()
+                    .push(snippet.id.clone());
             }
             links
         },
@@ -902,8 +937,13 @@ pub async fn simulate_locations(
         .for_each(|location| prune_removed_lore_links(location, &removed_generated_lore_ids));
     generated_locations.iter_mut().for_each(|location| {
         if let Some(linked_ids) = generated_lore_links.get(&location.id) {
-            location.history_hooks.linked_lore_snippet_ids =
-                unique_strings([location.history_hooks.linked_lore_snippet_ids.clone(), linked_ids.clone()].concat());
+            location.history_hooks.linked_lore_snippet_ids = unique_strings(
+                [
+                    location.history_hooks.linked_lore_snippet_ids.clone(),
+                    linked_ids.clone(),
+                ]
+                .concat(),
+            );
         }
     });
 

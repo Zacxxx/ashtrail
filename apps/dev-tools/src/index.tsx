@@ -17,13 +17,11 @@ import { QuestPage } from "./quests";
 import { StoryLoopPage } from "./story-loop";
 import { DemoLandingPage } from "./demo/DemoLandingPage";
 import { DemoPlanetScreen } from "./demo/DemoPlanetScreen";
-import { DemoStepOneWalkthroughPage } from "./demo/DemoStepOneWalkthroughPage";
 import { DemoStepTwoPage } from "./demo/DemoStepTwoPage";
 import {
     DEMO_ALIAS_ROUTE,
     DEMO_ROUTE,
     DEMO_STEP_ONE_ROUTE,
-    DEMO_STEP_ONE_WALKTHROUGH_ROUTE,
     DEMO_STEP_TWO_ROUTE,
     DEVTOOLS_BASE,
     LEGACY_DEVTOOLS_REDIRECTS,
@@ -49,10 +47,6 @@ const router = createBrowserRouter([
             {
                 path: DEMO_STEP_ONE_ROUTE,
                 element: <DemoPlanetScreen />,
-            },
-            {
-                path: DEMO_STEP_ONE_WALKTHROUGH_ROUTE,
-                element: <DemoStepOneWalkthroughPage />,
             },
             {
                 path: DEMO_STEP_TWO_ROUTE,

@@ -221,11 +221,13 @@ fn infer_stack_group(effect: &GameplayEffect) -> Option<String> {
         EffectType::Analyzed => Some("state:analyzed".to_string()),
         EffectType::DamageOverTime => Some(format!(
             "dot:{}",
-            canonicalize_effect_target(effect.target.as_deref()).unwrap_or_else(|| "generic".to_string())
+            canonicalize_effect_target(effect.target.as_deref())
+                .unwrap_or_else(|| "generic".to_string())
         )),
         EffectType::HealOverTime => Some(format!(
             "hot:{}",
-            canonicalize_effect_target(effect.target.as_deref()).unwrap_or_else(|| "generic".to_string())
+            canonicalize_effect_target(effect.target.as_deref())
+                .unwrap_or_else(|| "generic".to_string())
         )),
         _ => canonicalize_effect_target(effect.target.as_deref()),
     }
@@ -262,7 +264,9 @@ fn infer_stack_priority(effect: &GameplayEffect) -> Option<i32> {
 }
 
 fn infer_dispellable(effect: &GameplayEffect) -> bool {
-    effect.dispellable.unwrap_or(effect.trigger != Some(EffectTrigger::Passive))
+    effect
+        .dispellable
+        .unwrap_or(effect.trigger != Some(EffectTrigger::Passive))
 }
 
 fn infer_dispel_priority(effect: &GameplayEffect) -> Option<i32> {
@@ -326,7 +330,9 @@ pub fn normalize_legacy_effect(effect: &GameplayEffect) -> NormalizedLegacyEffec
     let normalized_target = canonicalize_effect_target(effect.target.as_deref());
     let mut warnings = Vec::new();
     if effect.target.as_deref() != normalized_target.as_deref() {
-        if let (Some(legacy), Some(canonical)) = (effect.target.as_deref(), normalized_target.as_deref()) {
+        if let (Some(legacy), Some(canonical)) =
+            (effect.target.as_deref(), normalized_target.as_deref())
+        {
             warnings.push(format!(
                 "legacy target \"{}\" normalized to canonical target \"{}\"",
                 legacy, canonical
@@ -336,7 +342,8 @@ pub fn normalize_legacy_effect(effect: &GameplayEffect) -> NormalizedLegacyEffec
 
     if effect.effect_type == EffectType::StatusImmunity && normalized_target.is_some() {
         warnings.push(
-            "legacy STATUS_IMMUNITY target preserved as params for backward compatibility".to_string(),
+            "legacy STATUS_IMMUNITY target preserved as params for backward compatibility"
+                .to_string(),
         );
     }
 
@@ -493,7 +500,10 @@ pub fn normalize_legacy_effect(effect: &GameplayEffect) -> NormalizedLegacyEffec
     }
 }
 
-pub fn build_active_modifier_instance(effect: &GameplayEffect, effect_index: usize) -> ActiveModifierInstance {
+pub fn build_active_modifier_instance(
+    effect: &GameplayEffect,
+    effect_index: usize,
+) -> ActiveModifierInstance {
     let normalized = normalize_legacy_effect(effect);
     ActiveModifierInstance {
         instance_id: effect
@@ -536,7 +546,11 @@ fn legacy_effect_type_id(effect_type: &EffectType) -> &'static str {
 }
 
 pub fn effect_stack_group(effect: &GameplayEffect) -> Option<String> {
-    normalize_legacy_effect(effect).definition.base().stack_group().cloned()
+    normalize_legacy_effect(effect)
+        .definition
+        .base()
+        .stack_group()
+        .cloned()
 }
 
 pub fn effect_stack_mode(effect: &GameplayEffect) -> Option<StackMode> {
@@ -556,13 +570,19 @@ pub fn effect_is_dispellable(effect: &GameplayEffect) -> bool {
 }
 
 pub fn effect_dispel_group(effect: &GameplayEffect) -> Option<String> {
-    normalize_legacy_effect(effect).definition.base().dispel_group.clone()
+    normalize_legacy_effect(effect)
+        .definition
+        .base()
+        .dispel_group
+        .clone()
 }
 
 pub fn effect_tags(effect: &GameplayEffect) -> Vec<String> {
     match normalize_legacy_effect(effect).definition {
         ModifierDefinition::State(StateModifierDefinition { tags, .. }) => tags,
-        ModifierDefinition::Proc(ProcModifierDefinition { proc_type, params, .. }) => {
+        ModifierDefinition::Proc(ProcModifierDefinition {
+            proc_type, params, ..
+        }) => {
             let mut tags = params
                 .get("tags")
                 .and_then(Value::as_array)
@@ -615,7 +635,10 @@ pub fn effect_blocks_action(effect: &GameplayEffect, action: &str) -> bool {
     }
 }
 
-pub fn status_immunity_blocks_effect(immunity_effect: &GameplayEffect, incoming: &GameplayEffect) -> bool {
+pub fn status_immunity_blocks_effect(
+    immunity_effect: &GameplayEffect,
+    incoming: &GameplayEffect,
+) -> bool {
     if immunity_effect.effect_type != EffectType::StatusImmunity {
         return false;
     }
@@ -674,9 +697,11 @@ pub fn status_immunity_blocks_effect(immunity_effect: &GameplayEffect, incoming:
         }
     }
 
-    immunity_keys
-        .iter()
-        .any(|immunity| incoming_keys.iter().any(|incoming_key| incoming_key == immunity))
+    immunity_keys.iter().any(|immunity| {
+        incoming_keys
+            .iter()
+            .any(|incoming_key| incoming_key == immunity)
+    })
 }
 
 trait ModifierDefinitionExt {
@@ -789,14 +814,24 @@ mod tests {
 
     #[test]
     fn canonicalize_effect_target_maps_legacy_aliases() {
-        assert_eq!(canonicalize_effect_target(Some("armor")).as_deref(), Some("defense"));
-        assert_eq!(canonicalize_effect_target(Some("hp")).as_deref(), Some("maxHp"));
-        assert_eq!(canonicalize_effect_target(Some("crit_rate")).as_deref(), Some("critChance"));
+        assert_eq!(
+            canonicalize_effect_target(Some("armor")).as_deref(),
+            Some("defense")
+        );
+        assert_eq!(
+            canonicalize_effect_target(Some("hp")).as_deref(),
+            Some("maxHp")
+        );
+        assert_eq!(
+            canonicalize_effect_target(Some("crit_rate")).as_deref(),
+            Some("critChance")
+        );
     }
 
     #[test]
     fn normalize_weapon_replacement_to_proc_definition() {
-        let normalized = normalize_legacy_effect(&sample_effect(EffectType::WeaponDamageReplacement));
+        let normalized =
+            normalize_legacy_effect(&sample_effect(EffectType::WeaponDamageReplacement));
         assert!(matches!(
             normalized.definition,
             ModifierDefinition::Proc(ProcModifierDefinition { ref proc_type, .. }) if proc_type == "weaponDamageReplacement"

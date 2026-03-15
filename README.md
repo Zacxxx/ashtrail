@@ -107,6 +107,12 @@ AI_IMAGE_FALLBACK_CHAIN=gemini-3-pro-image-preview,gemini-2.5-flash-image
 # Optional: refine job protection (queue/concurrency)
 WORLDGEN_REFINE_MAX_CONCURRENT=1
 WORLDGEN_REFINE_MAX_QUEUE=3
+
+# Optional: demo step 1 replay mode
+# true => load a local pregenerated folder from apps/dev-tools/generated/demo-output
+# false => generate a fresh demo package into apps/dev-tools/generated/demo-output/<jobId>
+DEMO_STEP_ONE_USE_PREGENERATED=false
+DEMO_STEP_ONE_PREGENERATED_FOLDER=71d2edea-0dff-443f-b65b-a37d023f71b2
 ```
 
 ### 3. Running the Apps
