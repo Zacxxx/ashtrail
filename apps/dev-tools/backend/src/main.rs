@@ -1114,6 +1114,10 @@ async fn main() {
             "/api/planet/ecology-data/{world_id}/refresh-derived-stats",
             post(ecology::refresh_derived_stats),
         )
+        .route(
+            "/api/planet/ecology-data/{world_id}/generate/briefing",
+            post(ecology::generate_briefing_ecology),
+        )
         .route("/api/planet/ecology-jobs/{job_id}", get(get_job_status))
         .route("/api/planet/humanity", post(start_humanity_job))
         .route("/api/planet/humanity/{job_id}", get(get_job_status))

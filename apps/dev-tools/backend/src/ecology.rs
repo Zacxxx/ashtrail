@@ -12,7 +12,7 @@ use std::{
     path::{Path as FsPath, PathBuf},
     sync::{Arc, Mutex},
 };
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
 
@@ -511,13 +511,21 @@ pub struct BulkEcologyGenerationRequest {
     pub biome_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BiosphereBriefingRequest {
     pub zone_title: String,
     pub biome_label: String,
     pub context: String,
     pub count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EcologyBriefingResult {
+    pub lore: String,
+    pub fauna: Vec<FaunaEntry>,
+    pub flora: Vec<FloraEntry>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -704,6 +712,39 @@ pub async fn generate_briefing_flora(
         .await
         .map_err(|err| (StatusCode::BAD_REQUEST, err))?;
     Ok(Json(BulkFloraGenerationResponse { entries }))
+}
+
+pub async fn generate_briefing_ecology(
+    State(state): State<AppState>,
+    Path(world_id): Path<String>,
+    Json(request): Json<BiosphereBriefingRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let job_id = Uuid::new_v4().to_string();
+    let request_key = format!("briefing-{}", Uuid::new_v4());
+    
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string())
+        })?;
+        
+        let mut job = JobRecord::new("worldgen.ecology.briefing", "Generate Expedition Briefing", "worldgen");
+        job.world_id = Some(world_id.clone());
+        job.transition(JobStatus::Queued, 0.0, "Queued...".to_string());
+        job.metadata = Some(serde_json::to_value(request.clone()).unwrap());
+        
+        jobs.insert(job_id.clone(), job);
+    }
+    
+    let jobs = state.jobs.clone();
+    let planets_dir = state.planets_dir.clone();
+    let world_id_clone = world_id.clone();
+    let job_id_clone = job_id.clone();
+    
+    tokio::task::spawn(async move {
+        run_briefing_ecology_job(job_id_clone, world_id_clone, request, jobs, planets_dir).await;
+    });
+    
+    Ok((StatusCode::ACCEPTED, Json(crate::StartJobResponse { job_id })))
 }
 
 pub async fn refresh_derived_stats(
@@ -1144,23 +1185,45 @@ async fn generate_briefing_fauna_impl(
     }
 
     let requested_count = request.count.clamp(1, 5) as usize;
-    let generation_prompt = build_briefing_fauna_prompt(&bundle, &request, requested_count);
+    let mut generation_prompt = build_briefing_fauna_prompt(&bundle, &request, requested_count);
+    generation_prompt.push_str("\n\nFor each creature, produce one text part with its JSON data (strictly matching the schema), and IMMEDIATELY after each JSON part, produce one IMAGE part showing that creature in its habitat.");
+
+    info!(world_id = %world_id, count = requested_count, "Starting interleaved multimodal fauna generation");
     
-    let draft_response: FaunaBatchDraftResponse = generate_structured_text(
-        "briefing fauna",
+    let parts = gemini::generate_multimodal(
         &generation_prompt,
-        "{\"entries\":[{\"name\":\"...\",\"category\":\"herbivore\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"domesticationPotential\":0,\"dangerLevel\":0,\"earthAnalog\":\"...\",\"ancestralStock\":\"...\",\"evolutionaryPressures\":[\"...\"],\"mutationSummary\":\"...\",\"divergenceSummary\":\"...\",\"combatProfile\":{\"level\":1,\"strength\":10,\"agility\":10,\"intelligence\":5,\"wisdom\":5,\"endurance\":10,\"charisma\":5,\"critChance\":0.1,\"resistance\":0.1,\"socialBonus\":0.0,\"baseEvasion\":5,\"baseDefense\":2,\"baseHpBonus\":4,\"baseApBonus\":0,\"baseMpBonus\":0},\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"lengthMeters\":1,\"weightKg\":1,\"locomotion\":\"walker\",\"naturalWeapon\":\"bite\",\"armorClass\":\"furred\"},\"behaviorProfile\":{\"temperament\":\"docile\",\"activityCycle\":\"diurnal\",\"packSizeMin\":1,\"packSizeMax\":4,\"perception\":50,\"stealth\":20,\"trainability\":20}}]}",
+        vec!["TEXT".to_string(), "IMAGE".to_string()],
+        0.7,
     )
-    .await?;
+    .await
+    .map_err(|(_, err)| err)?;
 
     let mut created_entries = Vec::new();
-    for draft in draft_response.entries.into_iter().take(requested_count) {
-        let draft = sanitize_fauna_draft(draft);
-        if draft.name.is_empty() || draft.description.is_empty() {
-            continue;
+    let mut current_entry: Option<FaunaEntry> = None;
+
+    for part in parts {
+        if let Some(text) = part.text {
+            // Try to parse JSON from this part
+            if let Ok(draft_resp) = parse_json_payload::<FaunaBatchDraftResponse>(&text) {
+                for draft in draft_resp.entries {
+                    let draft = sanitize_fauna_draft(draft);
+                    let mut entry = fauna_entry_from_draft(draft, &[]);
+                    created_entries.push(entry);
+                }
+            } else if let Ok(draft) = parse_json_payload::<FaunaDraft>(&text) {
+                 // Maybe it returned a single object?
+                 let draft = sanitize_fauna_draft(draft);
+                 let entry = fauna_entry_from_draft(draft, &[]);
+                 created_entries.push(entry);
+            }
+        } else if let Some(inline_data) = part.inline_data {
+            // This image belongs to the last created entry (interleaved order)
+            if let Some(entry) = created_entries.last_mut() {
+                if let Ok(asset_ref) = save_briefing_image(planets_dir, world_id, &inline_data.data, &inline_data.mime_type, &entry.id) {
+                    entry.illustration_assets.push(asset_ref);
+                }
+            }
         }
-        let entry = fauna_entry_from_draft(draft, &[]);
-        created_entries.push(entry);
     }
 
     if created_entries.is_empty() {
@@ -1187,23 +1250,41 @@ async fn generate_briefing_flora_impl(
     }
 
     let requested_count = request.count.clamp(1, 5) as usize;
-    let generation_prompt = build_briefing_flora_prompt(&bundle, &request, requested_count);
-    
-    let draft_response: FloraBatchDraftResponse = generate_structured_text(
-        "briefing flora",
+    let mut generation_prompt = build_briefing_flora_prompt(&bundle, &request, requested_count);
+    generation_prompt.push_str("\n\nFor each plant/fungus, produce one text part with its JSON data (strictly matching the schema), and IMMEDIATELY after each JSON part, produce one IMAGE part showing that plant in its habitat.");
+
+    info!(world_id = %world_id, count = requested_count, "Starting interleaved multimodal flora generation");
+
+    let parts = gemini::generate_multimodal(
         &generation_prompt,
-        "{\"entries\":[{\"name\":\"...\",\"category\":\"tree\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"edibility\":\"none\",\"agricultureValue\":0,\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"spreadMeters\":1,\"rootDepthMeters\":1,\"biomassKg\":1,\"lifespanYears\":1,\"growthRate\":50},\"resourceProfile\":{\"rarity\":0,\"yieldPerHarvest\":0,\"regrowthDays\":1,\"harvestDifficulty\":0,\"nutritionValue\":0,\"medicinalValue\":0,\"fuelValue\":0,\"structuralValue\":0,\"concealmentValue\":0},\"hazardProfile\":{\"toxicity\":0,\"irritation\":0,\"thorniness\":0,\"flammability\":0,\"resilience\":0}}]}",
+        vec!["TEXT".to_string(), "IMAGE".to_string()],
+        0.7,
     )
-    .await?;
+    .await
+    .map_err(|(_, err)| err)?;
 
     let mut created_entries = Vec::new();
-    for draft in draft_response.entries.into_iter().take(requested_count) {
-        let draft = sanitize_flora_draft(draft);
-        if draft.name.is_empty() || draft.description.is_empty() {
-            continue;
+
+    for part in parts {
+        if let Some(text) = part.text {
+            if let Ok(draft_resp) = parse_json_payload::<FloraBatchDraftResponse>(&text) {
+                for draft in draft_resp.entries {
+                    let draft = sanitize_flora_draft(draft);
+                    let mut entry = flora_entry_from_draft(draft, &[]);
+                    created_entries.push(entry);
+                }
+            } else if let Ok(draft) = parse_json_payload::<FloraDraft>(&text) {
+                 let draft = sanitize_flora_draft(draft);
+                 let entry = flora_entry_from_draft(draft, &[]);
+                 created_entries.push(entry);
+            }
+        } else if let Some(inline_data) = part.inline_data {
+            if let Some(entry) = created_entries.last_mut() {
+                if let Ok(asset_ref) = save_briefing_image(planets_dir, world_id, &inline_data.data, &inline_data.mime_type, &entry.id) {
+                    entry.illustration_assets.push(asset_ref);
+                }
+            }
         }
-        let entry = flora_entry_from_draft(draft, &[]);
-        created_entries.push(entry);
     }
 
     if created_entries.is_empty() {
@@ -1215,6 +1296,109 @@ async fn generate_briefing_flora_impl(
     bundle.flora = next_flora;
     save_ecology_bundle(planets_dir, world_id, &bundle)?;
     Ok(created_entries)
+}
+
+fn save_briefing_image(
+    planets_dir: &FsPath,
+    world_id: &str,
+    base64_data: &str,
+    mime_type: &str,
+    entity_id: &str,
+) -> Result<AssetImageRef, String> {
+    use base64::{engine::general_purpose, Engine as _};
+    let bytes = general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
+
+    let ext = match mime_type {
+        "image/png" => "png",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        _ => "png",
+    };
+
+    let filename = format!("{}-{}.{}", entity_id, Uuid::new_v4().to_string().get(..8).unwrap_or(""), ext);
+    let relative_path = format!("ecology/assets/{}", filename);
+    let absolute_path = planets_dir.join(world_id).join(&relative_path);
+
+    if let Some(parent) = absolute_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create asset dir: {}", e))?;
+    }
+
+    std::fs::write(&absolute_path, bytes).map_err(|e| format!("Failed to write image: {}", e))?;
+
+    Ok(AssetImageRef {
+        batch_id: "briefing".to_string(),
+        filename: relative_path,
+    })
+}
+
+pub async fn run_briefing_ecology_job(
+    job_id: String,
+    world_id: String,
+    request: BiosphereBriefingRequest,
+    jobs: Arc<Mutex<HashMap<String, JobRecord>>>,
+    planets_dir: PathBuf,
+) {
+    let start = std::time::Instant::now();
+
+    // Helper to update job
+    let update_job = |status: JobStatus, progress: f32, stage: String| {
+        if let Ok(mut jobs) = jobs.lock() {
+            if let Some(job) = jobs.get_mut(&job_id) {
+                job.transition(status, progress, stage);
+            }
+        }
+    };
+
+    // Stage 1: Lore
+    update_job(JobStatus::Running, 0.1, "Generating Zone Lore...".to_string());
+    let lore_prompt = format!(
+        "Write a short, evocative lore passage (3-4 sentences) about a planetary zone called \"{}\" ({}). \
+         Set the tone for an expedition. Mention ancient ruins, environmental hazards, or mysterious phenomena. \
+         End with a hook that teases an upcoming quest. Return ONLY the raw text, no JSON, no markdown. Context: {}",
+        request.zone_title, request.biome_label, request.context
+    );
+    
+    let lore = match gemini::generate_text(&lore_prompt).await {
+        Ok(text) => text.trim().to_string(),
+        Err(err) => {
+            warn!("Lore generation failed: {:?}", err);
+            "Communication with scientific archive lost. Environment data unavailable.".to_string()
+        }
+    };
+
+    // Stage 2: Fauna
+    update_job(JobStatus::Running, 0.4, "Identifying Native Fauna...".to_string());
+    let fauna = match generate_briefing_fauna_impl(&planets_dir, &world_id, request.clone()).await {
+        Ok(entries) => entries,
+        Err(err) => {
+            warn!("Briefing fauna generation failed: {}", err);
+            Vec::new()
+        }
+    };
+
+    // Stage 3: Flora
+    update_job(JobStatus::Running, 0.7, "Cataloging Local Flora...".to_string());
+    let flora = match generate_briefing_flora_impl(&planets_dir, &world_id, request.clone()).await {
+        Ok(entries) => entries,
+        Err(err) => {
+            warn!("Briefing flora generation failed: {}", err);
+            Vec::new()
+        }
+    };
+
+    // Finalize
+    let result = EcologyBriefingResult { lore, fauna, flora };
+    
+    if let Ok(mut jobs) = jobs.lock() {
+        if let Some(job) = jobs.get_mut(&job_id) {
+            job.transition(JobStatus::Completed, 1.0, "Expedition Data Ready".to_string());
+            job.result = serde_json::to_value(result).ok();
+        }
+    }
+
+    info!(job_id = %job_id, world_id = %world_id, elapsed_ms = start.elapsed().as_millis(), "briefing ecology job completed");
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1263,6 +1447,50 @@ fn build_biome_prompt(
         world_baseline.summary,
         approved_flora,
         approved_fauna
+    )
+}
+
+fn build_briefing_fauna_prompt(
+    bundle: &EcologyBundle,
+    request: &BiosphereBriefingRequest,
+    count: usize,
+) -> String {
+    let baseline = bundle.baselines.iter()
+        .find(|b| b.scope == BaselineScope::World)
+        .map(|b| b.summary.clone())
+        .unwrap_or_else(|| "Standard biological baseline.".to_string());
+    format!(
+        "You are an exobiology specialist generating native fauna for a mission briefing.\n\
+        World Context: {}\n\
+        Current Zone: {} ({})\n\
+        Briefing Focus: {}\n\n\
+        Generate {} native creature(s) typical of this environment.\n\
+        Return ONLY a JSON object with an \"entries\" array of FaunaDraft objects.\n\
+        Strictly follow the JSON schema provided in the system message.\n\
+        Creatures should feel alien yet ecologically plausible. Focus on adaptations to {}.",
+        baseline, request.zone_title, request.biome_label, request.context, count, request.biome_label
+    )
+}
+
+fn build_briefing_flora_prompt(
+    bundle: &EcologyBundle,
+    request: &BiosphereBriefingRequest,
+    count: usize,
+) -> String {
+    let baseline = bundle.baselines.iter()
+        .find(|b| b.scope == BaselineScope::World)
+        .map(|b| b.summary.clone())
+        .unwrap_or_else(|| "Standard biological baseline.".to_string());
+    format!(
+        "You are an exobotany specialist generating native flora for a mission briefing.\n\
+        World Context: {}\n\
+        Current Zone: {} ({})\n\
+        Briefing Focus: {}\n\n\
+        Generate {} native plant(s)/fungi typical of this environment.\n\
+        Return ONLY a JSON object with an \"entries\" array of FloraDraft objects.\n\
+        Strictly follow the JSON schema provided in the system message.\n\
+        Plants should feel alien and reflect the {} conditions.",
+        baseline, request.zone_title, request.biome_label, request.context, count, request.biome_label
     )
 }
 
