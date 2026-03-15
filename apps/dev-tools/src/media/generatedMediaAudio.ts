@@ -42,11 +42,36 @@ export interface GeneratedMediaAudioResult {
     transcript: InterleavedTranscript;
 }
 
+export interface DemoStepOneArtifact {
+    type: "demo_step_one_interleaved";
+    status: GeneratedMediaStatus;
+    audio?: GeneratedMediaAudioAsset | null;
+    image?: GeneratedMediaImageAsset | null;
+    loreText: string;
+    metadata: GeneratedMediaMetadata;
+    warnings?: string[];
+}
+
+export interface DemoStepOneResult {
+    artifact: DemoStepOneArtifact;
+    transcript: InterleavedTranscript;
+}
+
 export function isGeneratedMediaAudioResult(value: unknown): value is GeneratedMediaAudioResult {
     if (!value || typeof value !== "object") return false;
     const candidate = value as Record<string, unknown>;
     const artifact = candidate.artifact as Record<string, unknown> | undefined;
     const transcript = candidate.transcript as Record<string, unknown> | undefined;
     return artifact?.type === "generated_media_audio"
+        && typeof transcript?.finalResponseText === "string";
+}
+
+export function isDemoStepOneResult(value: unknown): value is DemoStepOneResult {
+    if (!value || typeof value !== "object") return false;
+    const candidate = value as Record<string, unknown>;
+    const artifact = candidate.artifact as Record<string, unknown> | undefined;
+    const transcript = candidate.transcript as Record<string, unknown> | undefined;
+    return artifact?.type === "demo_step_one_interleaved"
+        && typeof artifact?.loreText === "string"
         && typeof transcript?.finalResponseText === "string";
 }

@@ -1,7 +1,8 @@
-use std::{env, fs, path::Path};
+use std::{env, fs, io::Cursor, path::Path};
 
 use axum::http::StatusCode;
 use base64::Engine as _;
+use image::ImageFormat;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -14,6 +15,7 @@ const DEFAULT_DURATION_SECONDS: u32 = 18;
 const MAX_DURATION_SECONDS: u32 = 30;
 const TOOL_LOGICAL_NAME: &str = "generatemedia.audio";
 const TOOL_API_NAME: &str = "generatemedia_audio";
+const DEFAULT_FOLLOWUP_SYSTEM_PROMPT: &str = "Continue the current interleaved Gemini 3 function-calling turn. Present the generated media artifact clearly, mention the title, intended use, emotional tone, duration, tags, and the associated image. Do not call any more tools.";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -118,6 +120,12 @@ pub struct MediaAudioExecution {
     pub song_clip: Option<MediaAudioSongClipDetails>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct InterleavedAudioRunOptions {
+    pub(crate) followup_system_prompt: &'static str,
+    pub(crate) image_prompt_override: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ToolExecutionPayload {
@@ -170,6 +178,24 @@ pub async fn run_interleaved_audio_demo(
     output_root: &Path,
     job_id: &str,
 ) -> Result<MediaAudioExecution, (StatusCode, String)> {
+    run_interleaved_audio_with_options(
+        request,
+        output_root,
+        job_id,
+        InterleavedAudioRunOptions {
+            followup_system_prompt: DEFAULT_FOLLOWUP_SYSTEM_PROMPT,
+            image_prompt_override: None,
+        },
+    )
+    .await
+}
+
+pub(crate) async fn run_interleaved_audio_with_options(
+    request: &GenerateMediaAudioRequest,
+    output_root: &Path,
+    job_id: &str,
+    options: InterleavedAudioRunOptions,
+) -> Result<MediaAudioExecution, (StatusCode, String)> {
     let model = interleaved_model();
     let initial_body = build_initial_interleaved_request(request, TOOL_LOGICAL_NAME);
     let initial_response = match post_generate_content(&model, &initial_body).await {
@@ -204,7 +230,7 @@ pub async fn run_interleaved_audio_demo(
             .cloned()
             .unwrap_or_else(|| json!({})),
     );
-    let plan = build_media_plan(&payload).await;
+    let plan = build_media_plan(&payload, options.image_prompt_override.as_deref()).await;
 
     fs::create_dir_all(output_root).map_err(|error| {
         (
@@ -271,7 +297,12 @@ pub async fn run_interleaved_audio_demo(
             .as_ref()
             .and_then(|_| fs::read(output_root.join("image.png")).ok()),
     );
-    let final_body = build_followup_request(request, model_content.clone(), function_response_content);
+    let final_body = build_followup_request(
+        request,
+        model_content.clone(),
+        function_response_content,
+        options.followup_system_prompt,
+    );
     let final_response = post_generate_content(&model, &final_body).await?;
     let final_response_text = extract_text_response(&final_response).unwrap_or_else(|| {
         format!(
@@ -381,11 +412,12 @@ fn build_followup_request(
     request: &GenerateMediaAudioRequest,
     model_content: Value,
     function_response_content: Value,
+    system_prompt: &str,
 ) -> Value {
     json!({
         "systemInstruction": {
             "parts": [{
-                "text": "Continue the current interleaved Gemini 3 function-calling turn. Present the generated media artifact clearly, mention the title, intended use, emotional tone, duration, tags, and the associated image. Do not call any more tools."
+                "text": system_prompt
             }]
         },
         "contents": [
@@ -482,8 +514,11 @@ fn pick_arg(args: &Value, key: &str, fallback: Option<&str>, default: &str) -> S
         .unwrap_or_else(|| default.to_string())
 }
 
-async fn build_media_plan(payload: &ToolExecutionPayload) -> MediaPlan {
-    let fallback = fallback_media_plan(payload);
+async fn build_media_plan(
+    payload: &ToolExecutionPayload,
+    image_prompt_override: Option<&str>,
+) -> MediaPlan {
+    let fallback = fallback_media_plan(payload, image_prompt_override);
     let prompt = format!(
         "Return strict JSON only with keys title, description, intent, tags, imagePrompt, musicDirection.\n\
 Build a unified game-media artifact plan.\n\
@@ -513,13 +548,19 @@ Fallback JSON:\n{fallback}",
         fallback = serde_json::to_string(&fallback).unwrap_or_else(|_| "{}".to_string()),
     );
 
-    match gemini::generate_text_with_options(&prompt, 0.6).await {
+    let mut plan = match gemini::generate_text_with_options(&prompt, 0.6).await {
         Ok(text) => parse_media_plan(&text).unwrap_or(fallback),
         Err(_) => fallback,
+    };
+
+    if let Some(image_prompt_override) = image_prompt_override {
+        plan.image_prompt = image_prompt_override.to_string();
     }
+
+    plan
 }
 
-fn fallback_media_plan(payload: &ToolExecutionPayload) -> MediaPlan {
+fn fallback_media_plan(payload: &ToolExecutionPayload, image_prompt_override: Option<&str>) -> MediaPlan {
     let category_tag = normalize_category_tag(&payload.category);
     let title = build_title(&payload.prompt);
     MediaPlan {
@@ -534,10 +575,14 @@ fn fallback_media_plan(payload: &ToolExecutionPayload) -> MediaPlan {
             payload.mood.to_lowercase(),
             payload.intent.to_lowercase().replace(' ', "-"),
         ],
-        image_prompt: format!(
-            "Cinematic concept art for '{}', {}, {}, {}, game media artifact, highly legible composition, atmospheric lighting",
-            payload.prompt, payload.category, payload.mood, payload.style
-        ),
+        image_prompt: if let Some(image_prompt_override) = image_prompt_override {
+            image_prompt_override.to_string()
+        } else {
+            format!(
+                "Cinematic concept art for '{}', {}, {}, {}, game media artifact, highly legible composition, atmospheric lighting",
+                payload.prompt, payload.category, payload.mood, payload.style
+            )
+        },
         music_direction: format!(
             "Instrumental {} cue for {}. {} mood, {} pacing, {} production, tailored for {}. No vocals, no lyrics, no spoken word.",
             category_tag, payload.intent, payload.mood, infer_tempo(payload), payload.style, payload.prompt
@@ -847,14 +892,25 @@ async fn generate_image_asset(
     output_root: &Path,
     plan: &MediaPlan,
 ) -> Result<ImageGeneration, (StatusCode, String)> {
+    let use_equirectangular = plan.image_prompt.to_lowercase().contains("equirectangular");
+    let (width, height, aspect_ratio) = if use_equirectangular {
+        (2048, 1024, Some("16:9"))
+    } else {
+        (1024, 1024, Some("1:1"))
+    };
     let bytes = gemini::generate_image_bytes(
         &plan.image_prompt,
         Some(0.8),
-        1024,
-        1024,
-        Some("1:1"),
+        width,
+        height,
+        aspect_ratio,
     )
     .await?;
+    let bytes = if use_equirectangular {
+        normalize_to_equirectangular_png(&bytes, width, height)?
+    } else {
+        bytes
+    };
     fs::write(output_root.join("image.png"), bytes).map_err(|error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -870,6 +926,55 @@ async fn generate_image_asset(
                 .unwrap_or_default()
         ),
     })
+}
+
+fn normalize_to_equirectangular_png(
+    bytes: &[u8],
+    target_width: u32,
+    target_height: u32,
+) -> Result<Vec<u8>, (StatusCode, String)> {
+    let image = image::load_from_memory(bytes).map_err(|error| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Generated image decode failed: {error}"),
+        )
+    })?;
+    let rgba = image.to_rgba8();
+    let source_width = rgba.width();
+    let source_height = rgba.height();
+    let target_ratio = target_width as f32 / target_height as f32;
+    let source_ratio = source_width as f32 / source_height as f32;
+
+    let cropped = if source_ratio > target_ratio {
+        let cropped_width = ((source_height as f32 * target_ratio).round() as u32)
+            .clamp(1, source_width);
+        let left = (source_width.saturating_sub(cropped_width)) / 2;
+        image::imageops::crop_imm(&rgba, left, 0, cropped_width, source_height).to_image()
+    } else if source_ratio < target_ratio {
+        let cropped_height = ((source_width as f32 / target_ratio).round() as u32)
+            .clamp(1, source_height);
+        let top = (source_height.saturating_sub(cropped_height)) / 2;
+        image::imageops::crop_imm(&rgba, 0, top, source_width, cropped_height).to_image()
+    } else {
+        rgba
+    };
+
+    let resized = image::imageops::resize(
+        &cropped,
+        target_width,
+        target_height,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let mut encoded = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(resized)
+        .write_to(&mut encoded, ImageFormat::Png)
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to encode normalized planet texture: {error}"),
+            )
+        })?;
+    Ok(encoded.into_inner())
 }
 
 fn compute_artifact_status(has_audio: bool, has_image: bool) -> GeneratedMediaStatus {

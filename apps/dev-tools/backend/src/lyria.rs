@@ -221,7 +221,7 @@ pub async fn generate_music_variations(
     normalized: &NormalizedSongPrompt,
     sample_count: usize,
 ) -> Result<Vec<GeneratedSongPayload>, (StatusCode, String)> {
-    let location = vertex_location();
+    let location = resolved_vertex_location();
     let model = vertex_model();
     let request_body = serde_json::json!({
         "instances": [{
@@ -353,10 +353,7 @@ fn oauth_vertex_config_available() -> bool {
 }
 
 fn api_key_candidate_urls(location: &str, model: &str) -> Vec<String> {
-    let mut urls = vec![format!(
-        "https://aiplatform.googleapis.com/v1/publishers/google/models/{}:predict",
-        model
-    )];
+    let mut urls = Vec::new();
 
     if let Some(project_id) = env::var("VERTEX_PROJECT_ID")
         .ok()
@@ -364,16 +361,31 @@ fn api_key_candidate_urls(location: &str, model: &str) -> Vec<String> {
         .filter(|value| !value.is_empty())
     {
         urls.push(format!(
-            "https://aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:predict",
-            project_id, location, model
-        ));
-        urls.push(format!(
             "https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:predict",
             location, project_id, location, model
         ));
+        urls.push(format!(
+            "https://aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:predict",
+            project_id, location, model
+        ));
     }
 
+    urls.push(format!(
+        "https://aiplatform.googleapis.com/v1/publishers/google/models/{}:predict",
+        model
+    ));
+
     urls
+}
+
+fn resolved_vertex_location() -> String {
+    let location = vertex_location();
+    if location.eq_ignore_ascii_case("global") {
+        warn!("VERTEX_LOCATION=global is not valid for Lyria; using us-central1 instead");
+        DEFAULT_VERTEX_LOCATION.to_string()
+    } else {
+        location
+    }
 }
 
 fn parse_predict_response(body: &str) -> Result<Vec<GeneratedSongPayload>, (StatusCode, String)> {
@@ -737,7 +749,7 @@ mod tests {
         std::env::set_var("VERTEX_PROJECT_ID", "ashtrail-test");
         let urls = api_key_candidate_urls("us-central1", "lyria-002");
         assert_eq!(urls.len(), 3);
-        assert!(urls.iter().any(|url| url.contains("aiplatform.googleapis.com/v1/publishers/google/models/lyria-002:predict")));
+        assert!(urls[0].contains("https://us-central1-aiplatform.googleapis.com/v1/projects/ashtrail-test/locations/us-central1/publishers/google/models/lyria-002:predict"));
         assert!(urls.iter().any(|url| url.contains("/projects/ashtrail-test/locations/us-central1/publishers/google/models/lyria-002:predict")));
         std::env::remove_var("VERTEX_PROJECT_ID");
     }
