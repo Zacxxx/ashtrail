@@ -18,6 +18,8 @@ interface PlanetGlobeProps {
   demoTravelEnabled?: boolean;
   demoTravelReplayToken?: string;
   demoTravelStartToken?: number;
+  onDemoTravelDestinationReady?: (payload: DemoTravelFinalTriggerPayload) => void;
+  onDemoTravelFinalTrigger?: (payload: DemoTravelFinalTriggerPayload) => void;
 }
 
 interface TerrainMask {
@@ -60,6 +62,26 @@ interface TravelRoute {
   focusVec: THREE.Vector3;
   focusLon: number;
   focusLat: number;
+  maskWidth: number;
+  maskHeight: number;
+  source: TerrainMask["source"];
+  routeId: string;
+}
+
+export interface DemoTravelFinalTriggerPayload {
+  nodeIndex: number;
+  lon: number;
+  lat: number;
+  normalizedX: number;
+  normalizedY: number;
+  worldX: number | null;
+  worldY: number | null;
+  cell: TerrainCell | null;
+  routeId: string;
+  triggeredAt: number;
+  screenX: number;
+  screenY: number;
+  isVisibleOnScreen: boolean;
 }
 
 interface LandRegionMap {
@@ -769,7 +791,18 @@ function buildTravelRoute(mask: TerrainMask): TravelRoute | null {
   const focusVec = nodes.reduce((sum, node) => sum.add(node.vec.clone()), new THREE.Vector3()).normalize();
   const { lon: focusLon, lat: focusLat } = vec3ToLonLat(focusVec);
 
-  return { regionId: nodes[0]?.regionId ?? -1, nodes, segments, focusVec, focusLon, focusLat };
+  return {
+    regionId: nodes[0]?.regionId ?? -1,
+    nodes,
+    segments,
+    focusVec,
+    focusLon,
+    focusLat,
+    maskWidth: mask.width,
+    maskHeight: mask.height,
+    source: mask.source,
+    routeId: crypto.randomUUID(),
+  };
 }
 
 function makeTexture(world: PlanetWorldData): THREE.CanvasTexture {
@@ -884,6 +917,8 @@ export function PlanetGlobe({
   demoTravelEnabled = false,
   demoTravelReplayToken = "",
   demoTravelStartToken = 0,
+  onDemoTravelDestinationReady,
+  onDemoTravelFinalTrigger,
 }: PlanetGlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredTileId, setHoveredTileId] = useState<string | null>(null);
@@ -1271,6 +1306,8 @@ export function PlanetGlobe({
 
     let runtimeTravel: RuntimeTravelOverlay | null = null;
     let hasManualOrbit = false;
+    let lastPreparedRouteId: string | null = null;
+    let lastEmittedTriggerKey: string | null = null;
     const sequence: TravelSequenceRuntime = {
       state: "idle",
       segmentIndex: 0,
@@ -1301,6 +1338,60 @@ export function PlanetGlobe({
 
     const setLineDraw = (line: THREE.Line, count: number) => {
       line.geometry.setDrawRange(0, Math.max(0, count));
+    };
+
+    const buildRoutePayload = (route: TravelRoute): DemoTravelFinalTriggerPayload => {
+      const finalNode = route.nodes[route.nodes.length - 1];
+      const normalizedX = (finalNode.x + 0.5) / route.maskWidth;
+      const normalizedY = (finalNode.y + 0.5) / route.maskHeight;
+      const projectedWorldX = clamp(Math.round(normalizedX * world.cols - 0.5), 0, Math.max(0, world.cols - 1));
+      const projectedWorldY = clamp(Math.round(normalizedY * world.rows - 0.5), 0, Math.max(0, world.rows - 1));
+      const directWorldX = route.source === "cellData" && route.maskWidth === world.cols ? finalNode.x : null;
+      const directWorldY = route.source === "cellData" && route.maskHeight === world.rows ? finalNode.y : null;
+      const hasCellData = Array.isArray(world.cellData) && world.cellData.length === world.cols * world.rows;
+      const resolvedCell = hasCellData ? (world.cellData[projectedWorldY * world.cols + projectedWorldX] as TerrainCell | undefined) ?? null : null;
+      let projectedPosition = new THREE.Vector3();
+      if (runtimeTravel && runtimeTravel.nodes[route.nodes.length - 1]) {
+        runtimeTravel.nodes[route.nodes.length - 1].core.getWorldPosition(projectedPosition);
+      } else {
+        projectedPosition.copy(finalNode.vec).multiplyScalar(TRAVEL_NODE_CORE_RADIUS);
+        overlayGroup.localToWorld(projectedPosition);
+      }
+
+      // Force matrix updates for precise projection
+      scene.updateMatrixWorld(true);
+      camera.updateMatrixWorld(true);
+      
+      const projectedScreen = projectedPosition.clone().project(camera);
+      const viewportWidth = Math.max(1, container.clientWidth || renderer.domElement.clientWidth || 1);
+      const viewportHeight = Math.max(1, container.clientHeight || renderer.domElement.clientHeight || 1);
+      const screenX = ((projectedScreen.x + 1) * 0.5) * viewportWidth;
+      const screenY = ((1 - projectedScreen.y) * 0.5) * viewportHeight;
+      const surfaceNormal = projectedPosition.clone().normalize();
+      const viewDirection = camera.position.clone().sub(projectedPosition).normalize();
+      const isVisibleOnScreen = projectedScreen.z >= -1
+        && projectedScreen.z <= 1
+        && screenX >= 0
+        && screenX <= viewportWidth
+        && screenY >= 0
+        && screenY <= viewportHeight
+        && surfaceNormal.dot(viewDirection) > 0.03;
+
+      return {
+        nodeIndex: route.nodes.length - 1,
+        lon: finalNode.lon,
+        lat: finalNode.lat,
+        normalizedX,
+        normalizedY,
+        worldX: directWorldX,
+        worldY: directWorldY,
+        cell: resolvedCell,
+        routeId: route.routeId,
+        triggeredAt: performance.now(),
+        screenX,
+        screenY,
+        isVisibleOnScreen,
+      };
     };
 
     const animatingStateForSegment = (segmentIndex: number): DemoTravelSequenceState => {
@@ -1351,6 +1442,7 @@ export function PlanetGlobe({
     const startTravelSequence = (startToken: number) => {
       if (!runtimeTravel) return;
       resetTravelSequence();
+      lastEmittedTriggerKey = null;
       sequence.state = "animating_segment_1";
       sequence.activeNodeIndex = 0;
       sequence.lastStartToken = startToken;
@@ -1525,6 +1617,10 @@ export function PlanetGlobe({
 
       runtimeTravel = { group, route, nodes, segments, head, headGlow, tail };
       resetTravelSequence();
+      if (onDemoTravelDestinationReady && lastPreparedRouteId !== route.routeId) {
+        lastPreparedRouteId = route.routeId;
+        onDemoTravelDestinationReady(buildRoutePayload(route));
+      }
 
       if (demoTravelEnabled && !hasManualOrbit) {
         const firstNode = route.nodes[0];
@@ -1821,6 +1917,17 @@ export function PlanetGlobe({
       if (demoTravelEnabled && runtimeTravel) {
         updateTravelSequence(deltaSeconds);
 
+        if (sequence.state === "complete" && sequence.lastStartToken > 0 && onDemoTravelFinalTrigger) {
+          const triggerKey = `${runtimeTravel.route.routeId}:${sequence.lastStartToken}`;
+          if (lastEmittedTriggerKey !== triggerKey) {
+            lastEmittedTriggerKey = triggerKey;
+            onDemoTravelFinalTrigger({
+              ...buildRoutePayload(runtimeTravel.route),
+              triggeredAt: now,
+            });
+          }
+        }
+
         const isAnimating = stateStartsWith(sequence.state, "animating_segment");
         const currentSegmentIndex = isAnimating ? sequence.segmentIndex : -1;
         const easedSegmentProgress = easeInOutCubic(sequence.segmentProgress);
@@ -1973,10 +2080,10 @@ export function PlanetGlobe({
       }
       scene.clear();
     };
-  }, [world, tiling, onCellHover, onCellClick, demoTravelEnabled, demoTravelReplayToken]);
+  }, [world, tiling, onCellHover, onCellClick, demoTravelEnabled, demoTravelReplayToken, onDemoTravelDestinationReady, onDemoTravelFinalTrigger]);
 
   return (
-    <div className="relative w-full h-full rounded-lg border border-[#1f2937] overflow-hidden bg-black">
+    <div className="relative w-full h-full overflow-hidden bg-black">
       {isGeneratingGeometry && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
           <svg className="animate-spin w-12 h-12 text-purple-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
