@@ -157,7 +157,6 @@
 - **Ecology Lab**: Assisted design of ecosystems, including flora, fauna, and resource distribution, to enrich biome diversity.
 - **Lyria Music Synth**: Adaptive music and immersive soundscape generation powered through Vertex AI.
 - **Job Center**: Monitoring and balancing tool used to simulate exploration tasks, progression loops, and economic systems.
-- **Story Loop Prototyper**: Testing environment for debugging multimodal narrative sequences across text, image, and audio.
 - **Generated Gallery**: Visual archive for browsing, reviewing, and reusing previously generated AI content.
 
 </details>
