@@ -249,11 +249,10 @@ function renderInteractiveLoreParagraph(
                     onFocus={(event) => onActivate(matchedTerm, termKey, event.currentTarget)}
                     onClick={(event) => onActivate(matchedTerm, termKey, event.currentTarget)}
                     onBlur={onDeactivate}
-                    className={`rounded-sm border-b border-dashed px-0.5 text-left transition-colors ${
-                        isActive
+                    className={`rounded-sm border-b border-dashed px-0.5 text-left transition-colors ${isActive
                             ? "border-cyan-200/80 text-cyan-100"
                             : "border-[#f1c765]/45 text-[#f4d98f] hover:border-cyan-200/60 hover:text-cyan-100"
-                    }`}
+                        }`}
                 >
                     {part}
                 </button>
@@ -871,7 +870,48 @@ export function DemoStepTwoPage() {
                     persistedCharacter = await persistDemoStepTwoCharacter(character, resolvedWorldId, worldContext.worldTitle);
                     if (cancelled) return;
                     if (persistedCharacter.worldId ?? resolvedWorldId) {
-                        setActiveWorldId(persistedCharacter.worldId ?? resolvedWorldId);
+                        const targetWorldId = persistedCharacter.worldId ?? resolvedWorldId;
+                        setActiveWorldId(targetWorldId);
+
+                        // Fire-and-forget silent province extraction
+                        void (async () => {
+                            try {
+                                const stages = [
+                                    "landmask", "normalize", "height", "rivers", "biome",
+                                    "suitability", "seeds", "partition", "postprocess"
+                                ];
+                                for (const stage of stages) {
+                                    // First try to check if stage is already completed or running
+                                    try {
+                                        const statusRes = await fetch(`/api/worldgen/${encodeURIComponent(targetWorldId)}/status`);
+                                        if (statusRes.ok) {
+                                            const statusData = await statusRes.json();
+                                            if (statusData.stages?.[stage]?.completed) {
+                                                continue;
+                                            }
+                                        }
+                                    } catch {
+                                        // Ignore status errors and proceed to trigger
+                                    }
+
+                                    const res = await postJson(`/api/worldgen/${encodeURIComponent(targetWorldId)}/run/${stage}`, { config: {} });
+                                    const { jobId } = await res.json() as { jobId: string };
+
+                                    // Poll for completion before moving to next stage
+                                    while (true) {
+                                        await new Promise((resolve) => setTimeout(resolve, 800));
+                                        const pollRes = await fetch(`/api/worldgen/${encodeURIComponent(targetWorldId)}/job/${jobId}`);
+                                        if (!pollRes.ok) break;
+                                        const jobData = await pollRes.json() as { status: string };
+                                        if (jobData.status === "completed" || jobData.status === "failed") {
+                                            break;
+                                        }
+                                    }
+                                }
+                            } catch (error) {
+                                console.warn("Background province extraction failed", error);
+                            }
+                        })();
                     }
                 } catch (persistNextError) {
                     if (!cancelled) {
@@ -1483,7 +1523,7 @@ export function DemoStepTwoPage() {
                             <div className="text-center">
                                 <div className="mx-auto mt-5 max-w-[18ch] text-balance text-3xl font-semibold tracking-[0.08em] text-white md:text-5xl">
                                     Forging The Protagonist
-                                </div>                                
+                                </div>
                                 <div className="mx-auto mt-8 max-w-3xl rounded-[24px] border border-white/8 bg-white/[0.03] px-6 py-6 text-left shadow-inner shadow-black/10 md:px-8 md:py-7">
                                     <div className="space-y-5 text-base leading-8 tracking-[0.02em] text-slate-100 md:text-lg">
                                         {DEMO_STEP_TWO_INTRO_LINES.map((line) => (

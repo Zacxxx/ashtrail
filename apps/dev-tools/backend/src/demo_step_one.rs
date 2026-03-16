@@ -3,6 +3,7 @@ use std::{env, fs, path::Path};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use chrono;
 
 use crate::gemini;
 use crate::media_audio::{
@@ -280,6 +281,92 @@ pub fn persist_demo_step_one_result(
         .map_err(|error| format!("Failed to serialize demo step 1 artifact manifest: {error}"))?;
     fs::write(output_root.join("artifact.json"), bytes)
         .map_err(|error| format!("Failed to write demo step 1 artifact manifest: {error}"))
+}
+
+/// Create world structure in planets folder for demo
+pub fn create_demo_world_in_planets(
+    planets_dir: &Path,
+    world_id: &str,
+    result: &DemoStepOneResult,
+    output_root: &Path,
+) -> Result<(), String> {
+    let world_dir = planets_dir.join(world_id);
+    
+    // Create directory structure
+    fs::create_dir_all(&world_dir)
+        .map_err(|e| format!("Failed to create world directory: {}", e))?;
+    fs::create_dir_all(world_dir.join("characters"))
+        .map_err(|e| format!("Failed to create characters directory: {}", e))?;
+    fs::create_dir_all(world_dir.join("items"))
+        .map_err(|e| format!("Failed to create items directory: {}", e))?;
+    fs::create_dir_all(world_dir.join("locations"))
+        .map_err(|e| format!("Failed to create locations directory: {}", e))?;
+    fs::create_dir_all(world_dir.join("quests"))
+        .map_err(|e| format!("Failed to create quests directory: {}", e))?;
+    fs::create_dir_all(world_dir.join("textures"))
+        .map_err(|e| format!("Failed to create textures directory: {}", e))?;
+    
+    // Create world_data.json
+    let world_data = json!({
+        "id": world_id,
+        "name": result.artifact.metadata.title,
+        "description": result.artifact.lore_text,
+        "createdAt": chrono::Utc::now().timestamp_millis(),
+        "updatedAt": chrono::Utc::now().timestamp_millis(),
+    });
+    fs::write(
+        world_dir.join("world_data.json"),
+        serde_json::to_vec_pretty(&world_data)
+            .map_err(|e| format!("Failed to serialize world_data: {}", e))?,
+    )
+    .map_err(|e| format!("Failed to write world_data.json: {}", e))?;
+    
+    // Create metadata.json
+    let metadata = json!({
+        "id": world_id,
+        "name": result.artifact.metadata.title,
+        "description": result.artifact.lore_text,
+        "tags": result.artifact.metadata.tags,
+        "createdAt": chrono::Utc::now().timestamp_millis(),
+        "updatedAt": chrono::Utc::now().timestamp_millis(),
+        "source": "demo",
+    });
+    fs::write(
+        world_dir.join("metadata.json"),
+        serde_json::to_vec_pretty(&metadata)
+            .map_err(|e| format!("Failed to serialize metadata: {}", e))?,
+    )
+    .map_err(|e| format!("Failed to write metadata.json: {}", e))?;
+    
+    // Create gm_settings.json
+    let gm_settings = json!({
+        "worldPrompt": result.artifact.lore_text,
+        "worldName": result.artifact.metadata.title,
+    });
+    fs::write(
+        world_dir.join("gm_settings.json"),
+        serde_json::to_vec_pretty(&gm_settings)
+            .map_err(|e| format!("Failed to serialize gm_settings: {}", e))?,
+    )
+    .map_err(|e| format!("Failed to write gm_settings.json: {}", e))?;
+    
+    // Copy texture if it exists
+    let texture_source = output_root.join("image.png");
+    if texture_source.exists() {
+        let texture_dest = world_dir.join("textures").join("world-texture.png");
+        fs::copy(&texture_source, &texture_dest)
+            .map_err(|e| format!("Failed to copy world texture: {}", e))?;
+    }
+    
+    // Copy audio if it exists
+    let audio_source = output_root.join("audio.wav");
+    if audio_source.exists() {
+        let audio_dest = world_dir.join("world-soundtrack.wav");
+        fs::copy(&audio_source, &audio_dest)
+            .map_err(|e| format!("Failed to copy world soundtrack: {}", e))?;
+    }
+    
+    Ok(())
 }
 
 pub async fn run_demo_step_one(

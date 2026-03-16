@@ -1,7 +1,20 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-export type ImageGlobeCameraPreset = "stepOneShowcase" | "stepTwoIntro" | "stepTwoReady";
+export type ImageGlobeCameraPreset =
+    | "stepOneShowcase"
+    | "stepTwoIntro"
+    | "stepTwoReady"
+    | "stepThreeIntro"
+    | "stepThreeSelect";
+
+export interface LocationMarker {
+    id: string;
+    lat: number;
+    lon: number;
+    label: string;
+    selected?: boolean;
+}
 
 interface ImageGlobeProps {
     textureUrl: string;
@@ -9,6 +22,9 @@ interface ImageGlobeProps {
     transparentBackground?: boolean;
     cameraPreset?: ImageGlobeCameraPreset;
     interactive?: boolean;
+    autoRotate?: boolean;
+    locationMarkers?: LocationMarker[];
+    onMarkerClick?: (markerId: string) => void;
 }
 
 const CAMERA_PRESETS: Record<ImageGlobeCameraPreset, { position: [number, number, number]; lookAt: [number, number, number] }> = {
@@ -24,6 +40,14 @@ const CAMERA_PRESETS: Record<ImageGlobeCameraPreset, { position: [number, number
         position: [0, 0.02, 4.35],
         lookAt: [0.34, 0.01, 0],
     },
+    stepThreeIntro: {
+        position: [0, -0.02, 3.25],
+        lookAt: [0.18, 0.02, 0],
+    },
+    stepThreeSelect: {
+        position: [0, 0.01, 3.45],
+        lookAt: [0.2, 0.06, 0],
+    },
 };
 
 export function ImageGlobe({
@@ -32,12 +56,16 @@ export function ImageGlobe({
     transparentBackground = false,
     cameraPreset = "stepOneShowcase",
     interactive = true,
+    autoRotate = true,
+    locationMarkers = [],
+    onMarkerClick,
 }: ImageGlobeProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
     const globeRef = useRef<THREE.Mesh | null>(null);
     const atmosphereRef = useRef<THREE.Mesh | null>(null);
     const hexGridGroupRef = useRef<THREE.Group | null>(null);
+    const markersGroupRef = useRef<THREE.Group | null>(null);
     const targetCameraPositionRef = useRef(new THREE.Vector3());
     const targetLookAtRef = useRef(new THREE.Vector3());
     const currentLookAtRef = useRef(new THREE.Vector3());
@@ -46,6 +74,7 @@ export function ImageGlobe({
     const draggingRef = useRef(false);
     const interactiveRef = useRef(interactive);
     const lastPointerRef = useRef({ x: 0, y: 0 });
+    const focusedMarkerRef = useRef<string | null>(null);
 
     const syncOverlayRotations = () => {
         const globe = globeRef.current;
@@ -137,6 +166,35 @@ export function ImageGlobe({
         scene.add(hexGridGroup);
         hexGridGroupRef.current = hexGridGroup;
 
+        // Location Markers
+        const markersGroup = new THREE.Group();
+        scene.add(markersGroup);
+        markersGroupRef.current = markersGroup;
+
+        // Helper function to convert lat/lon to 3D position on sphere
+        const latLonToVector3 = (lat: number, lon: number, radius: number) => {
+            const phi = (90 - lat) * (Math.PI / 180);
+            const theta = (lon + 180) * (Math.PI / 180);
+            return new THREE.Vector3(
+                -radius * Math.sin(phi) * Math.cos(theta),
+                radius * Math.cos(phi),
+                radius * Math.sin(phi) * Math.sin(theta)
+            );
+        };
+
+        // Helper function to focus camera on a marker
+        const focusOnMarker = (marker: LocationMarker) => {
+            const markerPos = latLonToVector3(marker.lat, marker.lon, 1);
+            
+            // Calculate camera position (offset from marker)
+            const cameraDistance = 2.5;
+            const cameraPos = markerPos.clone().multiplyScalar(cameraDistance);
+            
+            targetCameraPositionRef.current.copy(cameraPos);
+            targetLookAtRef.current.copy(markerPos);
+            focusedMarkerRef.current = marker.id;
+        };
+
         // Stars
         const stars = new THREE.Group();
         const starGeo = new THREE.SphereGeometry(0.01, 6, 6);
@@ -224,7 +282,7 @@ export function ImageGlobe({
             currentLookAtRef.current.lerp(targetLookAtRef.current, 0.06);
             camera.lookAt(currentLookAtRef.current);
 
-            if (!draggingRef.current && globeRef.current) {
+            if (autoRotate && !draggingRef.current && globeRef.current) {
                 globeRef.current.rotation.y += 0.0008;
                 syncOverlayRotations();
             }
@@ -247,12 +305,77 @@ export function ImageGlobe({
             globeRef.current = null;
             atmosphereRef.current = null;
             hexGridGroupRef.current = null;
+            markersGroupRef.current = null;
             if (container.contains(renderer.domElement)) {
                 container.removeChild(renderer.domElement);
             }
             scene.clear();
         };
-    }, [showHexGrid, textureUrl, transparentBackground]);
+    }, [autoRotate, showHexGrid, textureUrl, transparentBackground]);
+
+    // Update markers when locationMarkers changes
+    useEffect(() => {
+        const markersGroup = markersGroupRef.current;
+        if (!markersGroup) return;
+
+        // Clear existing markers
+        while (markersGroup.children.length > 0) {
+            markersGroup.remove(markersGroup.children[0]);
+        }
+
+        // Helper function to convert lat/lon to 3D position on sphere
+        const latLonToVector3 = (lat: number, lon: number, radius: number) => {
+            const phi = (90 - lat) * (Math.PI / 180);
+            const theta = (lon + 180) * (Math.PI / 180);
+            return new THREE.Vector3(
+                -radius * Math.sin(phi) * Math.cos(theta),
+                radius * Math.cos(phi),
+                radius * Math.sin(phi) * Math.sin(theta)
+            );
+        };
+
+        // Add new markers
+        locationMarkers.forEach((marker) => {
+            const position = latLonToVector3(marker.lat, marker.lon, 1.02);
+            
+            // Create marker pin
+            const pinGeometry = new THREE.ConeGeometry(0.02, 0.06, 8);
+            const pinMaterial = new THREE.MeshBasicMaterial({
+                color: marker.selected ? 0x10b981 : 0xfbbf24, // emerald or amber
+            });
+            const pin = new THREE.Mesh(pinGeometry, pinMaterial);
+            pin.position.copy(position);
+            pin.lookAt(new THREE.Vector3(0, 0, 0));
+            pin.rotateX(Math.PI);
+            
+            // Create glow ring
+            const ringGeometry = new THREE.RingGeometry(0.025, 0.035, 16);
+            const ringMaterial = new THREE.MeshBasicMaterial({
+                color: marker.selected ? 0x10b981 : 0xfbbf24,
+                transparent: true,
+                opacity: 0.6,
+                side: THREE.DoubleSide,
+            });
+            const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+            ring.position.copy(position);
+            ring.lookAt(new THREE.Vector3(0, 0, 0));
+            
+            markersGroup.add(pin);
+            markersGroup.add(ring);
+        });
+
+        // Focus on selected marker
+        const selectedMarker = locationMarkers.find((m) => m.selected);
+        if (selectedMarker && focusedMarkerRef.current !== selectedMarker.id) {
+            const markerPos = latLonToVector3(selectedMarker.lat, selectedMarker.lon, 1);
+            const cameraDistance = 3.2; // Keep camera further back so planet stays visible
+            const cameraPos = markerPos.clone().multiplyScalar(cameraDistance);
+            
+            targetCameraPositionRef.current.copy(cameraPos);
+            targetLookAtRef.current.copy(markerPos);
+            focusedMarkerRef.current = selectedMarker.id;
+        }
+    }, [locationMarkers]);
 
     useEffect(() => {
         interactiveRef.current = interactive;

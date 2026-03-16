@@ -7,7 +7,9 @@ mod cms;
 mod combat_engine;
 mod demo_output;
 mod demo_step_one;
+mod demo_step_three;
 mod demo_step_two;
+mod demo_step_four;
 mod ecology;
 mod exploration_engine;
 mod exploration_jobs;
@@ -277,6 +279,24 @@ fn build_demo_step_one_output_refs(result: &demo_step_one::DemoStepOneResult) ->
             preview_text: None,
         });
     }
+    refs
+}
+
+fn build_demo_step_three_output_refs(
+    artifact: &demo_step_three::PersistedDemoStepThreeArtifact,
+) -> Vec<JobOutputRef> {
+    let mut refs = vec![build_text_output_ref(
+        "Location Brief",
+        &artifact.brief_text,
+    )];
+    refs.push(JobOutputRef {
+        id: "demo-step-3-brief-image".to_string(),
+        label: "Open Location Brief Image".to_string(),
+        kind: "asset".to_string(),
+        href: Some(artifact.image.url.clone()),
+        route: None,
+        preview_text: Some(artifact.location_title.clone()),
+    });
     refs
 }
 
@@ -1168,6 +1188,18 @@ async fn main() {
             post(ai_quests::advance_quest_handler),
         )
         .route(
+            "/api/quests/fix-choice-labels",
+            post(ai_quests::fix_choice_labels_handler),
+        )
+        .route(
+            "/api/quests/generate-illustration",
+            post(ai_quests::generate_illustration_handler),
+        )
+        .route(
+            "/api/quests/illustrations/{illustration_id}",
+            get(ai_quests::get_illustration_handler),
+        )
+        .route(
             "/api/quests/jobs/{job_id}",
             get(ai_quests::get_quest_job).delete(ai_quests::cancel_quest_job),
         )
@@ -1382,6 +1414,18 @@ async fn main() {
             get(get_demo_step_two_artifact).post(save_demo_step_two_artifact),
         )
         .route(
+            "/api/demo/step-3/artifact",
+            get(get_demo_step_three_artifact),
+        )
+        .route(
+            "/api/demo/step-3/vision-coordinates",
+            get(get_demo_step_three_vision_coordinates).post(save_demo_step_three_vision_coordinates),
+        )
+        .route(
+            "/api/demo/step-4/artifact",
+            get(get_demo_step_four_artifact).post(initialize_demo_step_four_artifact_handler),
+        )
+        .route(
             "/api/demo/step-2/weapon/jobs",
             post(start_demo_step_two_weapon_job),
         )
@@ -1397,7 +1441,9 @@ async fn main() {
             "/api/demo/step-2/lore-insight/jobs",
             post(start_demo_step_two_lore_insight_job),
         )
+        .route("/api/demo/step-3/jobs", post(start_demo_step_three_job))
         .route("/api/demo/step-2/jobs", post(start_demo_step_two_job))
+        .route("/api/demo/ensure-final-combat", post(ensure_demo_final_combat_handler))
         .route("/api/tts/generate", post(tts::generate_tts_handler))
         .route("/api/media/video/jobs", post(start_generate_media_video_job))
         .route("/api/videos/batches", get(list_video_batches))
@@ -1543,6 +1589,11 @@ async fn main() {
         // ── Combat Engine WebSocket ──
         .route("/api/combat/ws", get(combat_engine::session::ws_handler))
         .merge(asset_packs::router())
+        // ── Specific character route (different prefix to avoid conflict) ──
+        .route(
+            "/api/world/{world_id}/character/{character_id}",
+            get(get_character_by_id),
+        )
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/character-portraits", ServeDir::new(character_portraits_dir.clone()))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
@@ -2866,6 +2917,7 @@ async fn start_demo_step_one_job(
     }
 
     let jobs = state.jobs.clone();
+    let planets_dir = state.planets_dir.clone();
     let output_root = demo_output_job_dir(&state.demo_output_dir, &job_id);
     let pregenerated_root = demo_output_job_dir(
         &state.demo_output_dir,
@@ -2902,6 +2954,20 @@ async fn start_demo_step_one_job(
                 &pregenerated_folder,
             ) {
                 Ok(result) => {
+                    // Also create world structure in planets folder for pregenerated demo
+                    let world_id = format!("demo-{}", pregenerated_folder);
+                    if let Err(message) = demo_step_one::create_demo_world_in_planets(
+                        &planets_dir,
+                        &world_id,
+                        &result,
+                        &pregenerated_root,
+                    ) {
+                        warn!(
+                            "failed to create pregenerated demo world in planets folder {}: {}",
+                            pregenerated_folder, message
+                        );
+                    }
+                    
                     if let Ok(mut map) = jobs.lock() {
                         if let Some(job) = map.get_mut(&spawned_job_id) {
                             let artifact_status = result.artifact.status.clone();
@@ -3022,6 +3088,20 @@ async fn start_demo_step_one_job(
                         spawned_job_id, message
                     );
                     execution.result.artifact.warnings.push(message);
+                }
+                
+                // Also create world structure in planets folder
+                let world_id = format!("demo-{}", spawned_job_id);
+                if let Err(message) = demo_step_one::create_demo_world_in_planets(
+                    &planets_dir,
+                    &world_id,
+                    &execution.result,
+                    &output_root,
+                ) {
+                    warn!(
+                        "failed to create demo world in planets folder {}: {}",
+                        spawned_job_id, message
+                    );
                 }
 
                 if let Ok(mut map) = jobs.lock() {
@@ -3378,7 +3458,130 @@ async fn save_demo_step_two_artifact(
     Json(payload): Json<demo_step_two::PersistDemoStepTwoArtifactRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let artifact = demo_step_two::persist_demo_step_two_artifact_for_demo(&state, &payload)?;
+    
+    // Also save to planets folder
+    if let Some(step_one_job_id) = &payload.step_one_job_id {
+        let world_id = format!("demo-{}", step_one_job_id);
+        if let Err(e) = demo_step_two::save_demo_character_to_planets(
+            &state.planets_dir,
+            &world_id,
+            &artifact,
+            step_one_job_id,
+        ) {
+            eprintln!("Warning: Failed to save character to planets folder: {:?}", e);
+        }
+    }
+    
     Ok(Json(artifact))
+}
+
+async fn get_demo_step_three_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_three::DemoStepThreeArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_three::load_persisted_demo_step_three_artifact(&state, &query)?;
+    Ok(Json(artifact))
+}
+
+async fn get_demo_step_three_vision_coordinates(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_three::DemoStepThreeArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let coordinates = demo_step_three::load_vision_coordinates(
+        &state,
+        query.step_one_job_id.as_deref(),
+        query.hero.as_deref(),
+    )
+    .ok_or_else(|| (StatusCode::NOT_FOUND, "Vision coordinates not found".to_string()))?;
+    Ok(Json(coordinates))
+}
+
+async fn save_demo_step_three_vision_coordinates(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_three::DemoStepThreeArtifactQuery>,
+    Json(coordinates): Json<demo_step_three::PersistedVisionCoordinates>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    demo_step_three::save_vision_coordinates(
+        &state,
+        query.step_one_job_id.as_deref(),
+        query.hero.as_deref(),
+        &coordinates,
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(coordinates))
+}
+
+async fn get_demo_step_four_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_four::DemoStepFourArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_four::load_persisted_demo_step_four_artifact(&state, &query)?;
+    Ok(Json(artifact))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InitializeDemoStepFourRequest {
+    step_one_job_id: Option<String>,
+    hero_variant: String,
+    location_id: String,
+    location_title: String,
+    world_title: String,
+    #[serde(default)]
+    quest_run_id: Option<String>,
+}
+
+async fn initialize_demo_step_four_artifact_handler(
+    State(state): State<AppState>,
+    Json(request): Json<InitializeDemoStepFourRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // If quest_run_id is provided, update existing artifact
+    if let Some(quest_run_id) = request.quest_run_id {
+        let query = demo_step_four::DemoStepFourArtifactQuery {
+            step_one_job_id: request.step_one_job_id.clone(),
+            hero: Some(request.hero_variant.clone()),
+            location_id: Some(request.location_id.clone()),
+        };
+        
+        if let Ok(mut artifact) = demo_step_four::load_persisted_demo_step_four_artifact(&state, &query) {
+            artifact.quest_run_id = Some(quest_run_id);
+            demo_step_four::save_demo_step_four_artifact(
+                &state,
+                request.step_one_job_id.as_deref(),
+                &request.hero_variant,
+                &request.location_id,
+                &artifact,
+            )?;
+            return Ok(Json(artifact));
+        }
+    }
+    
+    // Otherwise initialize new artifact
+    let artifact = demo_step_four::initialize_demo_step_four_quest(
+        &state,
+        request.step_one_job_id.as_deref(),
+        &request.hero_variant,
+        &request.location_id,
+        &request.location_title,
+        &request.world_title,
+    )
+    .await?;
+    Ok(Json(artifact))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EnsureFinalCombatRequest {
+    world_id: String,
+    run_id: String,
+}
+
+async fn ensure_demo_final_combat_handler(
+    State(state): State<AppState>,
+    Json(request): Json<EnsureFinalCombatRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    demo_step_four::ensure_demo_quest_has_final_combat(&state, &request.world_id, &request.run_id).await?;
+    Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))))
 }
 
 async fn start_demo_step_two_weapon_job(
@@ -3463,6 +3666,122 @@ async fn start_demo_step_two_weapon_job(
                                 preview_text: None,
                             },
                         ];
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_three_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_three::DemoStepThreeGenerateRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step3.location.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 3 Location"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step3.location"),
+            "Queued",
+            request.world_id.clone(),
+            request.step_one_job_id.clone(),
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "demoStep".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(3)),
+        );
+        metadata.insert(
+            "heroVariant".to_string(),
+            serde_json::Value::String(request.hero_variant.clone()),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let state_for_task = state.clone();
+    let output_root = demo_step_three::demo_step_three_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+        Some(request.location_hint.node_id.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    18.0,
+                    "Resolving persisted demo context".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            let result =
+                demo_step_three::run_demo_step_three(&state_for_task, &request, &output_root)
+                    .await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        86.0,
+                        "Persisting location brief".to_string(),
+                    );
+                }
+            }
+
+            Ok::<demo_step_three::DemoStepThreeResult, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = build_demo_step_three_output_refs(&result.artifact);
                     }
                 }
             }
@@ -4493,10 +4812,7 @@ mod media_video_persistence_tests {
         collections::HashMap,
         fs,
         path::PathBuf,
-        sync::{
-            atomic::AtomicUsize,
-            Arc, Mutex,
-        },
+        sync::{atomic::AtomicUsize, Arc, Mutex},
         time::{SystemTime, UNIX_EPOCH},
     };
     use tokio::sync::Semaphore;
@@ -4528,6 +4844,9 @@ mod media_video_persistence_tests {
             generated_media_video_dir: root.join("generated").join("media-video"),
             isolated_dir: root.join("Isolated"),
             packs_dir: root.join("Packs"),
+            demo_output_dir: root.join("generated").join("demo-output"),
+            demo_step_one_use_pregenerated: false,
+            demo_step_one_pregenerated_folder: "pregenerated".to_string(),
             refine_limiter: limiter,
             supabase: None,
         }
@@ -6501,6 +6820,29 @@ async fn get_characters(
         }
     }
     (StatusCode::OK, Json(serde_json::json!([]))).into_response()
+}
+
+async fn get_character_by_id(
+    State(state): State<AppState>,
+    Path((world_id, character_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let file_path = state
+        .planets_dir
+        .join(&world_id)
+        .join("characters")
+        .join(format!("{}.json", character_id));
+    
+    if let Ok(data) = std::fs::read_to_string(&file_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+            return (StatusCode::OK, Json(json)).into_response();
+        }
+    }
+    
+    (
+        StatusCode::NOT_FOUND,
+        format!("Character {} not found in world {}", character_id, world_id),
+    )
+        .into_response()
 }
 
 async fn save_characters(

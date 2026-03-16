@@ -1,15 +1,17 @@
 import type { CSSProperties } from "react";
-import { ImageGlobe, type ImageGlobeCameraPreset } from "../components/ImageGlobe";
+import { ImageGlobe, type ImageGlobeCameraPreset, type LocationMarker } from "../components/ImageGlobe";
 import type { DemoPlanetView } from "./DemoFlowContext";
 
 interface DemoPlanetStageProps {
     textureUrl: string | null;
     view: DemoPlanetView;
+    locationMarkers?: LocationMarker[];
 }
 
 type PlanetStageViewConfig = {
     cameraPreset: ImageGlobeCameraPreset;
     interactive: boolean;
+    autoRotate: boolean;
     wrapperClassName: string;
     glowClassName: string;
     maskStyle?: CSSProperties;
@@ -19,6 +21,7 @@ const VIEW_CONFIG: Record<Exclude<DemoPlanetView, "hidden">, PlanetStageViewConf
     stepOneShowcase: {
         cameraPreset: "stepOneShowcase",
         interactive: true,
+        autoRotate: true,
         wrapperClassName: "opacity-100 saturate-[1.08]",
         glowClassName: "opacity-100",
         maskStyle: {
@@ -29,12 +32,14 @@ const VIEW_CONFIG: Record<Exclude<DemoPlanetView, "hidden">, PlanetStageViewConf
     stepTwoIntro: {
         cameraPreset: "stepTwoIntro",
         interactive: false,
+        autoRotate: true,
         wrapperClassName: "opacity-[0.96] saturate-110 brightness-[1.04]",
         glowClassName: "opacity-[0.9]",
     },
     stepTwoReady: {
         cameraPreset: "stepTwoReady",
         interactive: false,
+        autoRotate: true,
         wrapperClassName: "opacity-[0.2] saturate-[0.95] brightness-[0.9]",
         glowClassName: "opacity-[0.45]",
         maskStyle: {
@@ -42,9 +47,23 @@ const VIEW_CONFIG: Record<Exclude<DemoPlanetView, "hidden">, PlanetStageViewConf
             maskImage: "linear-gradient(90deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.92) 56%, rgba(0,0,0,0.36) 74%, rgba(0,0,0,0) 92%)",
         },
     },
+    stepThreeIntro: {
+        cameraPreset: "stepThreeIntro",
+        interactive: false,
+        autoRotate: true,
+        wrapperClassName: "opacity-[0.98] saturate-110 brightness-[1.02]",
+        glowClassName: "opacity-[0.92]",
+    },
+    stepThreeSelect: {
+        cameraPreset: "stepThreeSelect",
+        interactive: false,
+        autoRotate: false,
+        wrapperClassName: "opacity-[0.95] saturate-[1.04] brightness-[1.02]",
+        glowClassName: "opacity-[0.86]",
+    },
 };
 
-export function DemoPlanetStage({ textureUrl, view }: DemoPlanetStageProps) {
+export function DemoPlanetStage({ textureUrl, view, locationMarkers = [] }: DemoPlanetStageProps) {
     if (!textureUrl || view === "hidden") {
         return null;
     }
@@ -66,6 +85,8 @@ export function DemoPlanetStage({ textureUrl, view }: DemoPlanetStageProps) {
                         transparentBackground
                         cameraPreset={config.cameraPreset}
                         interactive={config.interactive}
+                        autoRotate={config.autoRotate}
+                        locationMarkers={locationMarkers}
                     />
                 </div>
             </div>

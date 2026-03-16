@@ -447,7 +447,7 @@ export function DemoPlanetScreen() {
                 <div className="relative z-10 flex h-full w-full items-center justify-center overflow-hidden px-6 py-10">
                     <div className={`relative w-full max-w-4xl ${enteredFromLaunch ? "animate-in fade-in duration-500" : ""}`}>
                         <div className="rounded-[32px] border border-white/10 bg-black/30 px-8 py-10 shadow-[0_30px_80px_rgba(0,0,0,0.35)] backdrop-blur-md md:px-12 md:py-12">
-                            <div className="text-center">                                
+                            <div className="text-center">
                                 <div className="mx-auto mt-5 max-w-[18ch] text-balance text-3xl font-semibold tracking-[0.08em] text-white md:text-5xl">
                                     Preparing Your World Introduction
                                 </div>
@@ -542,7 +542,7 @@ export function DemoPlanetScreen() {
 
                                 {selectionPhase === "idle" && (
                                     <div className="mt-8 space-y-4">
-                                        
+
                                         <p className="text-sm font-medium normal-case leading-6 tracking-[0.02em] text-slate-200">
                                             {DEMO_STEP_ONE_DIRECTION_PROMPT}
                                         </p>

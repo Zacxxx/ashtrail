@@ -343,7 +343,8 @@ fn normalize_generated_weapon(mut weapon: DemoStepTwoWeapon) -> DemoStepTwoWeapo
 }
 
 fn string_field(value: &Value, key: &str) -> Option<String> {
-    value.get(key)
+    value
+        .get(key)
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
@@ -375,11 +376,15 @@ fn i32_field(value: &Value, key: &str) -> Option<i32> {
     }
 }
 
-fn decode_generated_weapon_payload(value: &Value) -> Result<DemoStepTwoWeapon, (StatusCode, String)> {
-    let id = string_field(value, "id").unwrap_or_else(|| format!("demo-step-two-weapon-{}", Uuid::new_v4().simple()));
+fn decode_generated_weapon_payload(
+    value: &Value,
+) -> Result<DemoStepTwoWeapon, (StatusCode, String)> {
+    let id = string_field(value, "id")
+        .unwrap_or_else(|| format!("demo-step-two-weapon-{}", Uuid::new_v4().simple()));
     let name = string_field(value, "name").unwrap_or_else(|| "Ashtrail Field Arm".to_string());
-    let description = string_field(value, "description")
-        .unwrap_or_else(|| "A combat-ready field weapon balanced for Ashtrail skirmishes.".to_string());
+    let description = string_field(value, "description").unwrap_or_else(|| {
+        "A combat-ready field weapon balanced for Ashtrail skirmishes.".to_string()
+    });
     let rarity = string_field(value, "rarity").unwrap_or_else(|| "specialized".to_string());
     let weapon_type = string_field(value, "weaponType")
         .or_else(|| string_field(value, "type"))
@@ -677,6 +682,87 @@ pub fn persist_demo_step_two_artifact_for_demo(
     demo_output::persist_demo_artifact(&output_root, &envelope)
         .map_err(|message| (StatusCode::INTERNAL_SERVER_ERROR, message))?;
     Ok(artifact)
+}
+
+/// Save character and weapon to planets folder for demo
+pub fn save_demo_character_to_planets(
+    planets_dir: &Path,
+    world_id: &str,
+    artifact: &PersistedDemoStepTwoArtifact,
+    step_one_job_id: &str,
+) -> Result<(), (StatusCode, String)> {
+    let world_dir = planets_dir.join(world_id);
+    let characters_dir = world_dir.join("characters");
+    let items_dir = world_dir.join("items");
+    
+    // Ensure directories exist
+    fs::create_dir_all(&characters_dir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create characters directory: {}", e)))?;
+    fs::create_dir_all(&items_dir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create items directory: {}", e)))?;
+    
+    // Create character ID
+    let character_id = format!("demo-char-{}-{}", artifact.hero_variant, &step_one_job_id[..8.min(step_one_job_id.len())]);
+    
+    // Build character object
+    let character = serde_json::json!({
+        "id": character_id,
+        "worldId": world_id,
+        "name": artifact.hero_name,
+        "age": artifact.draft.age,
+        "gender": &artifact.draft.gender,
+        "level": artifact.draft.level,
+        "type": "player",
+        "isNPC": false,
+        "occupation": {
+            "name": &artifact.draft.occupation_name,
+        },
+        "stats": &artifact.draft.stats,
+        "history": &artifact.draft.history,
+        "backstory": &artifact.draft.backstory,
+        "traits": &artifact.draft.trait_names,
+        "portraitUrl": &artifact.portrait_url,
+        "createdAt": chrono::Utc::now().timestamp_millis(),
+        "updatedAt": chrono::Utc::now().timestamp_millis(),
+    });
+    
+    fs::write(
+        characters_dir.join(format!("{}.json", character_id)),
+        serde_json::to_vec_pretty(&character)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize character: {}", e)))?,
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write character: {}", e)))?;
+    
+    // Save weapon if it exists
+    if let Some(weapon_artifact) = &artifact.weapon_artifact {
+        let weapon = &weapon_artifact.weapon;
+        let weapon_id = &weapon.id;
+        
+        let weapon_data = serde_json::json!({
+            "id": weapon_id,
+            "worldId": world_id,
+            "ownerId": character_id,
+            "name": &weapon.name,
+            "description": &weapon.description,
+            "rarity": &weapon.rarity,
+            "weaponType": &weapon.weapon_type,
+            "weaponRange": weapon.weapon_range,
+            "baseDamage": weapon.base_damage,
+            "loreText": &weapon_artifact.lore_text,
+            "imageUrl": &weapon_artifact.image.url,
+            "createdAt": chrono::Utc::now().timestamp_millis(),
+            "updatedAt": chrono::Utc::now().timestamp_millis(),
+        });
+        
+        fs::write(
+            items_dir.join(format!("{}.json", weapon_id)),
+            serde_json::to_vec_pretty(&weapon_data)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize weapon: {}", e)))?,
+        )
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write weapon: {}", e)))?;
+    }
+    
+    Ok(())
 }
 
 pub fn demo_step_two_weapon_output_root(
