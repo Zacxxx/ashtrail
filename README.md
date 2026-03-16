@@ -158,6 +158,7 @@
 - **Lyria Music Synth**: Adaptive music and immersive soundscape generation powered through Vertex AI.
 - **Job Center**: Monitoring and balancing tool used to simulate exploration tasks, progression loops, and economic systems.
 - **Generated Gallery**: Visual archive for browsing, reviewing, and reusing previously generated AI content.
+- **Helper**: AI-powered contextual assistant providing real-time guidance, troubleshooting support, and feature explanations based on tutorial documentation and intelligent code analysis.
 
 </details>
 

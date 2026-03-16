@@ -53,6 +53,8 @@
 
 - **Job Center**: Centralized generation tracking and connectivity hub used to monitor all current and past generation jobs across the entire dev-tools ecosystem, providing real-time status updates, historical logs, and cross-tool integration for seamless workflow orchestration and debugging.
 
+- **Helper**: AI-powered contextual assistant integrated into the dev-tools interface, providing real-time guidance, troubleshooting support, and feature explanations based on the current tool context, tutorial documentation, and source code analysis to help users navigate workflows and resolve issues efficiently.
+
 
 ## 🚀 Getting Started
 
@@ -3993,6 +3995,248 @@ The Job Center organizes jobs into families with hierarchical relationships:
 All job families are persisted in backend database and remain accessible in history for debugging and workflow analysis.
 
 
+
+</details>
+
+<details>
+<summary><b>💬 Helper</b></summary>
+
+### Purpose & Overview
+
+The Helper is an AI-powered contextual assistant integrated directly into the dev-tools interface, providing real-time guidance, troubleshooting support, and feature explanations based on the current tool context. It combines tutorial documentation with intelligent source code analysis to deliver accurate, user-friendly answers to questions about workflows, features, and best practices. The Helper automatically detects which tool you're currently using and tailors its responses accordingly, making it easier to learn the dev-tools, resolve issues, and discover advanced features without leaving your workflow.
+
+### Key Features
+
+- **Contextual Awareness**: Automatically detects which tool you're currently using and provides relevant guidance
+- **Tutorial Integration**: Has complete access to the dev-tools tutorial documentation for accurate answers
+- **Intelligent Code Search**: When tutorial info is insufficient, searches relevant source code files for technical details
+- **Two-Pass Analysis**: First checks if tutorial has enough info, then searches code if needed for complex questions
+- **Session-Based Conversations**: Chat history is maintained during your session but resets when modal is closed
+- **Markdown Support**: Full markdown rendering with syntax highlighting for code blocks, lists, and formatting
+- **Real-Time Assistance**: Provides instant answers without interrupting your workflow
+- **User-Friendly Responses**: Focuses on practical usage and UI elements, not technical implementation details
+- **Troubleshooting Guidance**: Proactively offers solutions when you seem stuck or encounter issues
+- **Feature Discovery**: Suggests related tools and features you might not know about
+- **Always Accessible**: Available from any tool via the header button (except World Generator)
+- **No Greetings**: Jumps straight to answers for efficient, conversational interactions
+
+### Interface Walkthrough
+
+The Helper interface is a modal overlay accessible from the global header:
+
+**Access Button:**
+- **Location**: Top-right header, next to Generation Gallery button
+- **Icon**: Question mark (?) in a circular button
+- **Availability**: Visible on all pages except World Generator
+- **Visual State**: Highlights when active
+
+**Modal Layout:**
+- **Header**: Shows "Dev-Tools Helper" title and current tool context
+- **Close Button**: X button in top-right corner
+- **Messages Area**: Scrollable chat history with user and assistant messages
+- **Input Area**: Text area for typing questions with Send button
+- **Backdrop**: Blurred background to focus attention on conversation
+
+**Message Display:**
+- **User Messages**: Right-aligned, teal background with border
+- **Assistant Messages**: Left-aligned, dark gray background with markdown rendering
+- **Loading Indicator**: Animated dots while AI generates response
+- **Timestamps**: Implicit ordering (newest at bottom)
+- **Auto-Scroll**: Automatically scrolls to newest message
+
+**Input Controls:**
+- **Text Area**: Multi-line input with placeholder "Ask a question..."
+- **Send Button**: Gradient teal-to-cyan button with paper plane icon
+- **Keyboard Shortcut**: Press Enter to send (Shift+Enter for new line)
+- **Disabled State**: Grayed out when loading or input is empty
+
+**Markdown Rendering:**
+- **Code Blocks**: Syntax-highlighted with dark background
+- **Inline Code**: Teal-colored with subtle background
+- **Lists**: Bullet and numbered lists with proper indentation
+- **Headings**: Bold, white text with appropriate sizing
+- **Links**: Teal-colored, underlined, open in new tab
+- **Blockquotes**: Left border with italic text
+- **Bold/Italic**: Proper emphasis styling
+
+### Inputs Required
+
+**Prerequisites:**
+- Backend server running with Gemini API key configured
+- `devtoolstutorial.md` file present at project root
+- Active internet connection for AI responses
+
+**For Using Helper:**
+- **Question**: Natural language question about dev-tools features, workflows, or issues
+- **Context**: Automatically captured (current tool, route, search params)
+- **No Configuration**: Helper works out-of-the-box with no setup required
+
+**Question Types:**
+- **Feature Questions**: "How does the Game Master work?"
+- **Workflow Questions**: "What should I do after generating a planet?"
+- **Troubleshooting**: "Why can't I generate quests?"
+- **Best Practices**: "What's the recommended pipeline for world creation?"
+- **Technical Details**: "How does province refinement work?"
+- **Integration Questions**: "How do I sync with Supabase?"
+
+### Outputs Generated
+
+**Primary Outputs:**
+- **AI Responses**: Contextual answers based on tutorial and code analysis
+- **Markdown Content**: Formatted text with code examples, lists, and emphasis
+- **Troubleshooting Guidance**: Step-by-step solutions for common issues
+- **Feature Explanations**: Clear descriptions of tool capabilities and workflows
+- **Code Examples**: When relevant, shows actual code patterns from source files
+- **Related Suggestions**: Recommendations for related tools or features
+
+**No Files Created:**
+- Helper is a conversational tool and does not create files
+- All responses are ephemeral and session-based
+- No conversation history is persisted
+
+**Integration Outputs:**
+- **To User**: Real-time guidance and support
+- **From Tutorial**: Pulls documentation content for accurate answers
+- **From Source Code**: Extracts implementation details when needed for technical questions
+
+### Step-by-Step Usage
+
+#### Step 1: Open the Helper
+
+1. **Locate the Helper button** in the top-right header
+   - Look for the question mark (?) icon
+   - Button is next to the Generation Gallery button
+2. **Click the Helper button** to open the modal
+3. **Modal appears** with blurred backdrop
+4. **Current tool context** is displayed in header
+   - Example: "Currently in: Game Master"
+5. **Empty state message** appears if no messages yet
+   - Shows robot icon and welcome message
+   - Explains what the Helper can do
+
+#### Step 2: Ask a Question
+
+1. **Click in the text area** at the bottom of the modal
+2. **Type your question** in natural language
+   - Be specific about what you want to know
+   - Mention tool names if asking about specific features
+   - Example: "How do I create a world in the World Generator?"
+3. **Press Enter** or click the Send button
+4. **Your message appears** on the right side
+5. **Loading indicator appears** while AI generates response
+6. **Assistant response appears** on the left side with markdown formatting
+
+#### Step 3: Read the Response
+
+1. **Response appears** with markdown formatting
+   - Code blocks are syntax-highlighted
+   - Lists are properly indented
+   - Links are clickable
+2. **Scroll through response** if it's long
+3. **Click links** to open external resources (opens in new tab)
+4. **Copy code examples** by selecting and copying text
+5. **Response is tailored** to your current tool context
+
+#### Step 4: Continue the Conversation
+
+1. **Ask follow-up questions** in the text area
+2. **Helper remembers context** from previous messages in session
+3. **Responses build on previous answers** for natural conversation
+4. **No need to repeat context** - Helper maintains conversation flow
+5. **Ask for clarification** if response is unclear
+6. **Request more details** on specific points
+
+#### Step 5: Close the Helper
+
+1. **Click the X button** in top-right corner of modal
+2. **Or click outside the modal** on the blurred backdrop
+3. **Modal closes** and conversation is cleared
+4. **Next time you open** Helper, conversation starts fresh
+5. **Helper button** remains accessible in header
+
+### Best Practices
+
+1. **Be Specific**: Ask clear, specific questions for better answers
+2. **Mention Tool Names**: Reference specific tools when asking about features
+3. **Ask Follow-Ups**: Continue the conversation for deeper understanding
+4. **Use for Troubleshooting**: Helper can diagnose common issues and suggest solutions
+5. **Check Current Tool**: Helper tailors responses to your current tool context
+6. **Ask About Workflows**: Helper knows the recommended pipeline and best practices
+7. **Request Examples**: Ask for code examples or step-by-step instructions
+8. **Explore Features**: Ask "What can I do with [tool]?" to discover capabilities
+9. **Verify Information**: If unsure, ask Helper to clarify or provide more details
+10. **Use for Learning**: Helper is great for learning new tools and workflows
+
+### Common Pitfalls
+
+1. **Vague Questions**: Asking "How does this work?" without context may get generic answers
+2. **Not Mentioning Tool**: If asking about a specific tool, mention it by name
+3. **Expecting Instant Expertise**: Helper provides guidance, but hands-on practice is still needed
+4. **Ignoring Context**: Helper knows your current tool, so leverage that context
+5. **Not Following Up**: If answer is unclear, ask for clarification instead of giving up
+6. **Closing Too Soon**: Keep modal open while working through a workflow
+7. **Not Using for Troubleshooting**: Helper can diagnose issues - don't struggle alone
+8. **Expecting Code Execution**: Helper explains features but doesn't execute actions
+9. **Not Checking Tutorial**: Helper pulls from tutorial, so answers are documentation-based
+10. **Forgetting Session Reset**: Conversation clears when modal closes, so finish your questions
+
+### Integration with Other Tools
+
+- **World Generator**: Provides guidance on planet generation, geography, ecology, and humanity workflows
+- **Asset Generator**: Explains icon, texture, sprite, song, and video generation processes
+- **Game Master**: Clarifies canonical world prompts, system directives, and ambience settings
+- **Gallery**: Guides through browsing, syncing, and managing generated assets
+- **Gameplay Engine**: Explains exploration, combat, character systems, and skill configuration
+- **Character Builder**: Assists with character creation, traits, equipment, and progression
+- **History**: Helps with lore generation, faction management, and timeline structuring
+- **Ecology**: Guides through flora, fauna, and biome creation workflows
+- **Quests**: Explains quest generation, running, and archiving processes
+- **Job Center**: Clarifies job monitoring, filtering, and debugging workflows
+- **All Tools**: Provides universal guidance across the entire dev-tools ecosystem
+
+### Advanced: How Helper Works
+
+The Helper uses a two-pass intelligence system to provide accurate answers:
+
+**Pass 1: Tutorial Analysis (Temperature: 0.3)**
+- AI analyzes your question
+- Checks if tutorial documentation contains sufficient information
+- If yes → generates response from tutorial
+- If no → proceeds to Pass 2
+
+**Pass 2: Code Search (if needed)**
+- Identifies 2-3 relevant keywords from your question
+- Maps current tool to relevant source files:
+  - World Generator → `WorldgenPage.tsx`, `generator.rs`, `worldgen_pipeline.rs`
+  - Asset Generator → `AssetGeneratorPage.tsx`, `gemini.rs`
+  - Game Master → `GameMasterPage.tsx`, `cms.rs`
+  - And so on for all tools
+- Reads up to 3 most relevant files
+- Extracts sections matching keywords (with 10-line context window)
+- Limits to 2000 characters per file to avoid token overflow
+
+**Response Generation (Temperature: 0.7)**
+- Combines tutorial content + code context (if needed)
+- Applies user-friendly guidelines:
+  - Never mentions backend code, Rust files, or API endpoints
+  - Focuses on UI elements, buttons, and user actions
+  - Explains features from user perspective, not implementation
+- Generates natural, conversational response
+- Formats with markdown for readability
+
+**Context Tracking:**
+- Detects current tool from React Router location
+- Captures route path and search parameters
+- Includes tool context in every request to AI
+- Tailors responses based on where you are in the app
+
+**Session Management:**
+- Conversation history maintained in React state
+- History cleared when modal closes
+- No persistence between sessions
+- Each session starts fresh
+
+This intelligent system ensures Helper provides accurate, relevant answers while maintaining a user-friendly, non-technical tone.
 
 </details>
 
