@@ -248,15 +248,6 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
         defaultModalities: ["asset", "image"],
         route: DEVTOOLS_ROUTES.gallery,
     },
-    {
-        id: "story-loop",
-        label: "Story Loop",
-        description: "Hybrid loop planning for scenes, inserts, quest beats, and mixed-media stories.",
-        technicalCategory: "ai-text",
-        productAreas: ["narrative-ai", "quests"],
-        defaultModalities: ["text", "image"],
-        route: DEVTOOLS_ROUTES.storyLoop,
-    },
 ];
 
 export const TOOL_CATALOG_BY_ID = new Map(TOOL_CATALOG.map((tool) => [tool.id, tool]));

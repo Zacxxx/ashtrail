@@ -14,7 +14,6 @@ import { EcologyPage } from "./ecology";
 import { GameMasterPage } from "./game-master";
 import { JobCenterPage } from "./jobs/JobCenterPage";
 import { QuestPage } from "./quests";
-import { StoryLoopPage } from "./story-loop";
 import { DemoLandingPage } from "./demo/DemoLandingPage";
 import { DemoFlowPage } from "./demo/DemoFlowPage";
 import {
@@ -61,7 +60,6 @@ const router = createBrowserRouter([
                     { path: "ecology", element: <EcologyPage /> },
                     { path: "quests", element: <QuestPage /> },
                     { path: "jobcenter", element: <JobCenterPage /> },
-                    { path: "story-loop", element: <StoryLoopPage /> },
                 ],
             },
             ...Object.entries(LEGACY_DEVTOOLS_REDIRECTS).map(([path, to]) => ({
