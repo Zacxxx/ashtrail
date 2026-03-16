@@ -3945,6 +3945,7 @@ async fn save_demo_step_five_artifact(
 struct AnalyzePlanetRequest {
     world_id: String,
     step_one_job_id: Option<String>,
+    quest_run_id: Option<String>,
 }
 
 async fn analyze_planet_and_generate_video(
@@ -3961,6 +3962,12 @@ async fn analyze_planet_and_generate_video(
 
     // Collect planet context
     let mut context_parts = Vec::new();
+    let mut character_name = "the hero".to_string();
+    let mut quest_title = String::new();
+    let mut quest_summary = String::new();
+    let mut last_node_text = String::new();
+    let mut quest_ending_text = String::new();
+    let mut world_title = "an alien world".to_string();
     
     // Read character data
     let characters_dir = planet_dir.join("characters");
@@ -3970,7 +3977,8 @@ async fn analyze_planet_and_generate_video(
                 if let Ok(content) = fs::read_to_string(entry.path()) {
                     if let Ok(char_data) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(name) = char_data.get("name").and_then(|v| v.as_str()) {
-                            context_parts.push(format!("Character: {}", name));
+                            character_name = name.to_string();
+                            context_parts.push(format!("Hero: {}", name));
                         }
                     }
                 }
@@ -3978,20 +3986,68 @@ async fn analyze_planet_and_generate_video(
         }
     }
     
-    // Read quest data
+    // Read quest data - prioritize the specific quest run if provided
     let quests_dir = planet_dir.join("quests");
     if quests_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&quests_dir) {
-            for entry in entries.flatten() {
-                if let Ok(content) = fs::read_to_string(entry.path()) {
-                    if let Ok(quest_data) = serde_json::from_str::<serde_json::Value>(&content) {
-                        if let Some(title) = quest_data.get("title").and_then(|v| v.as_str()) {
-                            context_parts.push(format!("Quest: {}", title));
+        let mut quest_files: Vec<_> = fs::read_dir(&quests_dir)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read quests dir: {}", e)))?
+            .flatten()
+            .collect();
+        
+        // If we have a specific quest run ID, prioritize it
+        if let Some(ref quest_run_id) = request.quest_run_id {
+            quest_files.sort_by_key(|entry| {
+                let filename = entry.file_name();
+                let filename_str = filename.to_string_lossy();
+                if filename_str.contains(quest_run_id) {
+                    0 // Prioritize matching quest
+                } else {
+                    1
+                }
+            });
+        }
+        
+        for entry in quest_files {
+            if let Ok(content) = fs::read_to_string(entry.path()) {
+                if let Ok(quest_data) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(title) = quest_data.get("title").and_then(|v| v.as_str()) {
+                        quest_title = title.to_string();
+                        context_parts.push(format!("Quest: {}", title));
+                    }
+                    if let Some(summary) = quest_data.get("summary").and_then(|v| v.as_str()) {
+                        quest_summary = summary.to_string();
+                    }
+                    
+                    // Extract the last node information for more specific context
+                    if let Some(current_node) = quest_data.get("currentNode") {
+                        if let Some(text) = current_node.get("text").and_then(|v| v.as_str()) {
+                            last_node_text = text.to_string();
                         }
-                        if let Some(summary) = quest_data.get("summary").and_then(|v| v.as_str()) {
-                            context_parts.push(format!("Summary: {}", summary));
+                        if let Some(title) = current_node.get("title").and_then(|v| v.as_str()) {
+                            quest_ending_text = title.to_string();
                         }
                     }
+                    
+                    // Get key moments from the quest log
+                    if let Some(log) = quest_data.get("log").and_then(|v| v.as_array()) {
+                        let key_moments: Vec<String> = log.iter()
+                            .filter_map(|entry| {
+                                if entry.get("kind").and_then(|k| k.as_str()) == Some("outcome") {
+                                    entry.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .take(3) // Last 3 key outcomes
+                            .collect();
+                        
+                        if !key_moments.is_empty() {
+                            context_parts.push(format!("Journey highlights: {}", key_moments.join("; ")));
+                        }
+                    }
+                    
+                    // Only process the first (or prioritized) quest
+                    break;
                 }
             }
         }
@@ -3999,7 +4055,6 @@ async fn analyze_planet_and_generate_video(
     
     // Read metadata
     let metadata_path = planet_dir.join("metadata.json");
-    let mut world_title = "an alien world".to_string();
     if metadata_path.exists() {
         if let Ok(content) = fs::read_to_string(&metadata_path) {
             if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -4016,11 +4071,36 @@ async fn analyze_planet_and_generate_video(
         context_parts.join(". ")
     };
 
-    // Create video prompt
-    let video_prompt = format!(
-        "A heroic character completing a dangerous quest on an alien planet. {}. The character stands victorious in a cinematic sci-fi setting, having overcome great challenges.",
-        planet_context
-    );
+    // Create enhanced video prompt based on quest ending
+    let video_prompt = if !last_node_text.is_empty() {
+        format!(
+            "{} has completed their quest '{}' on {}. Final moment: {}. Show {} standing victorious in this alien landscape, having overcome the challenges described. The scene should capture the triumph and the unique environment of this moment.",
+            character_name, quest_title, world_title, last_node_text, character_name
+        )
+    } else if !quest_summary.is_empty() {
+        format!(
+            "{} has completed their quest '{}' on {}. {}. Show {} standing victorious in a cinematic sci-fi setting, celebrating this achievement.",
+            character_name, quest_title, world_title, quest_summary, character_name
+        )
+    } else {
+        format!(
+            "{} completing a dangerous quest on {}. {}. The character stands victorious in a cinematic sci-fi setting, having overcome great challenges.",
+            character_name, world_title, planet_context
+        )
+    };
+
+    // Create narration prompt that reflects the journey
+    let narration_prompt = if !quest_ending_text.is_empty() && !last_node_text.is_empty() {
+        format!(
+            "Celebrate {}'s triumph in completing '{}'. Narrate their final achievement: '{}'. Keep it inspiring and brief, focusing on this victorious moment.",
+            character_name, quest_title, quest_ending_text
+        )
+    } else {
+        format!(
+            "Celebrate {}'s heroic journey completing '{}' on {}. Keep it inspiring and brief.",
+            character_name, quest_title, world_title
+        )
+    };
 
     // Launch video generation job
     let video_request = serde_json::json!({
@@ -4033,9 +4113,9 @@ async fn analyze_planet_and_generate_video(
         "mood": "triumphant, epic, heroic",
         "cameraDirection": "slow pan revealing the victorious hero",
         "narrationTone": "inspiring",
-        "narrationIntent": "celebrating the hero's achievement",
+        "narrationIntent": narration_prompt,
         "voiceName": "Kore",
-        "globalDirection": "Epic sci-fi adventure with a sense of accomplishment",
+        "globalDirection": format!("Epic sci-fi adventure on {} with a sense of accomplishment", world_title),
         "keepVeoAudio": false,
     });
 

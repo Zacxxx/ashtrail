@@ -1,40 +1,49 @@
 # Ashtrail - Google Cloud Run Deployment Guide
 
-This guide will help you deploy Ashtrail to Google Cloud Run in a new project for the hackathon.
+This guide will help you deploy Ashtrail to Google Cloud Run in a new project.
 
 ## Prerequisites
 
-- Google Cloud SDK (gcloud) installed and configured
-- Active Google Cloud billing account
-- Docker (for local testing, optional)
+- Google Cloud CLI (`gcloud`) installed and authenticated
+- A Google Cloud billing account
+- Docker (Cloud Build will handle the build)
 
-## Quick Deployment
+## Quick Deploy (Fish Shell)
 
-Run the automated deployment script:
+```fish
+chmod +x deploy.fish
+./deploy.fish
+```
+
+## Quick Deploy (Bash/Zsh)
 
 ```bash
+chmod +x deploy.sh
 ./deploy.sh
 ```
 
-The script will:
-1. Prompt you for a new GCP project ID and name
-2. Ask for your billing account ID (or list available accounts)
-3. Create the new project and link billing
-4. Enable required APIs (Cloud Build, Cloud Run, Container Registry)
-5. Build and deploy your application
+## Manual Deployment Steps (Fish Shell)
 
-## Manual Deployment
+If you prefer to run commands manually or need more control:
 
-If you prefer to deploy manually:
+### 1. Set your variables
 
-### 1. Create a new GCP project
+```fish
+set PROJECT_ID "ashtrail-hackathon-2024"  # Change this to your desired project ID
+set PROJECT_NAME "Ashtrail Hackathon"
+set REGION "us-central1"
+```
 
-```bash
-# Set your project details
-export PROJECT_ID="ashtrail-hackathon-2024"
-export PROJECT_NAME="Ashtrail Hackathon"
-export BILLING_ACCOUNT="YOUR-BILLING-ACCOUNT-ID"
+### 2. List billing accounts and set one
 
+```fish
+gcloud billing accounts list
+set BILLING_ACCOUNT "YOUR-BILLING-ACCOUNT-ID"  # Copy from the list above
+```
+
+### 3. Create and configure the project
+
+```fish
 # Create project
 gcloud projects create $PROJECT_ID --name="$PROJECT_NAME"
 
@@ -45,9 +54,9 @@ gcloud billing projects link $PROJECT_ID --billing-account=$BILLING_ACCOUNT
 gcloud config set project $PROJECT_ID
 ```
 
-### 2. Enable required APIs
+### 4. Enable required APIs
 
-```bash
+```fish
 gcloud services enable \
     cloudbuild.googleapis.com \
     run.googleapis.com \
@@ -55,84 +64,111 @@ gcloud services enable \
     artifactregistry.googleapis.com
 ```
 
-### 3. Build and deploy
+### 5. Build and deploy
 
-```bash
+```fish
+# This will build the Docker image and deploy to Cloud Run
 gcloud builds submit --config=cloudbuild.yaml
+```
+
+### 6. Get your service URL
+
+```fish
+gcloud run services describe ashtrail-devtools --region=$REGION --format='value(status.url)'
 ```
 
 ## Environment Variables
 
-To set environment variables for your Cloud Run service:
+To add environment variables to your Cloud Run service:
 
-```bash
+```fish
 gcloud run services update ashtrail-devtools \
     --region=us-central1 \
     --set-env-vars="GEMINI_API_KEY=your_key_here,GOOGLE_GENAI_API_KEY=your_key_here"
 ```
 
-## Accessing Your Deployment
+## Useful Commands
 
-After deployment, get your service URL:
+### View logs
 
-```bash
-gcloud run services describe ashtrail-devtools \
-    --region=us-central1 \
-    --format='value(status.url)'
-```
-
-## Viewing Logs
-
-```bash
+```fish
 gcloud run logs read ashtrail-devtools --region=us-central1 --limit=50
 ```
 
-## Updating the Deployment
+### Update service configuration
 
-To redeploy after making changes:
+```fish
+# Increase memory
+gcloud run services update ashtrail-devtools --region=us-central1 --memory=4Gi
 
-```bash
+# Increase CPU
+gcloud run services update ashtrail-devtools --region=us-central1 --cpu=4
+
+# Set max instances
+gcloud run services update ashtrail-devtools --region=us-central1 --max-instances=20
+```
+
+### Redeploy after code changes
+
+```fish
 gcloud builds submit --config=cloudbuild.yaml
 ```
 
-## Cost Management
+### Delete the service
 
-Cloud Run charges based on:
-- Request count
-- CPU and memory usage during request processing
-- Container instance time
+```fish
+gcloud run services delete ashtrail-devtools --region=us-central1
+```
 
-To minimize costs:
-- Set appropriate memory limits (currently 2Gi)
-- Configure max instances (currently 10)
-- Use the free tier (2 million requests/month)
+### Delete the entire project
+
+```fish
+gcloud projects delete $PROJECT_ID
+```
 
 ## Troubleshooting
 
-### Build fails
-- Check that all dependencies are properly specified
-- Verify Rust and Bun versions in Dockerfile
-- Review build logs: `gcloud builds log <BUILD_ID>`
+### Build fails with "permission denied"
+
+Make sure Cloud Build has the necessary permissions:
+
+```fish
+set PROJECT_NUMBER (gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:$PROJECT_NUMBER@cloudbuild.gserviceaccount.com" \
+    --role="roles/run.admin"
+```
 
 ### Service won't start
-- Check logs: `gcloud run logs read ashtrail-devtools --region=us-central1`
-- Verify PORT environment variable is being used
-- Ensure all required files are included (check .gcloudignore)
 
-### API errors
-- Verify GEMINI_API_KEY is set correctly
-- Check that Vertex AI API is enabled if using music generation
-- Review service account permissions
+Check the logs:
 
-## Security Notes
+```fish
+gcloud run logs read ashtrail-devtools --region=us-central1 --limit=100
+```
 
-- The service is deployed with `--allow-unauthenticated` for hackathon demo purposes
-- For production, consider adding authentication
-- Never commit API keys or credentials to the repository
-- Use Secret Manager for sensitive configuration
+### Need to update environment variables
 
-## Additional Resources
+```fish
+gcloud run services update ashtrail-devtools \
+    --region=us-central1 \
+    --update-env-vars="KEY=value"
+```
 
-- [Cloud Run Documentation](https://cloud.google.com/run/docs)
-- [Cloud Build Documentation](https://cloud.google.com/build/docs)
-- [Gemini API Documentation](https://ai.google.dev/docs)
+## Cost Considerations
+
+Cloud Run pricing is based on:
+- CPU and memory allocation
+- Request count
+- Execution time
+
+For the hackathon, the free tier should cover basic usage. Monitor your costs at:
+https://console.cloud.google.com/billing
+
+## Next Steps
+
+After deployment:
+1. Set your environment variables (especially API keys)
+2. Test the deployment by visiting the service URL
+3. Monitor logs for any issues
+4. Configure custom domain if needed

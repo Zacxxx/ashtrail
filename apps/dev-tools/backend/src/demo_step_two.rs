@@ -489,7 +489,59 @@ fn sync_demo_step_two_portrait_snapshot(
     state: &AppState,
     output_root: &Path,
     portrait_url: Option<&str>,
+    world_id: Option<&str>,
+    character_id: &str,
 ) -> Result<Option<String>, (StatusCode, String)> {
+    // If we have a world_id, save to planets directory instead
+    if let Some(world_id) = world_id {
+        let planets_portrait_dir = state.planets_dir.join(world_id).join("characters");
+        fs::create_dir_all(&planets_portrait_dir).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create planets portrait directory: {error}"),
+            )
+        })?;
+        
+        let portrait_file_name = format!("{}-portrait.png", character_id);
+        let portrait_path = planets_portrait_dir.join(&portrait_file_name);
+        
+        // Check if portrait already exists in planets directory
+        if portrait_path.is_file() {
+            return Ok(Some(format!("/api/planets/{}/characters/{}", world_id, portrait_file_name)));
+        }
+        
+        // Try to copy from source URL if available
+        if let Some(source_url) = portrait_url.map(str::trim).filter(|value| !value.is_empty()) {
+            if let Some(file_name) = extract_character_portrait_file_name(source_url) {
+                let source_path = state.character_portraits_dir.join(&file_name);
+                if source_path.is_file() {
+                    fs::copy(&source_path, &portrait_path).map_err(|error| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Failed to copy portrait to planets: {error}"),
+                        )
+                    })?;
+                    return Ok(Some(format!("/api/planets/{}/characters/{}", world_id, portrait_file_name)));
+                }
+            }
+        }
+        
+        // Try to copy from demo output if it exists there
+        if let Some(file_name) = infer_step_two_portrait_file_name(output_root) {
+            let source_path = output_root.join(&file_name);
+            if source_path.is_file() {
+                fs::copy(&source_path, &portrait_path).map_err(|error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Failed to copy portrait from demo output: {error}"),
+                    )
+                })?;
+                return Ok(Some(format!("/api/planets/{}/characters/{}", world_id, portrait_file_name)));
+            }
+        }
+    }
+    
+    // Fallback to old behavior for backward compatibility
     if let Some(url) = infer_step_two_portrait_url(output_root) {
         return Ok(Some(url));
     }
@@ -586,6 +638,22 @@ fn repair_loaded_demo_step_two_artifact(
     output_root: &Path,
     artifact: &mut PersistedDemoStepTwoArtifact,
 ) {
+    // Build character ID for planets directory
+    let character_id = format!("demo-char-{}", artifact.hero_variant);
+    
+    // Check if portrait exists in planets directory first
+    if let Some(world_id) = &artifact.world_id {
+        let portrait_file_name = format!("{}-portrait.png", character_id);
+        let planets_portrait_path = state.planets_dir.join(world_id).join("characters").join(&portrait_file_name);
+        if planets_portrait_path.is_file() {
+            artifact.portrait_url = Some(format!("/api/planets/{}/characters/{}", world_id, portrait_file_name));
+            if let Some(voice) = infer_step_two_voice_asset(output_root) {
+                artifact.voice_asset = Some(voice);
+            }
+            return;
+        }
+    }
+    
     if let Some(url) = infer_step_two_portrait_url(output_root) {
         artifact.portrait_url = Some(url);
     } else {
@@ -593,6 +661,8 @@ fn repair_loaded_demo_step_two_artifact(
             state,
             output_root,
             artifact.portrait_url.as_deref(),
+            artifact.world_id.as_deref(),
+            &character_id,
         )
         .ok()
         .flatten()
@@ -601,7 +671,13 @@ fn repair_loaded_demo_step_two_artifact(
                 &state.characters_dir,
                 &[artifact.hero_name.as_str(), artifact.draft.name.as_str()],
             )?;
-            sync_demo_step_two_portrait_snapshot(state, output_root, Some(&fallback))
+            sync_demo_step_two_portrait_snapshot(
+                state,
+                output_root,
+                Some(&fallback),
+                artifact.world_id.as_deref(),
+                &character_id,
+            )
                 .ok()
                 .flatten()
                 .or(Some(fallback))
@@ -641,8 +717,15 @@ pub fn persist_demo_step_two_artifact_for_demo(
         payload.step_one_job_id.as_deref(),
         Some(payload.hero_variant.as_str()),
     );
+    let character_id = format!("demo-char-{}", payload.hero_variant);
     let portrait_url =
-        sync_demo_step_two_portrait_snapshot(state, &output_root, payload.portrait_url.as_deref())?;
+        sync_demo_step_two_portrait_snapshot(
+            state,
+            &output_root,
+            payload.portrait_url.as_deref(),
+            payload.world_id.as_deref(),
+            &character_id,
+        )?;
     let artifact = PersistedDemoStepTwoArtifact {
         hero_variant: normalize_demo_hero_variant(Some(payload.hero_variant.as_str())).to_string(),
         hero_name: payload.hero_name.trim().to_string(),
@@ -845,7 +928,7 @@ pub async fn run_demo_step_two(
 
     let mut warnings = Vec::new();
 
-    let portrait = match generate_character_portrait(output_root, &character).await {
+    let portrait = match generate_character_portrait(state, request.world_id.as_deref(), &character.id, output_root, &character).await {
         Ok(asset) => Some(asset),
         Err((_code, message)) => {
             warnings.push(format!("Portrait generation failed: {message}"));
@@ -1206,6 +1289,9 @@ fn parse_character_package(value: &Value) -> Option<DemoStepTwoCharacterPackage>
 }
 
 async fn generate_character_portrait(
+    state: &AppState,
+    world_id: Option<&str>,
+    character_id: &str,
     output_root: &Path,
     character: &DemoStepTwoCharacterPackage,
 ) -> Result<DemoStepTwoAssetRef, (StatusCode, String)> {
@@ -1216,6 +1302,32 @@ Subject: {}. Title: {}. Occupation: {}. Visual direction: {}. The image must be 
     );
     let bytes =
         gemini::generate_image_bytes(&portrait_prompt, Some(0.7), 1024, 1024, Some("1:1")).await?;
+    
+    // Save to planets directory if world_id is available
+    if let Some(world_id) = world_id {
+        let planets_portrait_dir = state.planets_dir.join(world_id).join("characters");
+        fs::create_dir_all(&planets_portrait_dir).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create planets portrait directory: {error}"),
+            )
+        })?;
+        
+        let portrait_file_name = format!("{}-portrait.png", character_id);
+        fs::write(planets_portrait_dir.join(&portrait_file_name), bytes).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write portrait to planets: {error}"),
+            )
+        })?;
+        
+        return Ok(DemoStepTwoAssetRef {
+            url: format!("/api/planets/{}/characters/{}", world_id, portrait_file_name),
+            mime_type: "image/png".to_string(),
+        });
+    }
+    
+    // Fallback to demo-output for backward compatibility
     fs::write(output_root.join("portrait.png"), bytes).map_err(|error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -67,6 +67,8 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
     const [faunaEntries, setFaunaEntries] = useState<any[]>([]);
     const [faunaLoadAttempted, setFaunaLoadAttempted] = useState(false);
     const [combatReady, setCombatReady] = useState(false);
+    const [nodeHistory, setNodeHistory] = useState<Array<{ node: any; choiceId: string; choiceLabel: string }>>([]);
+    const [isViewingHistory, setIsViewingHistory] = useState(false);
     const generatingIllustrationsRef = useRef<Set<string>>(new Set());
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -615,6 +617,33 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
         }
     }, [questRun?.currentNode?.text, isGeneratingTTS]);
 
+    const handleGoBack = useCallback(() => {
+        if (nodeHistory.length === 0 || !questRun) return;
+        
+        // Get the last node from history
+        const lastEntry = nodeHistory[nodeHistory.length - 1];
+        
+        // Create a temporary quest run with the previous node
+        const previousQuestRun = {
+            ...questRun,
+            currentNode: lastEntry.node
+        };
+        
+        // Update the quest run to show the previous node
+        setQuestRun(previousQuestRun);
+        
+        // Pre-select the choice that was made
+        setSelectedChoiceId(lastEntry.choiceId);
+        
+        // Remove the last entry from history
+        setNodeHistory(prev => prev.slice(0, -1));
+        
+        // Mark that we're viewing history
+        setIsViewingHistory(true);
+        
+        console.log("⬅️ Going back to previous node, pre-selecting choice:", lastEntry.choiceLabel);
+    }, [nodeHistory, questRun]);
+
     const toggleTTS = useCallback(async () => {
         if (!ttsUrl) {
             await generateTTS();
@@ -645,7 +674,8 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
         setTtsUrl(null);
         setIsTTSPlaying(false);
         setIllustrationUrl(null);
-        setSelectedChoiceId(null);
+        
+        // Don't reset selectedChoiceId here - let the back navigation handle it
         if (audioRef.current) {
             audioRef.current.pause();
             audioRef.current = null;
@@ -784,6 +814,21 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
                 setAdvancingProgress(100);
             }
 
+            // Track the choice in history if we advanced successfully
+            if (finalChoiceLabel && questRun.currentNode?.id) {
+                const choiceId = selectedChoiceId || questRun.currentNode.choices?.find((c: any) => c.label === finalChoiceLabel)?.id;
+                if (choiceId) {
+                    // Save the current node state before advancing
+                    setNodeHistory(prev => [...prev, {
+                        node: { ...questRun.currentNode },
+                        choiceId,
+                        choiceLabel: finalChoiceLabel
+                    }]);
+                }
+            }
+            
+            // Clear the history viewing flag since we're advancing
+            setIsViewingHistory(false);
             setSelectedChoiceId(null);
 
             // Check if quest is complete
@@ -1065,7 +1110,20 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
                                 )}
 
                                 {/* Resolve/Fight button */}
-                                <div className="flex justify-end">
+                                <div className="flex justify-between items-center gap-3">
+                                    {/* Go Back button */}
+                                    {nodeHistory.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={handleGoBack}
+                                            disabled={isAdvancing}
+                                            className="group relative rounded-2xl border border-gray-400/30 bg-gradient-to-br from-gray-500/20 via-gray-600/15 to-gray-700/20 px-6 py-3.5 text-sm font-black uppercase tracking-widest text-gray-100 shadow-[0_8px_32px_rgba(100,116,139,0.15)] backdrop-blur-xl transition-all hover:border-gray-400/50 hover:shadow-[0_12px_48px_rgba(100,116,139,0.25)] disabled:cursor-not-allowed disabled:opacity-40"
+                                        >
+                                            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-gray-400/10 to-transparent opacity-0 transition-opacity group-hover:opacity-100 group-disabled:opacity-0" />
+                                            <span className="relative">← Go Back</span>
+                                        </button>
+                                    )}
+                                    
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -1109,7 +1167,7 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
                                                     </span>
                                                 </>
                                             ) : (
-                                                currentNode.kind === "combat" ? "Fight!" : "Resolve"
+                                                currentNode.kind === "combat" ? "Fight!" : isViewingHistory ? "Continue" : "Resolve"
                                             )}
                                         </span>
                                     </button>

@@ -1,0 +1,33 @@
+{
+  "age": 30,
+  "appearancePrompt": "Apex Predator forged by the quest.",
+  "backstory": "A creature of immense power, its form scarred and twisted, hinting at its connection to the 'sunder-scar' and the destruction of the Derelict Colossus.",
+  "faction": null,
+  "gender": "Unknown",
+  "history": "A creature of immense power, its form scarred and twisted, hinting at its connection to the 'sunder-scar' and the destruction of the Derelict Colossus.",
+  "hp": 35,
+  "id": "char-fa25a708-1f9b-4592-bd6b-0d626e9575a0",
+  "inventory": [],
+  "isNPC": true,
+  "level": 2,
+  "maxHp": 35,
+  "name": "The Scarred Hunter",
+  "origin": {
+    "sourceId": "quest-fb914546-85c6-4f12-a179-edc13a14f314",
+    "system": "quest",
+    "worldId": "demo-1f6fd05e-4c43-46a1-9cbe-afab7a48f2f7"
+  },
+  "skills": [],
+  "stats": {
+    "agility": 4,
+    "charisma": 4,
+    "endurance": 5,
+    "intelligence": 4,
+    "strength": 4,
+    "wisdom": 4
+  },
+  "traits": [],
+  "type": "Human",
+  "worldId": "demo-1f6fd05e-4c43-46a1-9cbe-afab7a48f2f7",
+  "xp": 0
+}

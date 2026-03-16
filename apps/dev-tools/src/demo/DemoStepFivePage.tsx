@@ -117,10 +117,23 @@ export function DemoStepFivePage() {
                         if (step5Response.ok) {
                             const artifact = await step5Response.json();
                             if (cancelled) return;
-                            console.log("✓ Found existing video artifact");
-                            setVideoArtifact(artifact);
-                            setScreenPhase("ready");
-                            return;
+                            
+                            // Verify the video file actually exists before using cached artifact
+                            if (artifact.videoUrl) {
+                                try {
+                                    const videoCheckResponse = await fetch(artifact.videoUrl, { method: 'HEAD' });
+                                    if (videoCheckResponse.ok) {
+                                        console.log("✓ Found existing video artifact with valid video file");
+                                        setVideoArtifact(artifact);
+                                        setScreenPhase("ready");
+                                        return;
+                                    } else {
+                                        console.warn("⚠️ Video artifact found but video file is missing, will regenerate");
+                                    }
+                                } catch (videoCheckErr) {
+                                    console.warn("⚠️ Failed to verify video file existence, will regenerate");
+                                }
+                            }
                         }
                     } catch (err) {
                         // Try next lookup key
@@ -177,6 +190,7 @@ export function DemoStepFivePage() {
                 body: JSON.stringify({
                     worldId,
                     stepOneJobId: stepOneJobId || undefined,
+                    questRunId: questRunId || undefined,
                 }),
             });
 

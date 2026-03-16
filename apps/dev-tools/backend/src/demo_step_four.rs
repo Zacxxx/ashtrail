@@ -163,7 +163,105 @@ pub async fn initialize_demo_step_four_quest(
     location_title: &str,
     world_title: &str,
 ) -> Result<PersistedDemoStepFourArtifact, (StatusCode, String)> {
-    // Try to load existing artifact first
+    // Load step 3 context first to get world_id
+    let step_three_artifact = demo_step_three::load_persisted_demo_step_three_artifact(
+        state,
+        &demo_step_three::DemoStepThreeArtifactQuery {
+            step_one_job_id: step_one_job_id.map(String::from),
+            hero: Some(hero_variant.to_string()),
+            node_id: Some(location_id.to_string()),
+        },
+    )
+    .ok();
+
+    let world_id = step_three_artifact
+        .as_ref()
+        .and_then(|a| a.world_id.clone())
+        .unwrap_or_else(|| {
+            step_one_job_id
+                .filter(|id| !id.trim().is_empty())
+                .map(|id| format!("demo-{}", id))
+                .unwrap_or_else(|| "demo-world".to_string())
+        });
+
+    // If using pregenerated, check if ANY quest already exists for this world
+    if state.demo_step_one_use_pregenerated {
+        let quests_dir = state.planets_dir.join(&world_id).join("quests");
+        if quests_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&quests_dir) {
+                let quest_files: Vec<_> = entries
+                    .filter_map(Result::ok)
+                    .filter(|entry| {
+                        entry.path().extension().and_then(|s| s.to_str()) == Some("json")
+                            && entry.file_name().to_string_lossy().starts_with("quest-")
+                    })
+                    .collect();
+                
+                if !quest_files.is_empty() {
+                    eprintln!("✓ Found {} pregenerated quest(s) for world {}, skipping generation", 
+                        quest_files.len(), world_id);
+                    
+                    // Try to load existing artifact
+                    let query = DemoStepFourArtifactQuery {
+                        step_one_job_id: step_one_job_id.map(String::from),
+                        hero: Some(hero_variant.to_string()),
+                        location_id: Some(location_id.to_string()),
+                    };
+
+                    if let Ok(existing) = load_persisted_demo_step_four_artifact(state, &query) {
+                        return Ok(existing);
+                    }
+                    
+                    // If no artifact exists, create a minimal one pointing to the first quest
+                    if let Some(first_quest) = quest_files.first() {
+                        let quest_run_id = first_quest
+                            .file_name()
+                            .to_string_lossy()
+                            .trim_end_matches(".json")
+                            .to_string();
+                        
+                        let hero_name = step_three_artifact
+                            .as_ref()
+                            .map(|a| a.hero_name.clone())
+                            .unwrap_or_else(|| "Traveler".to_string());
+                        
+                        let artifact = PersistedDemoStepFourArtifact {
+                            hero_variant: normalize_demo_hero_variant(Some(hero_variant)).to_string(),
+                            hero_name,
+                            world_id: Some(world_id.clone()),
+                            world_title: world_title.to_string(),
+                            location_id: location_id.to_string(),
+                            location_title: location_title.to_string(),
+                            quest_title: format!("Explore {}", location_title),
+                            quest_description: format!(
+                                "A pregenerated quest awaits at {}. The journey begins here.",
+                                location_title
+                            ),
+                            quest_objectives: vec![
+                                format!("Arrive at {}", location_title),
+                                "Begin your quest".to_string(),
+                            ],
+                            quest_rewards: vec!["Experience".to_string()],
+                            quest_run_id: Some(quest_run_id),
+                        };
+                        
+                        // Save the artifact for future use
+                        save_demo_step_four_artifact(
+                            state,
+                            step_one_job_id,
+                            hero_variant,
+                            location_id,
+                            &artifact,
+                        )?;
+                        
+                        return Ok(artifact);
+                    }
+                }
+            }
+        }
+    }
+
+    // Try to load existing artifact (for non-pregenerated or if no quests found)
     let query = DemoStepFourArtifactQuery {
         step_one_job_id: step_one_job_id.map(String::from),
         hero: Some(hero_variant.to_string()),
@@ -175,31 +273,10 @@ pub async fn initialize_demo_step_four_quest(
     }
 
     // Load step 3 context to get hero name and world context
-    let step_three_artifact = demo_step_three::load_persisted_demo_step_three_artifact(
-        state,
-        &demo_step_three::DemoStepThreeArtifactQuery {
-            step_one_job_id: step_one_job_id.map(String::from),
-            hero: Some(hero_variant.to_string()),
-            node_id: Some(location_id.to_string()),
-        },
-    )
-    .ok();
-
     let hero_name = step_three_artifact
         .as_ref()
         .map(|a| a.hero_name.clone())
         .unwrap_or_else(|| "Traveler".to_string());
-
-    // Use demo-specific world ID based on step one job ID
-    let world_id = step_three_artifact
-        .as_ref()
-        .and_then(|a| a.world_id.clone())
-        .unwrap_or_else(|| {
-            step_one_job_id
-                .filter(|id| !id.trim().is_empty())
-                .map(|id| format!("demo-{}", id))
-                .unwrap_or_else(|| "demo-world".to_string())
-        });
 
     let location_brief = step_three_artifact
         .as_ref()

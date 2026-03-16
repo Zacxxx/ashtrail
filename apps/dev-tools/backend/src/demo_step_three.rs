@@ -210,7 +210,23 @@ fn demo_output_asset_url(output_root: &Path, file_name: &str) -> String {
 fn repair_loaded_demo_step_three_artifact(
     output_root: &Path,
     artifact: &mut PersistedDemoStepThreeArtifact,
+    state: &AppState,
 ) {
+    // Check if image exists in planets directory first
+    if let Some(ref world_id) = artifact.world_id {
+        let location_id = normalize_step_three_node_id(Some(artifact.location_hint.node_id.as_str()));
+        let image_file_name = format!("{}-brief.png", location_id);
+        let planets_image_path = state.planets_dir.join(world_id).join("locations").join(&image_file_name);
+        if planets_image_path.is_file() {
+            artifact.image = DemoStepThreeAssetRef {
+                url: format!("/api/planets/{}/locations/{}", world_id, image_file_name),
+                mime_type: "image/png".to_string(),
+            };
+            return;
+        }
+    }
+    
+    // Fallback to demo-output
     if output_root.join("brief.png").is_file() {
         artifact.image = DemoStepThreeAssetRef {
             url: demo_output_asset_url(output_root, "brief.png"),
@@ -232,7 +248,7 @@ pub fn load_persisted_demo_step_three_artifact(
     let envelope = demo_output::load_demo_artifact::<PersistedDemoStepThreeArtifact>(&output_root)
         .map_err(|message| (StatusCode::NOT_FOUND, message))?;
     let mut artifact = envelope.artifact;
-    repair_loaded_demo_step_three_artifact(&output_root, &mut artifact);
+    repair_loaded_demo_step_three_artifact(&output_root, &mut artifact, state);
     Ok(artifact)
 }
 
@@ -434,17 +450,44 @@ Render the location only, with no character portrait, no text overlay, no UI, an
     );
     let bytes =
         gemini::generate_image_bytes(&image_prompt, Some(0.68), 1024, 1024, Some("1:1")).await?;
-    fs::write(output_root.join("brief.png"), bytes).map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to write demo step 3 brief illustration: {error}"),
-        )
-    })?;
+    
+    // Determine world_id for saving to planets
+    let world_id = request.world_id.clone().or(step_two.world_id.clone());
+    let image_url = if let Some(ref world_id) = world_id {
+        // Save to planets directory
+        let locations_dir = state.planets_dir.join(world_id).join("locations");
+        fs::create_dir_all(&locations_dir).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create planets locations directory: {error}"),
+            )
+        })?;
+        
+        let location_id = normalize_step_three_node_id(Some(request.location_hint.node_id.as_str()));
+        let image_file_name = format!("{}-brief.png", location_id);
+        fs::write(locations_dir.join(&image_file_name), &bytes).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write location brief to planets: {error}"),
+            )
+        })?;
+        
+        format!("/api/planets/{}/locations/{}", world_id, image_file_name)
+    } else {
+        // Fallback to demo-output
+        fs::write(output_root.join("brief.png"), &bytes).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write demo step 3 brief illustration: {error}"),
+            )
+        })?;
+        demo_output_asset_url(output_root, "brief.png")
+    };
 
     let artifact = PersistedDemoStepThreeArtifact {
         hero_variant: normalize_demo_hero_variant(Some(request.hero_variant.as_str())).to_string(),
         hero_name,
-        world_id: request.world_id.clone().or(step_two.world_id.clone()),
+        world_id,
         world_context: step_two.world_context.clone(),
         character_lore: step_two.lore_text.clone(),
         weapon_artifact: step_two.weapon_artifact.clone(),
@@ -452,7 +495,7 @@ Render the location only, with no character portrait, no text overlay, no UI, an
         location_title,
         brief_text,
         image: DemoStepThreeAssetRef {
-            url: demo_output_asset_url(output_root, "brief.png"),
+            url: image_url,
             mime_type: "image/png".to_string(),
         },
     };

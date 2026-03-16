@@ -341,10 +341,10 @@ export function DemoStepFourPage() {
                 }
                 
                 // Extract run ID from job result - the result contains the full quest run
-                if (jobDetail.result?.id) {
-                    runId = jobDetail.result.id;
-                } else if (jobDetail.result?.run?.id) {
+                if (jobDetail.result?.run?.id) {
                     runId = jobDetail.result.run.id;
+                } else if (jobDetail.result?.id) {
+                    runId = jobDetail.result.id;
                 }
             } else if (result?.run?.id) {
                 runId = result.run.id;
@@ -379,6 +379,12 @@ export function DemoStepFourPage() {
             } catch (saveErr) {
                 console.warn("⚠️ Could not save quest reference:", saveErr);
             }
+
+            // Update the quest artifact state with the run ID
+            setQuestArtifact({
+                ...questArtifact,
+                questRunId: runId,
+            });
 
             console.log("🎮 Navigating to quest player");
             setQuestPhase("playing");

@@ -1,0 +1,377 @@
+{
+  "age": 28,
+  "appearancePrompt": "Currently, Jane is tracking a newly emergent, volatile energy signature deep within the Silent Sepulchre, a vast, unexplored complex rumored to be the primary ritual site of the ancient civilization. She believes this signature could lead her to the core chamber where they attempted to channel the sun's last breath, a discovery that promises either unprecedented knowledge or unimaginable peril. The ground beneath her feet hums with a familiar, dangerous energy, urging her deeper into the violet depths.",
+  "backstory": "Jane Gemini's early life in Cinder-Watch was tethered to a world already broken, though her nascent mind barely registered the extent of the grand collapse. Perched on the very fringe of the Ashen Path, the settlement clung to a fragile existence, its inhabitants wary of the towering crystalline spires that pierced the bruised clouds. To her family, these monuments were a testament to ancient hubris, a silent warning of power misused. Yet, even as a child, Jane felt an undeniable pull towards their silent light, a shimmering violet promise of forgotten knowledge, fostering a singular dream to understand the sun that had abandoned Ashtrail and the civilization that had dared to chase its dying embers.\n\nThe true fall for Jane was not the distant cataclysm that created the Ashen Path, but a more intimate, shattering event that echoed its destructive force within her own life. When her elder brother ventured into a newly exposed section of the Path and did not return, the secure horizon of her youth vanished. Days later, only his fractured pack was recovered, yielding a single, perfectly smooth violet shard that hummed with a faint, chilling warmth. This relic, a tangible link to his demise and the ominous power within the ruins, marked the moment her personal world broke, propelling her from passive observer to active seeker.\n\nDriven by the twin engines of grief and an insatiable curiosity, Jane began her own perilous descent into the shadows of the ruins. This was no mere exploration; it was a brutal struggle for survival within an environment designed to consume the unwary. Each clandestine foray into the petrified lightning required meticulous attention, a finely honed instinct to differentiate a stable crystalline path from a collapsing trap, a safe pocket of residual energy from a volatile, destructive surge. She learned to read the subtle language of the violet glass, to move with the silent grace of a ghost, understanding that a single misstep meant not just failure, but oblivion.\n\nOver the long years, the ruins became her crucible, forging the woman she was destined to be. It was within the heart of the structure locally known as the 'Twin Spires' that her adaptation crystallized. There, amidst treacherous crystalline formations, she recovered two identical, resonant luminous fragments, their soft, internal pulses echoing each other, becoming her namesake: Jane 'Gemini'. These artifacts were not just proof of ancient power, but a mandate. She hardened, developing a unique blend of academic precision in deciphering forgotten symbols and the ruthless pragmatism of a survivor, transforming from a grieving sister into a renowned Lumen-Seeker, utterly convinced that Ashtrail's salvation lay dormant within the luminous husks of its past.\n\nToday, Jane Gemini stands on the precipice of a discovery that could reshape the Cinder-Sovereign. Her reputation as a Lumen-Seeker precedes her, a beacon in the perpetual twilight of Ashtrail, yet her personal quest remains deeply intertwined with the world's scarred fate. She tracks a newly emergent, volatile energy signature deep within the Silent Sepulchre, a vast and unexplored complex rumored to be the primary ritual site of the ancient civilization. The ground beneath her boots hums with a familiar, dangerous energy, urging her deeper, towards the core chamber where they once attempted to channel the sun's last breath—a revelation promising either unparalleled knowledge to avert a new catastrophe or the very same unimaginable peril that consumed a brilliant, terrible ambition.",
+  "credits": {
+    "copper": 0,
+    "gold": 10,
+    "silver": 24
+  },
+  "equipped": {
+    "boots": null,
+    "chest": null,
+    "gloves": null,
+    "head": null,
+    "legs": null,
+    "mainHand": {
+      "category": "weapon",
+      "cost": 180,
+      "description": "A dependable sidearm carried by Ashtrail pathfinders, tuned for fast response and accurate fire.",
+      "effects": [
+        {
+          "description": "Baseline combat damage for the Ashtrail demo protagonist.",
+          "id": "jane-gemini-starter-weapon-damage",
+          "name": "Weapon Damage",
+          "scope": "combat",
+          "target": "damage",
+          "trigger": "passive",
+          "type": "COMBAT_BONUS",
+          "value": 13
+        }
+      ],
+      "equipSlot": "mainHand",
+      "icon": "🔫",
+      "id": "jane-gemini-starter-weapon",
+      "name": "Gemini Service Sidearm",
+      "rarity": "specialized",
+      "weaponAreaSize": 0,
+      "weaponAreaType": "single",
+      "weaponRange": 5,
+      "weaponType": "ranged"
+    },
+    "offHand": null,
+    "waist": null
+  },
+  "gender": "Female",
+  "history": "Jane Gemini's early life in Cinder-Watch was tethered to a world already broken, though her nascent mind barely registered the extent of the grand collapse. Perched on the very fringe of the Ashen Path, the settlement clung to a fragile existence, its inhabitants wary of the towering crystalline spires that pierced the bruised clouds. To her family, these monuments were a testament to ancient hubris, a silent warning of power misused. Yet, even as a child, Jane felt an undeniable pull towards their silent light, a shimmering violet promise of forgotten knowledge, fostering a singular dream to understand the sun that had abandoned Ashtrail and the civilization that had dared to chase its dying embers.\n\nThe true fall for Jane was not the distant cataclysm that created the Ashen Path, but a more intimate, shattering event that echoed its destructive force within her own life. When her elder brother ventured into a newly exposed section of the Path and did not return, the secure horizon of her youth vanished. Days later, only his fractured pack was recovered, yielding a single, perfectly smooth violet shard that hummed with a faint, chilling warmth. This relic, a tangible link to his demise and the ominous power within the ruins, marked the moment her personal world broke, propelling her from passive observer to active seeker.\n\nDriven by the twin engines of grief and an insatiable curiosity, Jane began her own perilous descent into the shadows of the ruins. This was no mere exploration; it was a brutal struggle for survival within an environment designed to consume the unwary. Each clandestine foray into the petrified lightning required meticulous attention, a finely honed instinct to differentiate a stable crystalline path from a collapsing trap, a safe pocket of residual energy from a volatile, destructive surge. She learned to read the subtle language of the violet glass, to move with the silent grace of a ghost, understanding that a single misstep meant not just failure, but oblivion.\n\nOver the long years, the ruins became her crucible, forging the woman she was destined to be. It was within the heart of the structure locally known as the 'Twin Spires' that her adaptation crystallized. There, amidst treacherous crystalline formations, she recovered two identical, resonant luminous fragments, their soft, internal pulses echoing each other, becoming her namesake: Jane 'Gemini'. These artifacts were not just proof of ancient power, but a mandate. She hardened, developing a unique blend of academic precision in deciphering forgotten symbols and the ruthless pragmatism of a survivor, transforming from a grieving sister into a renowned Lumen-Seeker, utterly convinced that Ashtrail's salvation lay dormant within the luminous husks of its past.\n\nToday, Jane Gemini stands on the precipice of a discovery that could reshape the Cinder-Sovereign. Her reputation as a Lumen-Seeker precedes her, a beacon in the perpetual twilight of Ashtrail, yet her personal quest remains deeply intertwined with the world's scarred fate. She tracks a newly emergent, volatile energy signature deep within the Silent Sepulchre, a vast and unexplored complex rumored to be the primary ritual site of the ancient civilization. The ground beneath her boots hums with a familiar, dangerous energy, urging her deeper, towards the core chamber where they once attempted to channel the sun's last breath—a revelation promising either unparalleled knowledge to avert a new catastrophe or the very same unimaginable peril that consumed a brilliant, terrible ambition.",
+  "hp": 75,
+  "id": "jane-gemini-demo-e84c79a9-48e2-407b-8d27-2a0e900473de",
+  "inventory": [
+    {
+      "category": "weapon",
+      "cost": 180,
+      "description": "A dependable sidearm carried by Ashtrail pathfinders, tuned for fast response and accurate fire.",
+      "effects": [
+        {
+          "description": "Baseline combat damage for the Ashtrail demo protagonist.",
+          "id": "jane-gemini-starter-weapon-damage",
+          "name": "Weapon Damage",
+          "scope": "combat",
+          "target": "damage",
+          "trigger": "passive",
+          "type": "COMBAT_BONUS",
+          "value": 13
+        }
+      ],
+      "equipSlot": "mainHand",
+      "icon": "🔫",
+      "id": "jane-gemini-starter-weapon",
+      "name": "Gemini Service Sidearm",
+      "rarity": "specialized",
+      "weaponAreaSize": 0,
+      "weaponAreaType": "single",
+      "weaponRange": 5,
+      "weaponType": "ranged"
+    }
+  ],
+  "isNPC": false,
+  "level": 7,
+  "maxHp": 75,
+  "name": "Jane Gemini",
+  "occupation": {
+    "category": "FIELD",
+    "description": "Lumen-Seeker generated by the builder flow for demo step 2.",
+    "id": "lumen-seeker",
+    "name": "Lumen-Seeker",
+    "shortDescription": "Lumen-Seeker"
+  },
+  "occupations": [
+    {
+      "availableTalentPoints": 6,
+      "isPrimary": true,
+      "level": 1,
+      "occupation": {
+        "category": "FIELD",
+        "description": "Lumen-Seeker generated by the builder flow for demo step 2.",
+        "id": "lumen-seeker",
+        "name": "Lumen-Seeker",
+        "shortDescription": "Lumen-Seeker"
+      },
+      "occupationId": "lumen-seeker",
+      "spentPioneerPoints": 0,
+      "spentTalentPoints": 0,
+      "unlockPointCost": 1,
+      "unlockedTalentNodeIds": []
+    }
+  ],
+  "origin": {
+    "system": "builder",
+    "worldId": "demo-e84c79a9-48e2-407b-8d27-2a0e900473de"
+  },
+  "portraitName": "Jane Gemini",
+  "progression": {
+    "attributeUpgrades": {
+      "agility": 0,
+      "charisma": 0,
+      "endurance": 0,
+      "intelligence": 0,
+      "strength": 0,
+      "wisdom": 0
+    },
+    "availableTalentPoints": 6,
+    "occupationStates": [
+      {
+        "availableTalentPoints": 6,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "FIELD",
+          "description": "Lumen-Seeker generated by the builder flow for demo step 2.",
+          "id": "lumen-seeker",
+          "name": "Lumen-Seeker",
+          "shortDescription": "Lumen-Seeker"
+        },
+        "occupationId": "lumen-seeker",
+        "spentPioneerPoints": 0,
+        "spentTalentPoints": 0,
+        "unlockPointCost": 1,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "spentPioneerOccupationPoints": 0,
+    "spentPioneerStatPoints": 0,
+    "spentStatPoints": 0,
+    "spentTalentPoints": 0,
+    "treeOccupationId": "lumen-seeker",
+    "unlockedTalentNodeIds": []
+  },
+  "resolvedProgression": {
+    "availablePioneerPoints": 0,
+    "availableStatPoints": 2,
+    "availableTalentPoints": 6,
+    "currentLevelCumulativeXp": 9155,
+    "isMaxLevel": false,
+    "level": 7,
+    "maxLevel": 30,
+    "nextLevelCumulativeXp": 13293,
+    "nextLevelXp": 4138,
+    "occupationPointsTotal": 7,
+    "occupationTalentPointsSpent": 0,
+    "occupationUnlockPointsSpent": 1,
+    "occupations": [
+      {
+        "availableTalentPoints": 6,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "FIELD",
+          "description": "Lumen-Seeker generated by the builder flow for demo step 2.",
+          "id": "lumen-seeker",
+          "name": "Lumen-Seeker",
+          "shortDescription": "Lumen-Seeker"
+        },
+        "occupationId": "lumen-seeker",
+        "spentPioneerPoints": 0,
+        "spentTalentPoints": 0,
+        "unlockPointCost": 1,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "pioneerLevel": 0,
+    "pioneerPointsTotal": 0,
+    "progressPct": 0.0,
+    "statPointsTotal": 2,
+    "totalXp": 9155,
+    "xpIntoLevel": 0,
+    "xpToNextLevel": 4138
+  },
+  "skills": [
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 0,
+      "damage": 5,
+      "description": "Strike with your equipped weapon. Replaces base damage with weapon's flat damage modifier. Melee: scales with Strength. Ranged: fixed damage only.",
+      "effectType": "physical",
+      "effects": [
+        {
+          "description": "Replaces skill base damage with the equipped weapon's flat damage value.",
+          "id": "effect-1773078073638",
+          "name": "Weapon Damage Replacement",
+          "target": "mainHand",
+          "trigger": "passive",
+          "type": "WEAPON_DAMAGE_REPLACEMENT",
+          "value": 0
+        }
+      ],
+      "icon": "⚔️",
+      "id": "use-weapon",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Use Weapon",
+      "targetType": "cell"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Basic medical patch-up.",
+      "effectType": "support",
+      "healing": 15,
+      "icon": "🩹",
+      "id": "first-aid",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "First Aid",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Push an enemy back and potentially cause shock damage.",
+      "effectType": "physical",
+      "icon": "✋",
+      "id": "shove",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Shove",
+      "pushDistance": 2,
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Protect an ally for 1 turn. You tank damage redirected to them with reductions based on your Endurance vs Incoming Damage.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "PROTECTION_STANCE",
+          "value": 0
+        }
+      ],
+      "icon": "🛡️",
+      "id": "defend",
+      "maxRange": 2,
+      "minRange": 1,
+      "name": "Defend",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Become invisible to enemies. Any damage taken will reveal you. Duration increases with Wisdom.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "STEALTH",
+          "value": 0
+        }
+      ],
+      "icon": "👤",
+      "id": "hide",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Hide",
+      "targetType": "self"
+    },
+    {
+      "apCost": 2,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 2,
+      "description": "A quick burst of speed. +3 Movement Points for the current turn.",
+      "effects": [
+        {
+          "description": "Increases Movement Points.",
+          "duration": 1,
+          "id": "effect-sprint-mp",
+          "name": "Sprint Bonus",
+          "target": "mp",
+          "trigger": "passive",
+          "type": "STAT_MODIFIER",
+          "value": 3
+        }
+      ],
+      "icon": "👟",
+      "id": "sprint",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Sprint",
+      "targetType": "self"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Bother the enemy with your charisma, reducing their MP based on your Charisma vs target Wisdom.",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 1,
+          "target": "mp",
+          "type": "STAT_MODIFIER",
+          "value": 0
+        }
+      ],
+      "icon": "🎭",
+      "id": "distract",
+      "maxRange": 4,
+      "minRange": 1,
+      "name": "Distract",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Find weaknesses in the target, increasing critical chance for all attackers based on your Intelligence. (Max difference: 5 levels)",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 2,
+          "type": "ANALYZED",
+          "value": 0
+        }
+      ],
+      "icon": "🔍",
+      "id": "analyze",
+      "maxRange": 5,
+      "minRange": 1,
+      "name": "Analyze",
+      "targetType": "enemy"
+    }
+  ],
+  "stats": {
+    "agility": 14,
+    "charisma": 8,
+    "endurance": 13,
+    "intelligence": 15,
+    "strength": 10,
+    "wisdom": 12
+  },
+  "title": "Hero of the Day",
+  "traits": [],
+  "type": "Human",
+  "worldId": "demo-e84c79a9-48e2-407b-8d27-2a0e900473de",
+  "xp": 9155
+}
