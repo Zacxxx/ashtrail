@@ -40,6 +40,8 @@ struct GenerationConfig {
     temperature: Option<f32>,
     #[serde(rename = "imageConfig", skip_serializing_if = "Option::is_none")]
     image_config: Option<ImageConfig>,
+    #[serde(rename = "speechConfig", skip_serializing_if = "Option::is_none")]
+    speech_config: Option<SpeechConfig>,
 }
 
 #[derive(Serialize)]
@@ -49,28 +51,46 @@ struct GeminiRequest {
     generation_config: GenerationConfig,
 }
 
-#[derive(Deserialize, Debug)]
-struct GeminiCandidate {
-    content: Option<GeminiMessageContent>,
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeminiCandidate {
+    pub content: Option<GeminiMessageContent>,
 }
 
-#[derive(Deserialize, Debug)]
-struct GeminiMessageContent {
-    parts: Option<Vec<GeminiResponsePart>>,
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeminiMessageContent {
+    pub parts: Option<Vec<GeminiResponsePart>>,
 }
 
-#[derive(Deserialize, Debug)]
-struct GeminiResponsePart {
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeminiResponsePart {
     #[serde(rename = "inlineData")]
-    inline_data: Option<GeminiInlineData>,
-    text: Option<String>,
+    pub inline_data: Option<GeminiInlineData>,
+    pub text: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
-struct GeminiInlineData {
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeminiInlineData {
     #[serde(rename = "mimeType")]
-    mime_type: String,
-    data: String,
+    pub mime_type: String,
+    pub data: String,
+}
+
+#[derive(Serialize)]
+struct SpeechConfig {
+    #[serde(rename = "voiceConfig")]
+    voice_config: VoiceConfig,
+}
+
+#[derive(Serialize)]
+struct VoiceConfig {
+    #[serde(rename = "prebuiltVoiceConfig")]
+    prebuilt_voice_config: PrebuiltVoiceConfig,
+}
+
+#[derive(Serialize)]
+struct PrebuiltVoiceConfig {
+    #[serde(rename = "voiceName")]
+    voice_name: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -307,6 +327,7 @@ pub async fn generate_image_bytes_with_model(
                 aspect_ratio: aspect_ratio.map(|s| s.to_string()),
                 image_size: Some(image_size),
             }),
+            speech_config: None,
         },
     };
 
@@ -401,6 +422,7 @@ pub async fn generate_text_with_options(
             response_modalities: vec!["TEXT".to_string()],
             temperature: Some(temperature),
             image_config: None,
+            speech_config: None,
         },
     };
 
@@ -449,6 +471,196 @@ pub async fn generate_text_with_options(
     ))
 }
 
+pub async fn generate_multimodal(
+    prompt: &str,
+    modalities: Vec<String>,
+    temperature: f32,
+) -> Result<Vec<GeminiResponsePart>, (StatusCode, String)> {
+    let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
+        let msg = "GEMINI_API_KEY environment variable not set";
+        error!(msg);
+        (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string())
+    })?;
+
+    // Use the functional interleaved model or fallback to the image catalog
+    let model_id = env::var("GEMINI_INTERLEAVED_MODEL")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| {
+            let model_catalog = image_model_catalog();
+            if modalities.contains(&"IMAGE".to_string()) {
+                model_catalog.default_model_id.clone()
+            } else {
+                "gemini-2.0-flash".to_string()
+            }
+        });
+
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        model_id, api_key
+    );
+
+    let image_config = if modalities.contains(&"IMAGE".to_string()) {
+        Some(ImageConfig {
+            aspect_ratio: Some("1:1".to_string()),
+            image_size: Some("1K".to_string()),
+        })
+    } else {
+        None
+    };
+
+    let req_body = GeminiRequest {
+        contents: vec![GeminiContent {
+            parts: vec![GeminiPart {
+                text: Some(prompt.to_string()),
+                inline_data: None,
+            }],
+        }],
+        generation_config: GenerationConfig {
+            response_modalities: modalities,
+            temperature: Some(temperature),
+            image_config,
+            speech_config: None,
+        },
+    };
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(&url)
+        .json(&req_body)
+        .send()
+        .await
+        .map_err(|e| {
+            error!("Reqwest error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+
+    let status = res.status();
+    let gemini_resp: GeminiResponse = res.json().await.map_err(|e| {
+        error!("Failed to parse Gemini multimodal response: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+
+    if !status.is_success() {
+        let err_msg = gemini_resp
+            .error
+            .map(|e| e.message)
+            .unwrap_or_else(|| "Unknown API error".to_string());
+        error!("Gemini API error: {}", err_msg);
+        return Err((StatusCode::BAD_REQUEST, err_msg));
+    }
+
+    if let Some(candidates) = gemini_resp.candidates {
+        if let Some(candidate) = candidates.first() {
+            if let Some(content) = &candidate.content {
+                if let Some(parts) = &content.parts {
+                    return Ok(parts.clone());
+                }
+            }
+        }
+    }
+
+    error!("No predictions returned from Gemini multimodal call");
+    Err((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "No predictions returned".to_string(),
+    ))
+}
+
+pub async fn generate_speech_audio(
+    text: &str,
+    voice_name: &str,
+) -> Result<(Vec<u8>, String), (StatusCode, String)> {
+    let api_key = env::var("GEMINI_API_KEY").map_err(|_| {
+        let msg = "GEMINI_API_KEY environment variable not set";
+        error!(msg);
+        (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string())
+    })?;
+
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={}",
+        api_key
+    );
+
+    let req_body = GeminiRequest {
+        contents: vec![GeminiContent {
+            parts: vec![GeminiPart {
+                text: Some(text.to_string()),
+                inline_data: None,
+            }],
+        }],
+        generation_config: GenerationConfig {
+            response_modalities: vec!["AUDIO".to_string()],
+            temperature: None,
+            image_config: None,
+            speech_config: Some(SpeechConfig {
+                voice_config: VoiceConfig {
+                    prebuilt_voice_config: PrebuiltVoiceConfig {
+                        voice_name: voice_name.to_string(),
+                    },
+                },
+            }),
+        },
+    };
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(&url)
+        .json(&req_body)
+        .send()
+        .await
+        .map_err(|e| {
+            error!("Reqwest error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+
+    let status = res.status();
+    let gemini_resp: GeminiResponse = res.json().await.map_err(|e| {
+        error!("Failed to parse Gemini TTS response: {}", e);
+        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    })?;
+
+    if !status.is_success() {
+        let err_msg = gemini_resp
+            .error
+            .map(|e| e.message)
+            .unwrap_or_else(|| "Unknown API error".to_string());
+        error!("Gemini TTS API error: {}", err_msg);
+        return Err((StatusCode::BAD_REQUEST, err_msg));
+    }
+
+    if let Some(candidates) = gemini_resp.candidates {
+        for candidate in candidates {
+            if let Some(content) = candidate.content {
+                if let Some(parts) = content.parts {
+                    for part in parts {
+                        if let Some(inline_data) = part.inline_data {
+                            use base64::{engine::general_purpose, Engine as _};
+                            let bytes = general_purpose::STANDARD
+                                .decode(&inline_data.data)
+                                .map_err(|e| {
+                                    error!("Failed to decode base64 audio: {}", e);
+                                    (
+                                        StatusCode::INTERNAL_SERVER_ERROR,
+                                        "Invalid base64 audio from Gemini".to_string(),
+                                    )
+                                })?;
+                            return Ok((bytes, inline_data.mime_type));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    error!("No audio returned from Gemini TTS");
+    Err((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "No audio returned from Gemini TTS".to_string(),
+    ))
+}
+
 pub async fn generate_text_with_inline_image(
     prompt: &str,
     image_base64: &str,
@@ -485,6 +697,7 @@ pub async fn generate_text_with_inline_image(
             response_modalities: vec!["TEXT".to_string()],
             temperature: Some(0.5),
             image_config: None,
+            speech_config: None,
         },
     };
 
@@ -580,6 +793,7 @@ pub async fn generate_image_edit_bytes_with_model(
                 aspect_ratio: aspect_ratio.map(|s| s.to_string()),
                 image_size: None,
             }),
+            speech_config: None,
         },
     };
 

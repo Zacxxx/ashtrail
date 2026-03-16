@@ -5,17 +5,26 @@ mod asset_packs;
 mod cell_analyzer;
 mod cms;
 mod combat_engine;
+mod demo_output;
+mod demo_step_one;
+mod demo_step_three;
+mod demo_step_two;
+mod demo_step_four;
 mod ecology;
-mod game_rules;
 mod exploration_engine;
 mod exploration_jobs;
+mod game_rules;
 mod gemini;
 mod generator;
 mod hierarchy;
 mod jobs;
 mod locations;
+mod lyria;
+mod media_audio;
+mod media_video;
 mod progression;
 mod quest_ai;
+mod tts;
 mod worldgen_pipeline;
 
 use axum::{
@@ -32,11 +41,12 @@ use generator::{
     GenerateTerrainResponse,
 };
 use hierarchy::{generate_full_planet_hierarchy, HierarchyGenerateRequest, PlanetManifest};
-use jobs::{now_ms, JobOutputRef, JobRecord, JobStatus};
+use jobs::{now_ms, JobOutputRef, JobRecord, JobStageEvent, JobStatus};
 use serde::Deserialize;
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
+    env,
     net::SocketAddr,
     path::PathBuf,
     sync::atomic::AtomicUsize,
@@ -65,6 +75,13 @@ struct AppState {
     textures_dir: PathBuf,
     textures_export_dir: PathBuf,
     sprites_dir: PathBuf,
+    songs_dir: PathBuf,
+    generated_media_dir: PathBuf,
+    demo_output_dir: PathBuf,
+    demo_step_one_use_pregenerated: bool,
+    demo_step_one_pregenerated_folder: String,
+    videos_dir: PathBuf,
+    generated_media_video_dir: PathBuf,
     isolated_dir: PathBuf,
     packs_dir: PathBuf,
     refine_limiter: RefineLimiter,
@@ -110,6 +127,7 @@ struct JobStatusResponse {
     parent_job_id: Option<String>,
     metadata: Option<serde_json::Value>,
     output_refs: Vec<JobOutputRef>,
+    stage_history: Vec<JobStageEvent>,
     created_at: u64,
     updated_at: u64,
 }
@@ -154,6 +172,7 @@ struct JobListItem {
     parent_job_id: Option<String>,
     metadata: Option<serde_json::Value>,
     output_refs: Vec<JobOutputRef>,
+    stage_history: Vec<JobStageEvent>,
     error: Option<String>,
     created_at: u64,
     updated_at: u64,
@@ -170,7 +189,7 @@ pub(crate) fn make_job_record(
     let mut job = JobRecord::new(kind, title, tool);
     job.world_id = world_id;
     job.run_id = run_id;
-    job.current_stage = stage.to_string();
+    job.transition(JobStatus::Queued, 0.0, stage.to_string());
     job
 }
 
@@ -190,6 +209,181 @@ pub(crate) fn build_text_output_ref(label: &str, text: &str) -> JobOutputRef {
         href: None,
         route: None,
         preview_text: Some(text.chars().take(220).collect()),
+    }
+}
+
+fn load_env_file_with_override(path: &str) {
+    let Ok(iter) = dotenv::from_path_iter(path) else {
+        return;
+    };
+
+    let mut loaded_any = false;
+    for entry in iter {
+        match entry {
+            Ok((key, value)) => {
+                std::env::set_var(key, value);
+                loaded_any = true;
+            }
+            Err(error) => {
+                warn!("failed to parse env file {}: {}", path, error);
+                return;
+            }
+        }
+    }
+
+    if loaded_any {
+        info!("loaded env overrides from {}", path);
+    }
+}
+
+fn env_flag(name: &str, default: bool) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(default)
+}
+
+fn env_string(name: &str, default: &str) -> String {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
+fn demo_output_job_dir(demo_output_dir: &std::path::Path, folder: &str) -> PathBuf {
+    demo_output_dir.join(folder)
+}
+
+fn build_demo_step_one_output_refs(result: &demo_step_one::DemoStepOneResult) -> Vec<JobOutputRef> {
+    let mut refs = vec![build_text_output_ref(
+        "World Introduction",
+        &result.artifact.lore_text,
+    )];
+    if let Some(audio) = result.artifact.audio.as_ref() {
+        refs.push(JobOutputRef {
+            id: "generated-audio".to_string(),
+            label: "Open Audio".to_string(),
+            kind: "asset".to_string(),
+            href: Some(audio.url.clone()),
+            route: None,
+            preview_text: None,
+        });
+    }
+    if let Some(image) = result.artifact.image.as_ref() {
+        refs.push(JobOutputRef {
+            id: "generated-image".to_string(),
+            label: "Open Image".to_string(),
+            kind: "asset".to_string(),
+            href: Some(image.url.clone()),
+            route: None,
+            preview_text: None,
+        });
+    }
+    refs
+}
+
+fn build_demo_step_three_output_refs(
+    artifact: &demo_step_three::PersistedDemoStepThreeArtifact,
+) -> Vec<JobOutputRef> {
+    let mut refs = vec![build_text_output_ref(
+        "Location Brief",
+        &artifact.brief_text,
+    )];
+    refs.push(JobOutputRef {
+        id: "demo-step-3-brief-image".to_string(),
+        label: "Open Location Brief Image".to_string(),
+        kind: "asset".to_string(),
+        href: Some(artifact.image.url.clone()),
+        route: None,
+        preview_text: Some(artifact.location_title.clone()),
+    });
+    refs
+}
+
+fn build_demo_step_one_selection_output_refs(
+    result: &demo_step_one::DemoStepOneSelectionResult,
+) -> Vec<JobOutputRef> {
+    vec![build_text_output_ref(
+        "Expanded World Direction",
+        &result.artifact.additional_lore_paragraphs.join("\n\n"),
+    )]
+}
+
+#[cfg(test)]
+mod job_response_tests {
+    use super::{JobListItem, JobStatusResponse};
+    use crate::jobs::{JobOutputRef, JobRecord, JobRouteRef, JobStatus};
+    use serde_json::{json, Value};
+
+    #[test]
+    fn job_responses_serialize_stage_history() {
+        let mut record = JobRecord::new(
+            "interleaved.session.v1",
+            "Interleaved Session",
+            "story-loop",
+        );
+        record.transition(JobStatus::Running, 35.0, "Generating text".to_string());
+        record.output_refs = vec![JobOutputRef {
+            id: "open-run".to_string(),
+            label: "Open Run".to_string(),
+            kind: "route".to_string(),
+            href: None,
+            route: Some(JobRouteRef {
+                path: "/devtools/jobcenter".to_string(),
+                search: None,
+            }),
+            preview_text: None,
+        }];
+
+        let detail = JobStatusResponse {
+            job_id: "job-1".to_string(),
+            status: record.status.clone(),
+            progress: record.progress,
+            current_stage: record.current_stage.clone(),
+            result: Some(json!({ "ok": true })),
+            error: None,
+            kind: record.kind.clone(),
+            title: record.title.clone(),
+            tool: record.tool.clone(),
+            world_id: Some("world-1".to_string()),
+            run_id: None,
+            parent_job_id: None,
+            metadata: Some(json!({ "modality": "text" })),
+            output_refs: record.output_refs.clone(),
+            stage_history: record.stage_history.clone(),
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        };
+
+        let list_item = JobListItem {
+            job_id: "job-1".to_string(),
+            kind: record.kind,
+            title: record.title,
+            tool: record.tool,
+            status: record.status,
+            progress: record.progress,
+            current_stage: record.current_stage,
+            world_id: Some("world-1".to_string()),
+            run_id: None,
+            parent_job_id: None,
+            metadata: Some(json!({ "childKind": "text-beat" })),
+            output_refs: record.output_refs,
+            stage_history: record.stage_history,
+            error: None,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        };
+
+        let detail_json = serde_json::to_value(detail).expect("detail serializes");
+        let list_json = serde_json::to_value(list_item).expect("list item serializes");
+
+        assert!(
+            matches!(detail_json.get("stageHistory"), Some(Value::Array(events)) if events.len() >= 2)
+        );
+        assert!(
+            matches!(list_json.get("stageHistory"), Some(Value::Array(events)) if events.len() >= 2)
+        );
     }
 }
 
@@ -223,6 +417,14 @@ struct PlanetHybridRequest {
 #[serde(rename_all = "camelCase")]
 struct GenerateTextRequest {
     prompt: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HelperChatRequest {
+    prompt: String,
+    current_tool: Option<String>,
+    route: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -403,6 +605,127 @@ struct SpriteBatchSummary {
     thumbnail_url: Option<String>,
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SongBatchRequest {
+    prompts: Vec<String>,
+    batch_name: Option<String>,
+    category: String,
+    genre: String,
+    #[serde(default)]
+    moods: Vec<String>,
+    #[serde(default)]
+    instrumentation: Vec<String>,
+    tempo: String,
+    rhythmic_feel: String,
+    soundscape: Option<String>,
+    production_style: String,
+    negative_prompt: Option<String>,
+    global_direction: Option<String>,
+    variation_count: Option<u32>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GeneratedSongClip {
+    clip_id: String,
+    filename: String,
+    title: String,
+    prompt: String,
+    normalized_prompt: String,
+    negative_prompt: String,
+    url: String,
+    mime_type: String,
+    duration_seconds: f32,
+    sample_rate_hz: u32,
+    variant_index: u32,
+    category: String,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SongBatchManifest {
+    batch_id: String,
+    batch_name: String,
+    created_at: String,
+    category: String,
+    genre: String,
+    #[serde(default)]
+    moods: Vec<String>,
+    #[serde(default)]
+    instrumentation: Vec<String>,
+    tempo: String,
+    rhythmic_feel: String,
+    soundscape: String,
+    production_style: String,
+    negative_prompt: String,
+    #[serde(default)]
+    global_direction: String,
+    clips: Vec<GeneratedSongClip>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SongBatchSummary {
+    batch_id: String,
+    batch_name: String,
+    created_at: String,
+    category: String,
+    clip_count: usize,
+    thumbnail_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeneratedVideoNarrationSegment {
+    segment_id: String,
+    start_ms: u32,
+    end_ms: u32,
+    text: String,
+    audio_url: String,
+    mime_type: String,
+    duck_video_to: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoPackageFile {
+    url: String,
+    mime_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoPackageManifest {
+    batch_id: String,
+    batch_name: String,
+    created_at: String,
+    category: String,
+    duration_seconds: u32,
+    aspect_ratio: String,
+    keep_veo_audio: bool,
+    narration_language: String,
+    voice_name: String,
+    video: VideoPackageFile,
+    poster: Option<VideoPackageFile>,
+    script: String,
+    description: String,
+    tags: Vec<String>,
+    segments: Vec<GeneratedVideoNarrationSegment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoPackageSummary {
+    batch_id: String,
+    batch_name: String,
+    created_at: String,
+    category: String,
+    duration_seconds: u32,
+    narration_language: String,
+    thumbnail_url: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TextureBatchRequest {
@@ -557,6 +880,15 @@ struct SupabaseSyncResponse {
     failed: usize,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoBatchSaveResponse {
+    batch_id: String,
+    uploaded: usize,
+    skipped: usize,
+    failed: usize,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SupabaseHealthResponse {
@@ -596,6 +928,8 @@ struct GalleryInventoryTabs {
     characters: Vec<GalleryInventoryItem>,
     isolated: Vec<GalleryInventoryItem>,
     sprites: Vec<GalleryInventoryItem>,
+    songs: Vec<GalleryInventoryItem>,
+    videos: Vec<GalleryInventoryItem>,
     packs: Vec<GalleryInventoryItem>,
 }
 
@@ -686,9 +1020,10 @@ async fn main() {
         ".env.local",
         ".env",
     ] {
-        dotenv::from_path(path).ok();
+        // Repo-local env files intentionally override inherited shell exports so
+        // stale machine-wide GCP settings do not leak into backend auth.
+        load_env_file_with_override(path);
     }
-    dotenv::dotenv().ok();
 
     // Single source of truth for all planets
     let planets_dir = PathBuf::from("generated/planets");
@@ -721,6 +1056,26 @@ async fn main() {
     std::fs::create_dir_all(&sprites_dir)
         .expect("failed to create game-assets/assets/Sprites directory");
 
+    let songs_dir = PathBuf::from("../../game-assets/assets/Songs");
+    std::fs::create_dir_all(&songs_dir)
+        .expect("failed to create game-assets/assets/Songs directory");
+
+    let generated_media_dir = PathBuf::from("generated/media-audio");
+    std::fs::create_dir_all(&generated_media_dir)
+        .expect("failed to create generated/media-audio directory");
+
+    let demo_output_dir = PathBuf::from("generated/demo-output");
+    std::fs::create_dir_all(&demo_output_dir)
+        .expect("failed to create generated/demo-output directory");
+
+    let videos_dir = PathBuf::from("../../game-assets/assets/Videos");
+    std::fs::create_dir_all(&videos_dir)
+        .expect("failed to create game-assets/assets/Videos directory");
+
+    let generated_media_video_dir = PathBuf::from("generated/media-video");
+    std::fs::create_dir_all(&generated_media_video_dir)
+        .expect("failed to create generated/media-video directory");
+
     let isolated_dir = PathBuf::from("../../game-assets/assets/IsolatedRegions");
     std::fs::create_dir_all(&isolated_dir)
         .expect("failed to create game-assets/assets/IsolatedRegions directory");
@@ -743,10 +1098,12 @@ async fn main() {
     if supabase.is_none() {
         warn!("Supabase storage sync disabled (missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)");
     }
-    let quest_v2_enabled = std::env::var("QUEST_V2")
-        .ok()
-        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(true);
+    let quest_v2_enabled = env_flag("QUEST_V2", true);
+    let demo_step_one_use_pregenerated = env_flag("DEMO_STEP_ONE_USE_PREGENERATED", false);
+    let demo_step_one_pregenerated_folder = env_string(
+        "DEMO_STEP_ONE_PREGENERATED_FOLDER",
+        "71d2edea-0dff-443f-b65b-a37d023f71b2",
+    );
     let jobs = Arc::new(Mutex::new(HashMap::new()));
 
     let state = AppState {
@@ -762,6 +1119,13 @@ async fn main() {
         textures_dir: textures_dir.clone(),
         textures_export_dir,
         sprites_dir: sprites_dir.clone(),
+        songs_dir: songs_dir.clone(),
+        generated_media_dir: generated_media_dir.clone(),
+        demo_output_dir: demo_output_dir.clone(),
+        demo_step_one_use_pregenerated,
+        demo_step_one_pregenerated_folder,
+        videos_dir: videos_dir.clone(),
+        generated_media_video_dir: generated_media_video_dir.clone(),
         isolated_dir: isolated_dir.clone(),
         packs_dir: packs_dir.clone(),
         refine_limiter: RefineLimiter {
@@ -804,6 +1168,7 @@ async fn main() {
         .route("/api/planet/saved/{cache_key}", get(load_saved_planet))
         .route("/api/planet/lore/query", post(query_lore_handler))
         .route("/api/text/generate", post(generate_text_handler))
+        .route("/api/helper/chat", post(helper_chat_handler))
         .route(
             "/api/events/generate",
             post(ai_events::generate_event_handler),
@@ -831,6 +1196,18 @@ async fn main() {
         .route(
             "/api/quests/advance",
             post(ai_quests::advance_quest_handler),
+        )
+        .route(
+            "/api/quests/fix-choice-labels",
+            post(ai_quests::fix_choice_labels_handler),
+        )
+        .route(
+            "/api/quests/generate-illustration",
+            post(ai_quests::generate_illustration_handler),
+        )
+        .route(
+            "/api/quests/illustrations/{illustration_id}",
+            get(ai_quests::get_illustration_handler),
         )
         .route(
             "/api/quests/jobs/{job_id}",
@@ -881,6 +1258,10 @@ async fn main() {
         .route(
             "/api/planet/ecology-data/{world_id}/refresh-derived-stats",
             post(ecology::refresh_derived_stats),
+        )
+        .route(
+            "/api/planet/ecology-data/{world_id}/generate/briefing",
+            post(ecology::generate_briefing_ecology),
         )
         .route("/api/planet/ecology-jobs/{job_id}", get(get_job_status))
         .route("/api/planet/humanity", post(start_humanity_job))
@@ -1029,6 +1410,63 @@ async fn main() {
             "/api/sprites/batches/{batch_id}/rename",
             axum::routing::put(rename_sprite_batch),
         )
+        .route("/api/songs/generate-batch", post(generate_song_batch))
+        .route("/api/songs/batches", get(list_song_batches))
+        .route("/api/songs/batches/{batch_id}", get(get_song_batch))
+        .route("/api/media/audio/jobs", post(start_generate_media_audio_job))
+        .route("/api/demo/step-1/jobs", post(start_demo_step_one_job))
+        .route(
+            "/api/demo/step-1/selection/jobs",
+            post(start_demo_step_one_selection_job),
+        )
+        .route(
+            "/api/demo/step-2/artifact",
+            get(get_demo_step_two_artifact).post(save_demo_step_two_artifact),
+        )
+        .route(
+            "/api/demo/step-3/artifact",
+            get(get_demo_step_three_artifact),
+        )
+        .route(
+            "/api/demo/step-3/vision-coordinates",
+            get(get_demo_step_three_vision_coordinates).post(save_demo_step_three_vision_coordinates),
+        )
+        .route(
+            "/api/demo/step-4/artifact",
+            get(get_demo_step_four_artifact).post(initialize_demo_step_four_artifact_handler),
+        )
+        .route(
+            "/api/demo/step-5/artifact",
+            get(get_demo_step_five_artifact).post(save_demo_step_five_artifact),
+        )
+        .route(
+            "/api/demo/step-5/analyze-and-generate-video",
+            post(analyze_planet_and_generate_video),
+        )
+        .route(
+            "/api/demo/step-2/weapon/jobs",
+            post(start_demo_step_two_weapon_job),
+        )
+        .route(
+            "/api/demo/step-2/voice/jobs",
+            post(start_demo_step_two_voice_job),
+        )
+        .route(
+            "/api/demo/step-2/lore-illustrations/jobs",
+            post(start_demo_step_two_lore_illustrations_job),
+        )
+        .route(
+            "/api/demo/step-2/lore-insight/jobs",
+            post(start_demo_step_two_lore_insight_job),
+        )
+        .route("/api/demo/step-3/jobs", post(start_demo_step_three_job))
+        .route("/api/demo/step-2/jobs", post(start_demo_step_two_job))
+        .route("/api/demo/ensure-final-combat", post(ensure_demo_final_combat_handler))
+        .route("/api/tts/generate", post(tts::generate_tts_handler))
+        .route("/api/media/video/jobs", post(start_generate_media_video_job))
+        .route("/api/videos/batches", get(list_video_batches))
+        .route("/api/videos/batches/{batch_id}", get(get_video_batch))
+        .route("/api/videos/batches/{batch_id}/save", post(save_video_batch_to_gallery))
         .route("/api/ai/image-models", get(get_ai_image_models))
         .route("/api/gallery/inventory", get(get_gallery_inventory))
         .route("/api/storage/supabase/health", get(get_supabase_storage_health))
@@ -1169,12 +1607,28 @@ async fn main() {
         // ── Combat Engine WebSocket ──
         .route("/api/combat/ws", get(combat_engine::session::ws_handler))
         .merge(asset_packs::router())
+        // ── Specific character route (different prefix to avoid conflict) ──
+        .route(
+            "/api/world/{world_id}/character/{character_id}",
+            get(get_character_by_id),
+        )
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/character-portraits", ServeDir::new(character_portraits_dir.clone()))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
         .nest_service("/api/textures", ServeDir::new(textures_dir.clone()))
         .nest_service("/api/sprites", ServeDir::new(sprites_dir.clone()))
+        .nest_service("/api/songs", ServeDir::new(songs_dir.clone()))
+        .nest_service("/api/generated-media", ServeDir::new(generated_media_dir.clone()))
+        .nest_service("/api/demo-output", ServeDir::new(demo_output_dir.clone()))
+        .nest_service("/api/tts", ServeDir::new("generated/tts"))
+        .nest_service("/api/videos", ServeDir::new(videos_dir.clone()))
+        .nest_service(
+            "/api/generated-media-video",
+            ServeDir::new(generated_media_video_dir.clone()),
+        )
         .nest_service("/api/isolated-assets", ServeDir::new(isolated_dir.clone()))
+        // Serve frontend static files (for production deployment)
+        .fallback_service(ServeDir::new("dist"))
         .with_state(state)
         .layer(
             CorsLayer::new()
@@ -1183,7 +1637,16 @@ async fn main() {
                 .allow_headers(Any),
         );
 
-    let addr: SocketAddr = "127.0.0.1:8787".parse().expect("valid socket address");
+    // Support Cloud Run's PORT environment variable
+    let port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(8787);
+    
+    let addr: SocketAddr = format!("0.0.0.0:{}", port)
+        .parse()
+        .expect("valid socket address");
+    
     info!(%addr, "dev-tools backend listening");
 
     if let Err(error) = progression::migrate_generated_characters_on_startup() {
@@ -1835,6 +2298,7 @@ async fn get_job_status(
         parent_job_id: job.parent_job_id.clone(),
         metadata: job.metadata.clone(),
         output_refs: job.output_refs.clone(),
+        stage_history: job.stage_history.clone(),
         created_at: job.created_at,
         updated_at: job.updated_at,
     };
@@ -1867,6 +2331,7 @@ async fn list_jobs(
             parent_job_id: job.parent_job_id.clone(),
             metadata: job.metadata.clone(),
             output_refs: job.output_refs.clone(),
+            stage_history: job.stage_history.clone(),
             error: job.error.clone(),
             created_at: job.created_at,
             updated_at: job.updated_at,
@@ -1892,11 +2357,7 @@ async fn cancel_job(
         return Err((StatusCode::NOT_FOUND, "job not found".to_string()));
     };
 
-    job.cancel_requested = true;
-    if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-        job.current_stage = "Cancellation requested".to_string();
-        job.updated_at = now_ms();
-    }
+    job.set_cancel_requested("Cancellation requested");
 
     info!(job_id = %job_id, "job cancellation requested");
     Ok(StatusCode::ACCEPTED)
@@ -2213,6 +2674,2872 @@ async fn generate_text_handler(
     match gemini::generate_text(&request.prompt).await {
         Ok(text) => Ok((StatusCode::OK, Json(serde_json::json!({ "text": text }))).into_response()),
         Err((code, msg)) => Err((code, msg)),
+    }
+}
+
+async fn helper_chat_handler(
+    Json(request): Json<HelperChatRequest>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    // Read the tutorial file - try multiple possible paths
+    let possible_paths = vec![
+        std::path::PathBuf::from("devtoolstutorial.md"),
+        std::path::PathBuf::from("../../../devtoolstutorial.md"),
+        std::path::PathBuf::from("../../devtoolstutorial.md"),
+    ];
+    
+    let mut tutorial_content = String::new();
+    let mut tutorial_found = false;
+    
+    for path in possible_paths {
+        if let Ok(content) = tokio::fs::read_to_string(&path).await {
+            info!("Successfully loaded tutorial from: {:?}", path);
+            tutorial_content = content;
+            tutorial_found = true;
+            break;
+        }
+    }
+    
+    if !tutorial_found {
+        error!("Failed to read devtoolstutorial.md from any known location");
+        tutorial_content = String::from("Tutorial content not available. Please ensure devtoolstutorial.md exists at the project root.");
+    } else {
+        let char_count = tutorial_content.len();
+        info!("Tutorial loaded successfully: {} characters", char_count);
+        
+        // Sanity check: tutorial should be substantial (at least 50k chars)
+        if char_count < 50000 {
+            warn!("Tutorial seems too small ({} chars). Expected >50k chars. File might be incomplete.", char_count);
+        }
+    }
+
+    let current_tool = request.current_tool.unwrap_or_else(|| "Dev Tools Hub".to_string());
+    let route = request.route.unwrap_or_else(|| "/devtools".to_string());
+
+    // First pass: Check if tutorial has enough info
+    let analysis_prompt = format!(
+        r#"Analyze this user question and determine if the Dev-Tools Tutorial contains enough information to answer it.
+
+USER QUESTION: {}
+
+CURRENT CONTEXT: User is in {}
+
+TUTORIAL CONTENT (first 2000 chars):
+{}
+
+Respond with ONLY one of these:
+- "TUTORIAL_SUFFICIENT" if the tutorial has enough info
+- "NEED_CODE_SEARCH: <keywords>" if you need to search implementation details (provide 2-3 relevant keywords separated by commas)
+
+Your response:"#,
+        request.prompt,
+        current_tool,
+        tutorial_content.chars().take(2000).collect::<String>()
+    );
+
+    let analysis = match gemini::generate_text_with_options(&analysis_prompt, 0.3).await {
+        Ok(text) => text.trim().to_string(),
+        Err(_) => "TUTORIAL_SUFFICIENT".to_string(), // Fallback to tutorial only
+    };
+
+    // Gather code context if needed
+    let code_context = if analysis.starts_with("NEED_CODE_SEARCH") {
+        info!("Helper needs code search: {}", analysis);
+        gather_code_context(&current_tool, &route, &analysis).await
+    } else {
+        String::new()
+    };
+
+    // Build final enhanced prompt
+    let enhanced_prompt = format!(
+        r#"You are the Ashtrail Dev-Tools Helper Assistant. Your role is to help users understand and use the dev-tools effectively.
+
+CURRENT CONTEXT:
+- User is currently in: {}
+- Route: {}
+
+KNOWLEDGE BASE (Dev-Tools Tutorial):
+{}
+
+{}
+
+CRITICAL GUIDELINES:
+- You are a USER-FACING assistant, not a developer documentation bot
+- NEVER mention backend code, Rust files, API endpoints, or technical implementation details
+- NEVER reference code structures like "SupabaseStorageConfig" or function names
+- Focus on HOW TO USE the tools from a user perspective, not how they're built
+- Explain features in terms of UI elements, buttons, workflows, and user actions
+- Be concise and practical
+- Provide step-by-step instructions when relevant
+- Reference specific UI elements when helpful (buttons, tabs, sections)
+- Suggest related tools or features when appropriate
+- If the user seems stuck, proactively offer troubleshooting tips
+- When showing code examples, use markdown code blocks with proper syntax highlighting
+- Focus on the current tool context when answering
+- If you don't have enough information, say so clearly and suggest where to look
+- DO NOT start responses with greetings like "Bonjour", "Hello", "Hi" - jump straight to the answer
+- This is a conversation, not a series of isolated messages - be natural and conversational
+
+CRITICAL: ONLY USE INFORMATION FROM THE TUTORIAL ABOVE
+- If the tutorial doesn't mention something (like "inventory" in Game Master), DO NOT INVENT IT
+- If you're unsure, say "I don't see that feature mentioned in the documentation"
+- NEVER make up features, buttons, or workflows that aren't in the tutorial
+- When in doubt, quote directly from the tutorial or admit you don't know
+
+USER QUESTION:
+{}
+
+Provide a helpful, user-friendly response focused on practical usage. If the tutorial doesn't cover this topic, be honest about it:"#,
+        current_tool,
+        route,
+        tutorial_content,
+        if !code_context.is_empty() {
+            format!("\nADDITIONAL IMPLEMENTATION DETAILS (for understanding features, DO NOT mention these directly to users):\n{}", code_context)
+        } else {
+            String::new()
+        },
+        request.prompt
+    );
+
+    match gemini::generate_text_with_options(&enhanced_prompt, 0.7).await {
+        Ok(text) => Ok((StatusCode::OK, Json(serde_json::json!({ "text": text }))).into_response()),
+        Err((code, msg)) => Err((code, msg)),
+    }
+}
+
+async fn gather_code_context(current_tool: &str, route: &str, analysis: &str) -> String {
+    let mut context = String::new();
+    
+    // Extract keywords from analysis
+    let keywords: Vec<&str> = if let Some(keywords_part) = analysis.split(':').nth(1) {
+        keywords_part.split(',').map(|s| s.trim()).collect()
+    } else {
+        vec![]
+    };
+
+    // Map tool to relevant source files
+    let relevant_files = match current_tool {
+        "World Generator" => vec![
+            "src/worldgen/WorldgenPage.tsx",
+            "backend/src/generator.rs",
+            "backend/src/worldgen_pipeline.rs",
+        ],
+        "Asset Generator" => vec![
+            "src/assetgen/AssetGeneratorPage.tsx",
+            "backend/src/gemini.rs",
+        ],
+        "Game Master" => vec![
+            "src/gamemaster/GameMasterPage.tsx",
+            "backend/src/cms.rs",
+        ],
+        "Gallery" => vec![
+            "src/gallery/GalleryPage.tsx",
+        ],
+        "Gameplay Engine" => vec![
+            "src/gameplay/GameplayEnginePage.tsx",
+            "backend/src/game_rules.rs",
+            "backend/src/combat_engine/mod.rs",
+        ],
+        "Character Builder" => vec![
+            "src/characters/CharacterBuilderPage.tsx",
+            "backend/src/ai_characters.rs",
+        ],
+        "History" => vec![
+            "src/history/HistoryPage.tsx",
+            "backend/src/hierarchy.rs",
+        ],
+        "Ecology" => vec![
+            "src/ecology/EcologyPage.tsx",
+            "backend/src/ecology.rs",
+        ],
+        "Quests" => vec![
+            "src/quests/QuestsPage.tsx",
+            "backend/src/ai_quests.rs",
+            "backend/src/quest_ai.rs",
+        ],
+        _ => vec![
+            "src/App.tsx",
+            "backend/src/main.rs",
+        ],
+    };
+
+    // Read relevant files (limit to first 3 to avoid token overflow)
+    for (idx, file_path) in relevant_files.iter().take(3).enumerate() {
+        let full_path = std::path::PathBuf::from(file_path);
+        if let Ok(content) = tokio::fs::read_to_string(&full_path).await {
+            // Extract relevant sections based on keywords
+            let relevant_section = extract_relevant_section(&content, &keywords);
+            if !relevant_section.is_empty() {
+                context.push_str(&format!("\n--- File: {} ---\n", file_path));
+                context.push_str(&relevant_section);
+                context.push_str("\n");
+            }
+        }
+    }
+
+    if context.is_empty() {
+        context.push_str("(No additional code context found)");
+    }
+
+    context
+}
+
+fn extract_relevant_section(content: &str, keywords: &[&str]) -> String {
+    if keywords.is_empty() {
+        // Return first 1500 chars if no keywords
+        return content.chars().take(1500).collect();
+    }
+
+    let lines: Vec<&str> = content.lines().collect();
+    let mut relevant_lines = Vec::new();
+    let context_window = 10; // Lines before and after match
+
+    for (idx, line) in lines.iter().enumerate() {
+        let line_lower = line.to_lowercase();
+        if keywords.iter().any(|kw| line_lower.contains(&kw.to_lowercase())) {
+            // Add context window
+            let start = idx.saturating_sub(context_window);
+            let end = (idx + context_window + 1).min(lines.len());
+            
+            for i in start..end {
+                if !relevant_lines.contains(&i) {
+                    relevant_lines.push(i);
+                }
+            }
+        }
+    }
+
+    relevant_lines.sort_unstable();
+    
+    let mut result = String::new();
+    let mut last_idx = 0;
+    
+    for &idx in &relevant_lines {
+        if idx > last_idx + 1 {
+            result.push_str("\n...\n");
+        }
+        result.push_str(lines[idx]);
+        result.push('\n');
+        last_idx = idx;
+    }
+
+    // Limit to 2000 chars
+    result.chars().take(2000).collect()
+}
+
+async fn start_generate_media_audio_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<media_audio::GenerateMediaAudioRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if request.prompt.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Prompt is required".to_string()));
+    }
+
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("interleaved.generatemedia.audio.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Media Audio"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("generatemedia.audio"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "modality".to_string(),
+            serde_json::Value::String("mixed".to_string()),
+        );
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "logicalToolName".to_string(),
+            serde_json::Value::String("generatemedia.audio".to_string()),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = state.generated_media_dir.join(&job_id);
+    let songs_dir = state.songs_dir.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    12.0,
+                    "Opening Gemini 3 interleaved session".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        34.0,
+                        "Waiting for functionCall".to_string(),
+                    );
+                }
+            }
+
+            let result =
+                media_audio::run_interleaved_audio_demo(&request, &output_root, &spawned_job_id)
+                    .await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        82.0,
+                        "Packaging enriched artifact".to_string(),
+                    );
+                }
+            }
+
+            Ok::<media_audio::MediaAudioExecution, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(mut execution) => {
+                if let Err(message) = persist_generated_media_audio_song(
+                    &songs_dir,
+                    &spawned_job_id,
+                    &output_root,
+                    &request,
+                    &mut execution,
+                ) {
+                    warn!(
+                        "failed to persist media audio job {} into songs: {}",
+                        spawned_job_id, message
+                    );
+                    execution
+                        .result
+                        .artifact
+                        .warnings
+                        .push(format!("Song persistence failed: {message}"));
+                }
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        let artifact_status = execution.result.artifact.status.clone();
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&execution.result).ok();
+                        job.output_refs = {
+                            let mut refs = vec![build_text_output_ref(
+                                "Gemini Final Response",
+                                &execution.result.transcript.final_response_text,
+                            )];
+                            if let Some(audio_url) = execution.audio_preview {
+                                refs.push(JobOutputRef {
+                                    id: "generated-audio".to_string(),
+                                    label: "Open Audio".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(audio_url),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            if let Some(image_url) = execution.image_preview {
+                                refs.push(JobOutputRef {
+                                    id: "generated-image".to_string(),
+                                    label: "Open Image".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(image_url),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            refs
+                        };
+                        if let Some(metadata) = job
+                            .metadata
+                            .as_mut()
+                            .and_then(|value| value.as_object_mut())
+                        {
+                            metadata.insert(
+                                "artifactStatus".to_string(),
+                                serde_json::to_value(artifact_status).unwrap_or_else(|_| {
+                                    serde_json::Value::String("error".to_string())
+                                }),
+                            );
+                            if let Some(song_clip) = execution.song_clip.as_ref() {
+                                metadata.insert(
+                                    "songTitle".to_string(),
+                                    serde_json::Value::String(song_clip.title.clone()),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message.clone());
+                        job.result = Some(serde_json::json!({
+                            "artifact": {
+                                "type": "generated_media_audio",
+                                "status": "error",
+                                "audio": serde_json::Value::Null,
+                                "image": serde_json::Value::Null,
+                                "metadata": {
+                                    "title": "Media generation failed",
+                                    "description": message.clone(),
+                                    "intent": request.intent.clone().unwrap_or_else(|| "scene support".to_string()),
+                                    "tags": [request.category.clone().unwrap_or_else(|| "ambience".to_string())]
+                                },
+                                "warnings": [message.clone()]
+                            },
+                            "transcript": {
+                                "model": media_audio::interleaved_model(),
+                                "logicalToolName": "generatemedia.audio",
+                                "apiToolName": "generatemedia.audio",
+                                "toolCalled": false,
+                                "thoughtSignatureDetected": false,
+                                "toolArguments": serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+                                "finalResponseText": message.clone()
+                            }
+                        }));
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_one_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_one::DemoStepOneGenerateRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step1.interleaved.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 1"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step1.interleaved"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "modality".to_string(),
+            serde_json::Value::String("mixed".to_string()),
+        );
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "logicalToolName".to_string(),
+            serde_json::Value::String("demo.step1.interleaved".to_string()),
+        );
+        metadata.insert(
+            "demoStep".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1)),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let planets_dir = state.planets_dir.clone();
+    let output_root = demo_output_job_dir(&state.demo_output_dir, &job_id);
+    let pregenerated_root = demo_output_job_dir(
+        &state.demo_output_dir,
+        &state.demo_step_one_pregenerated_folder,
+    );
+    let pregenerated_folder = state.demo_step_one_pregenerated_folder.clone();
+    let use_pregenerated = state.demo_step_one_use_pregenerated;
+    let songs_dir = state.songs_dir.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    10.0,
+                    "Opening Ashtrail demo step 1 session".to_string(),
+                );
+            }
+        }
+
+        if use_pregenerated {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        62.0,
+                        "Loading pregenerated demo step 1 package".to_string(),
+                    );
+                }
+            }
+
+            match demo_step_one::load_pregenerated_demo_step_one(
+                &pregenerated_root,
+                &pregenerated_folder,
+            ) {
+                Ok(result) => {
+                    // Also create world structure in planets folder for pregenerated demo
+                    let world_id = format!("demo-{}", pregenerated_folder);
+                    if let Err(message) = demo_step_one::create_demo_world_in_planets(
+                        &planets_dir,
+                        &world_id,
+                        &result,
+                        &pregenerated_root,
+                    ) {
+                        warn!(
+                            "failed to create pregenerated demo world in planets folder {}: {}",
+                            pregenerated_folder, message
+                        );
+                    }
+                    
+                    if let Ok(mut map) = jobs.lock() {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
+                            let artifact_status = result.artifact.status.clone();
+                            job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                            job.result = serde_json::to_value(&result).ok();
+                            job.output_refs = build_demo_step_one_output_refs(&result);
+                            if let Some(metadata) = job
+                                .metadata
+                                .as_mut()
+                                .and_then(|value| value.as_object_mut())
+                            {
+                                metadata.insert(
+                                    "artifactSource".to_string(),
+                                    serde_json::Value::String("pregenerated".to_string()),
+                                );
+                                metadata.insert(
+                                    "pregeneratedFolder".to_string(),
+                                    serde_json::Value::String(pregenerated_folder.clone()),
+                                );
+                                metadata.insert(
+                                    "pregeneratedPath".to_string(),
+                                    serde_json::Value::String(
+                                        pregenerated_root.to_string_lossy().to_string(),
+                                    ),
+                                );
+                                metadata.insert(
+                                    "artifactStatus".to_string(),
+                                    serde_json::to_value(artifact_status).unwrap_or_else(|_| {
+                                        serde_json::Value::String("error".to_string())
+                                    }),
+                                );
+                                metadata.insert(
+                                    "worldTitle".to_string(),
+                                    serde_json::Value::String(
+                                        result.artifact.metadata.title.clone(),
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(message) => {
+                    if let Ok(mut map) = jobs.lock() {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
+                            job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                            job.error = Some(message.clone());
+                            job.result = serde_json::to_value(
+                                demo_step_one::build_demo_step_one_error_result(&message),
+                            )
+                            .ok();
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        let execution = async {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        28.0,
+                        "Generating interleaved world package".to_string(),
+                    );
+                }
+            }
+
+            let result =
+                demo_step_one::run_demo_step_one(&request, &output_root, &spawned_job_id).await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        84.0,
+                        "Packaging demo step 1 outputs".to_string(),
+                    );
+                }
+            }
+
+            Ok::<demo_step_one::DemoStepOneExecution, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(mut execution) => {
+                if let Err(message) = persist_generated_media_audio_song(
+                    &songs_dir,
+                    &spawned_job_id,
+                    &output_root,
+                    &execution.request,
+                    &mut execution.base_execution,
+                ) {
+                    warn!(
+                        "failed to persist demo step 1 job {} into songs: {}",
+                        spawned_job_id, message
+                    );
+                    execution
+                        .result
+                        .artifact
+                        .warnings
+                        .push(format!("Song persistence failed: {message}"));
+                }
+                execution.result.artifact.audio =
+                    execution.base_execution.result.artifact.audio.clone();
+                execution.result.artifact.image =
+                    execution.base_execution.result.artifact.image.clone();
+                demo_step_one::rewrite_demo_step_one_asset_urls(
+                    &mut execution.result,
+                    &spawned_job_id,
+                );
+                if let Err(message) =
+                    demo_step_one::persist_demo_step_one_result(&output_root, &execution.result)
+                {
+                    warn!(
+                        "failed to persist demo step 1 artifact {}: {}",
+                        spawned_job_id, message
+                    );
+                    execution.result.artifact.warnings.push(message);
+                }
+                
+                // Also create world structure in planets folder
+                let world_id = format!("demo-{}", spawned_job_id);
+                if let Err(message) = demo_step_one::create_demo_world_in_planets(
+                    &planets_dir,
+                    &world_id,
+                    &execution.result,
+                    &output_root,
+                ) {
+                    warn!(
+                        "failed to create demo world in planets folder {}: {}",
+                        spawned_job_id, message
+                    );
+                }
+
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        let artifact_status = execution.result.artifact.status.clone();
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&execution.result).ok();
+                        job.output_refs = build_demo_step_one_output_refs(&execution.result);
+                        if let Some(metadata) = job
+                            .metadata
+                            .as_mut()
+                            .and_then(|value| value.as_object_mut())
+                        {
+                            metadata.insert(
+                                "artifactSource".to_string(),
+                                serde_json::Value::String("live".to_string()),
+                            );
+                            metadata.insert(
+                                "artifactFolder".to_string(),
+                                serde_json::Value::String(spawned_job_id.clone()),
+                            );
+                            metadata.insert(
+                                "artifactPath".to_string(),
+                                serde_json::Value::String(
+                                    output_root.to_string_lossy().to_string(),
+                                ),
+                            );
+                            metadata.insert(
+                                "artifactStatus".to_string(),
+                                serde_json::to_value(artifact_status).unwrap_or_else(|_| {
+                                    serde_json::Value::String("error".to_string())
+                                }),
+                            );
+                            metadata.insert(
+                                "worldTitle".to_string(),
+                                serde_json::Value::String(
+                                    execution.result.artifact.metadata.title.clone(),
+                                ),
+                            );
+                            if let Some(song_clip) = execution.base_execution.song_clip.as_ref() {
+                                metadata.insert(
+                                    "songTitle".to_string(),
+                                    serde_json::Value::String(song_clip.title.clone()),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message.clone());
+                        job.result = serde_json::to_value(
+                            demo_step_one::build_demo_step_one_error_result(&message),
+                        )
+                        .ok();
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_one_selection_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_one::DemoStepOneSelectionRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step1.selection.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Expand Demo Step 1 World Direction"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step1.selection"),
+            "Queued",
+            None,
+            None,
+        );
+        job.parent_job_id = Some(request.source_job_id.clone());
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "modality".to_string(),
+            serde_json::Value::String("text".to_string()),
+        );
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "logicalToolName".to_string(),
+            serde_json::Value::String("demo.step1.selection".to_string()),
+        );
+        metadata.insert(
+            "demoStep".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1)),
+        );
+        metadata.insert(
+            "selectedOptionTitle".to_string(),
+            serde_json::Value::String(request.option_title.clone()),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_output_job_dir(&state.demo_output_dir, &job_id);
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    18.0,
+                    "Interpreting chosen world direction".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            let result = demo_step_one::run_demo_step_one_selection(&request, &output_root).await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        86.0,
+                        "Packaging expanded world lore".to_string(),
+                    );
+                }
+            }
+
+            Ok::<demo_step_one::DemoStepOneSelectionResult, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = build_demo_step_one_selection_output_refs(&result);
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message.clone());
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoGenerateRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.interleaved.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.interleaved"),
+            "Queued",
+            request.world_id.clone(),
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "modality".to_string(),
+            serde_json::Value::String("mixed".to_string()),
+        );
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "logicalToolName".to_string(),
+            serde_json::Value::String("demo.step2.interleaved".to_string()),
+        );
+        metadata.insert(
+            "demoStep".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(2)),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let state_for_job = state.clone();
+    let output_root = demo_output_job_dir(&state.demo_output_dir, &job_id);
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    12.0,
+                    "Opening Ashtrail demo step 2 session".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        38.0,
+                        "Generating interleaved hero package".to_string(),
+                    );
+                }
+            }
+
+            let result = demo_step_two::run_demo_step_two(
+                &state_for_job,
+                &request,
+                &output_root,
+                &spawned_job_id,
+            )
+            .await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        86.0,
+                        "Packaging demo step 2 outputs".to_string(),
+                    );
+                }
+            }
+
+            Ok::<demo_step_two::DemoStepTwoExecution, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(execution) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&execution.result).ok();
+                        job.output_refs = {
+                            let mut refs = vec![build_text_output_ref(
+                                "Hero Lore",
+                                &execution.result.artifact.character.lore_text,
+                            )];
+                            if let Some(portrait) = execution.result.artifact.portrait.as_ref() {
+                                refs.push(JobOutputRef {
+                                    id: "demo-step-2-portrait".to_string(),
+                                    label: "Open Portrait".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(portrait.url.clone()),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            if let Some(voice) = execution.result.artifact.voice.as_ref() {
+                                refs.push(JobOutputRef {
+                                    id: "demo-step-2-voice".to_string(),
+                                    label: "Open Voice".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(voice.url.clone()),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            refs
+                        };
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message.clone());
+                        job.result = serde_json::to_value(
+                            demo_step_two::build_demo_step_two_error_result(&request, &message),
+                        )
+                        .ok();
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn get_demo_step_two_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_two::DemoStepTwoArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_two::load_persisted_demo_step_two_artifact(&state, &query)?;
+    Ok(Json(artifact))
+}
+
+async fn save_demo_step_two_artifact(
+    State(state): State<AppState>,
+    Json(payload): Json<demo_step_two::PersistDemoStepTwoArtifactRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_two::persist_demo_step_two_artifact_for_demo(&state, &payload)?;
+    
+    // Also save to planets folder
+    if let Some(step_one_job_id) = &payload.step_one_job_id {
+        let world_id = format!("demo-{}", step_one_job_id);
+        if let Err(e) = demo_step_two::save_demo_character_to_planets(
+            &state.planets_dir,
+            &world_id,
+            &artifact,
+            step_one_job_id,
+        ) {
+            eprintln!("Warning: Failed to save character to planets folder: {:?}", e);
+        }
+    }
+    
+    Ok(Json(artifact))
+}
+
+async fn get_demo_step_three_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_three::DemoStepThreeArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_three::load_persisted_demo_step_three_artifact(&state, &query)?;
+    Ok(Json(artifact))
+}
+
+async fn get_demo_step_three_vision_coordinates(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_three::DemoStepThreeArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let coordinates = demo_step_three::load_vision_coordinates(
+        &state,
+        query.step_one_job_id.as_deref(),
+        query.hero.as_deref(),
+    )
+    .ok_or_else(|| (StatusCode::NOT_FOUND, "Vision coordinates not found".to_string()))?;
+    Ok(Json(coordinates))
+}
+
+async fn save_demo_step_three_vision_coordinates(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_three::DemoStepThreeArtifactQuery>,
+    Json(coordinates): Json<demo_step_three::PersistedVisionCoordinates>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    demo_step_three::save_vision_coordinates(
+        &state,
+        query.step_one_job_id.as_deref(),
+        query.hero.as_deref(),
+        &coordinates,
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(coordinates))
+}
+
+async fn get_demo_step_four_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_four::DemoStepFourArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_four::load_persisted_demo_step_four_artifact(&state, &query)?;
+    Ok(Json(artifact))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InitializeDemoStepFourRequest {
+    step_one_job_id: Option<String>,
+    hero_variant: String,
+    location_id: String,
+    location_title: String,
+    world_title: String,
+    #[serde(default)]
+    quest_run_id: Option<String>,
+}
+
+async fn initialize_demo_step_four_artifact_handler(
+    State(state): State<AppState>,
+    Json(request): Json<InitializeDemoStepFourRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // If quest_run_id is provided, update existing artifact
+    if let Some(quest_run_id) = request.quest_run_id {
+        let query = demo_step_four::DemoStepFourArtifactQuery {
+            step_one_job_id: request.step_one_job_id.clone(),
+            hero: Some(request.hero_variant.clone()),
+            location_id: Some(request.location_id.clone()),
+        };
+        
+        if let Ok(mut artifact) = demo_step_four::load_persisted_demo_step_four_artifact(&state, &query) {
+            artifact.quest_run_id = Some(quest_run_id);
+            demo_step_four::save_demo_step_four_artifact(
+                &state,
+                request.step_one_job_id.as_deref(),
+                &request.hero_variant,
+                &request.location_id,
+                &artifact,
+            )?;
+            return Ok(Json(artifact));
+        }
+    }
+    
+    // Otherwise initialize new artifact
+    let artifact = demo_step_four::initialize_demo_step_four_quest(
+        &state,
+        request.step_one_job_id.as_deref(),
+        &request.hero_variant,
+        &request.location_id,
+        &request.location_title,
+        &request.world_title,
+    )
+    .await?;
+    Ok(Json(artifact))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EnsureFinalCombatRequest {
+    world_id: String,
+    run_id: String,
+}
+
+async fn ensure_demo_final_combat_handler(
+    State(state): State<AppState>,
+    Json(request): Json<EnsureFinalCombatRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    demo_step_four::ensure_demo_quest_has_final_combat(&state, &request.world_id, &request.run_id).await?;
+    Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))))
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DemoStepFiveArtifact {
+    video_url: Option<String>,
+    poster_url: Option<String>,
+    job_id: Option<String>,
+    status: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DemoStepFiveArtifactQuery {
+    step_one_job_id: Option<String>,
+    world_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveDemoStepFiveArtifactRequest {
+    step_one_job_id: Option<String>,
+    world_id: Option<String>,
+    video_url: Option<String>,
+    poster_url: Option<String>,
+    job_id: Option<String>,
+    status: String,
+}
+
+async fn get_demo_step_five_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<DemoStepFiveArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Try to find artifact by stepOneJobId or worldId
+    let lookup_id = query.step_one_job_id.as_deref()
+        .or(query.world_id.as_deref())
+        .unwrap_or("default");
+    
+    let artifact_path = state.demo_output_dir.join(format!("step-5-{}.json", lookup_id));
+    
+    if !artifact_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Step 5 artifact not found".to_string()));
+    }
+    
+    let content = std::fs::read_to_string(&artifact_path)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read artifact: {}", e)))?;
+    
+    let artifact: DemoStepFiveArtifact = serde_json::from_str(&content)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to parse artifact: {}", e)))?;
+    
+    Ok(Json(artifact))
+}
+
+async fn save_demo_step_five_artifact(
+    State(state): State<AppState>,
+    Json(payload): Json<SaveDemoStepFiveArtifactRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Save with stepOneJobId or worldId
+    let lookup_id = payload.step_one_job_id.as_deref()
+        .or(payload.world_id.as_deref())
+        .unwrap_or("default");
+    
+    let artifact_path = state.demo_output_dir.join(format!("step-5-{}.json", lookup_id));
+    
+    let artifact = DemoStepFiveArtifact {
+        video_url: payload.video_url,
+        poster_url: payload.poster_url,
+        job_id: payload.job_id,
+        status: payload.status,
+    };
+    
+    let content = serde_json::to_string_pretty(&artifact)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize artifact: {}", e)))?;
+    
+    std::fs::write(&artifact_path, content)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write artifact: {}", e)))?;
+    
+    Ok(Json(artifact))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzePlanetRequest {
+    world_id: String,
+    step_one_job_id: Option<String>,
+    quest_run_id: Option<String>,
+}
+
+async fn analyze_planet_and_generate_video(
+    State(state): State<AppState>,
+    Json(request): Json<AnalyzePlanetRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    use std::fs;
+
+    let planet_dir = state.planets_dir.join(&request.world_id);
+    
+    if !planet_dir.exists() {
+        return Err((StatusCode::NOT_FOUND, format!("Planet directory not found: {}", request.world_id)));
+    }
+
+    // Collect planet context
+    let mut context_parts = Vec::new();
+    let mut character_name = "the hero".to_string();
+    let mut quest_title = String::new();
+    let mut quest_summary = String::new();
+    let mut last_node_text = String::new();
+    let mut quest_ending_text = String::new();
+    let mut world_title = "an alien world".to_string();
+    
+    // Read character data
+    let characters_dir = planet_dir.join("characters");
+    if characters_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&characters_dir) {
+            for entry in entries.flatten() {
+                if let Ok(content) = fs::read_to_string(entry.path()) {
+                    if let Ok(char_data) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(name) = char_data.get("name").and_then(|v| v.as_str()) {
+                            character_name = name.to_string();
+                            context_parts.push(format!("Hero: {}", name));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Read quest data - prioritize the specific quest run if provided
+    let quests_dir = planet_dir.join("quests");
+    if quests_dir.exists() {
+        let mut quest_files: Vec<_> = fs::read_dir(&quests_dir)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read quests dir: {}", e)))?
+            .flatten()
+            .collect();
+        
+        // If we have a specific quest run ID, prioritize it
+        if let Some(ref quest_run_id) = request.quest_run_id {
+            quest_files.sort_by_key(|entry| {
+                let filename = entry.file_name();
+                let filename_str = filename.to_string_lossy();
+                if filename_str.contains(quest_run_id) {
+                    0 // Prioritize matching quest
+                } else {
+                    1
+                }
+            });
+        }
+        
+        for entry in quest_files {
+            if let Ok(content) = fs::read_to_string(entry.path()) {
+                if let Ok(quest_data) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(title) = quest_data.get("title").and_then(|v| v.as_str()) {
+                        quest_title = title.to_string();
+                        context_parts.push(format!("Quest: {}", title));
+                    }
+                    if let Some(summary) = quest_data.get("summary").and_then(|v| v.as_str()) {
+                        quest_summary = summary.to_string();
+                    }
+                    
+                    // Extract the last node information for more specific context
+                    if let Some(current_node) = quest_data.get("currentNode") {
+                        if let Some(text) = current_node.get("text").and_then(|v| v.as_str()) {
+                            last_node_text = text.to_string();
+                        }
+                        if let Some(title) = current_node.get("title").and_then(|v| v.as_str()) {
+                            quest_ending_text = title.to_string();
+                        }
+                    }
+                    
+                    // Get key moments from the quest log
+                    if let Some(log) = quest_data.get("log").and_then(|v| v.as_array()) {
+                        let key_moments: Vec<String> = log.iter()
+                            .filter_map(|entry| {
+                                if entry.get("kind").and_then(|k| k.as_str()) == Some("outcome") {
+                                    entry.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .take(3) // Last 3 key outcomes
+                            .collect();
+                        
+                        if !key_moments.is_empty() {
+                            context_parts.push(format!("Journey highlights: {}", key_moments.join("; ")));
+                        }
+                    }
+                    
+                    // Only process the first (or prioritized) quest
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Read metadata
+    let metadata_path = planet_dir.join("metadata.json");
+    if metadata_path.exists() {
+        if let Ok(content) = fs::read_to_string(&metadata_path) {
+            if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(title) = metadata.get("title").and_then(|v| v.as_str()) {
+                    world_title = title.to_string();
+                }
+            }
+        }
+    }
+
+    let planet_context = if context_parts.is_empty() {
+        format!("A hero completing a quest on {}", world_title)
+    } else {
+        context_parts.join(". ")
+    };
+
+    // Create enhanced video prompt based on quest ending
+    let video_prompt = if !last_node_text.is_empty() {
+        format!(
+            "{} has completed their quest '{}' on {}. Final moment: {}. Show {} standing victorious in this alien landscape, having overcome the challenges described. The scene should capture the triumph and the unique environment of this moment.",
+            character_name, quest_title, world_title, last_node_text, character_name
+        )
+    } else if !quest_summary.is_empty() {
+        format!(
+            "{} has completed their quest '{}' on {}. {}. Show {} standing victorious in a cinematic sci-fi setting, celebrating this achievement.",
+            character_name, quest_title, world_title, quest_summary, character_name
+        )
+    } else {
+        format!(
+            "{} completing a dangerous quest on {}. {}. The character stands victorious in a cinematic sci-fi setting, having overcome great challenges.",
+            character_name, world_title, planet_context
+        )
+    };
+
+    // Create narration prompt that reflects the journey
+    let narration_prompt = if !quest_ending_text.is_empty() && !last_node_text.is_empty() {
+        format!(
+            "Celebrate {}'s triumph in completing '{}'. Narrate their final achievement: '{}'. Keep it inspiring and brief, focusing on this victorious moment.",
+            character_name, quest_title, quest_ending_text
+        )
+    } else {
+        format!(
+            "Celebrate {}'s heroic journey completing '{}' on {}. Keep it inspiring and brief.",
+            character_name, quest_title, world_title
+        )
+    };
+
+    // Launch video generation job
+    let video_request = serde_json::json!({
+        "prompt": video_prompt,
+        "durationSeconds": 8,
+        "aspectRatio": "16:9",
+        "style": "cinematic",
+        "intent": "victory celebration",
+        "category": "cinematic",
+        "mood": "triumphant, epic, heroic",
+        "cameraDirection": "slow pan revealing the victorious hero",
+        "narrationTone": "inspiring",
+        "narrationIntent": narration_prompt,
+        "voiceName": "Kore",
+        "globalDirection": format!("Epic sci-fi adventure on {} with a sense of accomplishment", world_title),
+        "keepVeoAudio": false,
+    });
+
+    // Start the video generation job
+    let client = reqwest::Client::new();
+    let job_response = client
+        .post("http://127.0.0.1:8787/api/media/video/jobs")
+        .json(&video_request)
+        .send()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to start video job: {}", e)))?;
+
+    if !job_response.status().is_success() {
+        let error_text = job_response.text().await.unwrap_or_default();
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Video job failed: {}", error_text)));
+    }
+
+    let job_result: serde_json::Value = job_response
+        .json()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to parse job response: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "jobId": job_result["jobId"],
+        "context": planet_context
+    })))
+}
+
+async fn start_demo_step_two_weapon_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoWeaponJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.weapon.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Weapon"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.weapon"),
+            "Queued",
+            request.world_id.clone(),
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_weapon_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    24.0,
+                    "Designing weapon package".to_string(),
+                );
+            }
+        }
+
+        let execution = demo_step_two::run_demo_step_two_weapon(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = vec![
+                            build_text_output_ref("Weapon Lore", &result.artifact.lore_text),
+                            JobOutputRef {
+                                id: "demo-step-2-weapon-image".to_string(),
+                                label: "Open Weapon Illustration".to_string(),
+                                kind: "asset".to_string(),
+                                href: Some(result.artifact.image.url.clone()),
+                                route: None,
+                                preview_text: None,
+                            },
+                        ];
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_three_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_three::DemoStepThreeGenerateRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step3.location.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 3 Location"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step3.location"),
+            "Queued",
+            request.world_id.clone(),
+            request.step_one_job_id.clone(),
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "demoStep".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(3)),
+        );
+        metadata.insert(
+            "heroVariant".to_string(),
+            serde_json::Value::String(request.hero_variant.clone()),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let state_for_task = state.clone();
+    let output_root = demo_step_three::demo_step_three_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+        Some(request.location_hint.node_id.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    18.0,
+                    "Resolving persisted demo context".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            let result =
+                demo_step_three::run_demo_step_three(&state_for_task, &request, &output_root)
+                    .await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        86.0,
+                        "Persisting location brief".to_string(),
+                    );
+                }
+            }
+
+            Ok::<demo_step_three::DemoStepThreeResult, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = build_demo_step_three_output_refs(&result.artifact);
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_voice_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoVoiceJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.voice.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Voice"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.voice"),
+            "Queued",
+            request.world_id.clone(),
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_voice_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    35.0,
+                    "Voicing generated lore".to_string(),
+                );
+            }
+        }
+
+        let execution = demo_step_two::run_demo_step_two_voice(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = vec![JobOutputRef {
+                            id: "demo-step-2-voice".to_string(),
+                            label: "Open Voice".to_string(),
+                            kind: "asset".to_string(),
+                            href: Some(result.voice.url.clone()),
+                            route: None,
+                            preview_text: None,
+                        }];
+                    }
+                }
+            }
+            Err((status, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(format!("{}: {}", status, message));
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_lore_illustrations_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoLoreIllustrationsJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.lore-illustrations.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Lore Illustrations"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.lore-illustrations"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_lore_illustration_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    28.0,
+                    "Painting lore illustrations".to_string(),
+                );
+            }
+        }
+
+        let execution =
+            demo_step_two::run_demo_step_two_lore_illustrations(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = result
+                            .illustrations
+                            .iter()
+                            .enumerate()
+                            .map(|(index, illustration)| JobOutputRef {
+                                id: format!("demo-step-2-lore-illustration-{index}"),
+                                label: format!("Open Lore Illustration {}", index + 1),
+                                kind: "asset".to_string(),
+                                href: Some(illustration.image.url.clone()),
+                                route: None,
+                                preview_text: None,
+                            })
+                            .collect();
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_lore_insight_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoLoreInsightJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.lore-insight.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Lore Insight"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.lore-insight"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_lore_insight_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    26.0,
+                    "Interpreting highlighted lore term".to_string(),
+                );
+            }
+        }
+
+        let execution = demo_step_two::run_demo_step_two_lore_insight(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = vec![
+                            build_text_output_ref("Lore Insight", &result.artifact.explanation),
+                            JobOutputRef {
+                                id: "demo-step-2-lore-insight-image".to_string(),
+                                label: "Open Lore Insight Illustration".to_string(),
+                                kind: "asset".to_string(),
+                                href: Some(result.artifact.image.url.clone()),
+                                route: None,
+                                preview_text: None,
+                            },
+                        ];
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+fn persist_generated_media_audio_song(
+    songs_dir: &std::path::Path,
+    job_id: &str,
+    output_root: &std::path::Path,
+    request: &media_audio::GenerateMediaAudioRequest,
+    execution: &mut media_audio::MediaAudioExecution,
+) -> Result<(), String> {
+    let Some(song_clip) = execution.song_clip.as_ref() else {
+        return Ok(());
+    };
+
+    let slug = slugify_prompt(&song_clip.title);
+    let batch_id = if slug.is_empty() {
+        format!("media_audio_{}", &job_id[..8.min(job_id.len())])
+    } else {
+        format!("{}_{}", slug, &job_id[..8.min(job_id.len())])
+    };
+    let batch_dir = songs_dir.join(&batch_id);
+    std::fs::create_dir_all(&batch_dir)
+        .map_err(|error| format!("create song batch dir: {error}"))?;
+
+    let audio_source = output_root.join("audio.wav");
+    if !audio_source.exists() {
+        return Err("generated audio file is missing".to_string());
+    }
+    let audio_filename = "000_v01.wav".to_string();
+    let audio_target = batch_dir.join(&audio_filename);
+    std::fs::copy(&audio_source, &audio_target)
+        .map_err(|error| format!("copy generated audio: {error}"))?;
+
+    let mut image_url = None;
+    let image_source = output_root.join("image.png");
+    if image_source.exists() {
+        let image_filename = "preview.png";
+        let image_target = batch_dir.join(image_filename);
+        std::fs::copy(&image_source, &image_target)
+            .map_err(|error| format!("copy generated image: {error}"))?;
+        image_url = Some(format!("/api/songs/{}/{}", batch_id, image_filename));
+    }
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let category = request
+        .category
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            execution
+                .result
+                .artifact
+                .metadata
+                .tags
+                .iter()
+                .find_map(|tag| {
+                    let normalized = tag.trim().to_lowercase();
+                    if normalized == "ost" || normalized == "ambience" || normalized == "sfx" {
+                        Some(tag.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("ost")
+        })
+        .to_string();
+
+    let manifest = SongBatchManifest {
+        batch_id: batch_id.clone(),
+        batch_name: song_clip.title.clone(),
+        created_at,
+        category: category.clone(),
+        genre: request
+            .style
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("cinematic")
+            .to_string(),
+        moods: request
+            .mood
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| vec![value.to_string()])
+            .unwrap_or_default(),
+        instrumentation: Vec::new(),
+        tempo: infer_media_song_tempo(request),
+        rhythmic_feel: infer_media_song_rhythmic_feel(request),
+        soundscape: request.prompt.trim().to_string(),
+        production_style: request
+            .style
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("cinematic")
+            .to_string(),
+        negative_prompt: song_clip.negative_prompt.clone(),
+        global_direction: execution.result.artifact.metadata.description.clone(),
+        clips: vec![GeneratedSongClip {
+            clip_id: format!("clip-{}-v01", &job_id[..8.min(job_id.len())]),
+            filename: audio_filename.clone(),
+            title: song_clip.title.clone(),
+            prompt: song_clip.prompt.clone(),
+            normalized_prompt: song_clip.normalized_prompt.clone(),
+            negative_prompt: song_clip.negative_prompt.clone(),
+            url: format!("/api/songs/{}/{}", batch_id, audio_filename),
+            mime_type: song_clip.mime_type.clone(),
+            duration_seconds: song_clip.duration_seconds,
+            sample_rate_hz: song_clip.sample_rate_hz,
+            variant_index: 1,
+            category,
+        }],
+    };
+
+    let manifest_json = serde_json::to_string_pretty(&manifest)
+        .map_err(|error| format!("serialize song manifest: {error}"))?;
+    std::fs::write(batch_dir.join("manifest.json"), manifest_json)
+        .map_err(|error| format!("write song manifest: {error}"))?;
+
+    if let Some(audio) = execution.result.artifact.audio.as_mut() {
+        audio.url = format!("/api/songs/{}/{}", batch_id, audio_filename);
+        audio.mime_type = song_clip.mime_type.clone();
+        audio.duration_seconds = song_clip.duration_seconds.round().max(1.0) as u32;
+    }
+    execution.audio_preview = execution
+        .result
+        .artifact
+        .audio
+        .as_ref()
+        .map(|audio| audio.url.clone());
+
+    if let Some(image) = execution.result.artifact.image.as_mut() {
+        if let Some(url) = image_url.clone() {
+            image.url = url;
+        }
+    }
+    execution.image_preview = execution
+        .result
+        .artifact
+        .image
+        .as_ref()
+        .map(|image| image.url.clone());
+
+    if let Some(metadata) = execution.result.transcript.tool_arguments.as_object_mut() {
+        metadata.insert(
+            "persistedSongBatchId".to_string(),
+            serde_json::Value::String(batch_id),
+        );
+        metadata.insert(
+            "persistedSongPath".to_string(),
+            serde_json::Value::String(audio_target.to_string_lossy().to_string()),
+        );
+    }
+
+    let artifact_json = serde_json::to_string_pretty(&execution.result)
+        .map_err(|error| format!("serialize generated media artifact: {error}"))?;
+    std::fs::write(
+        batch_dir.join("generated_media_artifact.json"),
+        artifact_json,
+    )
+    .map_err(|error| format!("write generated media artifact: {error}"))?;
+
+    Ok(())
+}
+
+async fn start_generate_media_video_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<media_video::GenerateMediaVideoRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if request.prompt.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Prompt is required".to_string()));
+    }
+
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("interleaved.generatemedia.video.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Media Video"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("generatemedia.video"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "modality".to_string(),
+            serde_json::Value::String("mixed".to_string()),
+        );
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "logicalToolName".to_string(),
+            serde_json::Value::String("generatemedia.video".to_string()),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = state.generated_media_video_dir.join(&job_id);
+    let videos_dir = state.videos_dir.clone();
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    10.0,
+                    "Opening Gemini 3 interleaved video session".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(JobStatus::Running, 32.0, "Waiting for functionCall".to_string());
+                }
+            }
+
+            let result =
+                media_video::run_interleaved_video_demo(&request, &output_root, &spawned_job_id)
+                    .await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        84.0,
+                        "Packaging cinematic artifact".to_string(),
+                    );
+                }
+            }
+
+            Ok::<media_video::MediaVideoExecution, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(mut execution) => {
+                if let Err(message) = persist_generated_media_video_package(
+                    &videos_dir,
+                    &spawned_job_id,
+                    &output_root,
+                    &request,
+                    &mut execution,
+                ) {
+                    warn!(
+                        "failed to persist media video job {} into videos: {}",
+                        spawned_job_id, message
+                    );
+                    execution
+                        .result
+                        .artifact
+                        .warnings
+                        .push(format!("Video persistence failed: {message}"));
+                }
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        let artifact_status = execution.result.artifact.status.clone();
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&execution.result).ok();
+                        job.output_refs = {
+                            let mut refs = vec![build_text_output_ref(
+                                "Gemini Final Response",
+                                &execution.result.transcript.final_response_text,
+                            )];
+                            if let Some(video_url) = execution.video_preview {
+                                refs.push(JobOutputRef {
+                                    id: "generated-video".to_string(),
+                                    label: "Open Video".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(video_url),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            if let Some(poster_url) = execution.poster_preview {
+                                refs.push(JobOutputRef {
+                                    id: "generated-poster".to_string(),
+                                    label: "Open Poster".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(poster_url),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            refs
+                        };
+                        if let Some(metadata) =
+                            job.metadata.as_mut().and_then(|value| value.as_object_mut())
+                        {
+                            metadata.insert(
+                                "artifactStatus".to_string(),
+                                serde_json::to_value(artifact_status).unwrap_or_else(|_| {
+                                    serde_json::Value::String("error".to_string())
+                                }),
+                            );
+                            metadata.insert(
+                                "videoTitle".to_string(),
+                                serde_json::Value::String(
+                                    execution.result.artifact.metadata.title.clone(),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message.clone());
+                        job.result = Some(serde_json::json!({
+                            "artifact": {
+                                "type": "generated_media_video",
+                                "status": "error",
+                                "video": serde_json::Value::Null,
+                                "poster": serde_json::Value::Null,
+                                "narration": serde_json::Value::Null,
+                                "metadata": {
+                                    "title": "Media video generation failed",
+                                    "description": message.clone(),
+                                    "intent": request.intent.clone().unwrap_or_else(|| "scene support".to_string()),
+                                    "tags": [request.category.clone().unwrap_or_else(|| "cinematic".to_string())]
+                                },
+                                "warnings": [message.clone()]
+                            },
+                            "transcript": {
+                                "model": media_audio::interleaved_model(),
+                                "logicalToolName": "generatemedia.video",
+                                "apiToolName": "generatemedia.video",
+                                "toolCalled": false,
+                                "thoughtSignatureDetected": false,
+                                "toolArguments": serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+                                "finalResponseText": message.clone()
+                            }
+                        }));
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+fn persist_generated_media_video_package(
+    videos_dir: &std::path::Path,
+    job_id: &str,
+    output_root: &std::path::Path,
+    request: &media_video::GenerateMediaVideoRequest,
+    execution: &mut media_video::MediaVideoExecution,
+) -> Result<(), String> {
+    let Some(video) = execution.result.artifact.video.clone() else {
+        return Ok(());
+    };
+    let slug = slugify_prompt(&execution.result.artifact.metadata.title);
+    let batch_id = if slug.is_empty() {
+        format!("media_video_{}", &job_id[..8.min(job_id.len())])
+    } else {
+        format!("{}_{}", slug, &job_id[..8.min(job_id.len())])
+    };
+    let batch_dir = videos_dir.join(&batch_id);
+    std::fs::create_dir_all(&batch_dir).map_err(|error| format!("create video batch dir: {error}"))?;
+    std::fs::create_dir_all(batch_dir.join("narration"))
+        .map_err(|error| format!("create video narration dir: {error}"))?;
+
+    let video_source = output_root.join("video.mp4");
+    if !video_source.exists() {
+        return Err("generated video file is missing".to_string());
+    }
+    std::fs::copy(&video_source, batch_dir.join("video.mp4"))
+        .map_err(|error| format!("copy generated video: {error}"))?;
+
+    let mut poster_url = None;
+    let poster_source = output_root.join("poster.png");
+    if poster_source.exists() {
+        std::fs::copy(&poster_source, batch_dir.join("poster.png"))
+            .map_err(|error| format!("copy poster image: {error}"))?;
+        poster_url = Some(format!("/api/videos/{}/poster.png", batch_id));
+    }
+
+    let mut manifest_segments = Vec::new();
+    if let Some(narration) = execution.result.artifact.narration.as_mut() {
+        for segment in &mut narration.segments {
+            let file_name = segment
+                .audio_url
+                .rsplit('/')
+                .next()
+                .ok_or_else(|| "narration segment url is missing a filename".to_string())?
+                .to_string();
+            let source = output_root.join("narration").join(&file_name);
+            if !source.exists() {
+                continue;
+            }
+            std::fs::copy(&source, batch_dir.join("narration").join(&file_name))
+                .map_err(|error| format!("copy narration segment: {error}"))?;
+            segment.audio_url = format!("/api/videos/{}/narration/{}", batch_id, file_name);
+            manifest_segments.push(GeneratedVideoNarrationSegment {
+                segment_id: segment.segment_id.clone(),
+                start_ms: segment.start_ms,
+                end_ms: segment.end_ms,
+                text: segment.text.clone(),
+                audio_url: segment.audio_url.clone(),
+                mime_type: segment.mime_type.clone(),
+                duck_video_to: segment.duck_video_to,
+            });
+        }
+    }
+
+    if let Some(video_asset) = execution.result.artifact.video.as_mut() {
+        video_asset.url = format!("/api/videos/{}/video.mp4", batch_id);
+    }
+    execution.video_preview = execution.result.artifact.video.as_ref().map(|asset| asset.url.clone());
+    if let Some(poster) = execution.result.artifact.poster.as_mut() {
+        if let Some(url) = poster_url.clone() {
+            poster.url = url;
+        }
+    }
+    execution.poster_preview = execution.result.artifact.poster.as_ref().map(|asset| asset.url.clone());
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let category = request
+        .category
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("cinematic")
+        .to_string();
+    let narration = execution.result.artifact.narration.clone();
+    let manifest = VideoPackageManifest {
+        batch_id: batch_id.clone(),
+        batch_name: execution.result.artifact.metadata.title.clone(),
+        created_at,
+        category,
+        duration_seconds: video.duration_seconds,
+        aspect_ratio: video.aspect_ratio.clone(),
+        keep_veo_audio: video.keep_veo_audio,
+        narration_language: narration
+            .as_ref()
+            .map(|value| value.language.clone())
+            .unwrap_or_else(|| "fr-FR".to_string()),
+        voice_name: narration
+            .as_ref()
+            .map(|value| value.voice_name.clone())
+            .unwrap_or_else(|| "Charon".to_string()),
+        video: VideoPackageFile {
+            url: execution
+                .result
+                .artifact
+                .video
+                .as_ref()
+                .map(|value| value.url.clone())
+                .unwrap_or_else(|| format!("/api/videos/{}/video.mp4", batch_id)),
+            mime_type: video.mime_type.clone(),
+        },
+        poster: execution.result.artifact.poster.as_ref().map(|poster| VideoPackageFile {
+            url: poster.url.clone(),
+            mime_type: poster.mime_type.clone(),
+        }),
+        script: narration
+            .as_ref()
+            .map(|value| value.script.clone())
+            .unwrap_or_default(),
+        description: execution.result.artifact.metadata.description.clone(),
+        tags: execution.result.artifact.metadata.tags.clone(),
+        segments: manifest_segments.clone(),
+    };
+
+    let timeline_json = serde_json::json!({
+        "keepVeoAudio": manifest.keep_veo_audio,
+        "durationSeconds": manifest.duration_seconds,
+        "segments": manifest_segments,
+    });
+    std::fs::write(
+        batch_dir.join("timeline.json"),
+        serde_json::to_string_pretty(&timeline_json)
+            .map_err(|error| format!("serialize timeline: {error}"))?,
+    )
+    .map_err(|error| format!("write timeline: {error}"))?;
+    std::fs::write(
+        batch_dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)
+            .map_err(|error| format!("serialize video manifest: {error}"))?,
+    )
+    .map_err(|error| format!("write video manifest: {error}"))?;
+    std::fs::write(
+        batch_dir.join("generated_media_artifact.json"),
+        serde_json::to_string_pretty(&execution.result)
+            .map_err(|error| format!("serialize video artifact: {error}"))?,
+    )
+    .map_err(|error| format!("write video artifact: {error}"))?;
+
+    if let Some(metadata) = execution
+        .result
+        .transcript
+        .tool_arguments
+        .as_object_mut()
+    {
+        metadata.insert(
+            "persistedVideoBatchId".to_string(),
+            serde_json::Value::String(batch_id),
+        );
+    }
+
+    Ok(())
+}
+
+fn infer_media_song_tempo(request: &media_audio::GenerateMediaAudioRequest) -> String {
+    let haystack = format!(
+        "{} {} {} {} {}",
+        request.prompt,
+        request.style.as_deref().unwrap_or_default(),
+        request.intent.as_deref().unwrap_or_default(),
+        request.category.as_deref().unwrap_or_default(),
+        request.mood.as_deref().unwrap_or_default()
+    )
+    .to_lowercase();
+    if haystack.contains("combat") || haystack.contains("battle") || haystack.contains("raid") {
+        "fast".to_string()
+    } else if haystack.contains("night")
+        || haystack.contains("ambience")
+        || haystack.contains("ambient")
+    {
+        "slow".to_string()
+    } else {
+        "medium".to_string()
+    }
+}
+
+fn infer_media_song_rhythmic_feel(request: &media_audio::GenerateMediaAudioRequest) -> String {
+    let haystack = format!(
+        "{} {} {}",
+        request.prompt,
+        request.intent.as_deref().unwrap_or_default(),
+        request.category.as_deref().unwrap_or_default()
+    )
+    .to_lowercase();
+    if haystack.contains("combat") || haystack.contains("battle") || haystack.contains("raid") {
+        "driving".to_string()
+    } else if haystack.contains("stinger") || haystack.contains("sfx") {
+        "syncopated".to_string()
+    } else if haystack.contains("ambience") || haystack.contains("ambient") {
+        "drone".to_string()
+    } else {
+        "pulse".to_string()
+    }
+}
+
+#[cfg(test)]
+mod media_audio_persistence_tests {
+    use super::{
+        demo_output_job_dir, infer_media_song_rhythmic_feel, infer_media_song_tempo,
+        persist_generated_media_audio_song,
+    };
+    use crate::media_audio::{
+        GenerateMediaAudioRequest, GeneratedMediaAudioArtifact, GeneratedMediaAudioAsset,
+        GeneratedMediaAudioResult, GeneratedMediaImageAsset, GeneratedMediaMetadata,
+        GeneratedMediaStatus, InterleavedTranscript, MediaAudioExecution,
+        MediaAudioSongClipDetails,
+    };
+    use serde_json::json;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn persists_generated_media_audio_into_song_batch_manifest() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("ashtrail-media-audio-{unique}"));
+        let songs_dir = root.join("Songs");
+        let output_root = root.join("generated-media").join("job-1234");
+        fs::create_dir_all(&songs_dir).expect("songs dir");
+        fs::create_dir_all(&output_root).expect("output dir");
+        fs::write(output_root.join("audio.wav"), b"RIFFdemo").expect("audio");
+        fs::write(output_root.join("image.png"), b"\x89PNGdemo").expect("image");
+        fs::write(output_root.join("artifact.json"), b"{}").expect("artifact");
+
+        let request = GenerateMediaAudioRequest {
+            prompt: "Night battle against tribal raiders".to_string(),
+            duration_seconds: Some(20),
+            style: Some("cinematic tribal".to_string()),
+            intent: Some("combat underscore".to_string()),
+            category: Some("ost".to_string()),
+            mood: Some("tense".to_string()),
+        };
+        let mut execution = MediaAudioExecution {
+            result: GeneratedMediaAudioResult {
+                artifact: GeneratedMediaAudioArtifact {
+                    artifact_type: "generated_media_audio".to_string(),
+                    status: GeneratedMediaStatus::Success,
+                    audio: Some(GeneratedMediaAudioAsset {
+                        url: "/api/generated-media/job-1234/audio.wav".to_string(),
+                        duration_seconds: 20,
+                        mime_type: "audio/wav".to_string(),
+                    }),
+                    image: Some(GeneratedMediaImageAsset {
+                        url: "/api/generated-media/job-1234/image.png".to_string(),
+                        mime_type: "image/png".to_string(),
+                    }),
+                    metadata: GeneratedMediaMetadata {
+                        title: "Night Raid".to_string(),
+                        description: "Aggressive night combat underscore.".to_string(),
+                        intent: "combat underscore".to_string(),
+                        tags: vec!["ost".to_string(), "combat".to_string()],
+                    },
+                    warnings: Vec::new(),
+                },
+                transcript: InterleavedTranscript {
+                    model: "gemini-3-flash-preview".to_string(),
+                    logical_tool_name: "generatemedia.audio".to_string(),
+                    api_tool_name: "generatemedia_audio".to_string(),
+                    tool_called: true,
+                    thought_signature_detected: true,
+                    tool_arguments: json!({ "prompt": request.prompt }),
+                    final_response_text: "Night Raid ready.".to_string(),
+                },
+            },
+            audio_preview: Some("/api/generated-media/job-1234/audio.wav".to_string()),
+            image_preview: Some("/api/generated-media/job-1234/image.png".to_string()),
+            song_clip: Some(MediaAudioSongClipDetails {
+                title: "Night Raid".to_string(),
+                prompt: request.prompt.clone(),
+                normalized_prompt: "Instrumental combat cue with war drums.".to_string(),
+                negative_prompt: "No vocals.".to_string(),
+                mime_type: "audio/wav".to_string(),
+                duration_seconds: 20.0,
+                sample_rate_hz: 48_000,
+            }),
+        };
+
+        persist_generated_media_audio_song(
+            &songs_dir,
+            "job-1234-abcdef",
+            &output_root,
+            &request,
+            &mut execution,
+        )
+        .expect("persisted");
+
+        let entries = fs::read_dir(&songs_dir)
+            .expect("read songs dir")
+            .map(|entry| entry.expect("entry").path())
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 1);
+        let batch_dir = &entries[0];
+        let manifest = fs::read_to_string(batch_dir.join("manifest.json")).expect("manifest");
+        let manifest_json: serde_json::Value =
+            serde_json::from_str(&manifest).expect("manifest json");
+        assert_eq!(
+            manifest_json["clips"][0]["url"],
+            json!(execution.audio_preview.clone().expect("audio preview"))
+        );
+        assert!(batch_dir.join("000_v01.wav").exists());
+        assert!(batch_dir.join("preview.png").exists());
+        assert!(batch_dir.join("generated_media_artifact.json").exists());
+        assert_eq!(infer_media_song_tempo(&request), "fast");
+        assert_eq!(infer_media_song_rhythmic_feel(&request), "driving");
+    }
+
+    #[test]
+    fn demo_output_job_dir_uses_demo_output_root() {
+        let path = demo_output_job_dir(std::path::Path::new("generated/demo-output"), "job-1234");
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("generated/demo-output").join("job-1234")
+        );
+    }
+}
+
+#[cfg(test)]
+mod media_video_persistence_tests {
+    use super::{
+        cloud_key_to_local, guess_content_type, local_to_cloud_key,
+        persist_generated_media_video_package, AppState, RefineLimiter,
+        SupabaseStorageConfig, VideoPackageManifest,
+    };
+    use crate::media_audio::InterleavedTranscript;
+    use crate::jobs::JobRecord;
+    use crate::media_video::{
+        GenerateMediaVideoRequest, GeneratedMediaNarration, GeneratedMediaVideoArtifact,
+        GeneratedMediaVideoAsset, GeneratedMediaVideoResult, MediaVideoExecution,
+    };
+    use serde_json::json;
+    use std::{
+        collections::HashMap,
+        fs,
+        path::PathBuf,
+        sync::{atomic::AtomicUsize, Arc, Mutex},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+    use tokio::sync::Semaphore;
+
+    fn dummy_state(root: &std::path::Path) -> AppState {
+        let jobs = Arc::new(Mutex::new(HashMap::<String, JobRecord>::new()));
+        let limiter = RefineLimiter {
+            semaphore: Arc::new(Semaphore::new(1)),
+            max_concurrent: 1,
+            max_queue: 1,
+            outstanding: Arc::new(AtomicUsize::new(0)),
+        };
+        AppState {
+            jobs,
+            quest_runtime: crate::quest_ai::QuestRuntime::from_env(false, Arc::new(Mutex::new(HashMap::new()))),
+            exploration_runtime: crate::exploration_jobs::ExplorationGenerationRuntime::from_env(false, Arc::new(Mutex::new(HashMap::new()))),
+            planets_dir: root.join("planets"),
+            planet_root: root.join("planets"),
+            characters_dir: root.join("characters"),
+            character_portraits_dir: root.join("characters").join("portraits"),
+            icons_dir: root.join("Icons"),
+            icons_export_dir: root.join("Icons"),
+            textures_dir: root.join("Textures"),
+            textures_export_dir: root.join("Textures"),
+            sprites_dir: root.join("Sprites"),
+            songs_dir: root.join("Songs"),
+            generated_media_dir: root.join("generated").join("media-audio"),
+            videos_dir: root.join("Videos"),
+            generated_media_video_dir: root.join("generated").join("media-video"),
+            isolated_dir: root.join("Isolated"),
+            packs_dir: root.join("Packs"),
+            demo_output_dir: root.join("generated").join("demo-output"),
+            demo_step_one_use_pregenerated: false,
+            demo_step_one_pregenerated_folder: "pregenerated".to_string(),
+            refine_limiter: limiter,
+            supabase: None,
+        }
+    }
+
+    #[test]
+    fn persists_generated_media_video_into_video_manifest() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("ashtrail-media-video-{unique}"));
+        let videos_dir = root.join("Videos");
+        let output_root = root.join("generated-media-video").join("job-vid");
+        fs::create_dir_all(videos_dir.clone()).expect("videos dir");
+        fs::create_dir_all(output_root.join("narration")).expect("output dir");
+        fs::write(output_root.join("video.mp4"), b"mp4demo").expect("video");
+        fs::write(output_root.join("poster.png"), b"\x89PNGdemo").expect("poster");
+        fs::write(output_root.join("narration").join("seg_001.wav"), b"RIFFdemo").expect("narration");
+
+        let request = GenerateMediaVideoRequest {
+            prompt: "Night assault cinematic".to_string(),
+            duration_seconds: Some(8),
+            aspect_ratio: Some("16:9".to_string()),
+            style: Some("grim cinematic".to_string()),
+            intent: Some("combat intro".to_string()),
+            category: Some("cinematic".to_string()),
+            mood: Some("tense".to_string()),
+            camera_direction: Some("slow push".to_string()),
+            narration_tone: Some("grave".to_string()),
+            narration_intent: Some("frame the raid".to_string()),
+            voice_name: Some("Charon".to_string()),
+            negative_prompt: Some("avoid comedy".to_string()),
+            global_direction: Some("tribal clash at night".to_string()),
+            keep_veo_audio: Some(true),
+        };
+        let mut execution = MediaVideoExecution {
+            result: GeneratedMediaVideoResult {
+                artifact: GeneratedMediaVideoArtifact {
+                    artifact_type: "generated_media_video".to_string(),
+                    status: crate::media_audio::GeneratedMediaStatus::Success,
+                    video: Some(GeneratedMediaVideoAsset {
+                        url: "/api/generated-media-video/job-vid/video.mp4".to_string(),
+                        duration_seconds: 8,
+                        mime_type: "video/mp4".to_string(),
+                        aspect_ratio: "16:9".to_string(),
+                        resolution: "720p".to_string(),
+                        keep_veo_audio: true,
+                    }),
+                    poster: Some(crate::media_audio::GeneratedMediaImageAsset {
+                        url: "/api/generated-media-video/job-vid/poster.png".to_string(),
+                        mime_type: "image/png".to_string(),
+                    }),
+                    narration: Some(GeneratedMediaNarration {
+                        language: "fr-FR".to_string(),
+                        voice_name: "Charon".to_string(),
+                        script: "La nuit ferme le camp.".to_string(),
+                        segments: vec![crate::media_video::GeneratedMediaNarrationSegment {
+                            segment_id: "seg-001".to_string(),
+                            start_ms: 0,
+                            end_ms: 2200,
+                            text: "La nuit ferme le camp.".to_string(),
+                            audio_url: "/api/generated-media-video/job-vid/narration/seg_001.wav".to_string(),
+                            mime_type: "audio/wav".to_string(),
+                            duck_video_to: 0.3,
+                        }],
+                    }),
+                    metadata: crate::media_audio::GeneratedMediaMetadata {
+                        title: "Ashfall Raid".to_string(),
+                        description: "A hard cinematic opener.".to_string(),
+                        intent: "combat intro".to_string(),
+                        tags: vec!["cinematic".to_string(), "lore".to_string()],
+                    },
+                    warnings: Vec::new(),
+                },
+                transcript: InterleavedTranscript {
+                    model: "gemini-3-flash-preview".to_string(),
+                    logical_tool_name: "generatemedia.video".to_string(),
+                    api_tool_name: "generatemedia_video".to_string(),
+                    tool_called: true,
+                    thought_signature_detected: true,
+                    tool_arguments: json!({ "prompt": request.prompt }),
+                    final_response_text: "Ashfall Raid ready.".to_string(),
+                },
+            },
+            video_preview: Some("/api/generated-media-video/job-vid/video.mp4".to_string()),
+            poster_preview: Some("/api/generated-media-video/job-vid/poster.png".to_string()),
+        };
+
+        persist_generated_media_video_package(
+            &videos_dir,
+            "job-video-1234",
+            &output_root,
+            &request,
+            &mut execution,
+        )
+        .expect("persisted");
+
+        let entries = fs::read_dir(&videos_dir)
+            .expect("read videos dir")
+            .map(|entry| entry.expect("entry").path())
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 1);
+        let batch_dir = &entries[0];
+        let manifest = fs::read_to_string(batch_dir.join("manifest.json")).expect("manifest");
+        let manifest_json: VideoPackageManifest = serde_json::from_str(&manifest).expect("manifest json");
+        assert_eq!(manifest_json.video.mime_type, "video/mp4");
+        assert!(batch_dir.join("video.mp4").exists());
+        assert!(batch_dir.join("poster.png").exists());
+        assert!(batch_dir.join("narration").join("seg_001.wav").exists());
+        assert!(batch_dir.join("timeline.json").exists());
+    }
+
+    #[test]
+    fn maps_video_paths_for_cloud_sync_and_content_type() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("ashtrail-video-sync-{unique}"));
+        let state = dummy_state(&root);
+        let cfg = SupabaseStorageConfig {
+            url: "https://example.supabase.co".to_string(),
+            service_role_key: "service-role".to_string(),
+            bucket: "ashtrail".to_string(),
+            prefix: "ashtrail".to_string(),
+        };
+        let local_path = PathBuf::from(&state.videos_dir).join("batch-1").join("video.mp4");
+        let key = local_to_cloud_key(&state, &cfg, &local_path).expect("cloud key");
+        assert_eq!(key, "ashtrail/videos/batch-1/video.mp4");
+        let roundtrip = cloud_key_to_local(&state, &cfg, &key).expect("local path");
+        assert_eq!(roundtrip, local_path);
+        assert_eq!(guess_content_type("video.mp4"), "video/mp4");
     }
 }
 
@@ -3875,6 +7202,9 @@ async fn generate_locations_job(
     let spawned_job_id = job_id.clone();
     let request_for_job = request.clone();
     tokio::task::spawn(async move {
+        let panic_jobs = jobs.clone();
+        let panic_job_id = spawned_job_id.clone();
+        let worker = tokio::task::spawn(async move {
         set_location_job_state(
             &jobs,
             &spawned_job_id,
@@ -4003,6 +7333,18 @@ async fn generate_locations_job(
                 );
             }
         }
+        });
+        if let Err(join_error) = worker.await {
+            error!("Humanity worker panicked for job {}: {}", panic_job_id, join_error);
+            set_location_job_state(
+                &panic_jobs,
+                &panic_job_id,
+                JobStatus::Failed,
+                100.0,
+                "Humanity worker panicked",
+                Some(format!("Humanity worker panicked: {}", join_error)),
+            );
+        }
     });
 
     Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
@@ -4018,9 +7360,7 @@ fn set_location_job_state(
 ) {
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(job_id) {
-            job.status = status;
-            job.progress = progress;
-            job.current_stage = current_stage.to_string();
+            job.transition(status, progress, current_stage.to_string());
             job.error = error;
             if !matches!(job.status, JobStatus::Completed) {
                 job.result = None;
@@ -4040,6 +7380,29 @@ async fn get_characters(
         }
     }
     (StatusCode::OK, Json(serde_json::json!([]))).into_response()
+}
+
+async fn get_character_by_id(
+    State(state): State<AppState>,
+    Path((world_id, character_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let file_path = state
+        .planets_dir
+        .join(&world_id)
+        .join("characters")
+        .join(format!("{}.json", character_id));
+    
+    if let Ok(data) = std::fs::read_to_string(&file_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+            return (StatusCode::OK, Json(json)).into_response();
+        }
+    }
+    
+    (
+        StatusCode::NOT_FOUND,
+        format!("Character {} not found in world {}", character_id, world_id),
+    )
+        .into_response()
 }
 
 async fn save_characters(
@@ -6286,6 +9649,343 @@ async fn get_sprite_batch(
     Ok(Json(manifest))
 }
 
+async fn generate_song_batch(
+    State(state): State<AppState>,
+    Json(request): Json<SongBatchRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if request.prompts.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "No prompts provided".to_string()));
+    }
+    if request.prompts.len() > 24 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Maximum 24 prompts per song batch".to_string(),
+        ));
+    }
+
+    let variation_count = request.variation_count.unwrap_or(1).clamp(1, 4);
+    let batch_name = request
+        .batch_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("")
+        .to_string();
+    let batch_id = if batch_name.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        slugify_prompt(&batch_name)
+    };
+
+    let batch_dir = state.songs_dir.join(&batch_id);
+    std::fs::create_dir_all(&batch_dir).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create song batch dir: {e}"),
+        )
+    })?;
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let mut clips = Vec::new();
+    for (cue_index, cue_text) in request.prompts.iter().enumerate() {
+        let spec = lyria::SongPromptSpec {
+            cue_text: cue_text.clone(),
+            category: request.category.clone(),
+            genre: request.genre.clone(),
+            moods: request.moods.clone(),
+            instrumentation: request.instrumentation.clone(),
+            tempo: request.tempo.clone(),
+            rhythmic_feel: request.rhythmic_feel.clone(),
+            soundscape: request.soundscape.clone().unwrap_or_default(),
+            production_style: request.production_style.clone(),
+            global_direction: request.global_direction.clone().unwrap_or_default(),
+            negative_prompt: request.negative_prompt.clone().unwrap_or_default(),
+        };
+        let normalized = lyria::normalize_song_prompt(&spec).await;
+        let variants =
+            lyria::generate_music_variations(&normalized, variation_count as usize).await?;
+
+        for (variant_index, payload) in variants.into_iter().enumerate() {
+            let filename = format!("{:03}_v{:02}.wav", cue_index, variant_index + 1);
+            let path = batch_dir.join(&filename);
+            std::fs::write(&path, payload.audio_bytes).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to save generated song clip: {e}"),
+                )
+            })?;
+
+            clips.push(GeneratedSongClip {
+                clip_id: format!("clip-{:03}-v{:02}", cue_index, variant_index + 1),
+                filename: filename.clone(),
+                title: normalized.title.clone(),
+                prompt: cue_text.clone(),
+                normalized_prompt: normalized.prompt_en_us.clone(),
+                negative_prompt: normalized.negative_prompt_en_us.clone(),
+                url: format!("/api/songs/{}/{}", batch_id, filename),
+                mime_type: payload.mime_type,
+                duration_seconds: payload.duration_seconds,
+                sample_rate_hz: payload.sample_rate_hz,
+                variant_index: (variant_index + 1) as u32,
+                category: request.category.clone(),
+            });
+        }
+    }
+
+    let manifest = SongBatchManifest {
+        batch_id: batch_id.clone(),
+        batch_name: if batch_name.is_empty() {
+            batch_id[..8.min(batch_id.len())].to_uppercase()
+        } else {
+            batch_name
+        },
+        created_at,
+        category: request.category,
+        genre: request.genre,
+        moods: request.moods,
+        instrumentation: request.instrumentation,
+        tempo: request.tempo,
+        rhythmic_feel: request.rhythmic_feel,
+        soundscape: request.soundscape.unwrap_or_default(),
+        production_style: request.production_style,
+        negative_prompt: request.negative_prompt.unwrap_or_default(),
+        global_direction: request.global_direction.unwrap_or_default(),
+        clips,
+    };
+
+    let manifest_path = batch_dir.join("manifest.json");
+    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Song manifest JSON error: {e}"),
+        )
+    })?;
+    std::fs::write(&manifest_path, manifest_json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Song manifest write error: {e}"),
+        )
+    })?;
+
+    Ok(Json(manifest))
+}
+
+async fn list_song_batches(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let songs_dir = state.songs_dir.clone();
+    let batches = tokio::task::spawn_blocking(move || -> Result<Vec<SongBatchSummary>, String> {
+        let mut result = Vec::new();
+        if !songs_dir.exists() {
+            return Ok(result);
+        }
+        let dir = std::fs::read_dir(&songs_dir).map_err(|e| format!("read dir: {e}"))?;
+        for entry in dir {
+            let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let manifest_path = path.join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let data = std::fs::read_to_string(&manifest_path)
+                .map_err(|e| format!("read manifest: {e}"))?;
+            let manifest: SongBatchManifest =
+                serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
+            result.push(SongBatchSummary {
+                batch_id: manifest.batch_id,
+                batch_name: manifest.batch_name,
+                created_at: manifest.created_at,
+                category: manifest.category,
+                clip_count: manifest.clips.len(),
+                thumbnail_url: None,
+            });
+        }
+        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(result)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task error: {e}"),
+        )
+    })?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(batches))
+}
+
+async fn get_song_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let manifest_path = state.songs_dir.join(&batch_id).join("manifest.json");
+    if !manifest_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Song batch not found".to_string()));
+    }
+    let data = tokio::fs::read_to_string(&manifest_path)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Read error: {e}"),
+            )
+        })?;
+    let manifest: SongBatchManifest = serde_json::from_str(&data).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Parse error: {e}"),
+        )
+    })?;
+    Ok(Json(manifest))
+}
+
+async fn list_video_batches(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let videos_dir = state.videos_dir.clone();
+    let batches = tokio::task::spawn_blocking(move || -> Result<Vec<VideoPackageSummary>, String> {
+        let mut result = Vec::new();
+        if !videos_dir.exists() {
+            return Ok(result);
+        }
+        let dir = std::fs::read_dir(&videos_dir).map_err(|e| format!("read dir: {e}"))?;
+        for entry in dir {
+            let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let manifest_path = path.join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let data =
+                std::fs::read_to_string(&manifest_path).map_err(|e| format!("read manifest: {e}"))?;
+            let manifest: VideoPackageManifest =
+                serde_json::from_str(&data).map_err(|e| format!("parse manifest: {e}"))?;
+            result.push(VideoPackageSummary {
+                batch_id: manifest.batch_id,
+                batch_name: manifest.batch_name,
+                created_at: manifest.created_at,
+                category: manifest.category,
+                duration_seconds: manifest.duration_seconds,
+                narration_language: manifest.narration_language,
+                thumbnail_url: manifest.poster.map(|poster| poster.url),
+            });
+        }
+        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(result)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task error: {e}"),
+        )
+    })?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(batches))
+}
+
+async fn get_video_batch(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let manifest_path = state.videos_dir.join(&batch_id).join("manifest.json");
+    if !manifest_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Video batch not found".to_string()));
+    }
+    let data = tokio::fs::read_to_string(&manifest_path)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Read error: {e}"),
+            )
+        })?;
+    let manifest: VideoPackageManifest = serde_json::from_str(&data).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Parse error: {e}"),
+        )
+    })?;
+    Ok(Json(manifest))
+}
+
+async fn save_video_batch_to_gallery(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let batch_dir = state.videos_dir.join(&batch_id);
+    if !batch_dir.join("manifest.json").exists() {
+        return Err((StatusCode::NOT_FOUND, "Video batch not found".to_string()));
+    }
+
+    let Some(cfg) = state.supabase.as_ref() else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Supabase storage is not configured".to_string(),
+        ));
+    };
+
+    let client = reqwest::Client::new();
+    ensure_supabase_bucket_exists(&client, cfg)
+        .await
+        .map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+
+    let prefix = format!("{}/videos/{}", cfg.prefix, batch_id);
+    let remote_files = list_supabase_objects_recursive(&client, cfg, &prefix)
+        .await
+        .unwrap_or_default();
+    let remote_map = remote_files
+        .iter()
+        .map(|object| (object.path.clone(), object.clone()))
+        .collect::<HashMap<_, _>>();
+
+    let mut local_files = Vec::new();
+    collect_files_recursive(&batch_dir, &mut local_files);
+
+    let mut uploaded = 0usize;
+    let mut skipped = 0usize;
+    let mut failed = 0usize;
+
+    for local_path in &local_files {
+        let Some(cloud_key) = local_to_cloud_key(&state, cfg, local_path) else {
+            failed += 1;
+            continue;
+        };
+
+        let local_time = local_modified_at(local_path);
+        let remote_time = remote_map
+            .get(&cloud_key)
+            .and_then(|object| remote_updated_at(object.updated_at.as_deref()));
+        if remote_time.is_some() && local_time.is_some() && remote_time >= local_time {
+            skipped += 1;
+            continue;
+        }
+
+        match std::fs::read(local_path) {
+            Ok(bytes) => match upload_to_supabase(&client, cfg, &cloud_key, bytes).await {
+                Ok(()) => uploaded += 1,
+                Err(_) => failed += 1,
+            },
+            Err(_) => failed += 1,
+        }
+    }
+
+    Ok(Json(VideoBatchSaveResponse {
+        batch_id,
+        uploaded,
+        skipped,
+        failed,
+    }))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateMetadataRequest {
@@ -7174,6 +10874,15 @@ fn is_image_file(path: &str) -> bool {
         || lower.ends_with(".gif")
 }
 
+fn is_audio_file(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".wav") || lower.ends_with(".mp3") || lower.ends_with(".ogg")
+}
+
+fn is_video_file(path: &str) -> bool {
+    path.to_ascii_lowercase().ends_with(".mp4")
+}
+
 fn guess_content_type(path: &str) -> &'static str {
     let lower = path.to_ascii_lowercase();
     if lower.ends_with(".png") {
@@ -7184,6 +10893,14 @@ fn guess_content_type(path: &str) -> &'static str {
         "image/webp"
     } else if lower.ends_with(".gif") {
         "image/gif"
+    } else if lower.ends_with(".wav") {
+        "audio/wav"
+    } else if lower.ends_with(".mp3") {
+        "audio/mpeg"
+    } else if lower.ends_with(".ogg") {
+        "audio/ogg"
+    } else if lower.ends_with(".mp4") {
+        "video/mp4"
     } else if lower.ends_with(".json") {
         "application/json"
     } else {
@@ -7230,11 +10947,13 @@ fn local_to_cloud_key(
         ));
     }
     if let Ok(rel) = local_path.strip_prefix(&state.sprites_dir) {
-        return Some(format!(
-            "{}/sprites/{}",
-            cfg.prefix,
-            normalize_slashes(rel)
-        ));
+        return Some(format!("{}/sprites/{}", cfg.prefix, normalize_slashes(rel)));
+    }
+    if let Ok(rel) = local_path.strip_prefix(&state.songs_dir) {
+        return Some(format!("{}/songs/{}", cfg.prefix, normalize_slashes(rel)));
+    }
+    if let Ok(rel) = local_path.strip_prefix(&state.videos_dir) {
+        return Some(format!("{}/videos/{}", cfg.prefix, normalize_slashes(rel)));
     }
     if let Ok(rel) = local_path.strip_prefix(&state.isolated_dir) {
         return Some(format!(
@@ -7255,6 +10974,8 @@ fn cloud_key_to_local(state: &AppState, cfg: &SupabaseStorageConfig, key: &str) 
     let icons_prefix = format!("{}/icons/", cfg.prefix);
     let textures_prefix = format!("{}/textures/", cfg.prefix);
     let sprites_prefix = format!("{}/sprites/", cfg.prefix);
+    let songs_prefix = format!("{}/songs/", cfg.prefix);
+    let videos_prefix = format!("{}/videos/", cfg.prefix);
     let isolated_prefix = format!("{}/isolated/", cfg.prefix);
     let packs_prefix = format!("{}/packs/", cfg.prefix);
     if let Some(rel) = key.strip_prefix(&planets_prefix) {
@@ -7271,6 +10992,12 @@ fn cloud_key_to_local(state: &AppState, cfg: &SupabaseStorageConfig, key: &str) 
     }
     if let Some(rel) = key.strip_prefix(&sprites_prefix) {
         return Some(state.sprites_dir.join(rel));
+    }
+    if let Some(rel) = key.strip_prefix(&songs_prefix) {
+        return Some(state.songs_dir.join(rel));
+    }
+    if let Some(rel) = key.strip_prefix(&videos_prefix) {
+        return Some(state.videos_dir.join(rel));
     }
     if let Some(rel) = key.strip_prefix(&isolated_prefix) {
         return Some(state.isolated_dir.join(rel));
@@ -7294,7 +11021,10 @@ fn remote_updated_at(updated_at: Option<&str>) -> Option<chrono::DateTime<chrono
 }
 
 fn supabase_public_url(cfg: &SupabaseStorageConfig, key: &str) -> String {
-    format!("{}/storage/v1/object/public/{}/{}", cfg.url, cfg.bucket, key)
+    format!(
+        "{}/storage/v1/object/public/{}/{}",
+        cfg.url, cfg.bucket, key
+    )
 }
 
 fn build_supabase_client(timeout_secs: u64) -> reqwest::Client {
@@ -7428,6 +11158,8 @@ fn append_inventory_item(tabs: &mut GalleryInventoryTabs, tab: &str, item: Galle
         "characters" => tabs.characters.push(item),
         "isolated" => tabs.isolated.push(item),
         "sprites" => tabs.sprites.push(item),
+        "songs" => tabs.songs.push(item),
+        "videos" => tabs.videos.push(item),
         "packs" => tabs.packs.push(item),
         _ => {}
     }
@@ -7443,7 +11175,11 @@ fn sort_inventory_items(items: &mut [GalleryInventoryItem]) {
     });
 }
 
-fn parse_api_asset_path(url: &str, asset_root: &str, base_dir: &std::path::Path) -> Option<PathBuf> {
+fn parse_api_asset_path(
+    url: &str,
+    asset_root: &str,
+    base_dir: &std::path::Path,
+) -> Option<PathBuf> {
     let cleaned = url.split('?').next()?.trim_matches('/');
     let parts = cleaned.split('/').collect::<Vec<_>>();
     if parts.len() < 4 || parts[0] != "api" || parts[1] != asset_root {
@@ -7556,7 +11292,14 @@ fn load_local_icon_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
             };
             for icon in manifest.icons {
                 let local_path = parse_api_asset_path(&icon.url, "icons", &state.icons_dir)
-                    .or_else(|| Some(state.icons_dir.join(&manifest.batch_id).join(&icon.filename)));
+                    .or_else(|| {
+                        Some(
+                            state
+                                .icons_dir
+                                .join(&manifest.batch_id)
+                                .join(&icon.filename),
+                        )
+                    });
                 drafts.push(GalleryInventoryDraft {
                     tab: "icons",
                     item: build_gallery_item(
@@ -7602,8 +11345,17 @@ fn load_local_texture_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
                 continue;
             };
             for texture in manifest.textures {
-                let local_path = parse_api_asset_path(&texture.url, "textures", &state.textures_dir)
-                    .or_else(|| Some(state.textures_dir.join(&manifest.batch_id).join(&texture.filename)));
+                let local_path =
+                    parse_api_asset_path(&texture.url, "textures", &state.textures_dir).or_else(
+                        || {
+                            Some(
+                                state
+                                    .textures_dir
+                                    .join(&manifest.batch_id)
+                                    .join(&texture.filename),
+                            )
+                        },
+                    );
                 drafts.push(GalleryInventoryDraft {
                     tab: "textures",
                     item: build_gallery_item(
@@ -7687,12 +11439,114 @@ fn load_local_sprite_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
     drafts
 }
 
+fn load_local_song_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
+    let mut drafts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&state.songs_dir) {
+        for entry in entries.flatten() {
+            let manifest_path = entry.path().join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let Ok(data) = std::fs::read_to_string(&manifest_path) else {
+                continue;
+            };
+            let Ok(manifest) = serde_json::from_str::<SongBatchManifest>(&data) else {
+                continue;
+            };
+            for clip in manifest.clips {
+                let local_path = parse_api_asset_path(&clip.url, "songs", &state.songs_dir)
+                    .or_else(|| {
+                        Some(
+                            state
+                                .songs_dir
+                                .join(&manifest.batch_id)
+                                .join(&clip.filename),
+                        )
+                    });
+                drafts.push(GalleryInventoryDraft {
+                    tab: "songs",
+                    item: build_gallery_item(
+                        format!("song-{}-{}", manifest.batch_id, clip.filename),
+                        "song",
+                        clip.title.clone(),
+                        manifest.category.clone(),
+                        Some(clip.url.clone()),
+                        Some(manifest.created_at.clone()),
+                        None,
+                        serde_json::json!({
+                            "batchId": manifest.batch_id,
+                            "batchName": manifest.batch_name,
+                            "filename": clip.filename,
+                            "prompt": clip.prompt,
+                            "normalizedPrompt": clip.normalized_prompt,
+                            "negativePrompt": clip.negative_prompt,
+                            "variantIndex": clip.variant_index,
+                            "durationSeconds": clip.duration_seconds,
+                            "sampleRateHz": clip.sample_rate_hz,
+                        }),
+                    ),
+                    local_path,
+                });
+            }
+        }
+    }
+    drafts
+}
+
+fn load_local_video_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
+    let mut drafts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&state.videos_dir) {
+        for entry in entries.flatten() {
+            let manifest_path = entry.path().join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            let Ok(data) = std::fs::read_to_string(&manifest_path) else {
+                continue;
+            };
+            let Ok(manifest) = serde_json::from_str::<VideoPackageManifest>(&data) else {
+                continue;
+            };
+            let local_path = parse_api_asset_path(&manifest.video.url, "videos", &state.videos_dir)
+                .or_else(|| Some(state.videos_dir.join(&manifest.batch_id).join("video.mp4")));
+            drafts.push(GalleryInventoryDraft {
+                tab: "videos",
+                item: build_gallery_item(
+                    format!("video-{}", manifest.batch_id),
+                    "video",
+                    manifest.batch_name.clone(),
+                    manifest.category.clone(),
+                    manifest.poster.as_ref().map(|poster| poster.url.clone()).or_else(|| Some(manifest.video.url.clone())),
+                    Some(manifest.created_at.clone()),
+                    None,
+                    serde_json::json!({
+                        "batchId": manifest.batch_id,
+                        "batchName": manifest.batch_name,
+                        "videoUrl": manifest.video.url,
+                        "posterUrl": manifest.poster.as_ref().map(|poster| poster.url.clone()),
+                        "durationSeconds": manifest.duration_seconds,
+                        "aspectRatio": manifest.aspect_ratio,
+                        "keepVeoAudio": manifest.keep_veo_audio,
+                        "narrationLanguage": manifest.narration_language,
+                        "voiceName": manifest.voice_name,
+                        "script": manifest.script,
+                        "segments": manifest.segments,
+                    }),
+                ),
+                local_path,
+            });
+        }
+    }
+    drafts
+}
+
 fn load_local_character_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
     let mut drafts = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&state.characters_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json") {
+            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json")
+            {
                 continue;
             }
 
@@ -7769,7 +11623,10 @@ fn load_local_isolated_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
                     else {
                         continue;
                     };
-                    let parts = filename.trim_end_matches(".png").split('_').collect::<Vec<_>>();
+                    let parts = filename
+                        .trim_end_matches(".png")
+                        .split('_')
+                        .collect::<Vec<_>>();
                     if parts.len() != 2 {
                         continue;
                     }
@@ -7861,7 +11718,8 @@ fn load_local_pack_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
     if let Ok(entries) = std::fs::read_dir(&state.packs_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json") {
+            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json")
+            {
                 continue;
             }
             let Ok(data) = std::fs::read_to_string(&path) else {
@@ -7911,6 +11769,8 @@ async fn list_supabase_inventory_objects(
         "icons",
         "textures",
         "sprites",
+        "songs",
+        "videos",
         "isolated",
         "packs",
     ];
@@ -7973,6 +11833,33 @@ fn build_cloud_only_inventory_draft(
             serde_json::json!({
                 "batchId": segments.get(1).copied().unwrap_or_default(),
                 "filename": file_name,
+            }),
+        ),
+        "songs" if is_audio_file(&remote.path) && segments.len() >= 3 => build_gallery_item(
+            format!("song-cloud-{}", remote.path),
+            "song",
+            file_name.trim_end_matches(".wav").to_string(),
+            "songs".to_string(),
+            None,
+            remote.updated_at.clone(),
+            None,
+            serde_json::json!({
+                "batchId": segments.get(1).copied().unwrap_or_default(),
+                "filename": file_name,
+            }),
+        ),
+        "videos" if is_video_file(&remote.path) && segments.len() >= 3 => build_gallery_item(
+            format!("video-cloud-{}", remote.path),
+            "video",
+            file_name.trim_end_matches(".mp4").to_string(),
+            "videos".to_string(),
+            None,
+            remote.updated_at.clone(),
+            None,
+            serde_json::json!({
+                "batchId": segments.get(1).copied().unwrap_or_default(),
+                "filename": file_name,
+                "videoUrl": public_url.clone(),
             }),
         ),
         "characters"
@@ -8058,6 +11945,8 @@ fn build_cloud_only_inventory_draft(
             "icons" => "icons",
             "textures" => "textures",
             "sprites" => "sprites",
+            "songs" => "songs",
+            "videos" => "videos",
             "characters" => "characters",
             "isolated" => "isolated",
             "planets" => "planets",
@@ -8086,6 +11975,8 @@ async fn get_gallery_inventory(State(state): State<AppState>) -> impl IntoRespon
     drafts.extend(load_local_character_drafts(&state));
     drafts.extend(load_local_isolated_drafts(&state));
     drafts.extend(load_local_sprite_drafts(&state));
+    drafts.extend(load_local_song_drafts(&state));
+    drafts.extend(load_local_video_drafts(&state));
     drafts.extend(load_local_pack_drafts(&state));
 
     let mut supabase = build_supabase_health_snapshot(state.supabase.as_ref()).await;
@@ -8168,6 +12059,7 @@ async fn get_gallery_inventory(State(state): State<AppState>) -> impl IntoRespon
     sort_inventory_items(&mut tabs.characters);
     sort_inventory_items(&mut tabs.isolated);
     sort_inventory_items(&mut tabs.sprites);
+    sort_inventory_items(&mut tabs.songs);
     sort_inventory_items(&mut tabs.packs);
 
     (
@@ -8462,6 +12354,8 @@ async fn sync_supabase_storage(
     let icons_prefix = format!("{}/icons", cfg.prefix);
     let textures_prefix = format!("{}/textures", cfg.prefix);
     let sprites_prefix = format!("{}/sprites", cfg.prefix);
+    let songs_prefix = format!("{}/songs", cfg.prefix);
+    let videos_prefix = format!("{}/videos", cfg.prefix);
     let isolated_prefix = format!("{}/isolated", cfg.prefix);
     let packs_prefix = format!("{}/packs", cfg.prefix);
     let remote_planets = match list_supabase_objects_recursive(&client, cfg, &planets_prefix).await
@@ -8481,10 +12375,10 @@ async fn sync_supabase_storage(
             return (
                 StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({ "error": err })),
-                )
-                    .into_response();
-            }
-        };
+            )
+                .into_response();
+        }
+    };
     let remote_textures =
         match list_supabase_objects_recursive(&client, cfg, &textures_prefix).await {
             Ok(v) => v,
@@ -8498,6 +12392,26 @@ async fn sync_supabase_storage(
         };
     let remote_sprites = match list_supabase_objects_recursive(&client, cfg, &sprites_prefix).await
     {
+        Ok(v) => v,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": err })),
+            )
+                .into_response();
+        }
+    };
+    let remote_songs = match list_supabase_objects_recursive(&client, cfg, &songs_prefix).await {
+        Ok(v) => v,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": err })),
+            )
+                .into_response();
+        }
+    };
+    let remote_videos = match list_supabase_objects_recursive(&client, cfg, &videos_prefix).await {
         Ok(v) => v,
         Err(err) => {
             return (
@@ -8545,6 +12459,8 @@ async fn sync_supabase_storage(
         .chain(remote_icons.into_iter())
         .chain(remote_textures.into_iter())
         .chain(remote_sprites.into_iter())
+        .chain(remote_songs.into_iter())
+        .chain(remote_videos.into_iter())
         .chain(remote_isolated.into_iter())
         .chain(remote_packs.into_iter())
         .collect::<Vec<_>>();
@@ -8559,6 +12475,8 @@ async fn sync_supabase_storage(
     collect_files_recursive(&state.icons_dir, &mut local_files);
     collect_files_recursive(&state.textures_dir, &mut local_files);
     collect_files_recursive(&state.sprites_dir, &mut local_files);
+    collect_files_recursive(&state.songs_dir, &mut local_files);
+    collect_files_recursive(&state.videos_dir, &mut local_files);
     collect_files_recursive(&state.isolated_dir, &mut local_files);
     collect_files_recursive(&state.packs_dir, &mut local_files);
 

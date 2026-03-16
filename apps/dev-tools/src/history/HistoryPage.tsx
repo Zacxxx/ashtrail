@@ -24,7 +24,7 @@ export function HistoryPage() {
     const [activeTab, setActiveTab] = useState<HistoryTab>(isHistoryTab(searchParams.get("tab")) ? searchParams.get("tab") as HistoryTab : "lore");
     const [selectedWorld, setSelectedWorld] = useState<GenerationHistoryItem | null>(null);
     const [showGalleryModal, setShowGalleryModal] = useState(false);
-    const { history, deleteFromHistory, renameInHistory } = useGenerationHistory();
+    const { history, isReady: isHistoryReady, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
 
     useEffect(() => {
@@ -39,11 +39,41 @@ export function HistoryPage() {
 
     // Sync selectedWorld with activeWorldId
     useEffect(() => {
-        if (activeWorldId && !selectedWorld) {
-            const world = history.find(h => h.id === activeWorldId);
-            if (world) setSelectedWorld(world);
+        if (!isHistoryReady) {
+            return;
         }
-    }, [activeWorldId, history, selectedWorld]);
+
+        if (activeWorldId) {
+            const matchingWorld = history.find((world) => world.id === activeWorldId);
+            if (matchingWorld) {
+                if (selectedWorld?.id !== matchingWorld.id) {
+                    setSelectedWorld(matchingWorld);
+                }
+                return;
+            }
+        }
+
+        const fallbackWorld = selectedWorld
+            ? history.find((world) => world.id === selectedWorld.id) || history[0] || null
+            : history[0] || null;
+
+        if (!fallbackWorld) {
+            if (selectedWorld !== null) {
+                setSelectedWorld(null);
+            }
+            if (activeWorldId !== null) {
+                setActiveWorldId(null);
+            }
+            return;
+        }
+
+        if (selectedWorld?.id !== fallbackWorld.id) {
+            setSelectedWorld(fallbackWorld);
+        }
+        if (activeWorldId !== fallbackWorld.id) {
+            setActiveWorldId(fallbackWorld.id);
+        }
+    }, [activeWorldId, history, isHistoryReady, selectedWorld, setActiveWorldId]);
 
     // Update activeWorldId when selectedWorld changes
     const handleSelectWorld = (world: GenerationHistoryItem) => {

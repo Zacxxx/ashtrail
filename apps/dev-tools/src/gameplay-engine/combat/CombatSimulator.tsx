@@ -348,13 +348,34 @@ export function CombatSimulator({
     };
 
     React.useEffect(() => {
-        // Sync registry with backend
+        // When combat is pre-started (quest/demo mode), the parent already loaded the registry.
+        // Skip fetchFromBackend to avoid a race condition that wipes the demo character.
+        if (initialCombatStarted) {
+            const allChars = GameRegistry.getAllCharacters();
+            console.log("🎮 CombatSimulator: Using pre-loaded registry (initialCombatStarted):", allChars.map(c => ({ id: c.id, name: c.name })));
+            setCharacters(allChars);
+            setCharactersLoaded(true);
+            return;
+        }
+
+        // Sync registry with backend (only for standalone combat setup)
         let isMounted = true;
         GameRegistry.fetchFromBackend("http://127.0.0.1:8787")
             .catch(err => console.warn(err))
             .finally(() => {
                 if (!isMounted) return;
-                setCharacters(GameRegistry.getAllCharacters());
+
+                // Re-add demo character if it was stored (for demo mode)
+                const demoChar = (window as any).__demoCharacter;
+                if (demoChar) {
+                    console.log("🎮 CombatSimulator: Re-adding demo character after backend sync:", demoChar.name, demoChar.id);
+                    const charactersMap = (GameRegistry as any).characters as Map<string, any>;
+                    charactersMap.set(demoChar.id, demoChar);
+                }
+
+                const allChars = GameRegistry.getAllCharacters();
+                console.log("🎮 CombatSimulator: Loaded characters from GameRegistry:", allChars.map(c => ({ id: c.id, name: c.name })));
+                setCharacters(allChars);
                 setCharactersLoaded(true);
             });
 

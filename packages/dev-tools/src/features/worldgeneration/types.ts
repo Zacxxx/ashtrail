@@ -2,13 +2,14 @@ import type { SimulationConfig, TerrainCell } from "../../modules/geo/types";
 import type { ProvinceOverlay } from "../../modules/planet/tiles";
 
 // ── Pipeline Steps ──
-export type WorkflowStep = "GEO" | "GEOGRAPHY" | "ECO" | "HUMANITY";
-export const WORKFLOW_STEPS: WorkflowStep[] = ["GEO", "GEOGRAPHY", "ECO", "HUMANITY"];
+export type WorkflowStep = "GEO" | "GEOGRAPHY" | "ECO" | "HUMANITY" | "DEMO_TRAVEL";
+export const WORKFLOW_STEPS: WorkflowStep[] = ["GEO", "GEOGRAPHY", "ECO", "HUMANITY", "DEMO_TRAVEL"];
 export const WORKFLOW_LABELS: Record<WorkflowStep, string> = {
-    GEO: "Geology",
-    GEOGRAPHY: "Geography",
-    ECO: "Ecology",
-    HUMANITY: "Humanity",
+  GEO: "Geology",
+  GEOGRAPHY: "Geography",
+  ECO: "Ecology",
+  HUMANITY: "Humanity",
+  DEMO_TRAVEL: "Demo travel",
 };
 
 export type ViewMode = "3d" | "2d" | "provinces" | "map3d";

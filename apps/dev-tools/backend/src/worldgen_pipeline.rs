@@ -20,7 +20,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use worldgen_core::cluster::{DuchyRecord, KingdomRecord, ProvinceRecord};
-use worldgen_core::export::PipelineStatus;
+use worldgen_core::export::{decode_id_rgb, PipelineStatus};
 use worldgen_core::*;
 
 use crate::{gemini, AppState, JobRecord, JobStatus};
@@ -596,19 +596,20 @@ async fn start_bulk_isolation_job(
                 "job store lock poisoned".to_string(),
             )
         })?;
-        jobs.insert(
-            job_id.clone(),
-            {
-                let mut job = JobRecord::new(
-                    "worldgen.isolation.bulk",
-                    "Bulk Isolate Regions",
-                    "worldgen",
-                );
-                job.world_id = Some(planet_id.clone());
-                job.current_stage = format!("Queued for {} Isolation", entity_type.to_uppercase());
-                job
-            },
-        );
+        jobs.insert(job_id.clone(), {
+            let mut job = JobRecord::new(
+                "worldgen.isolation.bulk",
+                "Bulk Isolate Regions",
+                "worldgen",
+            );
+            job.world_id = Some(planet_id.clone());
+            job.transition(
+                JobStatus::Queued,
+                0.0,
+                format!("Queued for {} Isolation", entity_type.to_uppercase()),
+            );
+            job
+        });
     }
 
     let jobs = state.jobs.clone();
@@ -816,19 +817,20 @@ pub async fn start_upscaled_province_refine(
                 "job store lock poisoned".to_string(),
             )
         })?;
-        jobs.insert(
-            job_id.clone(),
-            {
-                let mut job = JobRecord::new(
-                    "worldgen.refine.upscaled",
-                    "Generate Upscaled Province",
-                    "worldgen",
-                );
-                job.world_id = Some(planet_id.clone());
-                job.current_stage = format!("Queued for {} Refinement", entity_type.to_uppercase());
-                job
-            },
-        );
+        jobs.insert(job_id.clone(), {
+            let mut job = JobRecord::new(
+                "worldgen.refine.upscaled",
+                "Generate Upscaled Province",
+                "worldgen",
+            );
+            job.world_id = Some(planet_id.clone());
+            job.transition(
+                JobStatus::Queued,
+                0.0,
+                format!("Queued for {} Refinement", entity_type.to_uppercase()),
+            );
+            job
+        });
     }
 
     let jobs = state.jobs.clone();
@@ -1021,20 +1023,16 @@ pub async fn run_pipeline_stage(
     // Create job record
     {
         let mut jobs = state.jobs.lock().unwrap();
-        jobs.insert(
-            job_id.clone(),
-            {
-                let mut job = JobRecord::new(
-                    &format!("worldgen.pipeline.{stage_name}"),
-                    &format!("Run Pipeline Stage: {stage_name}"),
-                    "worldgen",
-                );
-                job.world_id = Some(planet_id.clone());
-                job.status = JobStatus::Running;
-                job.current_stage = stage_name.clone();
-                job
-            },
-        );
+        jobs.insert(job_id.clone(), {
+            let mut job = JobRecord::new(
+                &format!("worldgen.pipeline.{stage_name}"),
+                &format!("Run Pipeline Stage: {stage_name}"),
+                "worldgen",
+            );
+            job.world_id = Some(planet_id.clone());
+            job.transition(JobStatus::Running, 0.0, stage_name.clone());
+            job
+        });
     }
 
     let spawned_job_id = job_id.clone();
@@ -1101,10 +1099,7 @@ pub async fn cancel_worldgen_job(
         return Err((StatusCode::NOT_FOUND, "Job not found".to_string()));
     };
 
-    job.cancel_requested = true;
-    if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-        job.current_stage = "Cancellation requested".to_string();
-    }
+    job.set_cancel_requested("Cancellation requested");
 
     Ok(StatusCode::ACCEPTED)
 }
@@ -1432,9 +1427,7 @@ fn set_job_stage(
 ) {
     if let Ok(mut store) = jobs.lock() {
         if let Some(job) = store.get_mut(job_id) {
-            job.status = status;
-            job.progress = progress;
-            job.current_stage = stage.to_string();
+            job.transition(status, progress, stage.to_string());
         }
     }
 }
@@ -1442,8 +1435,7 @@ fn set_job_stage(
 fn set_job_failed(jobs: &Arc<Mutex<HashMap<String, JobRecord>>>, job_id: &str, err: &str) {
     if let Ok(mut store) = jobs.lock() {
         if let Some(job) = store.get_mut(job_id) {
-            job.status = JobStatus::Failed;
-            job.current_stage = "Failed".to_string();
+            job.transition(JobStatus::Failed, job.progress, "Failed".to_string());
             job.error = Some(err.to_string());
         }
     }
@@ -2078,8 +2070,7 @@ fn run_stage_blocking(
     let update_progress = |pct: f32, msg: &str| {
         if let Ok(mut jobs) = jobs_ref.lock() {
             if let Some(job) = jobs.get_mut(&job_id_owned) {
-                job.progress = pct;
-                job.current_stage = msg.to_string();
+                job.transition(JobStatus::Running, pct, msg.to_string());
             }
         }
     };
@@ -2097,8 +2088,7 @@ fn run_stage_blocking(
     if let Some(job) = jobs.get_mut(job_id) {
         match result {
             Ok(()) => {
-                job.status = JobStatus::Completed;
-                job.progress = 100.0;
+                job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
                 info!(
                     "Worldgen stage '{}' completed for planet {}",
                     stage_name, planet_id
@@ -2110,7 +2100,7 @@ fn run_stage_blocking(
                 pipeline.save(&out_dir.join("pipeline_status.json")).ok();
             }
             Err(e) => {
-                job.status = JobStatus::Failed;
+                job.transition(JobStatus::Failed, job.progress, "Failed".to_string());
                 job.error = Some(e.clone());
                 error!("Worldgen stage '{}' failed: {}", stage_name, e);
             }
@@ -2372,8 +2362,11 @@ fn run_isolate_all_entities_job(
     {
         let mut jobs = jobs.lock().unwrap();
         if let Some(job) = jobs.get_mut(&job_id) {
-            job.status = JobStatus::Running;
-            job.current_stage = format!("Loading {} masks", entity_type);
+            job.transition(
+                JobStatus::Running,
+                job.progress,
+                format!("Loading {} masks", entity_type),
+            );
         }
     }
 
@@ -2405,9 +2398,11 @@ fn run_isolate_all_entities_job(
             {
                 let mut jobs = jobs.lock().unwrap();
                 if let Some(job) = jobs.get_mut(&job_id) {
-                    job.progress = ((index as f32) / (total as f32)) * 100.0;
-                    job.current_stage =
-                        format!("Isolating {} {}/{}", entity_type, index + 1, total);
+                    job.transition(
+                        JobStatus::Running,
+                        ((index as f32) / (total as f32)) * 100.0,
+                        format!("Isolating {} {}/{}", entity_type, index + 1, total),
+                    );
                 }
             }
 
@@ -2428,14 +2423,11 @@ fn run_isolate_all_entities_job(
     if let Some(job) = jobs.get_mut(&job_id) {
         match result {
             Ok(()) => {
-                job.status = JobStatus::Completed;
-                job.progress = 100.0;
-                job.current_stage = "Completed".to_string();
+                job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
                 job.error = None;
             }
             Err(error_msg) => {
-                job.status = JobStatus::Failed;
-                job.current_stage = "Failed".to_string();
+                job.transition(JobStatus::Failed, job.progress, "Failed".to_string());
                 job.error = Some(error_msg);
             }
         }
@@ -3068,10 +3060,7 @@ fn load_seeds_json(path: &std::path::Path) -> Result<Vec<sampling::Seed>, String
 fn load_id_texture(path: &std::path::Path, _w: u32, _h: u32) -> Result<Vec<u32>, String> {
     let img = image::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
     let rgb = img.to_rgb8();
-    Ok(rgb
-        .pixels()
-        .map(|p| p[0] as u32 | ((p[1] as u32) << 8) | ((p[2] as u32) << 16))
-        .collect())
+    Ok(rgb.pixels().map(|p| decode_id_rgb(p.0)).collect())
 }
 
 fn build_continents(

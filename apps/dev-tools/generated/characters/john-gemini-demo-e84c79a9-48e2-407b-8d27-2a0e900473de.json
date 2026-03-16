@@ -1,0 +1,378 @@
+{
+  "age": 29,
+  "appearancePrompt": "John Gemini now finds himself drawn to the 'Sunder-Scar,' a notorious region where tectonic stress frequently brings deep-vein fires violently to the surface. Rumors speak of an unprecedented convergence of these flares, potentially revealing not just fragments, but a sprawling, preserved section of the ancient garden, visible for a brief, perilous window. This could be his greatest discovery, or his final resting place, but the whispers are too strong to ignore, compelling him onward into the heart of the ash's memory.",
+  "backstory": "John Gemini was born into the seclusion of an enclave nestled within the skeletal remains of what was once a grand mountain range, his earliest memories steeped not in sunlight, but in the pervasive grey of the Ashfall. Yet, even in this monochrome existence, his origin was tethered to a dream: the whispered tales of the 'Great Bloom,' a mythical era before the heavens suffocated under the Great Fog. While others dismissed these elders' stories of vibrant flora and flowing rivers as mere comforting fictions, John found himself captivated, his young mind refusing to accept a world solely defined by ash. He saw the pulverized history not as a tomb, but as a vast, cryptic library, sensing an inherent order beneath the surface chaos, a primal hunger to unearth the true face of the world before its ultimate demise.\n\nThe world’s great fall was a legacy, not an experience, for John, but a catastrophic deep-vein flare near his home provided a terrifying echo of that ultimate demise. While his community fled the incandescent glow and shifting earth, John, barely a man, was drawn into the spectacle. Amidst the raw, reanimating energy of the earth’s open wound, he bore witness to it: not merely petrified outlines, but vibrant, glowing impressions of intricate ferns and towering arboreal forms, briefly restored to a spectral life before fading back into the indifferent grey. This fleeting vision, a personal 'chute' into the profound, branded itself onto his soul, transforming his quiet curiosity into a burning obsession, forever linking his personal quest to the world's cosmic tragedy.\n\nThe path to understanding the ash was fraught with immediate and brutal consequences. His early expeditions, driven by the nascent fire of his obsession, demanded a harsh education in survival on the fringes of the known. The world beyond the enclave was a testament to the resource wars and brutal descent into desolation, where every venture carried a tangible cost. It was during one such early journey into a particularly treacherous ash-storm, his younger sister, trusting and curious, following close behind, that the true weight of the Ashtrail bore down. She was lost, swallowed by the swirling grey, leaving John with a heavy mantle of guilt and an even fiercer, more desperate resolve to reclaim what was buried.\n\nThe long years hardened John, forging him into the Verdant Echo Seeker he became. He traversed countless leagues of Ashtrail, his eyes perpetually scanning the horizon for the next whisper, the next faint etching of a forgotten leaf. He learned to survive not by conquering the ash, but by understanding its language, interpreting ancient geomantic signs and the fleeting phenomena of deep-vein fires as navigational beacons. His uncanny ability to discern subtle patterns in the drifts allowed him to 'read' the pulverized history with an eerie precision, adapting to the grey as if it were a second skin, aware that the ash remembered not just life, but also the consuming fire, making every pursuit a dance with danger and despair.\n\nToday, John Gemini stands as a solitary figure on the Ash-Trail, his reputation a quiet rumour among the scattered enclaves. He finds himself inexorably drawn to the 'Sunder-Scar,' a notorious region where tectonic stress frequently brings deep-vein fires violently to the surface. Whispers, carried on the ash-wind, speak of an unprecedented convergence of these flares, potentially revealing not just fragments, but a sprawling, preserved section of the ancient garden, visible for a brief, perilous window. This could be his greatest discovery, the ultimate vindication of his lifelong quest, or his final resting place in the grey. The whispers are too strong, too tantalizing to ignore, compelling him onward into the very heart of the ash's deepest memory, a desperate gambler betting his life on a glimpse of green.",
+  "credits": {
+    "copper": 0,
+    "gold": 10,
+    "silver": 24
+  },
+  "equipped": {
+    "boots": null,
+    "chest": null,
+    "gloves": null,
+    "head": null,
+    "legs": null,
+    "mainHand": {
+      "category": "weapon",
+      "cost": 180,
+      "description": "A dependable sidearm carried by Ashtrail pathfinders, tuned for fast response and accurate fire.",
+      "effects": [
+        {
+          "description": "Baseline combat damage for the Ashtrail demo protagonist.",
+          "id": "john-gemini-starter-weapon-damage",
+          "name": "Weapon Damage",
+          "scope": "combat",
+          "target": "damage",
+          "trigger": "passive",
+          "type": "COMBAT_BONUS",
+          "value": 10
+        }
+      ],
+      "equipSlot": "mainHand",
+      "icon": "🔫",
+      "id": "john-gemini-starter-weapon",
+      "name": "Gemini Service Sidearm",
+      "rarity": "specialized",
+      "weaponAreaSize": 0,
+      "weaponAreaType": "single",
+      "weaponRange": 5,
+      "weaponType": "ranged"
+    },
+    "offHand": null,
+    "waist": null
+  },
+  "gender": "Male",
+  "history": "John Gemini was born into the seclusion of an enclave nestled within the skeletal remains of what was once a grand mountain range, his earliest memories steeped not in sunlight, but in the pervasive grey of the Ashfall. Yet, even in this monochrome existence, his origin was tethered to a dream: the whispered tales of the 'Great Bloom,' a mythical era before the heavens suffocated under the Great Fog. While others dismissed these elders' stories of vibrant flora and flowing rivers as mere comforting fictions, John found himself captivated, his young mind refusing to accept a world solely defined by ash. He saw the pulverized history not as a tomb, but as a vast, cryptic library, sensing an inherent order beneath the surface chaos, a primal hunger to unearth the true face of the world before its ultimate demise.\n\nThe world’s great fall was a legacy, not an experience, for John, but a catastrophic deep-vein flare near his home provided a terrifying echo of that ultimate demise. While his community fled the incandescent glow and shifting earth, John, barely a man, was drawn into the spectacle. Amidst the raw, reanimating energy of the earth’s open wound, he bore witness to it: not merely petrified outlines, but vibrant, glowing impressions of intricate ferns and towering arboreal forms, briefly restored to a spectral life before fading back into the indifferent grey. This fleeting vision, a personal 'chute' into the profound, branded itself onto his soul, transforming his quiet curiosity into a burning obsession, forever linking his personal quest to the world's cosmic tragedy.\n\nThe path to understanding the ash was fraught with immediate and brutal consequences. His early expeditions, driven by the nascent fire of his obsession, demanded a harsh education in survival on the fringes of the known. The world beyond the enclave was a testament to the resource wars and brutal descent into desolation, where every venture carried a tangible cost. It was during one such early journey into a particularly treacherous ash-storm, his younger sister, trusting and curious, following close behind, that the true weight of the Ashtrail bore down. She was lost, swallowed by the swirling grey, leaving John with a heavy mantle of guilt and an even fiercer, more desperate resolve to reclaim what was buried.\n\nThe long years hardened John, forging him into the Verdant Echo Seeker he became. He traversed countless leagues of Ashtrail, his eyes perpetually scanning the horizon for the next whisper, the next faint etching of a forgotten leaf. He learned to survive not by conquering the ash, but by understanding its language, interpreting ancient geomantic signs and the fleeting phenomena of deep-vein fires as navigational beacons. His uncanny ability to discern subtle patterns in the drifts allowed him to 'read' the pulverized history with an eerie precision, adapting to the grey as if it were a second skin, aware that the ash remembered not just life, but also the consuming fire, making every pursuit a dance with danger and despair.\n\nToday, John Gemini stands as a solitary figure on the Ash-Trail, his reputation a quiet rumour among the scattered enclaves. He finds himself inexorably drawn to the 'Sunder-Scar,' a notorious region where tectonic stress frequently brings deep-vein fires violently to the surface. Whispers, carried on the ash-wind, speak of an unprecedented convergence of these flares, potentially revealing not just fragments, but a sprawling, preserved section of the ancient garden, visible for a brief, perilous window. This could be his greatest discovery, the ultimate vindication of his lifelong quest, or his final resting place in the grey. The whispers are too strong, too tantalizing to ignore, compelling him onward into the very heart of the ash's deepest memory, a desperate gambler betting his life on a glimpse of green.",
+  "hp": 50,
+  "id": "john-gemini-demo-e84c79a9-48e2-407b-8d27-2a0e900473de",
+  "inventory": [
+    {
+      "category": "weapon",
+      "cost": 180,
+      "description": "A dependable sidearm carried by Ashtrail pathfinders, tuned for fast response and accurate fire.",
+      "effects": [
+        {
+          "description": "Baseline combat damage for the Ashtrail demo protagonist.",
+          "id": "john-gemini-starter-weapon-damage",
+          "name": "Weapon Damage",
+          "scope": "combat",
+          "target": "damage",
+          "trigger": "passive",
+          "type": "COMBAT_BONUS",
+          "value": 10
+        }
+      ],
+      "equipSlot": "mainHand",
+      "icon": "🔫",
+      "id": "john-gemini-starter-weapon",
+      "name": "Gemini Service Sidearm",
+      "rarity": "specialized",
+      "weaponAreaSize": 0,
+      "weaponAreaType": "single",
+      "weaponRange": 5,
+      "weaponType": "ranged"
+    }
+  ],
+  "isNPC": false,
+  "level": 6,
+  "maxHp": 50,
+  "name": "John Gemini",
+  "occupation": {
+    "category": "FIELD",
+    "description": "Verdant Echo Seeker generated by the builder flow for demo step 2.",
+    "id": "verdant-echo-seeker",
+    "name": "Verdant Echo Seeker",
+    "shortDescription": "Verdant Echo Seeker"
+  },
+  "occupations": [
+    {
+      "availableTalentPoints": 5,
+      "isPrimary": true,
+      "level": 1,
+      "occupation": {
+        "category": "FIELD",
+        "description": "Verdant Echo Seeker generated by the builder flow for demo step 2.",
+        "id": "verdant-echo-seeker",
+        "name": "Verdant Echo Seeker",
+        "shortDescription": "Verdant Echo Seeker"
+      },
+      "occupationId": "verdant-echo-seeker",
+      "spentPioneerPoints": 0,
+      "spentTalentPoints": 0,
+      "unlockPointCost": 1,
+      "unlockedTalentNodeIds": []
+    }
+  ],
+  "origin": {
+    "system": "builder",
+    "worldId": "demo-e84c79a9-48e2-407b-8d27-2a0e900473de"
+  },
+  "portraitName": "John Gemini",
+  "portraitUrl": "/api/demo-output/e84c79a9-48e2-407b-8d27-2a0e900473de/step-2/john/portrait.png",
+  "progression": {
+    "attributeUpgrades": {
+      "agility": 0,
+      "charisma": 0,
+      "endurance": 0,
+      "intelligence": 0,
+      "strength": 0,
+      "wisdom": 0
+    },
+    "availableTalentPoints": 5,
+    "occupationStates": [
+      {
+        "availableTalentPoints": 5,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "FIELD",
+          "description": "Verdant Echo Seeker generated by the builder flow for demo step 2.",
+          "id": "verdant-echo-seeker",
+          "name": "Verdant Echo Seeker",
+          "shortDescription": "Verdant Echo Seeker"
+        },
+        "occupationId": "verdant-echo-seeker",
+        "spentPioneerPoints": 0,
+        "spentTalentPoints": 0,
+        "unlockPointCost": 1,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "spentPioneerOccupationPoints": 0,
+    "spentPioneerStatPoints": 0,
+    "spentStatPoints": 0,
+    "spentTalentPoints": 0,
+    "treeOccupationId": "verdant-echo-seeker",
+    "unlockedTalentNodeIds": []
+  },
+  "resolvedProgression": {
+    "availablePioneerPoints": 0,
+    "availableStatPoints": 2,
+    "availableTalentPoints": 5,
+    "currentLevelCumulativeXp": 5890,
+    "isMaxLevel": false,
+    "level": 6,
+    "maxLevel": 30,
+    "nextLevelCumulativeXp": 9155,
+    "nextLevelXp": 3265,
+    "occupationPointsTotal": 6,
+    "occupationTalentPointsSpent": 0,
+    "occupationUnlockPointsSpent": 1,
+    "occupations": [
+      {
+        "availableTalentPoints": 5,
+        "isPrimary": true,
+        "level": 1,
+        "occupation": {
+          "category": "FIELD",
+          "description": "Verdant Echo Seeker generated by the builder flow for demo step 2.",
+          "id": "verdant-echo-seeker",
+          "name": "Verdant Echo Seeker",
+          "shortDescription": "Verdant Echo Seeker"
+        },
+        "occupationId": "verdant-echo-seeker",
+        "spentPioneerPoints": 0,
+        "spentTalentPoints": 0,
+        "unlockPointCost": 1,
+        "unlockedTalentNodeIds": []
+      }
+    ],
+    "pioneerLevel": 0,
+    "pioneerPointsTotal": 0,
+    "progressPct": 0.0,
+    "statPointsTotal": 2,
+    "totalXp": 5890,
+    "xpIntoLevel": 0,
+    "xpToNextLevel": 3265
+  },
+  "skills": [
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 0,
+      "damage": 5,
+      "description": "Strike with your equipped weapon. Replaces base damage with weapon's flat damage modifier. Melee: scales with Strength. Ranged: fixed damage only.",
+      "effectType": "physical",
+      "effects": [
+        {
+          "description": "Replaces skill base damage with the equipped weapon's flat damage value.",
+          "id": "effect-1773078073638",
+          "name": "Weapon Damage Replacement",
+          "target": "mainHand",
+          "trigger": "passive",
+          "type": "WEAPON_DAMAGE_REPLACEMENT",
+          "value": 0
+        }
+      ],
+      "icon": "⚔️",
+      "id": "use-weapon",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Use Weapon",
+      "targetType": "cell"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Basic medical patch-up.",
+      "effectType": "support",
+      "healing": 15,
+      "icon": "🩹",
+      "id": "first-aid",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "First Aid",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 1,
+      "description": "Push an enemy back and potentially cause shock damage.",
+      "effectType": "physical",
+      "icon": "✋",
+      "id": "shove",
+      "maxRange": 1,
+      "minRange": 1,
+      "name": "Shove",
+      "pushDistance": 2,
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 4,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Protect an ally for 1 turn. You tank damage redirected to them with reductions based on your Endurance vs Incoming Damage.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "PROTECTION_STANCE",
+          "value": 0
+        }
+      ],
+      "icon": "🛡️",
+      "id": "defend",
+      "maxRange": 2,
+      "minRange": 1,
+      "name": "Defend",
+      "targetType": "ally"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Become invisible to enemies. Any damage taken will reveal you. Duration increases with Wisdom.",
+      "effectType": "support",
+      "effects": [
+        {
+          "duration": 1,
+          "type": "STEALTH",
+          "value": 0
+        }
+      ],
+      "icon": "👤",
+      "id": "hide",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Hide",
+      "targetType": "self"
+    },
+    {
+      "apCost": 2,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 2,
+      "description": "A quick burst of speed. +3 Movement Points for the current turn.",
+      "effects": [
+        {
+          "description": "Increases Movement Points.",
+          "duration": 1,
+          "id": "effect-sprint-mp",
+          "name": "Sprint Bonus",
+          "target": "mp",
+          "trigger": "passive",
+          "type": "STAT_MODIFIER",
+          "value": 3
+        }
+      ],
+      "icon": "👟",
+      "id": "sprint",
+      "maxRange": 0,
+      "minRange": 0,
+      "name": "Sprint",
+      "targetType": "self"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 3,
+      "description": "Bother the enemy with your charisma, reducing their MP based on your Charisma vs target Wisdom.",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 1,
+          "target": "mp",
+          "type": "STAT_MODIFIER",
+          "value": 0
+        }
+      ],
+      "icon": "🎭",
+      "id": "distract",
+      "maxRange": 4,
+      "minRange": 1,
+      "name": "Distract",
+      "targetType": "enemy"
+    },
+    {
+      "apCost": 3,
+      "areaSize": 0,
+      "areaType": "single",
+      "category": "base",
+      "cooldown": 4,
+      "description": "Find weaknesses in the target, increasing critical chance for all attackers based on your Intelligence. (Max difference: 5 levels)",
+      "effectType": "magical",
+      "effects": [
+        {
+          "duration": 2,
+          "type": "ANALYZED",
+          "value": 0
+        }
+      ],
+      "icon": "🔍",
+      "id": "analyze",
+      "maxRange": 5,
+      "minRange": 1,
+      "name": "Analyze",
+      "targetType": "enemy"
+    }
+  ],
+  "stats": {
+    "agility": 8,
+    "charisma": 4,
+    "endurance": 8,
+    "intelligence": 9,
+    "strength": 7,
+    "wisdom": 10
+  },
+  "title": "Hero of the Day",
+  "traits": [],
+  "type": "Human",
+  "worldId": "demo-e84c79a9-48e2-407b-8d27-2a0e900473de",
+  "xp": 5890
+}

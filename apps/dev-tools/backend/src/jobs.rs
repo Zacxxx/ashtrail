@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum JobStatus {
     Queued,
@@ -9,6 +9,15 @@ pub enum JobStatus {
     Completed,
     Cancelled,
     Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobStageEvent {
+    pub stage: String,
+    pub status: JobStatus,
+    pub progress: f32,
+    pub at: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -59,6 +68,8 @@ pub struct JobRecord {
     pub metadata: Option<Value>,
     #[serde(default)]
     pub output_refs: Vec<JobOutputRef>,
+    #[serde(default)]
+    pub stage_history: Vec<JobStageEvent>,
 }
 
 impl JobRecord {
@@ -81,6 +92,45 @@ impl JobRecord {
             updated_at: now,
             metadata: None,
             output_refs: Vec::new(),
+            stage_history: vec![JobStageEvent {
+                stage: "Queued".to_string(),
+                status: JobStatus::Queued,
+                progress: 0.0,
+                at: now,
+            }],
+        }
+    }
+
+    pub fn transition(&mut self, status: JobStatus, progress: f32, stage: impl Into<String>) {
+        let stage = stage.into();
+        let now = now_ms();
+        let should_record = self
+            .stage_history
+            .last()
+            .map(|event| event.stage != stage || event.status != status)
+            .unwrap_or(true);
+
+        self.status = status.clone();
+        self.progress = progress;
+        self.current_stage = stage.clone();
+        self.updated_at = now;
+
+        if should_record {
+            self.stage_history.push(JobStageEvent {
+                stage,
+                status,
+                progress,
+                at: now,
+            });
+        }
+    }
+
+    pub fn set_cancel_requested(&mut self, stage: &str) {
+        self.cancel_requested = true;
+        if matches!(self.status, JobStatus::Queued | JobStatus::Running) {
+            self.transition(self.status.clone(), self.progress, stage.to_string());
+        } else {
+            self.updated_at = now_ms();
         }
     }
 }
@@ -90,4 +140,31 @@ pub fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transition_records_stage_history_only_when_stage_or_status_changes() {
+        let mut job = JobRecord::new("kind", "Title", "tool");
+
+        assert_eq!(job.stage_history.len(), 1);
+        assert_eq!(job.stage_history[0].stage, "Queued");
+
+        job.transition(JobStatus::Queued, 42.0, "Queued");
+        assert_eq!(job.stage_history.len(), 1);
+        assert_eq!(job.progress, 42.0);
+
+        job.transition(JobStatus::Running, 50.0, "Starting");
+        job.transition(JobStatus::Running, 75.0, "Starting");
+        job.transition(JobStatus::Completed, 100.0, "Completed");
+
+        assert_eq!(job.stage_history.len(), 3);
+        assert_eq!(job.stage_history[1].stage, "Starting");
+        assert_eq!(job.stage_history[1].status, JobStatus::Running);
+        assert_eq!(job.stage_history[2].stage, "Completed");
+        assert_eq!(job.stage_history[2].status, JobStatus::Completed);
+    }
 }

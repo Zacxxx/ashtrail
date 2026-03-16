@@ -90,28 +90,45 @@ export function WorldGenPage() {
     const [isMaxView, setIsMaxView] = useState(false);
 
     // ── History ──
-    const { history, saveToHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
+    const { history, isReady: isHistoryReady, saveToHistory, deleteFromHistory, renameInHistory } = useGenerationHistory();
     const { activeWorldId, setActiveWorldId } = useActiveWorld();
 
     // Sync local state with activeWorldId on mount and when it changes
     useEffect(() => {
-        if (activeWorldId) {
-            const item = history.find(h => h.id === activeWorldId);
-            if (item) {
-                setGlobeWorld({
-                    cols: 512,
-                    rows: 256,
-                    cellData: [],
-                    textureUrl: item.textureUrl,
-                    provinceOverlays: item.provinceOverlays || [],
-                });
-                setConfig(item.config);
-                // Extract prompt title if present
-                const displayPrompt = item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt;
-                setPrompt(displayPrompt);
-            }
+        if (!isHistoryReady) {
+            return;
         }
-    }, [activeWorldId, history]);
+
+        if (!activeWorldId) {
+            if (history.length > 0) {
+                setActiveWorldId(history[0].id);
+            } else {
+                setGlobeWorld(null);
+            }
+            return;
+        }
+
+        const item = history.find((entry) => entry.id === activeWorldId);
+        if (!item) {
+            if (history.length > 0 && history[0].id !== activeWorldId) {
+                setActiveWorldId(history[0].id);
+            } else if (history.length === 0) {
+                setGlobeWorld(null);
+            }
+            return;
+        }
+
+        setGlobeWorld({
+            cols: 512,
+            rows: 256,
+            cellData: [],
+            textureUrl: item.textureUrl,
+            provinceOverlays: item.provinceOverlays || [],
+        });
+        setConfig(item.config);
+        const displayPrompt = item.prompt.split("User Instructions:\n")[1]?.split("\n")[0] || item.prompt;
+        setPrompt(displayPrompt);
+    }, [activeWorldId, history, isHistoryReady, setActiveWorldId]);
 
     const handleSelectWorldFromHistory = (item: any) => {
         setActiveWorldId(item.id);
@@ -195,6 +212,7 @@ export function WorldGenPage() {
     // Note: saveCellSubTiles removed since old geography cells pipeline is deprecated
     const {
         genProgress,
+        humanityTerminalState,
         isGeneratingText,
         generatePlanet,
         generateEcology,
@@ -274,6 +292,7 @@ export function WorldGenPage() {
     }, []);
 
     const selectedWorld = history.find(h => h.id === activeWorldId);
+    const isDemoTravelStep = activeStep === "DEMO_TRAVEL";
     const humanityVisibleRegions = useMemo(() => {
         const query = humanityScopeQuery.trim().toLowerCase();
         const typeFilter = humanityScopeKind === "mixed"
@@ -337,10 +356,16 @@ export function WorldGenPage() {
 
     useEffect(() => {
         const step = searchParams.get("step");
-        if (step === "GEO" || step === "GEOGRAPHY" || step === "ECO" || step === "HUMANITY") {
+        if (step === "GEO" || step === "GEOGRAPHY" || step === "ECO" || step === "HUMANITY" || step === "DEMO_TRAVEL") {
             setActiveStep(step);
         }
     }, [searchParams]);
+
+    useEffect(() => {
+        if (activeStep === "DEMO_TRAVEL") {
+            setViewMode("3d");
+        }
+    }, [activeStep]);
 
     useEffect(() => {
         if (humanityScopeKind === "world") {
@@ -433,12 +458,14 @@ export function WorldGenPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                         </svg>
                     </button>
-                    <div className="flex items-center bg-[#1e1e1e]/60 border border-white/5 rounded-full p-0.5 shadow-lg">
-                        <button onClick={() => setViewMode("2d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "2d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 2D</button>
-                        <button onClick={() => setViewMode("map3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "map3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 3D</button>
-                        <button onClick={() => setViewMode("3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>GLOBE 3D</button>
-                        <button onClick={() => setViewMode("provinces")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "provinces" ? "bg-cyan-500/20 text-cyan-300 shadow-sm border border-cyan-500/30" : "text-gray-500 hover:text-gray-300"}`}>PROVINCES</button>
-                    </div>
+                    {!isDemoTravelStep && (
+                        <div className="flex items-center bg-[#1e1e1e]/60 border border-white/5 rounded-full p-0.5 shadow-lg">
+                            <button onClick={() => setViewMode("2d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "2d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 2D</button>
+                            <button onClick={() => setViewMode("map3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "map3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>MAP 3D</button>
+                            <button onClick={() => setViewMode("3d")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "3d" ? "bg-white/10 text-white shadow-sm" : "text-gray-500 hover:text-gray-300"}`}>GLOBE 3D</button>
+                            <button onClick={() => setViewMode("provinces")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all ${viewMode === "provinces" ? "bg-cyan-500/20 text-cyan-300 shadow-sm border border-cyan-500/30" : "text-gray-500 hover:text-gray-300"}`}>PROVINCES</button>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -446,6 +473,7 @@ export function WorldGenPage() {
             <div className="flex-1 flex overflow-hidden relative z-10 pt-28 pb-12">
 
                 {/* Left Sidebar Flow */}
+                {!isDemoTravelStep && (
                 <aside
                     className="absolute left-4 top-28 bottom-12 z-20 flex flex-col gap-4 overflow-y-auto scrollbar-none transition-transform duration-500 ease-in-out"
                     style={{
@@ -466,8 +494,8 @@ export function WorldGenPage() {
                             isGeneratingText={isGeneratingText} handleAutoGenerateContinents={handleAutoGenerateContinents}
                             generatePlanet={() => generatePlanet(generateCells)} genProgress={genProgress}
                         />
-                    )}
-                    {activeStep === "GEOGRAPHY" && (
+                        )}
+                        {activeStep === "GEOGRAPHY" && (
                         <div className="flex flex-col h-full">
                             <div className="flex-1 overflow-y-auto scrollbar-none pb-12">
                                 {geographyTab === "pipeline" ? (
@@ -530,13 +558,13 @@ export function WorldGenPage() {
                                 )}
                             </div>
                         </div>
-                    )}
-                    {activeStep === "ECO" && (
+                        )}
+                        {activeStep === "ECO" && (
                         <EcologyPanel
                             planetId={activeWorldId}
                         />
-                    )}
-                    {activeStep === "HUMANITY" && (
+                        )}
+                        {activeStep === "HUMANITY" && (
                         <HumanityPanel
                             humPrompt={humPrompt} setHumPrompt={setHumPrompt}
                             humSettlements={humSettlements} setHumSettlements={setHumSettlements}
@@ -556,16 +584,18 @@ export function WorldGenPage() {
                             regions={humanityRegions}
                             locations={humanityLocations}
                             metadata={locationGenerationMeta}
+                            terminalState={humanityTerminalState}
                             selectedLocationId={selectedHumanityLocationId}
                             onSelectLocation={setSelectedHumanityLocationId}
                         />
                     )}
                 </aside>
+                )}
 
                 {/* Center Canvas Wrapper */}
                 <div
                     className="flex-1 flex flex-col transition-all duration-500 ease-in-out h-full overflow-hidden"
-                    style={{ marginLeft: isMaxView ? 0 : `${sidebarOffset}px` }}
+                    style={{ marginLeft: isMaxView || isDemoTravelStep ? 0 : `${sidebarOffset}px` }}
                 >
                     <WorldCanvas
                         viewMode={viewMode} globeWorld={globeWorld}
@@ -592,6 +622,8 @@ export function WorldGenPage() {
                         humanityLocations={humanityLocations}
                         selectedHumanityLocationId={selectedHumanityLocationId}
                         onSelectHumanityLocation={setSelectedHumanityLocationId}
+                        demoTravelEnabled={isDemoTravelStep}
+                        demoTravelReplayToken={`${activeWorldId || "unbound"}:${activeStep}`}
                     />
                 </div>
 
@@ -625,7 +657,7 @@ export function WorldGenPage() {
                 <ProgressOverlay genProgress={genProgress} />
 
                 {/* Cell Tooltip */}
-                {hoveredCell && !selectedCell && viewMode === "3d" && (
+                {hoveredCell && !selectedCell && viewMode === "3d" && !isDemoTravelStep && (
                     <CellTooltip hoveredCell={hoveredCell} />
                 )}
             </div>

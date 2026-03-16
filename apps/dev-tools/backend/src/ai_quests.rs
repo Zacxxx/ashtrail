@@ -1,5 +1,5 @@
 use crate::gemini::{generate_image_bytes, generate_text};
-use crate::jobs::{now_ms as shared_now_ms, JobOutputRef, JobRouteRef, JobStatus};
+use crate::jobs::{JobOutputRef, JobRouteRef, JobStatus};
 use crate::quest_ai::{
     try_reserve_capacity, QuestAiWorkKind, QuestJobAcceptedResponse, QuestJobKind, QuestJobStatus,
 };
@@ -780,7 +780,8 @@ pub async fn generate_quest_run_handler(
     let mut warnings = Vec::new();
     let run_id = format!("quest-{}", Uuid::new_v4());
     let timestamp = now_ms();
-    let mut chain = load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
+    let mut chain =
+        load_or_create_active_chain(&state.planets_dir, &payload.world_id, &payload.seed);
     let max_node_count = run_length_to_node_count(
         payload
             .seed
@@ -3525,10 +3526,7 @@ pub async fn generate_character_portrait_handler(
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.status = JobStatus::Running;
-                    job.progress = 25.0;
-                    job.current_stage = "Generating portrait".to_string();
-                    job.updated_at = shared_now_ms();
+                    job.transition(JobStatus::Running, 25.0, "Generating portrait".to_string());
                 }
             }
             match generate_image_bytes(&wrapped_prompt, Some(0.7), 512, 512, Some("1:1")).await {
@@ -3540,9 +3538,7 @@ pub async fn generate_character_portrait_handler(
                     let data_url = format!("data:image/png;base64,{encoded}");
                     if let Ok(mut map) = jobs.lock() {
                         if let Some(job) = map.get_mut(&spawned_job_id) {
-                            job.status = JobStatus::Completed;
-                            job.progress = 100.0;
-                            job.current_stage = "Completed".to_string();
+                            job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
                             job.result = Some(json!({ "dataUrl": data_url }));
                             job.output_refs = vec![JobOutputRef {
                                 id: "portrait-output".to_string(),
@@ -3552,18 +3548,14 @@ pub async fn generate_character_portrait_handler(
                                 route: None,
                                 preview_text: Some("Portrait generated successfully.".to_string()),
                             }];
-                            job.updated_at = shared_now_ms();
                         }
                     }
                 }
                 Err((_code, message)) => {
                     if let Ok(mut map) = jobs.lock() {
                         if let Some(job) = map.get_mut(&spawned_job_id) {
-                            job.status = JobStatus::Failed;
-                            job.progress = 100.0;
-                            job.current_stage = "Failed".to_string();
+                            job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
                             job.error = Some(message);
-                            job.updated_at = shared_now_ms();
                         }
                     }
                 }
@@ -3665,34 +3657,29 @@ Return ONLY the description text. Focus on how the ash-filled world has weathere
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.status = JobStatus::Running;
-                    job.progress = 25.0;
-                    job.current_stage = "Enhancing appearance prompt".to_string();
-                    job.updated_at = shared_now_ms();
+                    job.transition(
+                        JobStatus::Running,
+                        25.0,
+                        "Enhancing appearance prompt".to_string(),
+                    );
                 }
             }
             match generate_text(&prompt).await {
                 Ok(text) => {
                     if let Ok(mut map) = jobs.lock() {
                         if let Some(job) = map.get_mut(&spawned_job_id) {
-                            job.status = JobStatus::Completed;
-                            job.progress = 100.0;
-                            job.current_stage = "Completed".to_string();
+                            job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
                             job.result = Some(json!({ "text": text.clone() }));
                             job.output_refs =
                                 vec![build_text_output_ref("Appearance Prompt", &text)];
-                            job.updated_at = shared_now_ms();
                         }
                     }
                 }
                 Err((_code, message)) => {
                     if let Ok(mut map) = jobs.lock() {
                         if let Some(job) = map.get_mut(&spawned_job_id) {
-                            job.status = JobStatus::Failed;
-                            job.progress = 100.0;
-                            job.current_stage = "Failed".to_string();
+                            job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
                             job.error = Some(message);
-                            job.updated_at = shared_now_ms();
                         }
                     }
                 }
@@ -5750,4 +5737,355 @@ mod tests {
         assert!(prompt.contains("Ash Stalker"));
         assert!(prompt.contains("Do not invent alternate animal names"));
     }
+}
+
+// ============================================================================
+// Fix Choice Labels Handler
+// ============================================================================
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixChoiceLabelsRequest {
+    pub world_id: String,
+    pub run_id: String,
+    pub node_id: String,
+}
+
+pub async fn fix_choice_labels_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<FixChoiceLabelsRequest>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    // Load the quest run
+    let quest_path = state
+        .planets_dir
+        .join(&payload.world_id)
+        .join("quests")
+        .join(format!("{}.json", payload.run_id));
+
+    let quest_json = fs::read_to_string(&quest_path).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Failed to read quest: {}", e),
+        )
+    })?;
+
+    let mut quest_run: Value = serde_json::from_str(&quest_json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to parse quest: {}", e),
+        )
+    })?;
+
+    // Check if current node has fallback choices
+    let current_node = quest_run
+        .get_mut("currentNode")
+        .ok_or((StatusCode::BAD_REQUEST, "No current node".to_string()))?;
+
+    // Extract node text and title before getting mutable reference to choices
+    let node_text = current_node
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let node_title = current_node
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    let choices = current_node
+        .get_mut("choices")
+        .and_then(Value::as_array_mut)
+        .ok_or((StatusCode::BAD_REQUEST, "No choices found".to_string()))?;
+
+    let mut needs_fixing = false;
+    let mut fallback_indices = Vec::new();
+    let mut fallback_labels = Vec::new();
+
+    for (idx, choice) in choices.iter().enumerate() {
+        if let Some(label) = choice.get("label").and_then(Value::as_str) {
+            if label.starts_with("Take option ") || label.is_empty() {
+                needs_fixing = true;
+                fallback_indices.push(idx);
+                fallback_labels.push(label.to_string());
+            }
+        }
+    }
+
+    if !needs_fixing {
+        return Ok(Json(json!({ "run": quest_run })));
+    }
+
+    // Generate better labels using AI
+    let prompt = format!(
+        r#"You are generating choice labels for a quest node in a narrative RPG.
+
+Node Title: {}
+Node Text: {}
+
+Current choices that need better labels:
+{}
+
+Generate {} concise, actionable choice labels (max 12 words each) that:
+- Are specific to the situation described in the node text
+- Offer distinct strategic or narrative options
+- Match the tone and stakes of the scene
+- Are player-facing and clear
+
+Return ONLY a JSON array of strings, nothing else:
+["label 1", "label 2", ...]"#,
+        node_title,
+        node_text,
+        fallback_indices
+            .iter()
+            .enumerate()
+            .map(|(i, idx)| format!("{}. {}", i + 1, fallback_labels.get(i).unwrap_or(&"Unknown".to_string())))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        fallback_indices.len()
+    );
+
+    let response = crate::gemini::generate_text(&prompt)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("AI generation failed: {:?}", e),
+            )
+        })?;
+
+    // Parse the response
+    let new_labels: Vec<String> = serde_json::from_str(&response).map_err(|e| {
+        eprintln!("Failed to parse AI response: {}\nResponse: {}", e, response);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to parse AI response: {}", e),
+        )
+    })?;
+
+    // Update the choices
+    for (i, &choice_idx) in fallback_indices.iter().enumerate() {
+        if i < new_labels.len() {
+            if let Some(choice) = choices.get_mut(choice_idx) {
+                if let Some(choice_obj) = choice.as_object_mut() {
+                    choice_obj.insert("label".to_string(), Value::String(new_labels[i].clone()));
+                }
+            }
+        }
+    }
+
+    // Save the updated quest
+    let updated_json = serde_json::to_string_pretty(&quest_run).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to serialize quest: {}", e),
+        )
+    })?;
+
+    fs::write(&quest_path, updated_json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to save quest: {}", e),
+        )
+    })?;
+
+    Ok(Json(json!({ "run": quest_run })))
+}
+
+// ============================================================================
+// Generate Illustration Handler
+// ============================================================================
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateIllustrationRequest {
+    pub world_id: String,
+    pub run_id: String,
+    pub illustration_id: String,
+    #[serde(default)]
+    pub quest_context: Option<String>,
+    #[serde(default)]
+    pub previous_illustration_url: Option<String>,
+}
+
+pub async fn generate_illustration_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<GenerateIllustrationRequest>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    // Load the quest run
+    let quest_path = state
+        .planets_dir
+        .join(&payload.world_id)
+        .join("quests")
+        .join(format!("{}.json", payload.run_id));
+
+    let quest_json = fs::read_to_string(&quest_path).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Failed to read quest: {}", e),
+        )
+    })?;
+
+    let quest_run: Value = serde_json::from_str(&quest_json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to parse quest: {}", e),
+        )
+    })?;
+
+    // Get current node
+    let current_node = quest_run
+        .get("currentNode")
+        .ok_or((StatusCode::BAD_REQUEST, "No current node".to_string()))?;
+
+    let node_text = current_node
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let node_title = current_node
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+
+    // Build comprehensive image prompt with context
+    let mut prompt_parts = vec![
+        format!("A cinematic scene from a sci-fi RPG on the planet Ashtrail: {}", node_title),
+    ];
+    
+    // Add quest context if provided
+    if let Some(context) = &payload.quest_context {
+        if !context.is_empty() {
+            prompt_parts.push(format!("Story context: {}", context.chars().take(150).collect::<String>()));
+        }
+    }
+    
+    // Add current scene description
+    prompt_parts.push(node_text.chars().take(200).collect::<String>());
+    
+    // Add style consistency note if there's a previous illustration
+    if payload.previous_illustration_url.is_some() {
+        prompt_parts.push("Maintain consistent visual style, color palette, and artistic direction with previous scenes. Same lighting mood, same level of detail, same artistic approach.".to_string());
+    }
+    
+    // Add quality descriptors
+    prompt_parts.push("Dramatic lighting, detailed environment, atmospheric, high quality digital art, cinematic composition, professional concept art.".to_string());
+    
+    let image_prompt = prompt_parts.join(". ");
+
+    // Generate the image (1024x1024, landscape aspect ratio)
+    let image_bytes = crate::gemini::generate_image_bytes(&image_prompt, Some(0.9), 1024, 1024, Some("16:9"))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Image generation failed: {:?}", e),
+            )
+        })?;
+
+    // Save the image
+    let illustrations_dir = state
+        .planets_dir
+        .join(&payload.world_id)
+        .join("quests")
+        .join("illustrations");
+
+    fs::create_dir_all(&illustrations_dir).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create illustrations directory: {}", e),
+        )
+    })?;
+
+    let image_path = illustrations_dir.join(format!("{}.png", payload.illustration_id));
+    fs::write(&image_path, &image_bytes).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to save image: {}", e),
+        )
+    })?;
+
+    // Update quest run to mark illustration as completed
+    let mut quest_run_mut = quest_run.clone();
+    if let Some(current_node) = quest_run_mut.get_mut("currentNode") {
+        if let Some(node_obj) = current_node.as_object_mut() {
+            node_obj.insert(
+                "illustrationStatus".to_string(),
+                Value::String("completed".to_string()),
+            );
+        }
+    }
+
+    let updated_json = serde_json::to_string_pretty(&quest_run_mut).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to serialize quest: {}", e),
+        )
+    })?;
+
+    fs::write(&quest_path, updated_json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to save quest: {}", e),
+        )
+    })?;
+
+    let url = format!(
+        "/api/quests/illustrations/{}",
+        payload.illustration_id
+    );
+
+    Ok(Json(json!({ "url": url })))
+}
+
+// ============================================================================
+// Get Illustration Handler
+// ============================================================================
+
+pub async fn get_illustration_handler(
+    State(state): State<AppState>,
+    Path(illustration_id): Path<String>,
+) -> Result<Response, (StatusCode, String)> {
+    // Search for the illustration in all world directories
+    let planets_dir = &state.planets_dir;
+    
+    // Try to find the illustration
+    let mut found_path: Option<PathBuf> = None;
+    
+    if let Ok(entries) = fs::read_dir(planets_dir) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                let illustration_path = entry
+                    .path()
+                    .join("quests")
+                    .join("illustrations")
+                    .join(format!("{}.png", illustration_id));
+                
+                if illustration_path.exists() {
+                    found_path = Some(illustration_path);
+                    break;
+                }
+            }
+        }
+    }
+
+    let image_path = found_path.ok_or((
+        StatusCode::NOT_FOUND,
+        "Illustration not found".to_string(),
+    ))?;
+
+    let image_bytes = fs::read(&image_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read image: {}", e),
+        )
+    })?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, "image/png".parse().unwrap());
+    headers.insert(
+        header::CACHE_CONTROL,
+        "public, max-age=31536000".parse().unwrap(),
+    );
+
+    Ok((headers, image_bytes).into_response())
 }

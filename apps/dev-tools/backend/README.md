@@ -8,7 +8,39 @@ This backend powers `/worldgen`, generation history, image jobs, and local asset
 
 `GEMINI_API_KEY`
 - Required for image/text generation endpoints.
+- Also required for `generatemedia.audio` prompt normalization/image generation and `generatemedia.video` interleaved Gemini + Veo + TTS flows.
 - If missing, model catalog still returns but models are marked unavailable.
+
+`GEMINI_VEO_MODEL`
+- Optional.
+- Default: `veo-3.1-generate-preview`
+
+`GEMINI_TTS_MODEL`
+- Optional.
+- Default: `gemini-2.5-flash-preview-tts`
+
+### Required for Lyria / Vertex AI song generation
+
+`VERTEX_API_KEY`
+- Optional.
+- If present, backend tries a simpler Vertex API key flow first for `lyria-002`.
+- If that fails and OAuth config is also present, backend falls back to the service-account flow.
+
+`VERTEX_PROJECT_ID`
+- Required for the OAuth/service-account flow.
+- Optional if `VERTEX_API_KEY` works for your setup.
+
+`GOOGLE_APPLICATION_CREDENTIALS`
+- Required for the OAuth/service-account flow.
+- Must point to a service-account JSON key file used for Vertex AI OAuth.
+
+`VERTEX_LOCATION`
+- Optional.
+- Default: `us-central1`
+
+`VERTEX_LYRIA_MODEL`
+- Optional.
+- Default: `lyria-002`
 
 ### Image model registry (worldgen province refinement)
 
@@ -42,6 +74,24 @@ This backend powers `/worldgen`, generation history, image jobs, and local asset
 - Controls how many queued refine jobs are accepted beyond active concurrency.
 - Requests exceeding `max_concurrent + max_queue` are rejected with `429`.
 
+### Demo step 1 pregenerated replay
+
+`DEMO_STEP_ONE_USE_PREGENERATED`
+- Optional boolean.
+- Default: `false`
+- If `true`, `/demo/1` loads a local pregenerated folder from `apps/dev-tools/generated/demo-output/<folder>`.
+- If `false`, `/demo/1` generates a fresh package and writes it to `apps/dev-tools/generated/demo-output/<jobId>`.
+
+`DEMO_STEP_ONE_PREGENERATED_FOLDER`
+- Optional string.
+- Default: `71d2edea-0dff-443f-b65b-a37d023f71b2`
+- Selects which folder under `apps/dev-tools/generated/demo-output/` is used when pregenerated mode is enabled.
+
+Notes:
+- Demo routes now use `apps/dev-tools/generated/demo-output`.
+- Asset-generator and generic media-audio jobs still use `apps/dev-tools/generated/media-audio`.
+- The pregenerated folder is treated as a curated local fixture and is not overwritten automatically.
+
 ### Supabase sync (optional)
 
 `SUPABASE_URL`  
@@ -53,6 +103,13 @@ This backend powers `/worldgen`, generation history, image jobs, and local asset
 
 ```env
 GEMINI_API_KEY=your_key
+GEMINI_VEO_MODEL=veo-3.1-generate-preview
+GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
+VERTEX_API_KEY=your_vertex_api_key
+VERTEX_PROJECT_ID=your_gcp_project
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
+VERTEX_LOCATION=us-central1
+VERTEX_LYRIA_MODEL=lyria-002
 
 AI_IMAGE_MODELS=gemini-3.1-flash-image-preview|Nano Banana 2,gemini-3-pro-image-preview|Gemini 3 Pro Image Preview,gemini-2.5-flash-image|Gemini 2.5 Flash Image
 AI_IMAGE_DEFAULT_MODEL=gemini-3.1-flash-image-preview
@@ -60,4 +117,7 @@ AI_IMAGE_FALLBACK_CHAIN=gemini-3-pro-image-preview,gemini-2.5-flash-image
 
 WORLDGEN_REFINE_MAX_CONCURRENT=1
 WORLDGEN_REFINE_MAX_QUEUE=3
+
+DEMO_STEP_ONE_USE_PREGENERATED=false
+DEMO_STEP_ONE_PREGENERATED_FOLDER=71d2edea-0dff-443f-b65b-a37d023f71b2
 ```

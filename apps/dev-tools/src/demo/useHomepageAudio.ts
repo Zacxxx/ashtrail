@@ -7,6 +7,9 @@ let sharedAudio: HTMLAudioElement | null = null;
 let primed = false;
 let unlockBound = false;
 let unlockHandler: (() => void) | null = null;
+let playbackAttempt: Promise<boolean> | null = null;
+let activeSessions = 0;
+let pauseTimer: number | null = null;
 const listeners = new Set<(state: AudioState) => void>();
 
 function emit(state: AudioState) {
@@ -17,6 +20,7 @@ function ensureAudio() {
     if (sharedAudio) return sharedAudio;
 
     sharedAudio = new Audio(HOME_AUDIO_URL);
+    sharedAudio.crossOrigin = "anonymous";
     sharedAudio.preload = "auto";
     sharedAudio.loop = true;
     sharedAudio.volume = 0.55;
@@ -32,17 +36,51 @@ function primeAudio() {
     return audio;
 }
 
+function clearPauseTimer() {
+    if (pauseTimer === null || typeof window === "undefined") return;
+    window.clearTimeout(pauseTimer);
+    pauseTimer = null;
+}
+
+function schedulePause(audio: HTMLAudioElement) {
+    if (typeof window === "undefined") {
+        audio.pause();
+        unbindUnlock();
+        return;
+    }
+
+    clearPauseTimer();
+    pauseTimer = window.setTimeout(() => {
+        pauseTimer = null;
+        if (activeSessions > 0) return;
+        audio.pause();
+        unbindUnlock();
+    }, 0);
+}
+
 async function startPlayback() {
     const audio = primeAudio();
-
-    try {
-        await audio.play();
+    if (!audio.paused) {
         emit("playing");
         return true;
-    } catch {
-        emit("blocked");
-        return false;
     }
+
+    if (playbackAttempt) return playbackAttempt;
+
+    playbackAttempt = (async () => {
+        try {
+            await audio.play();
+            emit("playing");
+            return true;
+        } catch {
+            emit("blocked");
+            return false;
+        } finally {
+            playbackAttempt = null;
+        }
+    })();
+
+    return playbackAttempt;
 }
 
 function bindUnlock() {
@@ -85,39 +123,69 @@ export function useHomepageAudio(active: boolean) {
 
     useEffect(() => {
         if (!active) {
-            sharedAudio?.pause();
-            unbindUnlock();
+            if (sharedAudio) schedulePause(sharedAudio);
             return;
         }
 
         let cancelled = false;
+        activeSessions += 1;
+        clearPauseTimer();
         setAudioState("loading");
 
-        primeAudio();
+        const audio = primeAudio();
 
-        const handleCanPlay = () => {
+        const tryStartPlayback = () => {
             if (cancelled) return;
             void startPlayback().then((started) => {
                 if (!started) bindUnlock();
             });
         };
 
-        const audio = ensureAudio();
-        if (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
-            handleCanPlay();
-        } else {
-            audio.addEventListener("canplaythrough", handleCanPlay, { once: true });
-            audio.addEventListener("loadeddata", handleCanPlay, { once: true });
+        const handleCanPlay = () => {
+            if (cancelled) return;
+            tryStartPlayback();
+        };
+
+        const handlePlaying = () => {
+            if (cancelled) return;
+            emit("playing");
+        };
+
+        const handleBuffering = () => {
+            if (cancelled || audio.paused) return;
+            emit("loading");
+        };
+
+        if (audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            tryStartPlayback();
         }
+
+        audio.addEventListener("playing", handlePlaying);
+        audio.addEventListener("waiting", handleBuffering);
+        audio.addEventListener("stalled", handleBuffering);
+        audio.addEventListener("canplay", handleCanPlay);
+
+        // Start playback as soon as the browser has the first playable chunk,
+        // then let the native byte-range buffer continue filling during playback.
+        tryStartPlayback();
 
         return () => {
             cancelled = true;
-            audio.pause();
-            unbindUnlock();
-            audio.removeEventListener("canplaythrough", handleCanPlay);
-            audio.removeEventListener("loadeddata", handleCanPlay);
+            activeSessions = Math.max(0, activeSessions - 1);
+            schedulePause(audio);
+            audio.removeEventListener("playing", handlePlaying);
+            audio.removeEventListener("waiting", handleBuffering);
+            audio.removeEventListener("stalled", handleBuffering);
+            audio.removeEventListener("canplay", handleCanPlay);
         };
     }, [active]);
 
     return audioState;
+}
+
+if (typeof window !== "undefined") {
+    const path = window.location.pathname;
+    if (path === "/" || path === "/demo") {
+        primeAudio();
+    }
 }

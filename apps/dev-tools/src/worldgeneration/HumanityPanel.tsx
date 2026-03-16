@@ -6,6 +6,7 @@ import type {
     HumanityReadiness,
     HumanityScopeKind,
     HumanityScopeTarget,
+    HumanityTerminalState,
     WorldgenRegionRecord,
 } from "./types";
 import type { LocationGenerationMetadata, WorldLocation } from "../history/locationTypes";
@@ -36,6 +37,7 @@ interface HumanityPanelProps {
     regions: WorldgenRegionRecord[];
     locations: WorldLocation[];
     metadata: LocationGenerationMetadata | null;
+    terminalState: HumanityTerminalState | null;
     selectedLocationId: string | null;
     onSelectLocation: (id: string | null) => void;
 }
@@ -70,6 +72,7 @@ export function HumanityPanel({
     isAdoptingExistingOutput,
     locations,
     metadata,
+    terminalState,
     selectedLocationId,
     onSelectLocation,
 }: HumanityPanelProps) {
@@ -80,6 +83,9 @@ export function HumanityPanel({
     const canRunScoped = scopeKind === "world" || scopeTargets.length > 0;
     const isBlocked = !readiness?.ready;
     const isActionDisabled = genProgress.isActive || !globeWorld?.textureUrl || isBlocked || !canRunScoped;
+    const hasTerminalMetadata = terminalState?.status === "success" && metadata !== null;
+    const completedWithNoLocations = hasTerminalMetadata && metadata.coverage.totalLocations === 0;
+    const completedWithLocations = hasTerminalMetadata && metadata.coverage.totalLocations > 0;
 
     return (
         <div className="flex-1 flex flex-col bg-[#1e1e1e]/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl overflow-hidden h-full">
@@ -270,6 +276,33 @@ export function HumanityPanel({
                         {genProgress.isActive ? "SIMULATING..." : scopeKind === "world" ? "SIMULATE WHOLE WORLD" : "SIMULATE SCOPED HUMANITY"}
                     </Button>
                 </div>
+
+                {terminalState?.status === "failed" && (
+                    <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                        <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-red-200">Last Humanity Run Failed</p>
+                        <p className="mt-2 text-sm text-red-50">{terminalState.message}</p>
+                    </div>
+                )}
+
+                {completedWithNoLocations && (
+                    <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                        <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-amber-200">Humanity Completed With No Locations</p>
+                        <p className="mt-2 text-sm text-amber-50">
+                            {(metadata?.coverage.viableProvinceCount ?? 0) === 0
+                                ? "The selected scope completed successfully, but none of its provinces are currently viable for settlement placement."
+                                : "The selected scope completed successfully, but no locations were produced. Recheck the chosen scope and its worldgen inputs."}
+                        </p>
+                    </div>
+                )}
+
+                {completedWithLocations && (
+                    <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                        <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-emerald-200">Last Humanity Run Succeeded</p>
+                        <p className="mt-2 text-sm text-emerald-50">
+                            {terminalState.message} • {metadata?.coverage.totalLocations ?? 0} locations generated in scope.
+                        </p>
+                    </div>
+                )}
 
                 {metadata && (
                     <div className="mt-6 space-y-4">

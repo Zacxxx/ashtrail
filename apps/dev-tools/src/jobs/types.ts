@@ -1,4 +1,12 @@
 export type JobStatus = "queued" | "running" | "completed" | "cancelled" | "failed";
+export type JobModality = "text" | "image" | "asset" | "route" | "mixed" | "unknown";
+
+export interface JobStageEvent {
+    stage: string;
+    status: JobStatus;
+    progress: number;
+    at: number;
+}
 
 export interface JobRouteRef {
     path: string;
@@ -33,6 +41,7 @@ export interface JobListItem {
     parentJobId?: string | null;
     metadata?: Record<string, unknown> | null;
     outputRefs: JobOutputRef[];
+    stageHistory: JobStageEvent[];
     error?: string | null;
     createdAt: number;
     updatedAt: number;
@@ -55,6 +64,7 @@ export interface OptimisticJobInput {
     parentJobId?: string | null;
     metadata?: Record<string, unknown> | null;
     outputRefs?: JobOutputRef[];
+    stageHistory?: JobStageEvent[];
     error?: string | null;
 }
 

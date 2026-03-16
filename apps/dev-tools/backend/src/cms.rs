@@ -29,7 +29,9 @@ fn parse_data_url_image(value: &str) -> Option<(&str, Vec<u8>)> {
         return None;
     }
     let mime = meta.trim_end_matches(";base64");
-    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()?;
     Some((mime, bytes))
 }
 
@@ -95,8 +97,12 @@ fn normalize_character_portrait(
         .to_string();
 
     let portraits_dir = character_portraits_dir(state);
-    fs::create_dir_all(&portraits_dir)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create portraits dir: {e}")))?;
+    fs::create_dir_all(&portraits_dir).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create portraits dir: {e}"),
+        )
+    })?;
 
     let existing_path = characters_dir(state).join(format!("{id}.json"));
     let existing_record = fs::read_to_string(&existing_path)
@@ -133,7 +139,11 @@ fn normalize_character_portrait(
                 format!("Failed to write portrait asset: {e}"),
             )
         })?;
-        let cache_busted = format!("{}?v={}", portrait_public_url(&file_name), chrono::Utc::now().timestamp_millis());
+        let cache_busted = format!(
+            "{}?v={}",
+            portrait_public_url(&file_name),
+            chrono::Utc::now().timestamp_millis()
+        );
         obj.insert("portraitUrl".to_string(), Value::String(cache_busted));
         return Ok(true);
     }
@@ -397,12 +407,15 @@ pub async fn get_characters(
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
                 if let Ok(content_raw) = fs::read_to_string(&path) {
-                    if let Ok(mut json) = serde_json::from_str::<Value>(strip_utf8_bom(&content_raw)) {
+                    if let Ok(mut json) =
+                        serde_json::from_str::<Value>(strip_utf8_bom(&content_raw))
+                    {
                         let normalized = normalize_character_portrait(&state, &mut json)?;
                         if normalized {
                             let _ = fs::write(
                                 &path,
-                                serde_json::to_string_pretty(&json).unwrap_or_else(|_| "{}".to_string()),
+                                serde_json::to_string_pretty(&json)
+                                    .unwrap_or_else(|_| "{}".to_string()),
                             );
                         }
                         characters.push(normalize_character_payload(

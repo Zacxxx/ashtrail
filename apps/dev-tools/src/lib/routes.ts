@@ -1,5 +1,9 @@
 export const DEMO_ROUTE = "/";
 export const DEMO_ALIAS_ROUTE = "/demo";
+export const DEMO_STEP_ROUTE = "/demo/:step";
+export const DEMO_STEP_ONE_ROUTE = "/demo/1";
+export const DEMO_STEP_TWO_ROUTE = "/demo/2";
+export const DEMO_STEP_THREE_ROUTE = "/demo/3";
 export const DEVTOOLS_BASE = "/devtools";
 
 export const DEVTOOLS_ROUTES = {
@@ -13,7 +17,7 @@ export const DEVTOOLS_ROUTES = {
     history: `${DEVTOOLS_BASE}/history`,
     ecology: `${DEVTOOLS_BASE}/ecology`,
     quests: `${DEVTOOLS_BASE}/quests`,
-    storyLoop: `${DEVTOOLS_BASE}/story-loop`,
+    jobCenter: `${DEVTOOLS_BASE}/jobcenter`,
 } as const;
 
 export const DEVTOOLS_TOOL_ROUTE_BY_ID = {
@@ -26,7 +30,7 @@ export const DEVTOOLS_TOOL_ROUTE_BY_ID = {
     history: DEVTOOLS_ROUTES.history,
     ecology: DEVTOOLS_ROUTES.ecology,
     quests: DEVTOOLS_ROUTES.quests,
-    "story-loop": DEVTOOLS_ROUTES.storyLoop,
+    jobcenter: DEVTOOLS_ROUTES.jobCenter,
 } as const;
 
 export const LEGACY_DEVTOOLS_REDIRECTS = {
@@ -39,7 +43,7 @@ export const LEGACY_DEVTOOLS_REDIRECTS = {
     "/history": DEVTOOLS_ROUTES.history,
     "/ecology": DEVTOOLS_ROUTES.ecology,
     "/quests": DEVTOOLS_ROUTES.quests,
-    "/story-loop": DEVTOOLS_ROUTES.storyLoop,
+    "/jobcenter": DEVTOOLS_ROUTES.jobCenter,
 } as const;
 
 export type RouteSearchValue = string | number | boolean | null | undefined;

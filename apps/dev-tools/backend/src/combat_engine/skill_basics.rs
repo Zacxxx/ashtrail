@@ -30,11 +30,10 @@ pub struct DefendResolution {
 }
 
 pub fn has_weapon_damage_replacement(skill: &Skill) -> bool {
-    skill.effects.as_ref().is_some_and(|effects| {
-        effects
-            .iter()
-            .any(is_weapon_damage_replacement_effect)
-    })
+    skill
+        .effects
+        .as_ref()
+        .is_some_and(|effects| effects.iter().any(is_weapon_damage_replacement_effect))
 }
 
 pub fn weapon_profile(entity: &TacticalEntity) -> WeaponProfile {
@@ -408,7 +407,9 @@ fn analyzed_bonus(target: &TacticalEntity) -> f64 {
         .map(|effects| {
             effects
                 .iter()
-                .filter(|effect| is_analyzed_effect(effect) || effect.effect_type == EffectType::Analyzed)
+                .filter(|effect| {
+                    is_analyzed_effect(effect) || effect.effect_type == EffectType::Analyzed
+                })
                 .map(|effect| effect.value)
                 .sum::<f64>()
         })

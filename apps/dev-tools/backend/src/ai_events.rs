@@ -1,6 +1,6 @@
 use crate::gemini::generate_text;
+use crate::jobs::JobStatus;
 use crate::{build_text_output_ref, make_job_record, parse_tracked_job_meta, AppState};
-use crate::jobs::{now_ms, JobStatus};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -72,12 +72,9 @@ fn finish_tracked_event_job(
 ) {
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(job_id) {
-            job.status = JobStatus::Completed;
-            job.progress = 100.0;
-            job.current_stage = "Completed".to_string();
+            job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
             job.result = Some(result);
             job.output_refs = vec![build_text_output_ref(output_label, summary)];
-            job.updated_at = now_ms();
         }
     }
 }
@@ -89,11 +86,8 @@ fn fail_tracked_event_job(
 ) {
     if let Ok(mut map) = jobs.lock() {
         if let Some(job) = map.get_mut(job_id) {
-            job.status = JobStatus::Failed;
-            job.progress = 100.0;
-            job.current_stage = "Failed".to_string();
+            job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
             job.error = Some(message);
-            job.updated_at = now_ms();
         }
     }
 }
@@ -183,7 +177,11 @@ pub async fn generate_event_handler(
                 meta.title.as_deref().unwrap_or("Generate Event"),
                 meta.tool.as_deref().unwrap_or("gameplay-engine"),
                 "Queued",
-                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(serde_json::Value::as_str).map(str::to_string),
+                meta.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worldId"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
                 None,
             );
             if meta.restore.is_some() || meta.metadata.is_some() {
@@ -203,10 +201,7 @@ pub async fn generate_event_handler(
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.status = JobStatus::Running;
-                    job.progress = 25.0;
-                    job.current_stage = "Generating event".to_string();
-                    job.updated_at = now_ms();
+                    job.transition(JobStatus::Running, 25.0, "Generating event".to_string());
                 }
             }
             match execute_generate_event(payload).await {
@@ -304,7 +299,9 @@ Output strictly in JSON format matching this schema:
 }}",
         gm_context_block,
         payload.event_description,
-        payload.character_alignment.unwrap_or_else(|| "Neutral".to_string()),
+        payload
+            .character_alignment
+            .unwrap_or_else(|| "Neutral".to_string()),
         traits_list.join(", "),
         payload.character_stats.strength,
         payload.character_stats.agility,
@@ -340,7 +337,11 @@ pub async fn resolve_event_handler(
                 meta.title.as_deref().unwrap_or("Resolve Event"),
                 meta.tool.as_deref().unwrap_or("gameplay-engine"),
                 "Queued",
-                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(serde_json::Value::as_str).map(str::to_string),
+                meta.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worldId"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
                 None,
             );
             if meta.restore.is_some() || meta.metadata.is_some() {
@@ -360,10 +361,7 @@ pub async fn resolve_event_handler(
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.status = JobStatus::Running;
-                    job.progress = 25.0;
-                    job.current_stage = "Resolving event".to_string();
-                    job.updated_at = now_ms();
+                    job.transition(JobStatus::Running, 25.0, "Resolving event".to_string());
                 }
             }
             match execute_resolve_event(payload).await {
@@ -474,7 +472,11 @@ pub async fn rethink_event_handler(
                 meta.title.as_deref().unwrap_or("Rethink Event"),
                 meta.tool.as_deref().unwrap_or("gameplay-engine"),
                 "Queued",
-                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(serde_json::Value::as_str).map(str::to_string),
+                meta.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worldId"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
                 None,
             );
             if meta.restore.is_some() || meta.metadata.is_some() {
@@ -494,10 +496,7 @@ pub async fn rethink_event_handler(
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.status = JobStatus::Running;
-                    job.progress = 25.0;
-                    job.current_stage = "Rethinking choices".to_string();
-                    job.updated_at = now_ms();
+                    job.transition(JobStatus::Running, 25.0, "Rethinking choices".to_string());
                 }
             }
             match execute_rethink_event(payload).await {
