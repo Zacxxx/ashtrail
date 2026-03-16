@@ -46,6 +46,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
+    env,
     net::SocketAddr,
     path::PathBuf,
     sync::atomic::AtomicUsize,
@@ -1435,6 +1436,14 @@ async fn main() {
             get(get_demo_step_four_artifact).post(initialize_demo_step_four_artifact_handler),
         )
         .route(
+            "/api/demo/step-5/artifact",
+            get(get_demo_step_five_artifact).post(save_demo_step_five_artifact),
+        )
+        .route(
+            "/api/demo/step-5/analyze-and-generate-video",
+            post(analyze_planet_and_generate_video),
+        )
+        .route(
             "/api/demo/step-2/weapon/jobs",
             post(start_demo_step_two_weapon_job),
         )
@@ -1618,6 +1627,8 @@ async fn main() {
             ServeDir::new(generated_media_video_dir.clone()),
         )
         .nest_service("/api/isolated-assets", ServeDir::new(isolated_dir.clone()))
+        // Serve frontend static files (for production deployment)
+        .fallback_service(ServeDir::new("dist"))
         .with_state(state)
         .layer(
             CorsLayer::new()
@@ -1626,7 +1637,16 @@ async fn main() {
                 .allow_headers(Any),
         );
 
-    let addr: SocketAddr = "127.0.0.1:8787".parse().expect("valid socket address");
+    // Support Cloud Run's PORT environment variable
+    let port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(8787);
+    
+    let addr: SocketAddr = format!("0.0.0.0:{}", port)
+        .parse()
+        .expect("valid socket address");
+    
     info!(%addr, "dev-tools backend listening");
 
     if let Err(error) = progression::migrate_generated_characters_on_startup() {
@@ -3840,6 +3860,208 @@ async fn ensure_demo_final_combat_handler(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     demo_step_four::ensure_demo_quest_has_final_combat(&state, &request.world_id, &request.run_id).await?;
     Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))))
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DemoStepFiveArtifact {
+    video_url: Option<String>,
+    poster_url: Option<String>,
+    job_id: Option<String>,
+    status: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DemoStepFiveArtifactQuery {
+    step_one_job_id: Option<String>,
+    world_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveDemoStepFiveArtifactRequest {
+    step_one_job_id: Option<String>,
+    world_id: Option<String>,
+    video_url: Option<String>,
+    poster_url: Option<String>,
+    job_id: Option<String>,
+    status: String,
+}
+
+async fn get_demo_step_five_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<DemoStepFiveArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Try to find artifact by stepOneJobId or worldId
+    let lookup_id = query.step_one_job_id.as_deref()
+        .or(query.world_id.as_deref())
+        .unwrap_or("default");
+    
+    let artifact_path = state.demo_output_dir.join(format!("step-5-{}.json", lookup_id));
+    
+    if !artifact_path.exists() {
+        return Err((StatusCode::NOT_FOUND, "Step 5 artifact not found".to_string()));
+    }
+    
+    let content = std::fs::read_to_string(&artifact_path)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read artifact: {}", e)))?;
+    
+    let artifact: DemoStepFiveArtifact = serde_json::from_str(&content)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to parse artifact: {}", e)))?;
+    
+    Ok(Json(artifact))
+}
+
+async fn save_demo_step_five_artifact(
+    State(state): State<AppState>,
+    Json(payload): Json<SaveDemoStepFiveArtifactRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Save with stepOneJobId or worldId
+    let lookup_id = payload.step_one_job_id.as_deref()
+        .or(payload.world_id.as_deref())
+        .unwrap_or("default");
+    
+    let artifact_path = state.demo_output_dir.join(format!("step-5-{}.json", lookup_id));
+    
+    let artifact = DemoStepFiveArtifact {
+        video_url: payload.video_url,
+        poster_url: payload.poster_url,
+        job_id: payload.job_id,
+        status: payload.status,
+    };
+    
+    let content = serde_json::to_string_pretty(&artifact)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize artifact: {}", e)))?;
+    
+    std::fs::write(&artifact_path, content)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write artifact: {}", e)))?;
+    
+    Ok(Json(artifact))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzePlanetRequest {
+    world_id: String,
+    step_one_job_id: Option<String>,
+}
+
+async fn analyze_planet_and_generate_video(
+    State(state): State<AppState>,
+    Json(request): Json<AnalyzePlanetRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    use std::fs;
+
+    let planet_dir = state.planets_dir.join(&request.world_id);
+    
+    if !planet_dir.exists() {
+        return Err((StatusCode::NOT_FOUND, format!("Planet directory not found: {}", request.world_id)));
+    }
+
+    // Collect planet context
+    let mut context_parts = Vec::new();
+    
+    // Read character data
+    let characters_dir = planet_dir.join("characters");
+    if characters_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&characters_dir) {
+            for entry in entries.flatten() {
+                if let Ok(content) = fs::read_to_string(entry.path()) {
+                    if let Ok(char_data) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(name) = char_data.get("name").and_then(|v| v.as_str()) {
+                            context_parts.push(format!("Character: {}", name));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Read quest data
+    let quests_dir = planet_dir.join("quests");
+    if quests_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&quests_dir) {
+            for entry in entries.flatten() {
+                if let Ok(content) = fs::read_to_string(entry.path()) {
+                    if let Ok(quest_data) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(title) = quest_data.get("title").and_then(|v| v.as_str()) {
+                            context_parts.push(format!("Quest: {}", title));
+                        }
+                        if let Some(summary) = quest_data.get("summary").and_then(|v| v.as_str()) {
+                            context_parts.push(format!("Summary: {}", summary));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Read metadata
+    let metadata_path = planet_dir.join("metadata.json");
+    let mut world_title = "an alien world".to_string();
+    if metadata_path.exists() {
+        if let Ok(content) = fs::read_to_string(&metadata_path) {
+            if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(title) = metadata.get("title").and_then(|v| v.as_str()) {
+                    world_title = title.to_string();
+                }
+            }
+        }
+    }
+
+    let planet_context = if context_parts.is_empty() {
+        format!("A hero completing a quest on {}", world_title)
+    } else {
+        context_parts.join(". ")
+    };
+
+    // Create video prompt
+    let video_prompt = format!(
+        "A heroic character completing a dangerous quest on an alien planet. {}. The character stands victorious in a cinematic sci-fi setting, having overcome great challenges.",
+        planet_context
+    );
+
+    // Launch video generation job
+    let video_request = serde_json::json!({
+        "prompt": video_prompt,
+        "durationSeconds": 8,
+        "aspectRatio": "16:9",
+        "style": "cinematic",
+        "intent": "victory celebration",
+        "category": "cinematic",
+        "mood": "triumphant, epic, heroic",
+        "cameraDirection": "slow pan revealing the victorious hero",
+        "narrationTone": "inspiring",
+        "narrationIntent": "celebrating the hero's achievement",
+        "voiceName": "Kore",
+        "globalDirection": "Epic sci-fi adventure with a sense of accomplishment",
+        "keepVeoAudio": false,
+    });
+
+    // Start the video generation job
+    let client = reqwest::Client::new();
+    let job_response = client
+        .post("http://127.0.0.1:8787/api/media/video/jobs")
+        .json(&video_request)
+        .send()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to start video job: {}", e)))?;
+
+    if !job_response.status().is_success() {
+        let error_text = job_response.text().await.unwrap_or_default();
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Video job failed: {}", error_text)));
+    }
+
+    let job_result: serde_json::Value = job_response
+        .json()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to parse job response: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "jobId": job_result["jobId"],
+        "context": planet_context
+    })))
 }
 
 async fn start_demo_step_two_weapon_job(

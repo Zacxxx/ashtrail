@@ -1124,8 +1124,11 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
                                 type="button"
                                 onClick={() => {
                                     console.log("🎯 Proceeding to step 5...");
-                                    // Navigate to step 5 with current search params
-                                    navigate(`/demo/5?${searchParams.toString()}`);
+                                    // Navigate to step 5 with current search params plus worldId
+                                    const params = new URLSearchParams(searchParams);
+                                    params.set("worldId", worldId);
+                                    params.set("questRunId", runId);
+                                    navigate(`/demo/5?${params.toString()}`);
                                 }}
                                 className="w-full rounded-2xl border border-emerald-400/30 bg-gradient-to-br from-emerald-500/20 via-emerald-600/15 to-emerald-700/20 px-6 py-4 text-center font-black uppercase tracking-widest text-emerald-100 transition-all hover:bg-emerald-500/30 hover:border-emerald-400/50 hover:shadow-[0_12px_48px_rgba(16,185,129,0.25)]"
                             >
