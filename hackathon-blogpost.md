@@ -43,10 +43,8 @@ We built Ashtrail as a Bun monorepo to ensure unified type safety and rapid deve
 Ashtrail leverages an extensive range of Google AI models and services:
 
 #### Text & Reasoning Models
-- **`gemini-3-flash-preview`**: Primary narrative engine for storytelling
-- **`gemini-3-pro-preview`**: Complex reasoning tasks and Game Master logic
-- **`gemini-2.5-flash`**: Fast text workflows and ecology generation
-- **`gemini-2.0-flash`**: Fallback for multimodal tasks
+- **`gemini-2.5-flash`**: Primary model for text generation, character stories, and ecology workflows
+- **`gemini-2.0-flash`**: Interleaved model for multimodal generation tasks
 
 #### Image Generation Models
 - **`gemini-3.1-flash-image-preview`** (nicknamed "Nano Banana 2"): Ultra-fast next-gen image model
@@ -54,16 +52,17 @@ Ashtrail leverages an extensive range of Google AI models and services:
 - **`gemini-2.5-flash-image`**: Biome and creature synthesis
 
 #### Specialized Models
+- **`veo-3.1-generate-preview`**: Video generation for cinematic cutscenes
 - **`gemini-2.5-flash-preview-tts`**: Text-to-speech for narrated briefings
-- **`lyria-002`** (via Vertex AI): Procedural music generation
+- **`lyria-002`** (via Vertex AI): Procedural music generation with OAuth 2.0 authentication
 
 ### Integration Approaches
 
 We used multiple integration strategies to maximize flexibility:
 
 1. **Google Generative AI SDK (`@google/genai`)**: Used in frontend and shared packages for rapid prototyping
-2. **Direct REST/HTTP via Rust**: The backend uses `reqwest` for fine-grained control over multimodal and interleaved generation flows
-3. **Vertex AI (GCP)**: Specialized workflows like music synthesis with Lyria
+2. **Direct REST/HTTP via Rust (Axum)**: The backend uses `reqwest` for fine-grained control over multimodal and interleaved generation flows
+3. **Vertex AI (GCP)**: Specialized workflows like music synthesis with Lyria, using both API Key and OAuth 2.0 Service Account authentication
 
 This hybrid approach gave us the best of both worlds: SDK convenience for rapid iteration and direct API control for performance-critical paths.
 
@@ -124,7 +123,7 @@ Real-time resource management (Fuel, Food, Morale) with AI-driven events that ch
 ### Challenge 1: Reliability at Scale
 **Problem**: Image generation can fail, especially under load.
 
-**Solution**: We implemented a sophisticated fallback chain system. If `gemini-3.1-flash-image-preview` fails, the system automatically tries `gemini-3-pro-image-preview`, then `gemini-2.5-flash-image`. This ensures generation always succeeds.
+**Solution**: We implemented a configurable fallback chain system via environment variables (`AI_IMAGE_MODELS`, `AI_IMAGE_DEFAULT_MODEL`, `AI_IMAGE_FALLBACK_CHAIN`). By default, if `gemini-3.1-flash-image-preview` fails, the system automatically tries `gemini-3-pro-image-preview`, then `gemini-2.5-flash-image`. This ensures generation always succeeds.
 
 ### Challenge 2: Concurrency Control
 **Problem**: Too many simultaneous generation requests could overwhelm the API.
@@ -234,6 +233,6 @@ We're excited to see where the Gemini ecosystem goes next, and we hope Ashtrail 
 
 **Tech Stack**: Bun, React 19, Tailwind CSS v4, Rust, Google Generative AI SDK, Vertex AI, Google Cloud Run, Firebase Hosting
 
-**Models Used**: gemini-3-flash-preview, gemini-3-pro-preview, gemini-2.5-flash, gemini-3.1-flash-image-preview, gemini-3-pro-image-preview, gemini-2.5-flash-image, gemini-2.5-flash-preview-tts, lyria-002
+**Models Used**: gemini-2.5-flash, gemini-2.0-flash, gemini-3.1-flash-image-preview, gemini-3-pro-image-preview, gemini-2.5-flash-image, veo-3.1-generate-preview, gemini-2.5-flash-preview-tts, lyria-002
 
 #GeminiLiveAgentChallenge #AI #GameDev #Gemini #GoogleCloud #MultimodalAI #ProceduralGeneration

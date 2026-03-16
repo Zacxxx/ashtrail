@@ -202,10 +202,8 @@
 
 These models power narration, dialogue, orchestration, and Game Master logic.
 
-- **`gemini-3-flash-preview`**: Primary model for the narrative engine.
-- **`gemini-3-pro-preview`**: Used for more complex reasoning tasks.
-- **`gemini-2.5-flash`**: Standard fast-generation model used for text workflows and ecology-related generation.
-- **`gemini-2.0-flash`**: Used as a fallback for multimodal tasks.
+- **`gemini-2.5-flash`**: Primary model for text generation, character stories, and ecology workflows.
+- **`gemini-2.0-flash`**: Interleaved model for multimodal generation tasks.
 
 ### 3. Image Models (Generation & Vision)
 
@@ -217,8 +215,9 @@ Ashtrail uses a fallback chain for visual generation and image workflows.
 
 ### 4. Specialized Models
 
+- **Video Generation**: **`veo-3.1-generate-preview`**, used in `media_video.rs` for cinematic cutscenes.
 - **Text-to-Speech**: **`gemini-2.5-flash-preview-tts`**, used in `tts.rs` for narrated vocal briefings.
-- **Music Generation**: **`lyria-002`**, used through Vertex AI in `lyria.rs` to generate procedural musical themes.
+- **Music Generation**: **`lyria-002`**, used through Vertex AI in `lyria.rs` with OAuth 2.0 authentication to generate procedural musical themes.
 
 ---
 
