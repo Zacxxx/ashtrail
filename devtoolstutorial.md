@@ -126,11 +126,6 @@ bun run dev:dev-tools:backend
 bun run dev:dev-tools:frontend
 ```
 
-**Option 3: Access Demo Landing Only**
-```bash
-bun run dev:demo
-```
-
 ### First Launch
 
 Once the dev-tools are running:
