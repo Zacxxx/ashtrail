@@ -15,15 +15,11 @@ import { GameMasterPage } from "./game-master";
 import { JobCenterPage } from "./jobs/JobCenterPage";
 import { QuestPage } from "./quests";
 import { DemoLandingPage } from "./demo/DemoLandingPage";
-import { DemoPlanetScreen } from "./demo/DemoPlanetScreen";
-import { DemoStepOneWalkthroughPage } from "./demo/DemoStepOneWalkthroughPage";
-import { DemoStepTwoPage } from "./demo/DemoStepTwoPage";
+import { DemoFlowPage } from "./demo/DemoFlowPage";
 import {
     DEMO_ALIAS_ROUTE,
     DEMO_ROUTE,
-    DEMO_STEP_ONE_ROUTE,
-    DEMO_STEP_ONE_WALKTHROUGH_ROUTE,
-    DEMO_STEP_TWO_ROUTE,
+    DEMO_STEP_ROUTE,
     DEVTOOLS_BASE,
     LEGACY_DEVTOOLS_REDIRECTS,
 } from "./lib/routes";
@@ -46,16 +42,8 @@ const router = createBrowserRouter([
                 element: <DemoLandingPage />,
             },
             {
-                path: DEMO_STEP_ONE_ROUTE,
-                element: <DemoPlanetScreen />,
-            },
-            {
-                path: DEMO_STEP_ONE_WALKTHROUGH_ROUTE,
-                element: <DemoStepOneWalkthroughPage />,
-            },
-            {
-                path: DEMO_STEP_TWO_ROUTE,
-                element: <DemoStepTwoPage />,
+                path: DEMO_STEP_ROUTE,
+                element: <DemoFlowPage />,
             },
             {
                 path: DEVTOOLS_BASE,

@@ -590,14 +590,22 @@ const STAT_KEYS: [&str; 6] = [
 
 fn stats_sum_from_root(root: &Map<String, Value>) -> Option<u16> {
     let stats = root.get("stats")?.as_object()?;
-    Some(STAT_KEYS.into_iter().map(|key| value_as_u16(stats.get(key))).sum())
+    Some(
+        STAT_KEYS
+            .into_iter()
+            .map(|key| value_as_u16(stats.get(key)))
+            .sum(),
+    )
 }
 
 fn normalize_attribute_upgrades_value(value: Option<&Value>) -> Value {
     let source = value.and_then(Value::as_object);
     let mut normalized = Map::new();
     for key in STAT_KEYS {
-        normalized.insert(key.to_string(), Value::from(value_as_u16(source.and_then(|entry| entry.get(key)))));
+        normalized.insert(
+            key.to_string(),
+            Value::from(value_as_u16(source.and_then(|entry| entry.get(key)))),
+        );
     }
     Value::Object(normalized)
 }
@@ -605,7 +613,12 @@ fn normalize_attribute_upgrades_value(value: Option<&Value>) -> Value {
 fn stat_sum_from_value(value: &Value) -> u16 {
     value
         .as_object()
-        .map(|stats| STAT_KEYS.into_iter().map(|key| value_as_u16(stats.get(key))).sum())
+        .map(|stats| {
+            STAT_KEYS
+                .into_iter()
+                .map(|key| value_as_u16(stats.get(key)))
+                .sum()
+        })
         .unwrap_or(0)
 }
 
@@ -793,23 +806,22 @@ pub fn normalize_character_payload(
                     .and_then(Value::as_str)
                     .map(str::to_string)
                     .or_else(|| {
-                        entry.get("occupation")
+                        entry
+                            .get("occupation")
                             .and_then(|occupation| occupation.get("id"))
                             .and_then(Value::as_str)
                             .map(str::to_string)
                     })?;
 
                 let fallback_root_occupation = root_occupations.iter().find(|occupation| {
-                    occupation
-                        .get("occupationId")
-                        .and_then(Value::as_str)
+                    occupation.get("occupationId").and_then(Value::as_str)
                         == Some(occupation_id.as_str())
                 });
                 let occupation_value = lookup_occupation_value(
                     occupation_id.as_str(),
-                    entry
-                        .get("occupation")
-                        .or_else(|| fallback_root_occupation.and_then(|state| state.get("occupation"))),
+                    entry.get("occupation").or_else(|| {
+                        fallback_root_occupation.and_then(|state| state.get("occupation"))
+                    }),
                     content,
                 );
                 let unlocked_talent_node_ids =
@@ -863,11 +875,13 @@ pub fn normalize_character_payload(
             .iter()
             .position(|occupation| occupation.is_primary)
             .or_else(|| {
-                legacy_primary_occupation_id.as_deref().and_then(|occupation_id| {
-                    deduped
-                        .iter()
-                        .position(|occupation| occupation.occupation_id == occupation_id)
-                })
+                legacy_primary_occupation_id
+                    .as_deref()
+                    .and_then(|occupation_id| {
+                        deduped
+                            .iter()
+                            .position(|occupation| occupation.occupation_id == occupation_id)
+                    })
             })
             .unwrap_or(0);
 
@@ -1236,9 +1250,20 @@ mod tests {
             .and_then(Value::as_array)
             .expect("occupation states");
         assert_eq!(states.len(), 1);
-        assert_eq!(states[0].get("occupationId").and_then(Value::as_str), Some("soldier"));
-        assert_eq!(states[0].get("unlockPointCost").and_then(Value::as_u64), Some(1));
-        assert_eq!(normalized.pointer("/progression/treeOccupationId").and_then(Value::as_str), Some("soldier"));
+        assert_eq!(
+            states[0].get("occupationId").and_then(Value::as_str),
+            Some("soldier")
+        );
+        assert_eq!(
+            states[0].get("unlockPointCost").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            normalized
+                .pointer("/progression/treeOccupationId")
+                .and_then(Value::as_str),
+            Some("soldier")
+        );
     }
 
     #[test]
@@ -1285,11 +1310,36 @@ mod tests {
             .and_then(Value::as_array)
             .expect("resolved occupations");
         assert_eq!(states.len(), 2);
-        assert_eq!(normalized.pointer("/progression/treeOccupationId").and_then(Value::as_str), Some("scout"));
-        assert_eq!(normalized.pointer("/progression/spentTalentPoints").and_then(Value::as_u64), Some(1));
-        assert_eq!(normalized.pointer("/resolvedProgression/occupationUnlockPointsSpent").and_then(Value::as_u64), Some(2));
-        assert_eq!(normalized.pointer("/resolvedProgression/occupationTalentPointsSpent").and_then(Value::as_u64), Some(3));
-        assert_eq!(normalized.pointer("/resolvedProgression/availableTalentPoints").and_then(Value::as_u64), Some(0));
+        assert_eq!(
+            normalized
+                .pointer("/progression/treeOccupationId")
+                .and_then(Value::as_str),
+            Some("scout")
+        );
+        assert_eq!(
+            normalized
+                .pointer("/progression/spentTalentPoints")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            normalized
+                .pointer("/resolvedProgression/occupationUnlockPointsSpent")
+                .and_then(Value::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            normalized
+                .pointer("/resolvedProgression/occupationTalentPointsSpent")
+                .and_then(Value::as_u64),
+            Some(3)
+        );
+        assert_eq!(
+            normalized
+                .pointer("/resolvedProgression/availableTalentPoints")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
     }
 
     #[test]

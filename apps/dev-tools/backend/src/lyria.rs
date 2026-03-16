@@ -133,12 +133,23 @@ pub fn vertex_project_id() -> Result<String, (StatusCode, String)> {
 pub fn build_song_prompt_fallback(spec: &SongPromptSpec) -> NormalizedSongPrompt {
     let cue = spec.cue_text.trim();
     let mut prompt_parts = Vec::new();
-    prompt_parts.push(format!("Instrumental {} cue", clean_phrase(&spec.category, "music")));
+    prompt_parts.push(format!(
+        "Instrumental {} cue",
+        clean_phrase(&spec.category, "music")
+    ));
     if !spec.genre.trim().is_empty() {
-        prompt_parts.push(format!("in a {}", clean_phrase(&spec.genre, "cinematic")) );
+        prompt_parts.push(format!("in a {}", clean_phrase(&spec.genre, "cinematic")));
     }
     if !spec.moods.is_empty() {
-        prompt_parts.push(format!("with {}", spec.moods.iter().map(|m| clean_phrase(m, "")).filter(|m| !m.is_empty()).collect::<Vec<_>>().join(", ")));
+        prompt_parts.push(format!(
+            "with {}",
+            spec.moods
+                .iter()
+                .map(|m| clean_phrase(m, ""))
+                .filter(|m| !m.is_empty())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
     if !spec.instrumentation.is_empty() {
         prompt_parts.push(format!(
@@ -155,13 +166,22 @@ pub fn build_song_prompt_fallback(spec: &SongPromptSpec) -> NormalizedSongPrompt
         prompt_parts.push(format!("{} tempo", clean_phrase(&spec.tempo, "medium")));
     }
     if !spec.rhythmic_feel.trim().is_empty() {
-        prompt_parts.push(format!("{} rhythmic feel", clean_phrase(&spec.rhythmic_feel, "pulse")));
+        prompt_parts.push(format!(
+            "{} rhythmic feel",
+            clean_phrase(&spec.rhythmic_feel, "pulse")
+        ));
     }
     if !spec.soundscape.trim().is_empty() {
-        prompt_parts.push(format!("immersed in {}", clean_phrase(&spec.soundscape, "")));
+        prompt_parts.push(format!(
+            "immersed in {}",
+            clean_phrase(&spec.soundscape, "")
+        ));
     }
     if !spec.production_style.trim().is_empty() {
-        prompt_parts.push(format!("{} production", clean_phrase(&spec.production_style, "clean")));
+        prompt_parts.push(format!(
+            "{} production",
+            clean_phrase(&spec.production_style, "clean")
+        ));
     }
     if !spec.global_direction.trim().is_empty() {
         prompt_parts.push(clean_phrase(&spec.global_direction, ""));
@@ -169,7 +189,8 @@ pub fn build_song_prompt_fallback(spec: &SongPromptSpec) -> NormalizedSongPrompt
     prompt_parts.push(clean_phrase(cue, "ambient game underscore"));
 
     let negative = if spec.negative_prompt.trim().is_empty() {
-        "No vocals, no lyrics, no spoken word, no announcer, no harsh clipping, no sudden ending.".to_string()
+        "No vocals, no lyrics, no spoken word, no announcer, no harsh clipping, no sudden ending."
+            .to_string()
     } else {
         format!(
             "{}, no vocals, no lyrics, no spoken word.",
@@ -234,11 +255,16 @@ pub async fn generate_music_variations(
     });
 
     if let Some(api_key) = vertex_api_key() {
-        match generate_music_variations_with_api_key(&api_key, &location, &model, &request_body).await {
+        match generate_music_variations_with_api_key(&api_key, &location, &model, &request_body)
+            .await
+        {
             Ok(payloads) => return Ok(payloads),
             Err(error) => {
                 if oauth_vertex_config_available() {
-                    warn!("VERTEX_API_KEY Lyria request failed, falling back to OAuth mode: {}", error.1);
+                    warn!(
+                        "VERTEX_API_KEY Lyria request failed, falling back to OAuth mode: {}",
+                        error.1
+                    );
                 } else {
                     return Err(error);
                 }
@@ -641,12 +667,13 @@ fn build_service_account_assertion(
         exp: now + 3600,
     };
     let header = Header::new(Algorithm::RS256);
-    let encoding_key = EncodingKey::from_rsa_pem(credentials.private_key.as_bytes()).map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Invalid service account private key: {error}"),
-        )
-    })?;
+    let encoding_key =
+        EncodingKey::from_rsa_pem(credentials.private_key.as_bytes()).map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Invalid service account private key: {error}"),
+            )
+        })?;
     encode(&header, &claims, &encoding_key).map_err(|error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -665,7 +692,12 @@ fn current_epoch_seconds() -> u64 {
 fn extract_audio_base64(value: &Value) -> Option<&str> {
     match value {
         Value::Object(map) => {
-            for key in ["audioContent", "audio_content", "bytesBase64Encoded", "bytes_base64_encoded"] {
+            for key in [
+                "audioContent",
+                "audio_content",
+                "bytesBase64Encoded",
+                "bytes_base64_encoded",
+            ] {
                 if let Some(content) = map.get(key).and_then(Value::as_str) {
                     return Some(content);
                 }
@@ -709,7 +741,9 @@ mod tests {
     #[test]
     fn fallback_prompt_builds_stable_en_us_text() {
         let normalized = build_song_prompt_fallback(&make_spec());
-        assert!(normalized.prompt_en_us.contains("Instrumental ambience cue"));
+        assert!(normalized
+            .prompt_en_us
+            .contains("Instrumental ambience cue"));
         assert!(normalized.prompt_en_us.contains("post-apocalyptic ambient"));
         assert!(normalized.negative_prompt_en_us.contains("no vocals"));
         assert!(!normalized.title.is_empty());

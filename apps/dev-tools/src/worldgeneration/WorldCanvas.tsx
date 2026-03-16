@@ -9,6 +9,7 @@ import type { WorldLocation } from "../history/locationTypes";
 import { useTrackedJobLauncher } from "../jobs/useTrackedJobLauncher";
 import { useJobs } from "../jobs/useJobs";
 import { DEVTOOLS_ROUTES } from "../lib/routes";
+import type { EcologyBundle, FaunaEntry, FloraEntry } from "../ecology/types";
 
 const API_BASE = "http://127.0.0.1:8787";
 
@@ -52,6 +53,19 @@ interface DemoTravelParsedText {
     fallback: string | null;
 }
 
+interface BriefingDisplayEntry {
+    id: string;
+    name: string;
+    description: string;
+    imageUrl: string | null;
+}
+
+interface EcologyBatchGenerationRequest {
+    prompt: string;
+    count: number;
+    biomeIds: string[];
+}
+
 const EMPTY_DEMO_TRAVEL_PANEL: DemoTravelPanelState = {
     status: "hidden",
     triggerPayload: null,
@@ -65,6 +79,129 @@ const EMPTY_DEMO_TRAVEL_PANEL: DemoTravelPanelState = {
     imageError: null,
     requestKey: null,
 };
+
+function resolveEcologyAssetUrl(worldId: string, filename?: string | null): string | null {
+    if (!filename) return null;
+    return `${API_BASE}/api/planets/${worldId}/${filename}`;
+}
+
+async function fetchEcologyBundle(worldId: string): Promise<EcologyBundle> {
+    const response = await fetch(`${API_BASE}/api/planet/ecology-data/${worldId}`);
+    if (!response.ok) {
+        throw new Error((await response.text()) || "Failed to load ecology bundle.");
+    }
+    return response.json() as Promise<EcologyBundle>;
+}
+
+async function saveEcologyBundle(worldId: string, bundle: EcologyBundle): Promise<EcologyBundle> {
+    const response = await fetch(`${API_BASE}/api/planet/ecology-data/${worldId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bundle),
+    });
+    if (!response.ok) {
+        throw new Error((await response.text()) || "Failed to save ecology bundle.");
+    }
+    return response.json() as Promise<EcologyBundle>;
+}
+
+async function generateFaunaBatch(worldId: string, request: EcologyBatchGenerationRequest): Promise<FaunaEntry[]> {
+    const response = await fetch(`${API_BASE}/api/planet/ecology-data/${worldId}/generate/fauna-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+        throw new Error((await response.text()) || "Failed to generate fauna batch.");
+    }
+    const data = await response.json() as { entries?: FaunaEntry[] };
+    return Array.isArray(data.entries) ? data.entries : [];
+}
+
+async function generateFloraBatch(worldId: string, request: EcologyBatchGenerationRequest): Promise<FloraEntry[]> {
+    const response = await fetch(`${API_BASE}/api/planet/ecology-data/${worldId}/generate/flora-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+        throw new Error((await response.text()) || "Failed to generate flora batch.");
+    }
+    const data = await response.json() as { entries?: FloraEntry[] };
+    return Array.isArray(data.entries) ? data.entries : [];
+}
+
+async function attachFaunaIllustrationBatch(
+    worldId: string,
+    faunaIds: string[],
+    batchId: string,
+    filenamesById: Record<string, string>,
+): Promise<void> {
+    if (faunaIds.length === 0) return;
+    const next = await fetchEcologyBundle(worldId);
+    next.fauna = next.fauna.map((entry) =>
+        faunaIds.includes(entry.id)
+            ? {
+                ...entry,
+                illustrationAssetBatchIds: Array.from(new Set([...(entry.illustrationAssetBatchIds ?? []), batchId])),
+                illustrationAssets: filenamesById[entry.id]
+                    ? Array.from(
+                        new Map(
+                            [...(entry.illustrationAssets ?? []), { batchId, filename: filenamesById[entry.id] }]
+                                .map((asset) => [`${asset.batchId}:${asset.filename}`, asset]),
+                        ).values(),
+                    )
+                    : (entry.illustrationAssets ?? []),
+            }
+            : entry,
+    );
+    await saveEcologyBundle(worldId, next);
+}
+
+async function attachFloraIllustrationBatch(
+    worldId: string,
+    floraIds: string[],
+    batchId: string,
+    filenamesById: Record<string, string>,
+): Promise<void> {
+    if (floraIds.length === 0) return;
+    const next = await fetchEcologyBundle(worldId);
+    next.flora = next.flora.map((entry) =>
+        floraIds.includes(entry.id)
+            ? {
+                ...entry,
+                illustrationAssetBatchIds: Array.from(new Set([...(entry.illustrationAssetBatchIds ?? []), batchId])),
+                illustrationAssets: filenamesById[entry.id]
+                    ? Array.from(
+                        new Map(
+                            [...(entry.illustrationAssets ?? []), { batchId, filename: filenamesById[entry.id] }]
+                                .map((asset) => [`${asset.batchId}:${asset.filename}`, asset]),
+                        ).values(),
+                    )
+                    : (entry.illustrationAssets ?? []),
+            }
+            : entry,
+    );
+    await saveEcologyBundle(worldId, next);
+}
+
+function mapFaunaToBriefing(entries: FaunaEntry[], worldId: string): BriefingDisplayEntry[] {
+    return entries.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        description: entry.description,
+        imageUrl: resolveEcologyAssetUrl(worldId, entry.illustrationAssets?.[0]?.filename),
+    }));
+}
+
+function mapFloraToBriefing(entries: FloraEntry[], worldId: string): BriefingDisplayEntry[] {
+    return entries.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        description: entry.description,
+        imageUrl: resolveEcologyAssetUrl(worldId, entry.illustrationAssets?.[0]?.filename),
+    }));
+}
 
 function formatBiomeLabel(cell: TerrainCell | null): string {
     if (!cell?.biome) return "Unknown biome";
@@ -330,8 +467,8 @@ export function WorldCanvas({
     // ── Briefing Panel State ──
     const [briefingOpen, setBriefingOpen] = useState(false);
     const [briefingGenerating, setBriefingGenerating] = useState(false);
-    const [briefingFauna, setBriefingFauna] = useState<Array<{ name: string; description: string; imageUrl: string | null }>>([]);
-    const [briefingFlora, setBriefingFlora] = useState<Array<{ name: string; description: string; imageUrl: string | null }>>([]);
+    const [briefingFauna, setBriefingFauna] = useState<BriefingDisplayEntry[]>([]);
+    const [briefingFlora, setBriefingFlora] = useState<BriefingDisplayEntry[]>([]);
     const [briefingLore, setBriefingLore] = useState<string | null>(null);
     const [briefingTtsUrl, setBriefingTtsUrl] = useState<string | null>(null);
     const [briefingLoreTyped, setBriefingLoreTyped] = useState("");
@@ -350,6 +487,14 @@ export function WorldCanvas({
         setDemoTravelPanelAnchor(null);
         setDemoTravelDestinationPayload(null);
         setDemoTravelPanel(EMPTY_DEMO_TRAVEL_PANEL);
+        briefingGeneratedRef.current = false;
+        setBriefingGenerating(false);
+        setBriefingOpen(false);
+        setBriefingFauna([]);
+        setBriefingFlora([]);
+        setBriefingLore(null);
+        setBriefingLoreTyped("");
+        setBriefingTtsUrl(null);
     }, []);
 
     useEffect(() => {
@@ -578,11 +723,111 @@ export function WorldCanvas({
         }
     }, [activeHistoryId, getDemoTravelCacheKey, globeWorld, launchTrackedJob, waitForJob]);
 
+    const generateBriefingFaunaIllustrations = useCallback(async (
+        worldId: string,
+        entries: FaunaEntry[],
+        bundle: EcologyBundle,
+        briefingJobId: string,
+    ) => {
+        if (entries.length === 0) return;
+        const biomeNames = new Map((bundle.biomes ?? []).map((entry) => [entry.id, entry.name]));
+        const prompts = entries.map((entry) => {
+            const biomeLabel = entry.biomeIds.map((id) => biomeNames.get(id) ?? id).join(", ");
+            return [
+                entry.name,
+                entry.category,
+                entry.description,
+                entry.earthAnalog ? `earth analog: ${entry.earthAnalog}` : "",
+                biomeLabel ? `biomes: ${biomeLabel}` : "",
+            ]
+                .filter(Boolean)
+                .join(", ");
+        });
+        const response = await fetch(`${API_BASE}/api/textures/generate-batch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                prompts,
+                stylePrompt: "cinematic environmental concept art, expedition dossier, grounded worldbuilding illustration",
+                temperature: 0.5,
+                category: "ecology_illustrations",
+                subCategory: "fauna",
+                batchName: `${worldId}-briefing-${briefingJobId}-fauna-illustrations-${Date.now()}`,
+            }),
+        });
+        if (!response.ok) {
+            throw new Error((await response.text()) || "Failed to generate fauna illustrations.");
+        }
+        const manifest = await response.json() as {
+            batchId?: string;
+            textures?: Array<{ filename?: string }>;
+        };
+        if (!manifest.batchId) {
+            throw new Error("Fauna illustration batch did not return a batch id.");
+        }
+        const filenamesById = Object.fromEntries(
+            entries.map((entry, index) => [entry.id, manifest.textures?.[index]?.filename]).filter((pair): pair is [string, string] => Boolean(pair[1])),
+        );
+        await attachFaunaIllustrationBatch(worldId, entries.map((entry) => entry.id), manifest.batchId, filenamesById);
+    }, []);
+
+    const generateBriefingFloraIllustrations = useCallback(async (
+        worldId: string,
+        entries: FloraEntry[],
+        bundle: EcologyBundle,
+        briefingJobId: string,
+    ) => {
+        if (entries.length === 0) return;
+        const biomeNames = new Map((bundle.biomes ?? []).map((entry) => [entry.id, entry.name]));
+        const prompts = entries.map((entry) => {
+            const biomeLabel = entry.biomeIds.map((id) => biomeNames.get(id) ?? id).join(", ");
+            return [
+                entry.name,
+                entry.category,
+                entry.description,
+                biomeLabel ? `biomes: ${biomeLabel}` : "",
+            ]
+                .filter(Boolean)
+                .join(", ");
+        });
+        const response = await fetch(`${API_BASE}/api/textures/generate-batch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                prompts,
+                stylePrompt: "cinematic environmental concept art, expedition dossier, grounded worldbuilding illustration",
+                temperature: 0.5,
+                category: "ecology_illustrations",
+                subCategory: "flora",
+                batchName: `${worldId}-briefing-${briefingJobId}-flora-illustrations-${Date.now()}`,
+            }),
+        });
+        if (!response.ok) {
+            throw new Error((await response.text()) || "Failed to generate flora illustrations.");
+        }
+        const manifest = await response.json() as {
+            batchId?: string;
+            textures?: Array<{ filename?: string }>;
+        };
+        if (!manifest.batchId) {
+            throw new Error("Flora illustration batch did not return a batch id.");
+        }
+        const filenamesById = Object.fromEntries(
+            entries.map((entry, index) => [entry.id, manifest.textures?.[index]?.filename]).filter((pair): pair is [string, string] => Boolean(pair[1])),
+        );
+        await attachFloraIllustrationBatch(worldId, entries.map((entry) => entry.id), manifest.batchId, filenamesById);
+    }, []);
+
     // ── Briefing Generation Pipeline ──
     const startBriefingGeneration = useCallback(async () => {
         if (!activeHistoryId || !globeWorld || briefingGeneratedRef.current) return;
         briefingGeneratedRef.current = true;
         setBriefingGenerating(true);
+        setBriefingFauna([]);
+        setBriefingFlora([]);
+        setBriefingLore(null);
+        setBriefingLoreTyped("");
+        setBriefingTtsUrl(null);
 
         const demoTravelText = parseDemoTravelTextContent(demoTravelPanel.textContent, demoTravelPanel.zoneInfo?.zoneTitle || "Travel Zone");
         const realZoneTitle = demoTravelText.title || demoTravelPanel.zoneInfo?.zoneTitle || "Travel Zone";
@@ -590,85 +835,124 @@ export function WorldCanvas({
         const terrainContext = demoTravelPanel.zoneInfo?.promptContext || `Zone: ${realZoneTitle}`;
 
         try {
-            const accepted = await launchTrackedJob<{ jobId: string }, any>({
-                url: `/api/planet/ecology-data/${activeHistoryId}/generate/briefing`,
-                request: { 
-                    zoneTitle: realZoneTitle,
-                    biomeLabel,
-                    context: terrainContext,
-                    count: 3
+            const accepted = await launchTrackedJob<{ jobId: string }, { prompt: string }>({
+                url: "/api/text/generate",
+                request: {
+                    prompt: [
+                        `Write a short, evocative mission briefing for ${realZoneTitle} (${biomeLabel}).`,
+                        "Use 3-4 sentences.",
+                        "Set the tone for an expedition and mention environmental hazards, ruins, or strange phenomena.",
+                        "Return ONLY raw text, no markdown.",
+                        `Context: ${terrainContext}`,
+                    ].join(" "),
                 },
-                optimisticJob: { 
-                    kind: "worldgen.ecology.briefing", 
-                    title: "Generate Expedition Briefing", 
-                    tool: "worldgen", 
-                    status: "queued", 
-                    currentStage: "Queued", 
-                    worldId: activeHistoryId || undefined, 
-                    metadata: { step: "DEMO_BRIEFING" } 
+                optimisticJob: {
+                    kind: "worldgen.ecology.briefing",
+                    title: "Generate Expedition Briefing",
+                    tool: "worldgen",
+                    status: "queued",
+                    currentStage: "Generating briefing lore",
+                    worldId: activeHistoryId || undefined,
+                    metadata: {
+                        step: "DEMO_BRIEFING",
+                        zoneTitle: realZoneTitle,
+                        biomeLabel,
+                        ecologySource: "bundle",
+                    },
                 },
                 restore: { route: DEVTOOLS_ROUTES.worldgen, search: { step: "DEMO_TRAVEL" }, payload: {} },
             });
 
-            const detail = await waitForJob(accepted.jobId);
-            if (detail.status === "completed" && detail.result) {
-                const result = detail.result as { lore: string; fauna: any[]; flora: any[] };
-                const loreText = result.lore;
-                const resolveImageUrl = (assets: any[]) => {
-                    if (!assets || assets.length === 0) return null;
-                    const asset = assets[0];
-                    if (asset.url) return asset.url.startsWith("http") ? asset.url : `${API_BASE}${asset.url}`;
-                    if (asset.filename) return `${API_BASE}/api/planets/${activeHistoryId}/${asset.filename}`;
-                    return null;
-                };
+            const baseBundle = await fetchEcologyBundle(activeHistoryId);
+            const faunaPrompt = [
+                "Travel destination dossier.",
+                `Zone title: ${realZoneTitle}`,
+                `Biome: ${biomeLabel}`,
+                terrainContext,
+                "Generate native fauna typical of this exact destination.",
+                "Same world, same local biome, same terrain conditions.",
+                "Grounded expedition archive tone.",
+            ].join("\n");
+            const floraPrompt = [
+                "Travel destination dossier.",
+                `Zone title: ${realZoneTitle}`,
+                `Biome: ${biomeLabel}`,
+                terrainContext,
+                "Generate native flora and fungi typical of this exact destination.",
+                "Same world, same local biome, same terrain conditions.",
+                "Grounded expedition archive tone.",
+            ].join("\n");
 
-                const faunaResults = (result.fauna || []).map((f: any) => ({ 
-                    name: f.name, 
-                    description: f.description, 
-                    imageUrl: resolveImageUrl(f.illustrationAssets) 
-                }));
-                const floraResults = (result.flora || []).map((f: any) => ({ 
-                    name: f.name, 
-                    description: f.description, 
-                    imageUrl: resolveImageUrl(f.illustrationAssets) 
-                }));
+            const loreDetailPromise = waitForJob(accepted.jobId);
+            const faunaPromise = generateFaunaBatch(activeHistoryId, { prompt: faunaPrompt, count: 3, biomeIds: [] });
+            const floraPromise = generateFloraBatch(activeHistoryId, { prompt: floraPrompt, count: 3, biomeIds: [] });
 
-                setBriefingLore(loreText);
-                setBriefingFauna(faunaResults);
-                setBriefingFlora(floraResults);
-                // Image generation skipped as it's now handled by the multimodal briefing job.
+            const [detail, faunaEntries, floraEntries] = await Promise.all([loreDetailPromise, faunaPromise, floraPromise]);
+            const loreText = detail.status === "completed"
+                ? String((detail.result as { text?: string } | undefined)?.text || "").trim()
+                : "";
 
-                // Generate TTS from a combined briefing script
-                const ttsScript = [
-                    `Mission briefing for ${realZoneTitle}.`,
-                    ...(faunaResults.length > 0 ? [`Hostile fauna detected: ${faunaResults.map((f: any) => f.name).join(", ")}.`] : []),
-                    ...(floraResults.length > 0 ? [`Notable flora identified: ${floraResults.map((f: any) => f.name).join(", ")}.`] : []),
-                    loreText || "",
-                ].filter(Boolean).join(" ");
+            await Promise.all([
+                generateBriefingFaunaIllustrations(activeHistoryId, faunaEntries, baseBundle, accepted.jobId),
+                generateBriefingFloraIllustrations(activeHistoryId, floraEntries, baseBundle, accepted.jobId),
+            ]);
 
-                if (ttsScript.length > 20) {
-                    try {
-                        const r = await fetch(`${API_BASE}/api/tts/generate`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ text: ttsScript, voiceName: "Kore" }),
-                        });
-                        if (r.ok) {
-                            const data = await r.json() as { audioUrl: string };
-                            setBriefingTtsUrl(data.audioUrl ? (data.audioUrl.startsWith("http") ? data.audioUrl : `${API_BASE}${data.audioUrl}`) : null);
-                        }
-                    } catch (err) {
-                        console.error("TTS generation failed:", err);
+            const latestBundle = await fetchEcologyBundle(activeHistoryId);
+            const latestFaunaEntries = faunaEntries
+                .map((entry) => latestBundle.fauna.find((candidate) => candidate.id === entry.id))
+                .filter((entry): entry is FaunaEntry => Boolean(entry));
+            const latestFloraEntries = floraEntries
+                .map((entry) => latestBundle.flora.find((candidate) => candidate.id === entry.id))
+                .filter((entry): entry is FloraEntry => Boolean(entry));
+
+            const faunaResults = mapFaunaToBriefing(latestFaunaEntries, activeHistoryId);
+            const floraResults = mapFloraToBriefing(latestFloraEntries, activeHistoryId);
+
+            setBriefingLore(loreText || "Scientific archive synced. Local ecology entries are now available in the field dossier.");
+            setBriefingFauna(faunaResults);
+            setBriefingFlora(floraResults);
+
+            const ttsScript = [
+                `Mission briefing for ${realZoneTitle}.`,
+                ...(faunaResults.length > 0 ? [`Hostile fauna detected: ${faunaResults.map((entry) => entry.name).join(", ")}.`] : []),
+                ...(floraResults.length > 0 ? [`Notable flora identified: ${floraResults.map((entry) => entry.name).join(", ")}.`] : []),
+                loreText || "",
+            ].filter(Boolean).join(" ");
+
+            if (ttsScript.length > 20) {
+                try {
+                    const r = await fetch(`${API_BASE}/api/tts/generate`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ text: ttsScript, voiceName: "Kore" }),
+                    });
+                    if (r.ok) {
+                        const data = await r.json() as { audioUrl: string };
+                        setBriefingTtsUrl(data.audioUrl ? (data.audioUrl.startsWith("http") ? data.audioUrl : `${API_BASE}${data.audioUrl}`) : null);
                     }
+                } catch (err) {
+                    console.error("TTS generation failed:", err);
                 }
             }
         } catch (error) {
             console.error("Briefing pipeline failed:", error);
+            briefingGeneratedRef.current = false;
             setBriefingLore("Scientific database unreachable. Mission data incomplete.");
+            setBriefingFauna([]);
+            setBriefingFlora([]);
         } finally {
             setBriefingGenerating(false);
         }
-    }, [activeHistoryId, demoTravelPanel.textContent, demoTravelPanel.zoneInfo, globeWorld, launchTrackedJob, waitForJob]);
+    }, [
+        activeHistoryId,
+        demoTravelPanel.textContent,
+        demoTravelPanel.zoneInfo,
+        globeWorld,
+        launchTrackedJob,
+        waitForJob,
+        generateBriefingFaunaIllustrations,
+        generateBriefingFloraIllustrations,
+    ]);
 
     const handleDemoTravelStartClick = useCallback(() => {
         // ZONE FREEZE: Do NOT reset the panel or regenerate the zone.
@@ -1129,18 +1413,18 @@ export function WorldCanvas({
                             </div>
 
                             <div className="relative flex-1 overflow-y-auto px-7 py-5 space-y-9 custom-scrollbar">
-                                {/* ── BESTIAIRE ── */}
+                                {/* ── Creatures ── */}
                                 <section>
                                     <div className="flex gap-6">
                                         <div className="shrink-0 w-[160px] h-[140px] rounded-[18px] border border-red-400/12 bg-[linear-gradient(135deg,rgba(239,68,68,0.08),rgba(20,10,10,0.5))] flex flex-col items-center justify-center">
                                             <svg className="w-8 h-8 text-red-400/50 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
-                                            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-red-300/70">Bestiaire</div>
+                                            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-red-300/70">Creatures</div>
                                             <div className="text-[8px] uppercase tracking-[0.15em] text-red-400/40 mt-0.5">Hostile Fauna</div>
                                         </div>
                                         <div className="flex-1 space-y-2.5">
-                                            {briefingFauna.length > 0 ? briefingFauna.map((creature, i) => (
-                                                <div key={i} className="flex gap-3 items-start rounded-xl border border-white/5 bg-white/[0.02] p-2.5 hover:bg-white/[0.04] transition-colors">
-                                                    <div className="shrink-0 w-[52px] h-[52px] rounded-lg border border-white/8 bg-black/30 overflow-hidden">
+                                            {briefingFauna.length > 0 ? briefingFauna.map((creature) => (
+                                                <div key={creature.id} className="flex gap-4 items-start rounded-xl border border-white/5 bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors">
+                                                    <div className="shrink-0 w-[76px] h-[76px] rounded-lg border border-white/8 bg-black/30 overflow-hidden">
                                                         {creature.imageUrl ? (
                                                             <img src={creature.imageUrl} alt={creature.name} className="w-full h-full object-cover" />
                                                         ) : (
@@ -1149,7 +1433,7 @@ export function WorldCanvas({
                                                     </div>
                                                     <div className="min-w-0 flex-1">
                                                         <div className="text-[11px] font-bold text-white leading-tight">{creature.name}</div>
-                                                        <div className="text-[10px] text-slate-400 leading-[1.4] mt-0.5 line-clamp-2">{creature.description}</div>
+                                                        <div className="text-[10px] text-slate-400 leading-[1.5] mt-1">{creature.description}</div>
                                                     </div>
                                                 </div>
                                             )) : (
@@ -1166,13 +1450,13 @@ export function WorldCanvas({
                                     <div className="flex gap-6">
                                         <div className="shrink-0 w-[160px] h-[140px] rounded-[18px] border border-emerald-400/12 bg-[linear-gradient(135deg,rgba(34,197,94,0.08),rgba(10,20,10,0.5))] flex flex-col items-center justify-center">
                                             <svg className="w-8 h-8 text-emerald-400/50 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
-                                            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-300/70">Flore</div>
+                                            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-300/70">Flora</div>
                                             <div className="text-[8px] uppercase tracking-[0.15em] text-emerald-400/40 mt-0.5">Native Flora</div>
                                         </div>
                                         <div className="flex-1 space-y-2.5">
-                                            {briefingFlora.length > 0 ? briefingFlora.map((plant, i) => (
-                                                <div key={i} className="flex gap-3 items-start rounded-xl border border-white/5 bg-white/[0.02] p-2.5 hover:bg-white/[0.04] transition-colors">
-                                                    <div className="shrink-0 w-[52px] h-[52px] rounded-lg border border-white/8 bg-black/30 overflow-hidden">
+                                            {briefingFlora.length > 0 ? briefingFlora.map((plant) => (
+                                                <div key={plant.id} className="flex gap-4 items-start rounded-xl border border-white/5 bg-white/[0.02] p-3 hover:bg-white/[0.04] transition-colors">
+                                                    <div className="shrink-0 w-[76px] h-[76px] rounded-lg border border-white/8 bg-black/30 overflow-hidden">
                                                         {plant.imageUrl ? (
                                                             <img src={plant.imageUrl} alt={plant.name} className="w-full h-full object-cover" />
                                                         ) : (
@@ -1181,7 +1465,7 @@ export function WorldCanvas({
                                                     </div>
                                                     <div className="min-w-0 flex-1">
                                                         <div className="text-[11px] font-bold text-white leading-tight">{plant.name}</div>
-                                                        <div className="text-[10px] text-slate-400 leading-[1.4] mt-0.5 line-clamp-2">{plant.description}</div>
+                                                        <div className="text-[10px] text-slate-400 leading-[1.5] mt-1">{plant.description}</div>
                                                     </div>
                                                 </div>
                                             )) : (
@@ -1205,9 +1489,6 @@ export function WorldCanvas({
                                                     <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-300/70">Lore</div>
                                                 </div>
                                             )}
-                                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-                                                <div className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-200/80">Zone Lore</div>
-                                            </div>
                                         </div>
                                         <div className="flex-1">
                                             {briefingLore ? (

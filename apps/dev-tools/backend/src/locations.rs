@@ -827,7 +827,6 @@ pub async fn simulate_locations(
         .collect::<Vec<_>>();
 
     mark_seats(&mut contexts);
-
     let mut preserved_locations = existing_locations
         .into_iter()
         .filter(|location| !should_replace_location(location, &resolved_province_set))

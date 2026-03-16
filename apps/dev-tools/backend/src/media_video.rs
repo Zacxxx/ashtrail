@@ -319,10 +319,7 @@ pub async fn run_interleaved_video_demo(
     })?;
     let payload = normalize_tool_payload(
         request,
-        &tool_call
-            .get("args")
-            .cloned()
-            .unwrap_or_else(|| json!({})),
+        &tool_call.get("args").cloned().unwrap_or_else(|| json!({})),
     );
     let plan = build_media_video_plan(&payload).await;
 
@@ -411,7 +408,9 @@ pub async fn run_interleaved_video_demo(
     let function_response_content = build_function_response_content(
         &tool_call_name(&tool_call),
         &artifact,
-        poster.as_ref().and_then(|_| fs::read(output_root.join("poster.png")).ok()),
+        poster
+            .as_ref()
+            .and_then(|_| fs::read(output_root.join("poster.png")).ok()),
     );
     let followup_body =
         build_followup_request(request, model_content.clone(), function_response_content);
@@ -453,8 +452,16 @@ pub async fn run_interleaved_video_demo(
     })?;
 
     Ok(MediaVideoExecution {
-        video_preview: result.artifact.video.as_ref().map(|asset| asset.url.clone()),
-        poster_preview: result.artifact.poster.as_ref().map(|asset| asset.url.clone()),
+        video_preview: result
+            .artifact
+            .video
+            .as_ref()
+            .map(|asset| asset.url.clone()),
+        poster_preview: result
+            .artifact
+            .poster
+            .as_ref()
+            .map(|asset| asset.url.clone()),
         result,
     })
 }
@@ -606,7 +613,12 @@ fn normalize_tool_payload(
     args: &Value,
 ) -> ToolExecutionPayload {
     ToolExecutionPayload {
-        prompt: pick_arg(args, "prompt", Some(request.prompt.as_str()), request.prompt.as_str()),
+        prompt: pick_arg(
+            args,
+            "prompt",
+            Some(request.prompt.as_str()),
+            request.prompt.as_str(),
+        ),
         duration_seconds: snap_duration_seconds(
             args.get("duration_seconds")
                 .and_then(Value::as_u64)
@@ -641,9 +653,24 @@ fn normalize_tool_payload(
             request.narration_intent.as_deref(),
             "introduce the scene",
         ),
-        voice_name: pick_arg(args, "voice_name", request.voice_name.as_deref(), DEFAULT_VOICE_NAME),
-        negative_prompt: pick_arg(args, "negative_prompt", request.negative_prompt.as_deref(), ""),
-        global_direction: pick_arg(args, "global_direction", request.global_direction.as_deref(), ""),
+        voice_name: pick_arg(
+            args,
+            "voice_name",
+            request.voice_name.as_deref(),
+            DEFAULT_VOICE_NAME,
+        ),
+        negative_prompt: pick_arg(
+            args,
+            "negative_prompt",
+            request.negative_prompt.as_deref(),
+            "",
+        ),
+        global_direction: pick_arg(
+            args,
+            "global_direction",
+            request.global_direction.as_deref(),
+            "",
+        ),
         keep_veo_audio: args
             .get("keep_veo_audio")
             .and_then(Value::as_bool)
@@ -735,7 +762,9 @@ fn fallback_media_video_plan(payload: &ToolExecutionPayload) -> MediaVideoPlan {
             "{}. {}. {}.",
             title,
             normalize_sentence("La nuit s'ouvre sur un affrontement fragile et brutal"),
-            normalize_sentence("Cette cinematique pose l'intention, le danger et la tension du moment")
+            normalize_sentence(
+                "Cette cinematique pose l'intention, le danger et la tension du moment"
+            )
         )
     } else {
         format!(
@@ -813,7 +842,10 @@ fn normalize_sentence(text: &str) -> String {
     }
 }
 
-fn fallback_narration_segments(script: &str, duration_seconds: u32) -> Vec<PlannedNarrationSegment> {
+fn fallback_narration_segments(
+    script: &str,
+    duration_seconds: u32,
+) -> Vec<PlannedNarrationSegment> {
     rebalance_narration_segments(
         script
             .split('.')
@@ -840,7 +872,8 @@ fn parse_media_video_plan(raw: &str, duration_seconds: u32) -> Option<MediaVideo
             .get("tags")
             .and_then(Value::as_array)
             .map(|items| {
-                items.iter()
+                items
+                    .iter()
                     .filter_map(Value::as_str)
                     .map(|value| value.trim().to_lowercase())
                     .filter(|value| !value.is_empty())
@@ -903,7 +936,8 @@ fn parse_media_video_plan(raw: &str, duration_seconds: u32) -> Option<MediaVideo
     plan.narration_script = trim_script_to_budget(&plan.narration_script, duration_seconds);
     plan.narration_segments = rebalance_narration_segments(candidate_texts, duration_seconds);
     if plan.narration_segments.is_empty() {
-        plan.narration_segments = fallback_narration_segments(&plan.narration_script, duration_seconds);
+        plan.narration_segments =
+            fallback_narration_segments(&plan.narration_script, duration_seconds);
     }
     Some(plan)
 }
@@ -1075,7 +1109,10 @@ fn select_narration_units(texts: Vec<String>, duration_seconds: u32) -> Vec<Stri
     units
 }
 
-fn rebalance_narration_segments(mut texts: Vec<String>, duration_seconds: u32) -> Vec<PlannedNarrationSegment> {
+fn rebalance_narration_segments(
+    mut texts: Vec<String>,
+    duration_seconds: u32,
+) -> Vec<PlannedNarrationSegment> {
     let total_ms = duration_seconds.saturating_mul(1000);
     if total_ms < 1200 {
         return Vec::new();
@@ -1140,9 +1177,10 @@ fn normalize_video_tags(category: &str, intent: &str, mood: &str) -> Vec<String>
             tags.push(normalized);
         }
     }
-    if !tags.iter().any(|tag| {
-        tag == "cinematic" || tag == "cutscene" || tag == "trailer" || tag == "lore"
-    }) {
+    if !tags
+        .iter()
+        .any(|tag| tag == "cinematic" || tag == "cutscene" || tag == "trailer" || tag == "lore")
+    {
         tags.push("cinematic".to_string());
     }
     tags.into_iter().take(4).collect()
@@ -1351,7 +1389,11 @@ async fn poll_veo_operation(
             ));
         }
         if operation.done.unwrap_or(false) {
-            if let Some(error) = operation.error.as_ref().and_then(|value| value.message.clone()) {
+            if let Some(error) = operation
+                .error
+                .as_ref()
+                .and_then(|value| value.message.clone())
+            {
                 return Err((StatusCode::BAD_GATEWAY, error));
             }
             return Ok(operation);
@@ -1371,8 +1413,16 @@ async fn generate_poster_asset(
     plan: &MediaVideoPlan,
     payload: &ToolExecutionPayload,
 ) -> Result<PosterGeneration, (StatusCode, String)> {
-    let cols = if payload.aspect_ratio == "9:16" { 1024 } else { 1280 };
-    let rows = if payload.aspect_ratio == "9:16" { 1792 } else { 720 };
+    let cols = if payload.aspect_ratio == "9:16" {
+        1024
+    } else {
+        1280
+    };
+    let rows = if payload.aspect_ratio == "9:16" {
+        1792
+    } else {
+        720
+    };
     let bytes = gemini::generate_image_bytes(
         &plan.poster_prompt,
         Some(0.8),
@@ -1529,7 +1579,11 @@ async fn generate_tts_segment_audio(
 
     let inline = payload
         .candidates
-        .and_then(|candidates| candidates.into_iter().find_map(|candidate| candidate.content))
+        .and_then(|candidates| {
+            candidates
+                .into_iter()
+                .find_map(|candidate| candidate.content)
+        })
         .and_then(|content| content.parts)
         .and_then(|parts| parts.into_iter().find_map(|part| part.inline_data))
         .ok_or_else(|| {
@@ -1553,8 +1607,8 @@ async fn generate_tts_segment_audio(
     } else {
         pcm_s16le_to_wav(&audio_bytes, sample_rate_hz, 1)
     };
-    let wav_bytes = trim_wav_to_duration_ms(&wav_bytes, sample_rate_hz, max_duration_ms)
-        .unwrap_or(wav_bytes);
+    let wav_bytes =
+        trim_wav_to_duration_ms(&wav_bytes, sample_rate_hz, max_duration_ms).unwrap_or(wav_bytes);
 
     let file_name = format!("seg_{:03}.wav", index);
     fs::write(output_root.join("narration").join(&file_name), wav_bytes).map_err(|error| {
@@ -1638,10 +1692,8 @@ fn trim_wav_to_duration_ms(
                 wav[chunk_data_start + 6],
                 wav[chunk_data_start + 7],
             ]);
-            block_align = u16::from_le_bytes([
-                wav[chunk_data_start + 12],
-                wav[chunk_data_start + 13],
-            ]);
+            block_align =
+                u16::from_le_bytes([wav[chunk_data_start + 12], wav[chunk_data_start + 13]]);
         } else if chunk_id == b"data" {
             data_chunk_offset = Some(cursor);
             data_chunk_size = chunk_size;
@@ -1661,8 +1713,7 @@ fn trim_wav_to_duration_ms(
         return None;
     }
 
-    let target_byte_len = ((target_ms as usize)
-        .saturating_mul(bytes_per_second))
+    let target_byte_len = ((target_ms as usize).saturating_mul(bytes_per_second))
         .saturating_div(1000)
         .min(data_chunk_size);
     let trimmed_data_len = target_byte_len - (target_byte_len % block_align as usize);
@@ -1774,8 +1825,7 @@ fn contains_thought_signature(content: &Value) -> bool {
         .and_then(Value::as_array)
         .map(|parts| {
             parts.iter().any(|part| {
-                part.get("thoughtSignature").is_some()
-                    || part.get("thought_signature").is_some()
+                part.get("thoughtSignature").is_some() || part.get("thought_signature").is_some()
             })
         })
         .unwrap_or(false)
@@ -1800,9 +1850,7 @@ fn extract_text_response(response: &Value) -> Option<String> {
 mod tests {
     use super::{
         parse_media_video_plan, pcm_s16le_to_wav, rebalance_narration_segments,
-        select_narration_units,
-        snap_duration_seconds,
-        trim_wav_to_duration_ms,
+        select_narration_units, snap_duration_seconds, trim_wav_to_duration_ms,
         validate_narration_segments, PlannedNarrationSegment,
     };
 
@@ -1862,7 +1910,11 @@ mod tests {
     #[test]
     fn trims_wav_to_segment_window() {
         let sample_rate_hz = 24_000u32;
-        let wav = pcm_s16le_to_wav(&vec![0u8; sample_rate_hz as usize * 2 * 4], sample_rate_hz, 1);
+        let wav = pcm_s16le_to_wav(
+            &vec![0u8; sample_rate_hz as usize * 2 * 4],
+            sample_rate_hz,
+            1,
+        );
         let trimmed = trim_wav_to_duration_ms(&wav, sample_rate_hz, 1500).expect("trimmed wav");
         assert!(trimmed.len() < wav.len());
         assert!(trimmed.starts_with(b"RIFF"));
@@ -1879,8 +1931,16 @@ mod tests {
             8,
         );
         assert!(segments.len() <= 2);
-        assert!(segments.last().map(|segment| segment.end_ms).unwrap_or_default() <= 8000);
-        assert!(segments.iter().all(|segment| !segment.text.trim().is_empty()));
+        assert!(
+            segments
+                .last()
+                .map(|segment| segment.end_ms)
+                .unwrap_or_default()
+                <= 8000
+        );
+        assert!(segments
+            .iter()
+            .all(|segment| !segment.text.trim().is_empty()));
     }
 
     #[test]
@@ -1892,9 +1952,12 @@ mod tests {
             ],
             8,
         );
-        assert_eq!(units, vec![
-            "On a blood-red cliff,".to_string(),
-            "a violent shove.".to_string(),
-        ]);
+        assert_eq!(
+            units,
+            vec![
+                "On a blood-red cliff,".to_string(),
+                "a violent shove.".to_string(),
+            ]
+        );
     }
 }

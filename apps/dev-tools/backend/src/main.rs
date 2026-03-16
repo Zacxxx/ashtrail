@@ -5,11 +5,15 @@ mod asset_packs;
 mod cell_analyzer;
 mod cms;
 mod combat_engine;
+mod demo_output;
 mod demo_step_one;
+mod demo_step_three;
+mod demo_step_two;
+mod demo_step_four;
 mod ecology;
-mod game_rules;
 mod exploration_engine;
 mod exploration_jobs;
+mod game_rules;
 mod gemini;
 mod generator;
 mod hierarchy;
@@ -72,6 +76,9 @@ struct AppState {
     sprites_dir: PathBuf,
     songs_dir: PathBuf,
     generated_media_dir: PathBuf,
+    demo_output_dir: PathBuf,
+    demo_step_one_use_pregenerated: bool,
+    demo_step_one_pregenerated_folder: String,
     videos_dir: PathBuf,
     generated_media_video_dir: PathBuf,
     isolated_dir: PathBuf,
@@ -204,6 +211,104 @@ pub(crate) fn build_text_output_ref(label: &str, text: &str) -> JobOutputRef {
     }
 }
 
+fn load_env_file_with_override(path: &str) {
+    let Ok(iter) = dotenv::from_path_iter(path) else {
+        return;
+    };
+
+    let mut loaded_any = false;
+    for entry in iter {
+        match entry {
+            Ok((key, value)) => {
+                std::env::set_var(key, value);
+                loaded_any = true;
+            }
+            Err(error) => {
+                warn!("failed to parse env file {}: {}", path, error);
+                return;
+            }
+        }
+    }
+
+    if loaded_any {
+        info!("loaded env overrides from {}", path);
+    }
+}
+
+fn env_flag(name: &str, default: bool) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(default)
+}
+
+fn env_string(name: &str, default: &str) -> String {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
+fn demo_output_job_dir(demo_output_dir: &std::path::Path, folder: &str) -> PathBuf {
+    demo_output_dir.join(folder)
+}
+
+fn build_demo_step_one_output_refs(result: &demo_step_one::DemoStepOneResult) -> Vec<JobOutputRef> {
+    let mut refs = vec![build_text_output_ref(
+        "World Introduction",
+        &result.artifact.lore_text,
+    )];
+    if let Some(audio) = result.artifact.audio.as_ref() {
+        refs.push(JobOutputRef {
+            id: "generated-audio".to_string(),
+            label: "Open Audio".to_string(),
+            kind: "asset".to_string(),
+            href: Some(audio.url.clone()),
+            route: None,
+            preview_text: None,
+        });
+    }
+    if let Some(image) = result.artifact.image.as_ref() {
+        refs.push(JobOutputRef {
+            id: "generated-image".to_string(),
+            label: "Open Image".to_string(),
+            kind: "asset".to_string(),
+            href: Some(image.url.clone()),
+            route: None,
+            preview_text: None,
+        });
+    }
+    refs
+}
+
+fn build_demo_step_three_output_refs(
+    artifact: &demo_step_three::PersistedDemoStepThreeArtifact,
+) -> Vec<JobOutputRef> {
+    let mut refs = vec![build_text_output_ref(
+        "Location Brief",
+        &artifact.brief_text,
+    )];
+    refs.push(JobOutputRef {
+        id: "demo-step-3-brief-image".to_string(),
+        label: "Open Location Brief Image".to_string(),
+        kind: "asset".to_string(),
+        href: Some(artifact.image.url.clone()),
+        route: None,
+        preview_text: Some(artifact.location_title.clone()),
+    });
+    refs
+}
+
+fn build_demo_step_one_selection_output_refs(
+    result: &demo_step_one::DemoStepOneSelectionResult,
+) -> Vec<JobOutputRef> {
+    vec![build_text_output_ref(
+        "Expanded World Direction",
+        &result.artifact.additional_lore_paragraphs.join("\n\n"),
+    )]
+}
+
 #[cfg(test)]
 mod job_response_tests {
     use super::{JobListItem, JobStatusResponse};
@@ -212,7 +317,11 @@ mod job_response_tests {
 
     #[test]
     fn job_responses_serialize_stage_history() {
-        let mut record = JobRecord::new("interleaved.session.v1", "Interleaved Session", "story-loop");
+        let mut record = JobRecord::new(
+            "interleaved.session.v1",
+            "Interleaved Session",
+            "story-loop",
+        );
         record.transition(JobStatus::Running, 35.0, "Generating text".to_string());
         record.output_refs = vec![JobOutputRef {
             id: "open-run".to_string(),
@@ -268,8 +377,12 @@ mod job_response_tests {
         let detail_json = serde_json::to_value(detail).expect("detail serializes");
         let list_json = serde_json::to_value(list_item).expect("list item serializes");
 
-        assert!(matches!(detail_json.get("stageHistory"), Some(Value::Array(events)) if events.len() >= 2));
-        assert!(matches!(list_json.get("stageHistory"), Some(Value::Array(events)) if events.len() >= 2));
+        assert!(
+            matches!(detail_json.get("stageHistory"), Some(Value::Array(events)) if events.len() >= 2)
+        );
+        assert!(
+            matches!(list_json.get("stageHistory"), Some(Value::Array(events)) if events.len() >= 2)
+        );
     }
 }
 
@@ -906,9 +1019,10 @@ async fn main() {
         ".env.local",
         ".env",
     ] {
-        dotenv::from_path(path).ok();
+        // Repo-local env files intentionally override inherited shell exports so
+        // stale machine-wide GCP settings do not leak into backend auth.
+        load_env_file_with_override(path);
     }
-    dotenv::dotenv().ok();
 
     // Single source of truth for all planets
     let planets_dir = PathBuf::from("generated/planets");
@@ -949,6 +1063,10 @@ async fn main() {
     std::fs::create_dir_all(&generated_media_dir)
         .expect("failed to create generated/media-audio directory");
 
+    let demo_output_dir = PathBuf::from("generated/demo-output");
+    std::fs::create_dir_all(&demo_output_dir)
+        .expect("failed to create generated/demo-output directory");
+
     let videos_dir = PathBuf::from("../../game-assets/assets/Videos");
     std::fs::create_dir_all(&videos_dir)
         .expect("failed to create game-assets/assets/Videos directory");
@@ -979,10 +1097,12 @@ async fn main() {
     if supabase.is_none() {
         warn!("Supabase storage sync disabled (missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)");
     }
-    let quest_v2_enabled = std::env::var("QUEST_V2")
-        .ok()
-        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(true);
+    let quest_v2_enabled = env_flag("QUEST_V2", true);
+    let demo_step_one_use_pregenerated = env_flag("DEMO_STEP_ONE_USE_PREGENERATED", false);
+    let demo_step_one_pregenerated_folder = env_string(
+        "DEMO_STEP_ONE_PREGENERATED_FOLDER",
+        "71d2edea-0dff-443f-b65b-a37d023f71b2",
+    );
     let jobs = Arc::new(Mutex::new(HashMap::new()));
 
     let state = AppState {
@@ -1000,6 +1120,9 @@ async fn main() {
         sprites_dir: sprites_dir.clone(),
         songs_dir: songs_dir.clone(),
         generated_media_dir: generated_media_dir.clone(),
+        demo_output_dir: demo_output_dir.clone(),
+        demo_step_one_use_pregenerated,
+        demo_step_one_pregenerated_folder,
         videos_dir: videos_dir.clone(),
         generated_media_video_dir: generated_media_video_dir.clone(),
         isolated_dir: isolated_dir.clone(),
@@ -1072,6 +1195,18 @@ async fn main() {
         .route(
             "/api/quests/advance",
             post(ai_quests::advance_quest_handler),
+        )
+        .route(
+            "/api/quests/fix-choice-labels",
+            post(ai_quests::fix_choice_labels_handler),
+        )
+        .route(
+            "/api/quests/generate-illustration",
+            post(ai_quests::generate_illustration_handler),
+        )
+        .route(
+            "/api/quests/illustrations/{illustration_id}",
+            get(ai_quests::get_illustration_handler),
         )
         .route(
             "/api/quests/jobs/{job_id}",
@@ -1279,6 +1414,45 @@ async fn main() {
         .route("/api/songs/batches/{batch_id}", get(get_song_batch))
         .route("/api/media/audio/jobs", post(start_generate_media_audio_job))
         .route("/api/demo/step-1/jobs", post(start_demo_step_one_job))
+        .route(
+            "/api/demo/step-1/selection/jobs",
+            post(start_demo_step_one_selection_job),
+        )
+        .route(
+            "/api/demo/step-2/artifact",
+            get(get_demo_step_two_artifact).post(save_demo_step_two_artifact),
+        )
+        .route(
+            "/api/demo/step-3/artifact",
+            get(get_demo_step_three_artifact),
+        )
+        .route(
+            "/api/demo/step-3/vision-coordinates",
+            get(get_demo_step_three_vision_coordinates).post(save_demo_step_three_vision_coordinates),
+        )
+        .route(
+            "/api/demo/step-4/artifact",
+            get(get_demo_step_four_artifact).post(initialize_demo_step_four_artifact_handler),
+        )
+        .route(
+            "/api/demo/step-2/weapon/jobs",
+            post(start_demo_step_two_weapon_job),
+        )
+        .route(
+            "/api/demo/step-2/voice/jobs",
+            post(start_demo_step_two_voice_job),
+        )
+        .route(
+            "/api/demo/step-2/lore-illustrations/jobs",
+            post(start_demo_step_two_lore_illustrations_job),
+        )
+        .route(
+            "/api/demo/step-2/lore-insight/jobs",
+            post(start_demo_step_two_lore_insight_job),
+        )
+        .route("/api/demo/step-3/jobs", post(start_demo_step_three_job))
+        .route("/api/demo/step-2/jobs", post(start_demo_step_two_job))
+        .route("/api/demo/ensure-final-combat", post(ensure_demo_final_combat_handler))
         .route("/api/tts/generate", post(tts::generate_tts_handler))
         .route("/api/media/video/jobs", post(start_generate_media_video_job))
         .route("/api/videos/batches", get(list_video_batches))
@@ -1424,6 +1598,11 @@ async fn main() {
         // ── Combat Engine WebSocket ──
         .route("/api/combat/ws", get(combat_engine::session::ws_handler))
         .merge(asset_packs::router())
+        // ── Specific character route (different prefix to avoid conflict) ──
+        .route(
+            "/api/world/{world_id}/character/{character_id}",
+            get(get_character_by_id),
+        )
         .nest_service("/api/planets", ServeDir::new("generated/planets"))
         .nest_service("/api/character-portraits", ServeDir::new(character_portraits_dir.clone()))
         .nest_service("/api/icons", ServeDir::new(icons_dir.clone()))
@@ -1431,6 +1610,7 @@ async fn main() {
         .nest_service("/api/sprites", ServeDir::new(sprites_dir.clone()))
         .nest_service("/api/songs", ServeDir::new(songs_dir.clone()))
         .nest_service("/api/generated-media", ServeDir::new(generated_media_dir.clone()))
+        .nest_service("/api/demo-output", ServeDir::new(demo_output_dir.clone()))
         .nest_service("/api/tts", ServeDir::new("generated/tts"))
         .nest_service("/api/videos", ServeDir::new(videos_dir.clone()))
         .nest_service(
@@ -2759,7 +2939,10 @@ async fn start_generate_media_audio_job(
             None,
         );
         let mut metadata = serde_json::Map::new();
-        metadata.insert("modality".to_string(), serde_json::Value::String("mixed".to_string()));
+        metadata.insert(
+            "modality".to_string(),
+            serde_json::Value::String("mixed".to_string()),
+        );
         metadata.insert(
             "request".to_string(),
             serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
@@ -2798,15 +2981,25 @@ async fn start_generate_media_audio_job(
         let execution = async {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.transition(JobStatus::Running, 34.0, "Waiting for functionCall".to_string());
+                    job.transition(
+                        JobStatus::Running,
+                        34.0,
+                        "Waiting for functionCall".to_string(),
+                    );
                 }
             }
 
-            let result = media_audio::run_interleaved_audio_demo(&request, &output_root, &spawned_job_id).await?;
+            let result =
+                media_audio::run_interleaved_audio_demo(&request, &output_root, &spawned_job_id)
+                    .await?;
 
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.transition(JobStatus::Running, 82.0, "Packaging enriched artifact".to_string());
+                    job.transition(
+                        JobStatus::Running,
+                        82.0,
+                        "Packaging enriched artifact".to_string(),
+                    );
                 }
             }
 
@@ -2823,7 +3016,10 @@ async fn start_generate_media_audio_job(
                     &request,
                     &mut execution,
                 ) {
-                    warn!("failed to persist media audio job {} into songs: {}", spawned_job_id, message);
+                    warn!(
+                        "failed to persist media audio job {} into songs: {}",
+                        spawned_job_id, message
+                    );
                     execution
                         .result
                         .artifact
@@ -2862,11 +3058,16 @@ async fn start_generate_media_audio_job(
                             }
                             refs
                         };
-                        if let Some(metadata) = job.metadata.as_mut().and_then(|value| value.as_object_mut()) {
+                        if let Some(metadata) = job
+                            .metadata
+                            .as_mut()
+                            .and_then(|value| value.as_object_mut())
+                        {
                             metadata.insert(
                                 "artifactStatus".to_string(),
-                                serde_json::to_value(artifact_status)
-                                    .unwrap_or_else(|_| serde_json::Value::String("error".to_string())),
+                                serde_json::to_value(artifact_status).unwrap_or_else(|_| {
+                                    serde_json::Value::String("error".to_string())
+                                }),
                             );
                             if let Some(song_clip) = execution.song_clip.as_ref() {
                                 metadata.insert(
@@ -2945,7 +3146,10 @@ async fn start_demo_step_one_job(
             None,
         );
         let mut metadata = serde_json::Map::new();
-        metadata.insert("modality".to_string(), serde_json::Value::String("mixed".to_string()));
+        metadata.insert(
+            "modality".to_string(),
+            serde_json::Value::String("mixed".to_string()),
+        );
         metadata.insert(
             "request".to_string(),
             serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
@@ -2971,7 +3175,14 @@ async fn start_demo_step_one_job(
     }
 
     let jobs = state.jobs.clone();
-    let output_root = state.generated_media_dir.join(&job_id);
+    let planets_dir = state.planets_dir.clone();
+    let output_root = demo_output_job_dir(&state.demo_output_dir, &job_id);
+    let pregenerated_root = demo_output_job_dir(
+        &state.demo_output_dir,
+        &state.demo_step_one_pregenerated_folder,
+    );
+    let pregenerated_folder = state.demo_step_one_pregenerated_folder.clone();
+    let use_pregenerated = state.demo_step_one_use_pregenerated;
     let songs_dir = state.songs_dir.clone();
     let spawned_job_id = job_id.clone();
     tokio::spawn(async move {
@@ -2983,6 +3194,93 @@ async fn start_demo_step_one_job(
                     "Opening Ashtrail demo step 1 session".to_string(),
                 );
             }
+        }
+
+        if use_pregenerated {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        62.0,
+                        "Loading pregenerated demo step 1 package".to_string(),
+                    );
+                }
+            }
+
+            match demo_step_one::load_pregenerated_demo_step_one(
+                &pregenerated_root,
+                &pregenerated_folder,
+            ) {
+                Ok(result) => {
+                    // Also create world structure in planets folder for pregenerated demo
+                    let world_id = format!("demo-{}", pregenerated_folder);
+                    if let Err(message) = demo_step_one::create_demo_world_in_planets(
+                        &planets_dir,
+                        &world_id,
+                        &result,
+                        &pregenerated_root,
+                    ) {
+                        warn!(
+                            "failed to create pregenerated demo world in planets folder {}: {}",
+                            pregenerated_folder, message
+                        );
+                    }
+                    
+                    if let Ok(mut map) = jobs.lock() {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
+                            let artifact_status = result.artifact.status.clone();
+                            job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                            job.result = serde_json::to_value(&result).ok();
+                            job.output_refs = build_demo_step_one_output_refs(&result);
+                            if let Some(metadata) = job
+                                .metadata
+                                .as_mut()
+                                .and_then(|value| value.as_object_mut())
+                            {
+                                metadata.insert(
+                                    "artifactSource".to_string(),
+                                    serde_json::Value::String("pregenerated".to_string()),
+                                );
+                                metadata.insert(
+                                    "pregeneratedFolder".to_string(),
+                                    serde_json::Value::String(pregenerated_folder.clone()),
+                                );
+                                metadata.insert(
+                                    "pregeneratedPath".to_string(),
+                                    serde_json::Value::String(
+                                        pregenerated_root.to_string_lossy().to_string(),
+                                    ),
+                                );
+                                metadata.insert(
+                                    "artifactStatus".to_string(),
+                                    serde_json::to_value(artifact_status).unwrap_or_else(|_| {
+                                        serde_json::Value::String("error".to_string())
+                                    }),
+                                );
+                                metadata.insert(
+                                    "worldTitle".to_string(),
+                                    serde_json::Value::String(
+                                        result.artifact.metadata.title.clone(),
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(message) => {
+                    if let Ok(mut map) = jobs.lock() {
+                        if let Some(job) = map.get_mut(&spawned_job_id) {
+                            job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                            job.error = Some(message.clone());
+                            job.result = serde_json::to_value(
+                                demo_step_one::build_demo_step_one_error_result(&message),
+                            )
+                            .ok();
+                        }
+                    }
+                }
+            }
+            return;
         }
 
         let execution = async {
@@ -3022,54 +3320,84 @@ async fn start_demo_step_one_job(
                     &execution.request,
                     &mut execution.base_execution,
                 ) {
-                    warn!("failed to persist demo step 1 job {} into songs: {}", spawned_job_id, message);
-                    execution.result.artifact.warnings.push(format!("Song persistence failed: {message}"));
+                    warn!(
+                        "failed to persist demo step 1 job {} into songs: {}",
+                        spawned_job_id, message
+                    );
+                    execution
+                        .result
+                        .artifact
+                        .warnings
+                        .push(format!("Song persistence failed: {message}"));
                 }
-                execution.result.artifact.audio = execution.base_execution.result.artifact.audio.clone();
-                execution.result.artifact.image = execution.base_execution.result.artifact.image.clone();
-                execution.result.artifact.metadata = execution.base_execution.result.artifact.metadata.clone();
+                execution.result.artifact.audio =
+                    execution.base_execution.result.artifact.audio.clone();
+                execution.result.artifact.image =
+                    execution.base_execution.result.artifact.image.clone();
+                demo_step_one::rewrite_demo_step_one_asset_urls(
+                    &mut execution.result,
+                    &spawned_job_id,
+                );
+                if let Err(message) =
+                    demo_step_one::persist_demo_step_one_result(&output_root, &execution.result)
+                {
+                    warn!(
+                        "failed to persist demo step 1 artifact {}: {}",
+                        spawned_job_id, message
+                    );
+                    execution.result.artifact.warnings.push(message);
+                }
+                
+                // Also create world structure in planets folder
+                let world_id = format!("demo-{}", spawned_job_id);
+                if let Err(message) = demo_step_one::create_demo_world_in_planets(
+                    &planets_dir,
+                    &world_id,
+                    &execution.result,
+                    &output_root,
+                ) {
+                    warn!(
+                        "failed to create demo world in planets folder {}: {}",
+                        spawned_job_id, message
+                    );
+                }
 
                 if let Ok(mut map) = jobs.lock() {
                     if let Some(job) = map.get_mut(&spawned_job_id) {
                         let artifact_status = execution.result.artifact.status.clone();
                         job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
                         job.result = serde_json::to_value(&execution.result).ok();
-                        job.output_refs = {
-                            let mut refs = vec![build_text_output_ref(
-                                "World Introduction",
-                                &execution.result.artifact.lore_text,
-                            )];
-                            if let Some(audio_url) = execution.base_execution.audio_preview.clone() {
-                                refs.push(JobOutputRef {
-                                    id: "generated-audio".to_string(),
-                                    label: "Open Audio".to_string(),
-                                    kind: "asset".to_string(),
-                                    href: Some(audio_url),
-                                    route: None,
-                                    preview_text: None,
-                                });
-                            }
-                            if let Some(image_url) = execution.base_execution.image_preview.clone() {
-                                refs.push(JobOutputRef {
-                                    id: "generated-image".to_string(),
-                                    label: "Open Image".to_string(),
-                                    kind: "asset".to_string(),
-                                    href: Some(image_url),
-                                    route: None,
-                                    preview_text: None,
-                                });
-                            }
-                            refs
-                        };
-                        if let Some(metadata) = job.metadata.as_mut().and_then(|value| value.as_object_mut()) {
+                        job.output_refs = build_demo_step_one_output_refs(&execution.result);
+                        if let Some(metadata) = job
+                            .metadata
+                            .as_mut()
+                            .and_then(|value| value.as_object_mut())
+                        {
+                            metadata.insert(
+                                "artifactSource".to_string(),
+                                serde_json::Value::String("live".to_string()),
+                            );
+                            metadata.insert(
+                                "artifactFolder".to_string(),
+                                serde_json::Value::String(spawned_job_id.clone()),
+                            );
+                            metadata.insert(
+                                "artifactPath".to_string(),
+                                serde_json::Value::String(
+                                    output_root.to_string_lossy().to_string(),
+                                ),
+                            );
                             metadata.insert(
                                 "artifactStatus".to_string(),
-                                serde_json::to_value(artifact_status)
-                                    .unwrap_or_else(|_| serde_json::Value::String("error".to_string())),
+                                serde_json::to_value(artifact_status).unwrap_or_else(|_| {
+                                    serde_json::Value::String("error".to_string())
+                                }),
                             );
                             metadata.insert(
                                 "worldTitle".to_string(),
-                                serde_json::Value::String(execution.result.artifact.metadata.title.clone()),
+                                serde_json::Value::String(
+                                    execution.result.artifact.metadata.title.clone(),
+                                ),
                             );
                             if let Some(song_clip) = execution.base_execution.song_clip.as_ref() {
                                 metadata.insert(
@@ -3086,9 +3414,937 @@ async fn start_demo_step_one_job(
                     if let Some(job) = map.get_mut(&spawned_job_id) {
                         job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
                         job.error = Some(message.clone());
-                        job.result =
-                            serde_json::to_value(demo_step_one::build_demo_step_one_error_result(&message))
-                                .ok();
+                        job.result = serde_json::to_value(
+                            demo_step_one::build_demo_step_one_error_result(&message),
+                        )
+                        .ok();
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_one_selection_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_one::DemoStepOneSelectionRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step1.selection.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Expand Demo Step 1 World Direction"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step1.selection"),
+            "Queued",
+            None,
+            None,
+        );
+        job.parent_job_id = Some(request.source_job_id.clone());
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "modality".to_string(),
+            serde_json::Value::String("text".to_string()),
+        );
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "logicalToolName".to_string(),
+            serde_json::Value::String("demo.step1.selection".to_string()),
+        );
+        metadata.insert(
+            "demoStep".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1)),
+        );
+        metadata.insert(
+            "selectedOptionTitle".to_string(),
+            serde_json::Value::String(request.option_title.clone()),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_output_job_dir(&state.demo_output_dir, &job_id);
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    18.0,
+                    "Interpreting chosen world direction".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            let result = demo_step_one::run_demo_step_one_selection(&request, &output_root).await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        86.0,
+                        "Packaging expanded world lore".to_string(),
+                    );
+                }
+            }
+
+            Ok::<demo_step_one::DemoStepOneSelectionResult, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = build_demo_step_one_selection_output_refs(&result);
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message.clone());
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoGenerateRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.interleaved.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.interleaved"),
+            "Queued",
+            request.world_id.clone(),
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "modality".to_string(),
+            serde_json::Value::String("mixed".to_string()),
+        );
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "logicalToolName".to_string(),
+            serde_json::Value::String("demo.step2.interleaved".to_string()),
+        );
+        metadata.insert(
+            "demoStep".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(2)),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let state_for_job = state.clone();
+    let output_root = demo_output_job_dir(&state.demo_output_dir, &job_id);
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    12.0,
+                    "Opening Ashtrail demo step 2 session".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        38.0,
+                        "Generating interleaved hero package".to_string(),
+                    );
+                }
+            }
+
+            let result = demo_step_two::run_demo_step_two(
+                &state_for_job,
+                &request,
+                &output_root,
+                &spawned_job_id,
+            )
+            .await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        86.0,
+                        "Packaging demo step 2 outputs".to_string(),
+                    );
+                }
+            }
+
+            Ok::<demo_step_two::DemoStepTwoExecution, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(execution) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&execution.result).ok();
+                        job.output_refs = {
+                            let mut refs = vec![build_text_output_ref(
+                                "Hero Lore",
+                                &execution.result.artifact.character.lore_text,
+                            )];
+                            if let Some(portrait) = execution.result.artifact.portrait.as_ref() {
+                                refs.push(JobOutputRef {
+                                    id: "demo-step-2-portrait".to_string(),
+                                    label: "Open Portrait".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(portrait.url.clone()),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            if let Some(voice) = execution.result.artifact.voice.as_ref() {
+                                refs.push(JobOutputRef {
+                                    id: "demo-step-2-voice".to_string(),
+                                    label: "Open Voice".to_string(),
+                                    kind: "asset".to_string(),
+                                    href: Some(voice.url.clone()),
+                                    route: None,
+                                    preview_text: None,
+                                });
+                            }
+                            refs
+                        };
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message.clone());
+                        job.result = serde_json::to_value(
+                            demo_step_two::build_demo_step_two_error_result(&request, &message),
+                        )
+                        .ok();
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn get_demo_step_two_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_two::DemoStepTwoArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_two::load_persisted_demo_step_two_artifact(&state, &query)?;
+    Ok(Json(artifact))
+}
+
+async fn save_demo_step_two_artifact(
+    State(state): State<AppState>,
+    Json(payload): Json<demo_step_two::PersistDemoStepTwoArtifactRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_two::persist_demo_step_two_artifact_for_demo(&state, &payload)?;
+    
+    // Also save to planets folder
+    if let Some(step_one_job_id) = &payload.step_one_job_id {
+        let world_id = format!("demo-{}", step_one_job_id);
+        if let Err(e) = demo_step_two::save_demo_character_to_planets(
+            &state.planets_dir,
+            &world_id,
+            &artifact,
+            step_one_job_id,
+        ) {
+            eprintln!("Warning: Failed to save character to planets folder: {:?}", e);
+        }
+    }
+    
+    Ok(Json(artifact))
+}
+
+async fn get_demo_step_three_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_three::DemoStepThreeArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_three::load_persisted_demo_step_three_artifact(&state, &query)?;
+    Ok(Json(artifact))
+}
+
+async fn get_demo_step_three_vision_coordinates(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_three::DemoStepThreeArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let coordinates = demo_step_three::load_vision_coordinates(
+        &state,
+        query.step_one_job_id.as_deref(),
+        query.hero.as_deref(),
+    )
+    .ok_or_else(|| (StatusCode::NOT_FOUND, "Vision coordinates not found".to_string()))?;
+    Ok(Json(coordinates))
+}
+
+async fn save_demo_step_three_vision_coordinates(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_three::DemoStepThreeArtifactQuery>,
+    Json(coordinates): Json<demo_step_three::PersistedVisionCoordinates>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    demo_step_three::save_vision_coordinates(
+        &state,
+        query.step_one_job_id.as_deref(),
+        query.hero.as_deref(),
+        &coordinates,
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(coordinates))
+}
+
+async fn get_demo_step_four_artifact(
+    State(state): State<AppState>,
+    Query(query): Query<demo_step_four::DemoStepFourArtifactQuery>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let artifact = demo_step_four::load_persisted_demo_step_four_artifact(&state, &query)?;
+    Ok(Json(artifact))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InitializeDemoStepFourRequest {
+    step_one_job_id: Option<String>,
+    hero_variant: String,
+    location_id: String,
+    location_title: String,
+    world_title: String,
+    #[serde(default)]
+    quest_run_id: Option<String>,
+}
+
+async fn initialize_demo_step_four_artifact_handler(
+    State(state): State<AppState>,
+    Json(request): Json<InitializeDemoStepFourRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // If quest_run_id is provided, update existing artifact
+    if let Some(quest_run_id) = request.quest_run_id {
+        let query = demo_step_four::DemoStepFourArtifactQuery {
+            step_one_job_id: request.step_one_job_id.clone(),
+            hero: Some(request.hero_variant.clone()),
+            location_id: Some(request.location_id.clone()),
+        };
+        
+        if let Ok(mut artifact) = demo_step_four::load_persisted_demo_step_four_artifact(&state, &query) {
+            artifact.quest_run_id = Some(quest_run_id);
+            demo_step_four::save_demo_step_four_artifact(
+                &state,
+                request.step_one_job_id.as_deref(),
+                &request.hero_variant,
+                &request.location_id,
+                &artifact,
+            )?;
+            return Ok(Json(artifact));
+        }
+    }
+    
+    // Otherwise initialize new artifact
+    let artifact = demo_step_four::initialize_demo_step_four_quest(
+        &state,
+        request.step_one_job_id.as_deref(),
+        &request.hero_variant,
+        &request.location_id,
+        &request.location_title,
+        &request.world_title,
+    )
+    .await?;
+    Ok(Json(artifact))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EnsureFinalCombatRequest {
+    world_id: String,
+    run_id: String,
+}
+
+async fn ensure_demo_final_combat_handler(
+    State(state): State<AppState>,
+    Json(request): Json<EnsureFinalCombatRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    demo_step_four::ensure_demo_quest_has_final_combat(&state, &request.world_id, &request.run_id).await?;
+    Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))))
+}
+
+async fn start_demo_step_two_weapon_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoWeaponJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.weapon.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Weapon"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.weapon"),
+            "Queued",
+            request.world_id.clone(),
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_weapon_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    24.0,
+                    "Designing weapon package".to_string(),
+                );
+            }
+        }
+
+        let execution = demo_step_two::run_demo_step_two_weapon(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = vec![
+                            build_text_output_ref("Weapon Lore", &result.artifact.lore_text),
+                            JobOutputRef {
+                                id: "demo-step-2-weapon-image".to_string(),
+                                label: "Open Weapon Illustration".to_string(),
+                                kind: "asset".to_string(),
+                                href: Some(result.artifact.image.url.clone()),
+                                route: None,
+                                preview_text: None,
+                            },
+                        ];
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_three_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_three::DemoStepThreeGenerateRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step3.location.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 3 Location"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step3.location"),
+            "Queued",
+            request.world_id.clone(),
+            request.step_one_job_id.clone(),
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        metadata.insert(
+            "demoStep".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(3)),
+        );
+        metadata.insert(
+            "heroVariant".to_string(),
+            serde_json::Value::String(request.hero_variant.clone()),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let state_for_task = state.clone();
+    let output_root = demo_step_three::demo_step_three_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+        Some(request.location_hint.node_id.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    18.0,
+                    "Resolving persisted demo context".to_string(),
+                );
+            }
+        }
+
+        let execution = async {
+            let result =
+                demo_step_three::run_demo_step_three(&state_for_task, &request, &output_root)
+                    .await?;
+
+            if let Ok(mut map) = jobs.lock() {
+                if let Some(job) = map.get_mut(&spawned_job_id) {
+                    job.transition(
+                        JobStatus::Running,
+                        86.0,
+                        "Persisting location brief".to_string(),
+                    );
+                }
+            }
+
+            Ok::<demo_step_three::DemoStepThreeResult, (StatusCode, String)>(result)
+        }
+        .await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = build_demo_step_three_output_refs(&result.artifact);
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_voice_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoVoiceJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.voice.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Voice"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.voice"),
+            "Queued",
+            request.world_id.clone(),
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_voice_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    35.0,
+                    "Voicing generated lore".to_string(),
+                );
+            }
+        }
+
+        let execution = demo_step_two::run_demo_step_two_voice(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = vec![JobOutputRef {
+                            id: "demo-step-2-voice".to_string(),
+                            label: "Open Voice".to_string(),
+                            kind: "asset".to_string(),
+                            href: Some(result.voice.url.clone()),
+                            route: None,
+                            preview_text: None,
+                        }];
+                    }
+                }
+            }
+            Err((status, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(format!("{}: {}", status, message));
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_lore_illustrations_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoLoreIllustrationsJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.lore-illustrations.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Lore Illustrations"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.lore-illustrations"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_lore_illustration_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    28.0,
+                    "Painting lore illustrations".to_string(),
+                );
+            }
+        }
+
+        let execution =
+            demo_step_two::run_demo_step_two_lore_illustrations(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = result
+                            .illustrations
+                            .iter()
+                            .enumerate()
+                            .map(|(index, illustration)| JobOutputRef {
+                                id: format!("demo-step-2-lore-illustration-{index}"),
+                                label: format!("Open Lore Illustration {}", index + 1),
+                                kind: "asset".to_string(),
+                                href: Some(illustration.image.url.clone()),
+                                route: None,
+                                preview_text: None,
+                            })
+                            .collect();
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
+                    }
+                }
+            }
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(StartJobResponse { job_id })))
+}
+
+async fn start_demo_step_two_lore_insight_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<demo_step_two::DemoStepTwoLoreInsightJobRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let meta = parse_tracked_job_meta(&headers);
+    let job_id = Uuid::new_v4().to_string();
+    {
+        let mut jobs = state.jobs.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
+        })?;
+        let mut job = make_job_record(
+            meta.as_ref()
+                .and_then(|value| value.kind.as_deref())
+                .unwrap_or("demo.step2.lore-insight.v1"),
+            meta.as_ref()
+                .and_then(|value| value.title.as_deref())
+                .unwrap_or("Generate Demo Step 2 Lore Insight"),
+            meta.as_ref()
+                .and_then(|value| value.tool.as_deref())
+                .unwrap_or("demo.step2.lore-insight"),
+            "Queued",
+            None,
+            None,
+        );
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "request".to_string(),
+            serde_json::to_value(&request).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        if let Some(meta) = meta {
+            if let Some(restore) = meta.restore {
+                metadata.insert("restore".to_string(), restore);
+            }
+            if let Some(extra) = meta.metadata {
+                metadata.insert("metadata".to_string(), extra);
+            }
+        }
+        job.metadata = Some(serde_json::Value::Object(metadata));
+        jobs.insert(job_id.clone(), job);
+    }
+
+    let jobs = state.jobs.clone();
+    let output_root = demo_step_two::demo_step_two_lore_insight_output_root(
+        &state,
+        request.step_one_job_id.as_deref(),
+        Some(request.hero_variant.as_str()),
+    );
+    let spawned_job_id = job_id.clone();
+    tokio::spawn(async move {
+        if let Ok(mut map) = jobs.lock() {
+            if let Some(job) = map.get_mut(&spawned_job_id) {
+                job.transition(
+                    JobStatus::Running,
+                    26.0,
+                    "Interpreting highlighted lore term".to_string(),
+                );
+            }
+        }
+
+        let execution = demo_step_two::run_demo_step_two_lore_insight(&request, &output_root).await;
+
+        match execution {
+            Ok(result) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Completed, 100.0, "Completed".to_string());
+                        job.result = serde_json::to_value(&result).ok();
+                        job.output_refs = vec![
+                            build_text_output_ref("Lore Insight", &result.artifact.explanation),
+                            JobOutputRef {
+                                id: "demo-step-2-lore-insight-image".to_string(),
+                                label: "Open Lore Insight Illustration".to_string(),
+                                kind: "asset".to_string(),
+                                href: Some(result.artifact.image.url.clone()),
+                                route: None,
+                                preview_text: None,
+                            },
+                        ];
+                    }
+                }
+            }
+            Err((_code, message)) => {
+                if let Ok(mut map) = jobs.lock() {
+                    if let Some(job) = map.get_mut(&spawned_job_id) {
+                        job.transition(JobStatus::Failed, 100.0, "Failed".to_string());
+                        job.error = Some(message);
                     }
                 }
             }
@@ -3116,7 +4372,8 @@ fn persist_generated_media_audio_song(
         format!("{}_{}", slug, &job_id[..8.min(job_id.len())])
     };
     let batch_dir = songs_dir.join(&batch_id);
-    std::fs::create_dir_all(&batch_dir).map_err(|error| format!("create song batch dir: {error}"))?;
+    std::fs::create_dir_all(&batch_dir)
+        .map_err(|error| format!("create song batch dir: {error}"))?;
 
     let audio_source = output_root.join("audio.wav");
     if !audio_source.exists() {
@@ -3124,7 +4381,8 @@ fn persist_generated_media_audio_song(
     }
     let audio_filename = "000_v01.wav".to_string();
     let audio_target = batch_dir.join(&audio_filename);
-    std::fs::copy(&audio_source, &audio_target).map_err(|error| format!("copy generated audio: {error}"))?;
+    std::fs::copy(&audio_source, &audio_target)
+        .map_err(|error| format!("copy generated audio: {error}"))?;
 
     let mut image_url = None;
     let image_source = output_root.join("image.png");
@@ -3209,8 +4467,8 @@ fn persist_generated_media_audio_song(
         }],
     };
 
-    let manifest_json =
-        serde_json::to_string_pretty(&manifest).map_err(|error| format!("serialize song manifest: {error}"))?;
+    let manifest_json = serde_json::to_string_pretty(&manifest)
+        .map_err(|error| format!("serialize song manifest: {error}"))?;
     std::fs::write(batch_dir.join("manifest.json"), manifest_json)
         .map_err(|error| format!("write song manifest: {error}"))?;
 
@@ -3219,17 +4477,30 @@ fn persist_generated_media_audio_song(
         audio.mime_type = song_clip.mime_type.clone();
         audio.duration_seconds = song_clip.duration_seconds.round().max(1.0) as u32;
     }
-    execution.audio_preview = execution.result.artifact.audio.as_ref().map(|audio| audio.url.clone());
+    execution.audio_preview = execution
+        .result
+        .artifact
+        .audio
+        .as_ref()
+        .map(|audio| audio.url.clone());
 
     if let Some(image) = execution.result.artifact.image.as_mut() {
         if let Some(url) = image_url.clone() {
             image.url = url;
         }
     }
-    execution.image_preview = execution.result.artifact.image.as_ref().map(|image| image.url.clone());
+    execution.image_preview = execution
+        .result
+        .artifact
+        .image
+        .as_ref()
+        .map(|image| image.url.clone());
 
     if let Some(metadata) = execution.result.transcript.tool_arguments.as_object_mut() {
-        metadata.insert("persistedSongBatchId".to_string(), serde_json::Value::String(batch_id));
+        metadata.insert(
+            "persistedSongBatchId".to_string(),
+            serde_json::Value::String(batch_id),
+        );
         metadata.insert(
             "persistedSongPath".to_string(),
             serde_json::Value::String(audio_target.to_string_lossy().to_string()),
@@ -3238,8 +4509,11 @@ fn persist_generated_media_audio_song(
 
     let artifact_json = serde_json::to_string_pretty(&execution.result)
         .map_err(|error| format!("serialize generated media artifact: {error}"))?;
-    std::fs::write(batch_dir.join("generated_media_artifact.json"), artifact_json)
-        .map_err(|error| format!("write generated media artifact: {error}"))?;
+    std::fs::write(
+        batch_dir.join("generated_media_artifact.json"),
+        artifact_json,
+    )
+    .map_err(|error| format!("write generated media artifact: {error}"))?;
 
     Ok(())
 }
@@ -3624,7 +4898,10 @@ fn infer_media_song_tempo(request: &media_audio::GenerateMediaAudioRequest) -> S
     .to_lowercase();
     if haystack.contains("combat") || haystack.contains("battle") || haystack.contains("raid") {
         "fast".to_string()
-    } else if haystack.contains("night") || haystack.contains("ambience") || haystack.contains("ambient") {
+    } else if haystack.contains("night")
+        || haystack.contains("ambience")
+        || haystack.contains("ambient")
+    {
         "slow".to_string()
     } else {
         "medium".to_string()
@@ -3652,14 +4929,21 @@ fn infer_media_song_rhythmic_feel(request: &media_audio::GenerateMediaAudioReque
 
 #[cfg(test)]
 mod media_audio_persistence_tests {
-    use super::{infer_media_song_rhythmic_feel, infer_media_song_tempo, persist_generated_media_audio_song};
+    use super::{
+        demo_output_job_dir, infer_media_song_rhythmic_feel, infer_media_song_tempo,
+        persist_generated_media_audio_song,
+    };
     use crate::media_audio::{
         GenerateMediaAudioRequest, GeneratedMediaAudioArtifact, GeneratedMediaAudioAsset,
         GeneratedMediaAudioResult, GeneratedMediaImageAsset, GeneratedMediaMetadata,
-        GeneratedMediaStatus, InterleavedTranscript, MediaAudioExecution, MediaAudioSongClipDetails,
+        GeneratedMediaStatus, InterleavedTranscript, MediaAudioExecution,
+        MediaAudioSongClipDetails,
     };
     use serde_json::json;
-    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn persists_generated_media_audio_into_song_batch_manifest() {
@@ -3729,8 +5013,14 @@ mod media_audio_persistence_tests {
             }),
         };
 
-        persist_generated_media_audio_song(&songs_dir, "job-1234-abcdef", &output_root, &request, &mut execution)
-            .expect("persisted");
+        persist_generated_media_audio_song(
+            &songs_dir,
+            "job-1234-abcdef",
+            &output_root,
+            &request,
+            &mut execution,
+        )
+        .expect("persisted");
 
         let entries = fs::read_dir(&songs_dir)
             .expect("read songs dir")
@@ -3739,13 +5029,26 @@ mod media_audio_persistence_tests {
         assert_eq!(entries.len(), 1);
         let batch_dir = &entries[0];
         let manifest = fs::read_to_string(batch_dir.join("manifest.json")).expect("manifest");
-        let manifest_json: serde_json::Value = serde_json::from_str(&manifest).expect("manifest json");
-        assert_eq!(manifest_json["clips"][0]["url"], json!(execution.audio_preview.clone().expect("audio preview")));
+        let manifest_json: serde_json::Value =
+            serde_json::from_str(&manifest).expect("manifest json");
+        assert_eq!(
+            manifest_json["clips"][0]["url"],
+            json!(execution.audio_preview.clone().expect("audio preview"))
+        );
         assert!(batch_dir.join("000_v01.wav").exists());
         assert!(batch_dir.join("preview.png").exists());
         assert!(batch_dir.join("generated_media_artifact.json").exists());
         assert_eq!(infer_media_song_tempo(&request), "fast");
         assert_eq!(infer_media_song_rhythmic_feel(&request), "driving");
+    }
+
+    #[test]
+    fn demo_output_job_dir_uses_demo_output_root() {
+        let path = demo_output_job_dir(std::path::Path::new("generated/demo-output"), "job-1234");
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("generated/demo-output").join("job-1234")
+        );
     }
 }
 
@@ -3767,10 +5070,7 @@ mod media_video_persistence_tests {
         collections::HashMap,
         fs,
         path::PathBuf,
-        sync::{
-            atomic::AtomicUsize,
-            Arc, Mutex,
-        },
+        sync::{atomic::AtomicUsize, Arc, Mutex},
         time::{SystemTime, UNIX_EPOCH},
     };
     use tokio::sync::Semaphore;
@@ -3802,6 +5102,9 @@ mod media_video_persistence_tests {
             generated_media_video_dir: root.join("generated").join("media-video"),
             isolated_dir: root.join("Isolated"),
             packs_dir: root.join("Packs"),
+            demo_output_dir: root.join("generated").join("demo-output"),
+            demo_step_one_use_pregenerated: false,
+            demo_step_one_pregenerated_folder: "pregenerated".to_string(),
             refine_limiter: limiter,
             supabase: None,
         }
@@ -5775,6 +7078,29 @@ async fn get_characters(
         }
     }
     (StatusCode::OK, Json(serde_json::json!([]))).into_response()
+}
+
+async fn get_character_by_id(
+    State(state): State<AppState>,
+    Path((world_id, character_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let file_path = state
+        .planets_dir
+        .join(&world_id)
+        .join("characters")
+        .join(format!("{}.json", character_id));
+    
+    if let Ok(data) = std::fs::read_to_string(&file_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+            return (StatusCode::OK, Json(json)).into_response();
+        }
+    }
+    
+    (
+        StatusCode::NOT_FOUND,
+        format!("Character {} not found in world {}", character_id, world_id),
+    )
+        .into_response()
 }
 
 async fn save_characters(
@@ -8074,7 +9400,8 @@ async fn generate_song_batch(
             negative_prompt: request.negative_prompt.clone().unwrap_or_default(),
         };
         let normalized = lyria::normalize_song_prompt(&spec).await;
-        let variants = lyria::generate_music_variations(&normalized, variation_count as usize).await?;
+        let variants =
+            lyria::generate_music_variations(&normalized, variation_count as usize).await?;
 
         for (variant_index, payload) in variants.into_iter().enumerate() {
             let filename = format!("{:03}_v{:02}.wav", cue_index, variant_index + 1);
@@ -9318,11 +10645,7 @@ fn local_to_cloud_key(
         ));
     }
     if let Ok(rel) = local_path.strip_prefix(&state.sprites_dir) {
-        return Some(format!(
-            "{}/sprites/{}",
-            cfg.prefix,
-            normalize_slashes(rel)
-        ));
+        return Some(format!("{}/sprites/{}", cfg.prefix, normalize_slashes(rel)));
     }
     if let Ok(rel) = local_path.strip_prefix(&state.songs_dir) {
         return Some(format!("{}/songs/{}", cfg.prefix, normalize_slashes(rel)));
@@ -9396,7 +10719,10 @@ fn remote_updated_at(updated_at: Option<&str>) -> Option<chrono::DateTime<chrono
 }
 
 fn supabase_public_url(cfg: &SupabaseStorageConfig, key: &str) -> String {
-    format!("{}/storage/v1/object/public/{}/{}", cfg.url, cfg.bucket, key)
+    format!(
+        "{}/storage/v1/object/public/{}/{}",
+        cfg.url, cfg.bucket, key
+    )
 }
 
 fn build_supabase_client(timeout_secs: u64) -> reqwest::Client {
@@ -9547,7 +10873,11 @@ fn sort_inventory_items(items: &mut [GalleryInventoryItem]) {
     });
 }
 
-fn parse_api_asset_path(url: &str, asset_root: &str, base_dir: &std::path::Path) -> Option<PathBuf> {
+fn parse_api_asset_path(
+    url: &str,
+    asset_root: &str,
+    base_dir: &std::path::Path,
+) -> Option<PathBuf> {
     let cleaned = url.split('?').next()?.trim_matches('/');
     let parts = cleaned.split('/').collect::<Vec<_>>();
     if parts.len() < 4 || parts[0] != "api" || parts[1] != asset_root {
@@ -9660,7 +10990,14 @@ fn load_local_icon_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
             };
             for icon in manifest.icons {
                 let local_path = parse_api_asset_path(&icon.url, "icons", &state.icons_dir)
-                    .or_else(|| Some(state.icons_dir.join(&manifest.batch_id).join(&icon.filename)));
+                    .or_else(|| {
+                        Some(
+                            state
+                                .icons_dir
+                                .join(&manifest.batch_id)
+                                .join(&icon.filename),
+                        )
+                    });
                 drafts.push(GalleryInventoryDraft {
                     tab: "icons",
                     item: build_gallery_item(
@@ -9706,8 +11043,17 @@ fn load_local_texture_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
                 continue;
             };
             for texture in manifest.textures {
-                let local_path = parse_api_asset_path(&texture.url, "textures", &state.textures_dir)
-                    .or_else(|| Some(state.textures_dir.join(&manifest.batch_id).join(&texture.filename)));
+                let local_path =
+                    parse_api_asset_path(&texture.url, "textures", &state.textures_dir).or_else(
+                        || {
+                            Some(
+                                state
+                                    .textures_dir
+                                    .join(&manifest.batch_id)
+                                    .join(&texture.filename),
+                            )
+                        },
+                    );
                 drafts.push(GalleryInventoryDraft {
                     tab: "textures",
                     item: build_gallery_item(
@@ -9807,7 +11153,14 @@ fn load_local_song_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
             };
             for clip in manifest.clips {
                 let local_path = parse_api_asset_path(&clip.url, "songs", &state.songs_dir)
-                    .or_else(|| Some(state.songs_dir.join(&manifest.batch_id).join(&clip.filename)));
+                    .or_else(|| {
+                        Some(
+                            state
+                                .songs_dir
+                                .join(&manifest.batch_id)
+                                .join(&clip.filename),
+                        )
+                    });
                 drafts.push(GalleryInventoryDraft {
                     tab: "songs",
                     item: build_gallery_item(
@@ -9890,7 +11243,8 @@ fn load_local_character_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
     if let Ok(entries) = std::fs::read_dir(&state.characters_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json") {
+            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json")
+            {
                 continue;
             }
 
@@ -9967,7 +11321,10 @@ fn load_local_isolated_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
                     else {
                         continue;
                     };
-                    let parts = filename.trim_end_matches(".png").split('_').collect::<Vec<_>>();
+                    let parts = filename
+                        .trim_end_matches(".png")
+                        .split('_')
+                        .collect::<Vec<_>>();
                     if parts.len() != 2 {
                         continue;
                     }
@@ -10059,7 +11416,8 @@ fn load_local_pack_drafts(state: &AppState) -> Vec<GalleryInventoryDraft> {
     if let Ok(entries) = std::fs::read_dir(&state.packs_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json") {
+            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json")
+            {
                 continue;
             }
             let Ok(data) = std::fs::read_to_string(&path) else {
@@ -10715,10 +12073,10 @@ async fn sync_supabase_storage(
             return (
                 StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({ "error": err })),
-                )
-                    .into_response();
-            }
-        };
+            )
+                .into_response();
+        }
+    };
     let remote_textures =
         match list_supabase_objects_recursive(&client, cfg, &textures_prefix).await {
             Ok(v) => v,

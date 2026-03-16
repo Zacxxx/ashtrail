@@ -596,23 +596,20 @@ async fn start_bulk_isolation_job(
                 "job store lock poisoned".to_string(),
             )
         })?;
-        jobs.insert(
-            job_id.clone(),
-            {
-                let mut job = JobRecord::new(
-                    "worldgen.isolation.bulk",
-                    "Bulk Isolate Regions",
-                    "worldgen",
-                );
-                job.world_id = Some(planet_id.clone());
-                job.transition(
-                    JobStatus::Queued,
-                    0.0,
-                    format!("Queued for {} Isolation", entity_type.to_uppercase()),
-                );
-                job
-            },
-        );
+        jobs.insert(job_id.clone(), {
+            let mut job = JobRecord::new(
+                "worldgen.isolation.bulk",
+                "Bulk Isolate Regions",
+                "worldgen",
+            );
+            job.world_id = Some(planet_id.clone());
+            job.transition(
+                JobStatus::Queued,
+                0.0,
+                format!("Queued for {} Isolation", entity_type.to_uppercase()),
+            );
+            job
+        });
     }
 
     let jobs = state.jobs.clone();
@@ -820,23 +817,20 @@ pub async fn start_upscaled_province_refine(
                 "job store lock poisoned".to_string(),
             )
         })?;
-        jobs.insert(
-            job_id.clone(),
-            {
-                let mut job = JobRecord::new(
-                    "worldgen.refine.upscaled",
-                    "Generate Upscaled Province",
-                    "worldgen",
-                );
-                job.world_id = Some(planet_id.clone());
-                job.transition(
-                    JobStatus::Queued,
-                    0.0,
-                    format!("Queued for {} Refinement", entity_type.to_uppercase()),
-                );
-                job
-            },
-        );
+        jobs.insert(job_id.clone(), {
+            let mut job = JobRecord::new(
+                "worldgen.refine.upscaled",
+                "Generate Upscaled Province",
+                "worldgen",
+            );
+            job.world_id = Some(planet_id.clone());
+            job.transition(
+                JobStatus::Queued,
+                0.0,
+                format!("Queued for {} Refinement", entity_type.to_uppercase()),
+            );
+            job
+        });
     }
 
     let jobs = state.jobs.clone();
@@ -1029,19 +1023,16 @@ pub async fn run_pipeline_stage(
     // Create job record
     {
         let mut jobs = state.jobs.lock().unwrap();
-        jobs.insert(
-            job_id.clone(),
-            {
-                let mut job = JobRecord::new(
-                    &format!("worldgen.pipeline.{stage_name}"),
-                    &format!("Run Pipeline Stage: {stage_name}"),
-                    "worldgen",
-                );
-                job.world_id = Some(planet_id.clone());
-                job.transition(JobStatus::Running, 0.0, stage_name.clone());
-                job
-            },
-        );
+        jobs.insert(job_id.clone(), {
+            let mut job = JobRecord::new(
+                &format!("worldgen.pipeline.{stage_name}"),
+                &format!("Run Pipeline Stage: {stage_name}"),
+                "worldgen",
+            );
+            job.world_id = Some(planet_id.clone());
+            job.transition(JobStatus::Running, 0.0, stage_name.clone());
+            job
+        });
     }
 
     let spawned_job_id = job_id.clone();
