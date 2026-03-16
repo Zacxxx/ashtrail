@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -582,6 +583,101 @@ struct FaunaBatchDraftResponse {
     entries: Vec<FaunaDraft>,
 }
 
+const FLORA_BATCH_SCHEMA_HINT: &str = r#"{
+  "entries": [
+    {
+      "name": "string",
+      "category": "tree|shrub|grass|crop|fungus|aquatic|alien_other",
+      "description": "string",
+      "ecologicalRoles": ["string"],
+      "adaptations": ["string"],
+      "edibility": "none|limited|common",
+      "agricultureValue": "integer 0..100",
+      "bodyProfile": {
+        "sizeClass": "tiny|small|medium|large|massive",
+        "heightMeters": "number",
+        "spreadMeters": "number",
+        "rootDepthMeters": "number",
+        "biomassKg": "number",
+        "lifespanYears": "number",
+        "growthRate": "integer 0..100"
+      },
+      "resourceProfile": {
+        "rarity": "integer 0..100",
+        "yieldPerHarvest": "integer 0..100",
+        "regrowthDays": "integer 1..3650",
+        "harvestDifficulty": "integer 0..100",
+        "nutritionValue": "integer 0..100",
+        "medicinalValue": "integer 0..100",
+        "fuelValue": "integer 0..100",
+        "structuralValue": "integer 0..100",
+        "concealmentValue": "integer 0..100"
+      },
+      "hazardProfile": {
+        "toxicity": "integer 0..100",
+        "irritation": "integer 0..100",
+        "thorniness": "integer 0..100",
+        "flammability": "integer 0..100",
+        "resilience": "integer 0..100"
+      }
+    }
+  ]
+}"#;
+
+const FAUNA_BATCH_SCHEMA_HINT: &str = r#"{
+  "entries": [
+    {
+      "name": "string",
+      "category": "herbivore|predator|omnivore|scavenger|avian|aquatic|beast_of_burden|companion|alien_other",
+      "description": "string",
+      "ecologicalRoles": ["string"],
+      "adaptations": ["string"],
+      "domesticationPotential": "integer 0..100",
+      "dangerLevel": "integer 0..100",
+      "earthAnalog": "string",
+      "ancestralStock": "string",
+      "evolutionaryPressures": ["string"],
+      "mutationSummary": "string",
+      "divergenceSummary": "string",
+      "combatProfile": {
+        "level": "integer 1..20",
+        "strength": "integer 1..20",
+        "agility": "integer 1..20",
+        "intelligence": "integer 1..20",
+        "wisdom": "integer 1..20",
+        "endurance": "integer 1..20",
+        "charisma": "integer 1..20",
+        "critChance": "number 0..0.35",
+        "resistance": "number 0..0.5",
+        "socialBonus": "number -0.25..0.35",
+        "baseEvasion": "integer 0..40",
+        "baseDefense": "integer 0..20",
+        "baseHpBonus": "integer 0..32",
+        "baseApBonus": "integer 0..4",
+        "baseMpBonus": "integer 0..4"
+      },
+      "bodyProfile": {
+        "sizeClass": "tiny|small|medium|large|huge",
+        "heightMeters": "number",
+        "lengthMeters": "number",
+        "weightKg": "number",
+        "locomotion": "walker|runner|climber|burrower|swimmer|flier|slitherer|amphibious",
+        "naturalWeapon": "none|bite|claw|horn|hoof|tail|beak|venom|constrict|spines",
+        "armorClass": "soft|furred|scaled|shelled|plated|rocky"
+      },
+      "behaviorProfile": {
+        "temperament": "docile|skittish|territorial|aggressive|apex",
+        "activityCycle": "any|diurnal|nocturnal|crepuscular",
+        "packSizeMin": "integer 1..500",
+        "packSizeMax": "integer 1..500",
+        "perception": "integer 0..100",
+        "stealth": "integer 0..100",
+        "trainability": "integer 0..100"
+      }
+    }
+  ]
+}"#;
+
 pub async fn get_ecology_data(
     State(state): State<AppState>,
     Path(world_id): Path<String>,
@@ -720,31 +816,40 @@ pub async fn generate_briefing_ecology(
     Json(request): Json<BiosphereBriefingRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let job_id = Uuid::new_v4().to_string();
-    let request_key = format!("briefing-{}", Uuid::new_v4());
-    
+
     {
         let mut jobs = state.jobs.lock().map_err(|_| {
-            (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string())
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "job store lock poisoned".to_string(),
+            )
         })?;
-        
-        let mut job = JobRecord::new("worldgen.ecology.briefing", "Generate Expedition Briefing", "worldgen");
+
+        let mut job = JobRecord::new(
+            "worldgen.ecology.briefing",
+            "Generate Expedition Briefing",
+            "worldgen",
+        );
         job.world_id = Some(world_id.clone());
         job.transition(JobStatus::Queued, 0.0, "Queued...".to_string());
         job.metadata = Some(serde_json::to_value(request.clone()).unwrap());
-        
+
         jobs.insert(job_id.clone(), job);
     }
-    
+
     let jobs = state.jobs.clone();
     let planets_dir = state.planets_dir.clone();
     let world_id_clone = world_id.clone();
     let job_id_clone = job_id.clone();
-    
+
     tokio::task::spawn(async move {
         run_briefing_ecology_job(job_id_clone, world_id_clone, request, jobs, planets_dir).await;
     });
-    
-    Ok((StatusCode::ACCEPTED, Json(crate::StartJobResponse { job_id })))
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(crate::StartJobResponse { job_id }),
+    ))
 }
 
 pub async fn refresh_derived_stats(
@@ -781,23 +886,16 @@ async fn spawn_ecology_job(
                 "job store lock poisoned".to_string(),
             )
         })?;
-        jobs.insert(
-            job_id.clone(),
-            {
-                let mut job = JobRecord::new(
-                    "ecology.generate",
-                    "Generate Ecology Data",
-                    "ecology",
-                );
-                job.world_id = Some(world_id.clone());
-                job.transition(
-                    JobStatus::Queued,
-                    0.0,
-                    "Queued ecology generation".to_string(),
-                );
-                job
-            },
-        );
+        jobs.insert(job_id.clone(), {
+            let mut job = JobRecord::new("ecology.generate", "Generate Ecology Data", "ecology");
+            job.world_id = Some(world_id.clone());
+            job.transition(
+                JobStatus::Queued,
+                0.0,
+                "Queued ecology generation".to_string(),
+            );
+            job
+        });
     }
 
     let jobs = state.jobs.clone();
@@ -1098,12 +1196,7 @@ async fn generate_flora_batch_impl(
     let biome_ids = resolve_requested_biome_ids(&bundle, &request.biome_ids);
     let generation_prompt =
         build_flora_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
-    let draft_response: FloraBatchDraftResponse = generate_structured_text(
-        "flora batch",
-        &generation_prompt,
-        "{\"entries\":[{\"name\":\"...\",\"category\":\"tree\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"edibility\":\"none\",\"agricultureValue\":0,\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"spreadMeters\":1,\"rootDepthMeters\":1,\"biomassKg\":1,\"lifespanYears\":1,\"growthRate\":50},\"resourceProfile\":{\"rarity\":0,\"yieldPerHarvest\":0,\"regrowthDays\":1,\"harvestDifficulty\":0,\"nutritionValue\":0,\"medicinalValue\":0,\"fuelValue\":0,\"structuralValue\":0,\"concealmentValue\":0},\"hazardProfile\":{\"toxicity\":0,\"irritation\":0,\"thorniness\":0,\"flammability\":0,\"resilience\":0}}]}",
-    )
-    .await?;
+    let draft_response = generate_flora_batch_drafts(&generation_prompt).await?;
 
     let mut created_entries = Vec::new();
     for draft in draft_response.entries.into_iter().take(requested_count) {
@@ -1145,12 +1238,7 @@ async fn generate_fauna_batch_impl(
     let biome_ids = resolve_requested_biome_ids(&bundle, &request.biome_ids);
     let generation_prompt =
         build_fauna_batch_prompt(&bundle, prompt_text, requested_count, &biome_ids);
-    let draft_response: FaunaBatchDraftResponse = generate_structured_text(
-        "fauna batch",
-        &generation_prompt,
-        "{\"entries\":[{\"name\":\"...\",\"category\":\"herbivore\",\"description\":\"...\",\"ecologicalRoles\":[\"...\"],\"adaptations\":[\"...\"],\"domesticationPotential\":0,\"dangerLevel\":0,\"earthAnalog\":\"...\",\"ancestralStock\":\"...\",\"evolutionaryPressures\":[\"...\"],\"mutationSummary\":\"...\",\"divergenceSummary\":\"...\",\"combatProfile\":{\"level\":1,\"strength\":10,\"agility\":10,\"intelligence\":5,\"wisdom\":5,\"endurance\":10,\"charisma\":5,\"critChance\":0.1,\"resistance\":0.1,\"socialBonus\":0.0,\"baseEvasion\":5,\"baseDefense\":2,\"baseHpBonus\":4,\"baseApBonus\":0,\"baseMpBonus\":0},\"bodyProfile\":{\"sizeClass\":\"medium\",\"heightMeters\":1,\"lengthMeters\":1,\"weightKg\":1,\"locomotion\":\"walker\",\"naturalWeapon\":\"bite\",\"armorClass\":\"furred\"},\"behaviorProfile\":{\"temperament\":\"docile\",\"activityCycle\":\"diurnal\",\"packSizeMin\":1,\"packSizeMax\":4,\"perception\":50,\"stealth\":20,\"trainability\":20}}]}",
-    )
-    .await?;
+    let draft_response = generate_fauna_batch_drafts(&generation_prompt).await?;
 
     let mut created_entries = Vec::new();
     for draft in draft_response.entries.into_iter().take(requested_count) {
@@ -1172,157 +1260,63 @@ async fn generate_fauna_batch_impl(
     Ok(created_entries)
 }
 
-async fn generate_briefing_fauna_impl(
+pub async fn generate_briefing_fauna_impl(
     planets_dir: &FsPath,
     world_id: &str,
-    request: BiosphereBriefingRequest,
+    briefing_request: BiosphereBriefingRequest,
 ) -> Result<Vec<FaunaEntry>, String> {
-    let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
-    let hierarchy = load_hierarchy(planets_dir, world_id).ok();
-    if let Some(hierarchy) = hierarchy.as_ref() {
-        let report = load_biome_report(planets_dir, world_id);
-        sync_biomes_with_hierarchy(hierarchy, &mut bundle, report.as_ref());
-    }
-
-    let requested_count = request.count.clamp(1, 5) as usize;
-    let mut generation_prompt = build_briefing_fauna_prompt(&bundle, &request, requested_count);
-    generation_prompt.push_str("\n\nFor each creature, produce one text part with its JSON data (strictly matching the schema), and IMMEDIATELY after each JSON part, produce one IMAGE part showing that creature in its habitat.");
-
-    info!(world_id = %world_id, count = requested_count, "Starting interleaved multimodal fauna generation");
-    
-    let parts = gemini::generate_multimodal(
-        &generation_prompt,
-        vec!["TEXT".to_string(), "IMAGE".to_string()],
-        0.7,
-    )
-    .await
-    .map_err(|(_, err)| err)?;
-
-    let mut created_entries = Vec::new();
-    let mut current_entry: Option<FaunaEntry> = None;
-
-    for part in parts {
-        if let Some(text) = part.text {
-            // Try to parse JSON from this part
-            if let Ok(draft_resp) = parse_json_payload::<FaunaBatchDraftResponse>(&text) {
-                for draft in draft_resp.entries {
-                    let draft = sanitize_fauna_draft(draft);
-                    let mut entry = fauna_entry_from_draft(draft, &[]);
-                    created_entries.push(entry);
-                }
-            } else if let Ok(draft) = parse_json_payload::<FaunaDraft>(&text) {
-                 // Maybe it returned a single object?
-                 let draft = sanitize_fauna_draft(draft);
-                 let entry = fauna_entry_from_draft(draft, &[]);
-                 created_entries.push(entry);
-            }
-        } else if let Some(inline_data) = part.inline_data {
-            // This image belongs to the last created entry (interleaved order)
-            if let Some(entry) = created_entries.last_mut() {
-                if let Ok(asset_ref) = save_briefing_image(planets_dir, world_id, &inline_data.data, &inline_data.mime_type, &entry.id) {
-                    entry.illustration_assets.push(asset_ref);
-                }
-            }
-        }
-    }
-
-    if created_entries.is_empty() {
+    let generation_request = BulkEcologyGenerationRequest {
+        prompt: build_briefing_fauna_user_prompt(&briefing_request),
+        count: briefing_request.count.clamp(1, 5),
+        biome_ids: Vec::new(),
+    };
+    let mut entries = generate_fauna_batch_impl(planets_dir, world_id, generation_request).await?;
+    attach_briefing_fauna_illustrations(planets_dir, world_id, &briefing_request, &mut entries)
+        .await?;
+    if entries.is_empty() {
         return Err("Briefing fauna generation returned no usable entries".to_string());
     }
-
-    let mut next_fauna = created_entries.clone();
-    next_fauna.extend(bundle.fauna);
-    bundle.fauna = next_fauna;
-    save_ecology_bundle(planets_dir, world_id, &bundle)?;
-    Ok(created_entries)
+    Ok(entries)
 }
 
 async fn generate_briefing_flora_impl(
     planets_dir: &FsPath,
     world_id: &str,
-    request: BiosphereBriefingRequest,
+    briefing_request: BiosphereBriefingRequest,
 ) -> Result<Vec<FloraEntry>, String> {
-    let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
-    let hierarchy = load_hierarchy(planets_dir, world_id).ok();
-    if let Some(hierarchy) = hierarchy.as_ref() {
-        let report = load_biome_report(planets_dir, world_id);
-        sync_biomes_with_hierarchy(hierarchy, &mut bundle, report.as_ref());
-    }
-
-    let requested_count = request.count.clamp(1, 5) as usize;
-    let mut generation_prompt = build_briefing_flora_prompt(&bundle, &request, requested_count);
-    generation_prompt.push_str("\n\nFor each plant/fungus, produce one text part with its JSON data (strictly matching the schema), and IMMEDIATELY after each JSON part, produce one IMAGE part showing that plant in its habitat.");
-
-    info!(world_id = %world_id, count = requested_count, "Starting interleaved multimodal flora generation");
-
-    let parts = gemini::generate_multimodal(
-        &generation_prompt,
-        vec!["TEXT".to_string(), "IMAGE".to_string()],
-        0.7,
-    )
-    .await
-    .map_err(|(_, err)| err)?;
-
-    let mut created_entries = Vec::new();
-
-    for part in parts {
-        if let Some(text) = part.text {
-            if let Ok(draft_resp) = parse_json_payload::<FloraBatchDraftResponse>(&text) {
-                for draft in draft_resp.entries {
-                    let draft = sanitize_flora_draft(draft);
-                    let mut entry = flora_entry_from_draft(draft, &[]);
-                    created_entries.push(entry);
-                }
-            } else if let Ok(draft) = parse_json_payload::<FloraDraft>(&text) {
-                 let draft = sanitize_flora_draft(draft);
-                 let entry = flora_entry_from_draft(draft, &[]);
-                 created_entries.push(entry);
-            }
-        } else if let Some(inline_data) = part.inline_data {
-            if let Some(entry) = created_entries.last_mut() {
-                if let Ok(asset_ref) = save_briefing_image(planets_dir, world_id, &inline_data.data, &inline_data.mime_type, &entry.id) {
-                    entry.illustration_assets.push(asset_ref);
-                }
-            }
-        }
-    }
-
-    if created_entries.is_empty() {
+    let generation_request = BulkEcologyGenerationRequest {
+        prompt: build_briefing_flora_user_prompt(&briefing_request),
+        count: briefing_request.count.clamp(1, 5),
+        biome_ids: Vec::new(),
+    };
+    let mut entries = generate_flora_batch_impl(planets_dir, world_id, generation_request).await?;
+    attach_briefing_flora_illustrations(planets_dir, world_id, &briefing_request, &mut entries)
+        .await?;
+    if entries.is_empty() {
         return Err("Briefing flora generation returned no usable entries".to_string());
     }
-
-    let mut next_flora = created_entries.clone();
-    next_flora.extend(bundle.flora);
-    bundle.flora = next_flora;
-    save_ecology_bundle(planets_dir, world_id, &bundle)?;
-    Ok(created_entries)
+    Ok(entries)
 }
 
-fn save_briefing_image(
+fn save_briefing_image_bytes(
     planets_dir: &FsPath,
     world_id: &str,
-    base64_data: &str,
-    mime_type: &str,
+    bytes: &[u8],
+    ext: &str,
     entity_id: &str,
 ) -> Result<AssetImageRef, String> {
-    use base64::{engine::general_purpose, Engine as _};
-    let bytes = general_purpose::STANDARD
-        .decode(base64_data)
-        .map_err(|e| format!("Failed to decode image: {}", e))?;
-
-    let ext = match mime_type {
-        "image/png" => "png",
-        "image/jpeg" | "image/jpg" => "jpg",
-        "image/webp" => "webp",
-        _ => "png",
-    };
-
-    let filename = format!("{}-{}.{}", entity_id, Uuid::new_v4().to_string().get(..8).unwrap_or(""), ext);
+    let filename = format!(
+        "{}-{}.{}",
+        entity_id,
+        Uuid::new_v4().to_string().get(..8).unwrap_or(""),
+        ext
+    );
     let relative_path = format!("ecology/assets/{}", filename);
     let absolute_path = planets_dir.join(world_id).join(&relative_path);
 
     if let Some(parent) = absolute_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create asset dir: {}", e))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create asset dir: {}", e))?;
     }
 
     std::fs::write(&absolute_path, bytes).map_err(|e| format!("Failed to write image: {}", e))?;
@@ -1331,6 +1325,190 @@ fn save_briefing_image(
         batch_id: "briefing".to_string(),
         filename: relative_path,
     })
+}
+
+fn build_briefing_fauna_user_prompt(request: &BiosphereBriefingRequest) -> String {
+    format!(
+        "Mission briefing target zone: {} ({})\n\
+Context dossier:\n{}\n\
+Generate fauna native to this exact destination.\n\
+Same world, same local biome, same terrain conditions.\n\
+The output must match the canonical /ecology fauna payload exactly.\n\
+Keep the species grounded, ecologically plausible, and suitable for an expedition archive.",
+        request.zone_title, request.biome_label, request.context
+    )
+}
+
+fn build_briefing_flora_user_prompt(request: &BiosphereBriefingRequest) -> String {
+    format!(
+        "Mission briefing target zone: {} ({})\n\
+Context dossier:\n{}\n\
+Generate flora and fungi native to this exact destination.\n\
+Same world, same local biome, same terrain conditions.\n\
+The output must match the canonical /ecology flora payload exactly.\n\
+Keep the species grounded, ecologically plausible, and suitable for an expedition archive.",
+        request.zone_title, request.biome_label, request.context
+    )
+}
+
+fn build_briefing_fauna_illustration_prompt(
+    request: &BiosphereBriefingRequest,
+    entry: &FaunaEntry,
+) -> String {
+    format!(
+        "Generate a polished ecology illustration for a worldbuilding archive.\n\
+Visual content: natural-history dossier illustration, grounded expedition concept art.\n\
+Subject: {}.\n\
+Category: {:?}.\n\
+Description: {}.\n\
+Earth analog: {}.\n\
+Zone title: {}.\n\
+Biome: {}.\n\
+Context dossier:\n{}\n\
+Create a clean readable full-creature habitat illustration for this exact animal.\n\
+Same world, same local biome, same terrain conditions.\n\
+No character portrait, no text overlay, no frame, no UI.",
+        entry.name,
+        entry.category,
+        entry.description,
+        entry.earth_analog,
+        request.zone_title,
+        request.biome_label,
+        request.context
+    )
+}
+
+fn build_briefing_flora_illustration_prompt(
+    request: &BiosphereBriefingRequest,
+    entry: &FloraEntry,
+) -> String {
+    format!(
+        "Generate a polished ecology illustration for a worldbuilding archive.\n\
+Visual content: natural-history dossier illustration, grounded expedition concept art.\n\
+Subject: {}.\n\
+Category: {:?}.\n\
+Description: {}.\n\
+Zone title: {}.\n\
+Biome: {}.\n\
+Context dossier:\n{}\n\
+Create a clean readable habitat illustration focused on this exact plant or fungus.\n\
+Same world, same local biome, same terrain conditions.\n\
+No character portrait, no text overlay, no frame, no UI.",
+        entry.name,
+        entry.category,
+        entry.description,
+        request.zone_title,
+        request.biome_label,
+        request.context
+    )
+}
+
+async fn attach_briefing_fauna_illustrations(
+    planets_dir: &FsPath,
+    world_id: &str,
+    request: &BiosphereBriefingRequest,
+    entries: &mut [FaunaEntry],
+) -> Result<(), String> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    for entry in entries.iter_mut() {
+        let prompt = build_briefing_fauna_illustration_prompt(request, entry);
+        match gemini::generate_image_bytes(&prompt, Some(0.55), 1024, 1024, Some("1:1")).await {
+            Ok(bytes) => {
+                match save_briefing_image_bytes(planets_dir, world_id, &bytes, "png", &entry.id) {
+                    Ok(asset_ref) => {
+                        entry
+                            .illustration_asset_batch_ids
+                            .push(asset_ref.batch_id.clone());
+                        entry.illustration_assets.push(asset_ref);
+                    }
+                    Err(err) => {
+                        warn!(entry_id = %entry.id, "Failed to save fauna briefing image: {}", err)
+                    }
+                }
+            }
+            Err((_, err)) => {
+                warn!(entry_id = %entry.id, "Failed to generate fauna briefing image: {}", err)
+            }
+        }
+    }
+
+    persist_briefing_fauna_illustrations(planets_dir, world_id, entries)
+}
+
+async fn attach_briefing_flora_illustrations(
+    planets_dir: &FsPath,
+    world_id: &str,
+    request: &BiosphereBriefingRequest,
+    entries: &mut [FloraEntry],
+) -> Result<(), String> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    for entry in entries.iter_mut() {
+        let prompt = build_briefing_flora_illustration_prompt(request, entry);
+        match gemini::generate_image_bytes(&prompt, Some(0.55), 1024, 1024, Some("1:1")).await {
+            Ok(bytes) => {
+                match save_briefing_image_bytes(planets_dir, world_id, &bytes, "png", &entry.id) {
+                    Ok(asset_ref) => {
+                        entry
+                            .illustration_asset_batch_ids
+                            .push(asset_ref.batch_id.clone());
+                        entry.illustration_assets.push(asset_ref);
+                    }
+                    Err(err) => {
+                        warn!(entry_id = %entry.id, "Failed to save flora briefing image: {}", err)
+                    }
+                }
+            }
+            Err((_, err)) => {
+                warn!(entry_id = %entry.id, "Failed to generate flora briefing image: {}", err)
+            }
+        }
+    }
+
+    persist_briefing_flora_illustrations(planets_dir, world_id, entries)
+}
+
+fn persist_briefing_fauna_illustrations(
+    planets_dir: &FsPath,
+    world_id: &str,
+    entries: &[FaunaEntry],
+) -> Result<(), String> {
+    let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
+    for entry in entries {
+        if let Some(saved) = bundle
+            .fauna
+            .iter_mut()
+            .find(|candidate| candidate.id == entry.id)
+        {
+            saved.illustration_asset_batch_ids = entry.illustration_asset_batch_ids.clone();
+            saved.illustration_assets = entry.illustration_assets.clone();
+        }
+    }
+    save_ecology_bundle(planets_dir, world_id, &bundle)
+}
+
+fn persist_briefing_flora_illustrations(
+    planets_dir: &FsPath,
+    world_id: &str,
+    entries: &[FloraEntry],
+) -> Result<(), String> {
+    let mut bundle = load_ecology_bundle(planets_dir, world_id)?;
+    for entry in entries {
+        if let Some(saved) = bundle
+            .flora
+            .iter_mut()
+            .find(|candidate| candidate.id == entry.id)
+        {
+            saved.illustration_asset_batch_ids = entry.illustration_asset_batch_ids.clone();
+            saved.illustration_assets = entry.illustration_assets.clone();
+        }
+    }
+    save_ecology_bundle(planets_dir, world_id, &bundle)
 }
 
 pub async fn run_briefing_ecology_job(
@@ -1352,14 +1530,18 @@ pub async fn run_briefing_ecology_job(
     };
 
     // Stage 1: Lore
-    update_job(JobStatus::Running, 0.1, "Generating Zone Lore...".to_string());
+    update_job(
+        JobStatus::Running,
+        0.1,
+        "Generating Zone Lore...".to_string(),
+    );
     let lore_prompt = format!(
         "Write a short, evocative lore passage (3-4 sentences) about a planetary zone called \"{}\" ({}). \
          Set the tone for an expedition. Mention ancient ruins, environmental hazards, or mysterious phenomena. \
          End with a hook that teases an upcoming quest. Return ONLY the raw text, no JSON, no markdown. Context: {}",
         request.zone_title, request.biome_label, request.context
     );
-    
+
     let lore = match gemini::generate_text(&lore_prompt).await {
         Ok(text) => text.trim().to_string(),
         Err(err) => {
@@ -1369,7 +1551,11 @@ pub async fn run_briefing_ecology_job(
     };
 
     // Stage 2: Fauna
-    update_job(JobStatus::Running, 0.4, "Identifying Native Fauna...".to_string());
+    update_job(
+        JobStatus::Running,
+        0.4,
+        "Identifying Native Fauna...".to_string(),
+    );
     let fauna = match generate_briefing_fauna_impl(&planets_dir, &world_id, request.clone()).await {
         Ok(entries) => entries,
         Err(err) => {
@@ -1379,7 +1565,11 @@ pub async fn run_briefing_ecology_job(
     };
 
     // Stage 3: Flora
-    update_job(JobStatus::Running, 0.7, "Cataloging Local Flora...".to_string());
+    update_job(
+        JobStatus::Running,
+        0.7,
+        "Cataloging Local Flora...".to_string(),
+    );
     let flora = match generate_briefing_flora_impl(&planets_dir, &world_id, request.clone()).await {
         Ok(entries) => entries,
         Err(err) => {
@@ -1390,10 +1580,14 @@ pub async fn run_briefing_ecology_job(
 
     // Finalize
     let result = EcologyBriefingResult { lore, fauna, flora };
-    
+
     if let Ok(mut jobs) = jobs.lock() {
         if let Some(job) = jobs.get_mut(&job_id) {
-            job.transition(JobStatus::Completed, 1.0, "Expedition Data Ready".to_string());
+            job.transition(
+                JobStatus::Completed,
+                1.0,
+                "Expedition Data Ready".to_string(),
+            );
             job.result = serde_json::to_value(result).ok();
         }
     }
@@ -1447,50 +1641,6 @@ fn build_biome_prompt(
         world_baseline.summary,
         approved_flora,
         approved_fauna
-    )
-}
-
-fn build_briefing_fauna_prompt(
-    bundle: &EcologyBundle,
-    request: &BiosphereBriefingRequest,
-    count: usize,
-) -> String {
-    let baseline = bundle.baselines.iter()
-        .find(|b| b.scope == BaselineScope::World)
-        .map(|b| b.summary.clone())
-        .unwrap_or_else(|| "Standard biological baseline.".to_string());
-    format!(
-        "You are an exobiology specialist generating native fauna for a mission briefing.\n\
-        World Context: {}\n\
-        Current Zone: {} ({})\n\
-        Briefing Focus: {}\n\n\
-        Generate {} native creature(s) typical of this environment.\n\
-        Return ONLY a JSON object with an \"entries\" array of FaunaDraft objects.\n\
-        Strictly follow the JSON schema provided in the system message.\n\
-        Creatures should feel alien yet ecologically plausible. Focus on adaptations to {}.",
-        baseline, request.zone_title, request.biome_label, request.context, count, request.biome_label
-    )
-}
-
-fn build_briefing_flora_prompt(
-    bundle: &EcologyBundle,
-    request: &BiosphereBriefingRequest,
-    count: usize,
-) -> String {
-    let baseline = bundle.baselines.iter()
-        .find(|b| b.scope == BaselineScope::World)
-        .map(|b| b.summary.clone())
-        .unwrap_or_else(|| "Standard biological baseline.".to_string());
-    format!(
-        "You are an exobotany specialist generating native flora for a mission briefing.\n\
-        World Context: {}\n\
-        Current Zone: {} ({})\n\
-        Briefing Focus: {}\n\n\
-        Generate {} native plant(s)/fungi typical of this environment.\n\
-        Return ONLY a JSON object with an \"entries\" array of FloraDraft objects.\n\
-        Strictly follow the JSON schema provided in the system message.\n\
-        Plants should feel alien and reflect the {} conditions.",
-        baseline, request.zone_title, request.biome_label, request.context, count, request.biome_label
     )
 }
 
@@ -2694,6 +2844,10 @@ Rules:\n\
 - Use only these flora categories: tree, shrub, grass, crop, fungus, aquatic, alien_other.\n\
 - Use only these edibility values: none, limited, common.\n\
 - agricultureValue must be an integer from 0 to 100.\n\
+- bodyProfile.sizeClass must be one of: tiny, small, medium, large, massive.\n\
+- bodyProfile.growthRate must be an integer from 0 to 100.\n\
+- resourceProfile.rarity, yieldPerHarvest, regrowthDays, harvestDifficulty, nutritionValue, medicinalValue, fuelValue, structuralValue, and concealmentValue must all be integers.\n\
+- hazardProfile.toxicity, irritation, thorniness, flammability, and resilience must all be integers.\n\
 - bodyProfile, resourceProfile, and hazardProfile are required for every entry.\n\
 - Keep entries distinct from each other.\n\
 - Do not include markdown or commentary.\n",
@@ -2756,6 +2910,14 @@ Existing fauna names to avoid:\n{}\n\
 Rules:\n\
 - Use only these fauna categories: herbivore, predator, omnivore, scavenger, avian, aquatic, beast_of_burden, companion, alien_other.\n\
 - domesticationPotential and dangerLevel must be integers from 0 to 100.\n\
+- bodyProfile.sizeClass must be one of: tiny, small, medium, large, huge.\n\
+- bodyProfile.locomotion must be one of: walker, runner, climber, burrower, swimmer, flier, slitherer, amphibious.\n\
+- bodyProfile.naturalWeapon must be one of: none, bite, claw, horn, hoof, tail, beak, venom, constrict, spines.\n\
+- bodyProfile.armorClass must be one of: soft, furred, scaled, shelled, plated, rocky.\n\
+- behaviorProfile.temperament must be one of: docile, skittish, territorial, aggressive, apex.\n\
+- behaviorProfile.activityCycle must be one of: any, diurnal, nocturnal, crepuscular.\n\
+- combatProfile.level, strength, agility, intelligence, wisdom, endurance, charisma, baseEvasion, baseDefense, baseHpBonus, baseApBonus, and baseMpBonus must all be integers.\n\
+- behaviorProfile.packSizeMin, packSizeMax, perception, stealth, and trainability must all be integers.\n\
 - combatProfile, bodyProfile, and behaviorProfile are required for every entry.\n\
 - Keep entries distinct from each other.\n\
 - earthAnalog should be short and concrete.\n\
@@ -3132,20 +3294,34 @@ Provinces:\n{}\n",
     )
 }
 
-fn parse_json_payload<T: for<'de> Deserialize<'de>>(raw: &str) -> Result<T, String> {
+fn extract_json_slice(raw: &str) -> Result<&str, String> {
     let trimmed = raw.trim().trim_matches('`').trim();
-    if let Ok(parsed) = serde_json::from_str::<T>(trimmed) {
-        return Ok(parsed);
-    }
-
     let start = trimmed
         .find(['{', '['])
         .ok_or_else(|| "No JSON object found in model response".to_string())?;
     let end = trimmed
         .rfind(['}', ']'])
         .ok_or_else(|| "No JSON terminator found in model response".to_string())?;
-    serde_json::from_str(&trimmed[start..=end])
-        .map_err(|e| format!("Failed to parse model JSON payload: {}", e))
+    Ok(&trimmed[start..=end])
+}
+
+fn parse_json_value_payload(raw: &str) -> Result<Value, String> {
+    let trimmed = raw.trim().trim_matches('`').trim();
+    if let Ok(parsed) = serde_json::from_str::<Value>(trimmed) {
+        return Ok(parsed);
+    }
+    let slice = extract_json_slice(raw)?;
+    serde_json::from_str(slice).map_err(|e| format!("Failed to parse model JSON payload: {}", e))
+}
+
+fn parse_json_payload<T: for<'de> Deserialize<'de>>(raw: &str) -> Result<T, String> {
+    let trimmed = raw.trim().trim_matches('`').trim();
+    if let Ok(parsed) = serde_json::from_str::<T>(trimmed) {
+        return Ok(parsed);
+    }
+
+    let slice = extract_json_slice(raw)?;
+    serde_json::from_str(slice).map_err(|e| format!("Failed to parse model JSON payload: {}", e))
 }
 
 fn model_response_excerpt(raw: &str) -> String {
@@ -3155,6 +3331,425 @@ fn model_response_excerpt(raw: &str) -> String {
         compact
     } else {
         format!("{}...", &compact[..LIMIT])
+    }
+}
+
+fn canonicalize_token(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut prev_underscore = false;
+    for ch in value.trim().chars() {
+        let mapped = if ch.is_ascii_alphanumeric() {
+            prev_underscore = false;
+            ch.to_ascii_lowercase()
+        } else if prev_underscore {
+            continue;
+        } else {
+            prev_underscore = true;
+            '_'
+        };
+        out.push(mapped);
+    }
+    out.trim_matches('_').to_string()
+}
+
+fn coerce_i32_value(value: &mut Value) {
+    match value {
+        Value::Number(number) => {
+            if number.as_i64().is_some() {
+                return;
+            }
+            if let Some(float) = number.as_f64() {
+                *value = Value::Number(serde_json::Number::from(float.round() as i64));
+            }
+        }
+        Value::String(text) => {
+            if let Ok(float) = text.trim().parse::<f64>() {
+                *value = Value::Number(serde_json::Number::from(float.round() as i64));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn canonical_flora_category(value: &str) -> Option<&'static str> {
+    match canonicalize_token(value).as_str() {
+        "tree" => Some("tree"),
+        "shrub" | "bush" => Some("shrub"),
+        "grass" | "reed" | "moss" => Some("grass"),
+        "crop" => Some("crop"),
+        "fungus" | "mushroom" => Some("fungus"),
+        "aquatic" | "water_plant" => Some("aquatic"),
+        "alien_other" | "alien" | "other" => Some("alien_other"),
+        _ => None,
+    }
+}
+
+fn canonical_flora_edibility(value: &str) -> Option<&'static str> {
+    match canonicalize_token(value).as_str() {
+        "none" | "inedible" | "poisonous" | "toxic" => Some("none"),
+        "limited" | "rarely_edible" | "sparingly_edible" => Some("limited"),
+        "common" | "edible" | "safe" => Some("common"),
+        _ => None,
+    }
+}
+
+fn canonical_flora_size_class(value: &str) -> Option<&'static str> {
+    match canonicalize_token(value).as_str() {
+        "tiny" => Some("tiny"),
+        "small" => Some("small"),
+        "medium" | "mid" => Some("medium"),
+        "large" | "big" => Some("large"),
+        "massive" | "huge" | "colossal" | "giant" => Some("massive"),
+        _ => None,
+    }
+}
+
+fn canonical_fauna_category(value: &str) -> Option<&'static str> {
+    match canonicalize_token(value).as_str() {
+        "herbivore" | "grazer" => Some("herbivore"),
+        "predator" | "carnivore" | "hunter" => Some("predator"),
+        "omnivore" => Some("omnivore"),
+        "scavenger" => Some("scavenger"),
+        "avian" | "bird" => Some("avian"),
+        "aquatic" => Some("aquatic"),
+        "beast_of_burden" | "pack_animal" | "draft_animal" => Some("beast_of_burden"),
+        "companion" | "pet" => Some("companion"),
+        "alien_other" | "alien" | "other" => Some("alien_other"),
+        _ => None,
+    }
+}
+
+fn canonical_fauna_size_class(value: &str) -> Option<&'static str> {
+    match canonicalize_token(value).as_str() {
+        "tiny" => Some("tiny"),
+        "small" => Some("small"),
+        "medium" | "mid" => Some("medium"),
+        "large" | "big" => Some("large"),
+        "huge" | "massive" | "colossal" | "giant" => Some("huge"),
+        _ => None,
+    }
+}
+
+fn canonical_fauna_locomotion(value: &str) -> Option<&'static str> {
+    match canonicalize_token(value).as_str() {
+        "walker" | "quadruped" | "biped" => Some("walker"),
+        "runner" | "galloper" | "sprinter" => Some("runner"),
+        "climber" => Some("climber"),
+        "burrower" | "digger" => Some("burrower"),
+        "swimmer" => Some("swimmer"),
+        "flier" | "flying" | "glider" => Some("flier"),
+        "slitherer" | "serpentine" => Some("slitherer"),
+        "amphibious" => Some("amphibious"),
+        _ => None,
+    }
+}
+
+fn canonical_fauna_natural_weapon(value: &str) -> Option<&'static str> {
+    match canonicalize_token(value).as_str() {
+        "none" => Some("none"),
+        "bite" | "fang" | "fangs" | "jaw" | "maw" => Some("bite"),
+        "claw" | "claws" | "talon" | "talons" | "rake" => Some("claw"),
+        "horn" | "horns" | "antler" | "antlers" | "tusk" | "tusks" | "tusk_goring" | "gore"
+        | "goring" | "ram" => Some("horn"),
+        "hoof" | "hooves" => Some("hoof"),
+        "tail" | "club_tail" | "tail_slam" => Some("tail"),
+        "beak" | "peck" => Some("beak"),
+        "venom" | "stinger" | "sting" | "poison_sting" | "acid_sting" => Some("venom"),
+        "constrict" | "coil" | "coils" | "wrap" | "grapple" => Some("constrict"),
+        "spines" | "spine" | "quill" | "quills" | "barbs" => Some("spines"),
+        _ => None,
+    }
+}
+
+fn canonical_fauna_armor_class(value: &str) -> Option<&'static str> {
+    match canonicalize_token(value).as_str() {
+        "soft" | "skin" | "hide" => Some("soft"),
+        "furred" | "furry" | "feathered" => Some("furred"),
+        "scaled" => Some("scaled"),
+        "shelled" | "shell" => Some("shelled"),
+        "plated" | "armored" | "armoured" => Some("plated"),
+        "rocky" | "stone" => Some("rocky"),
+        _ => None,
+    }
+}
+
+fn canonical_fauna_temperament(value: &str) -> Option<&'static str> {
+    match canonicalize_token(value).as_str() {
+        "docile" | "loyal" | "calm" | "gentle" | "placid" | "passive" => Some("docile"),
+        "skittish" | "wary" | "cautious" | "timid" | "nervous" | "avoidant" => Some("skittish"),
+        "territorial" | "defensive" | "protective" | "guarded" => Some("territorial"),
+        "aggressive" | "hostile" | "feral" | "violent" | "belligerent" => Some("aggressive"),
+        "apex" | "alpha" | "dominant" | "apex_predator" => Some("apex"),
+        _ => None,
+    }
+}
+
+fn canonical_activity_cycle(value: &str) -> Option<&'static str> {
+    match canonicalize_token(value).as_str() {
+        "any" | "variable" => Some("any"),
+        "diurnal" | "day" | "daytime" => Some("diurnal"),
+        "nocturnal" | "night" | "nighttime" => Some("nocturnal"),
+        "crepuscular" | "dusk_dawn" | "twilight" => Some("crepuscular"),
+        _ => None,
+    }
+}
+
+fn set_canonical_enum(
+    object: &mut serde_json::Map<String, Value>,
+    key: &str,
+    canonicalize: fn(&str) -> Option<&'static str>,
+) {
+    if let Some(Value::String(value)) = object.get_mut(key) {
+        if let Some(mapped) = canonicalize(value) {
+            *value = mapped.to_string();
+        }
+    }
+}
+
+fn coerce_i32_field(object: &mut serde_json::Map<String, Value>, key: &str) {
+    if let Some(value) = object.get_mut(key) {
+        coerce_i32_value(value);
+    }
+}
+
+fn normalize_flora_batch_value(mut value: Value) -> Value {
+    let entry_template = value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(|_| value.clone());
+
+    if let Some(entry) = entry_template {
+        value = serde_json::json!({ "entries": [entry] });
+    }
+
+    if let Some(entries) = value.get_mut("entries").and_then(Value::as_array_mut) {
+        for entry in entries.iter_mut() {
+            let Some(entry_obj) = entry.as_object_mut() else {
+                continue;
+            };
+
+            set_canonical_enum(entry_obj, "category", canonical_flora_category);
+            set_canonical_enum(entry_obj, "edibility", canonical_flora_edibility);
+            coerce_i32_field(entry_obj, "agricultureValue");
+
+            if let Some(body) = entry_obj
+                .get_mut("bodyProfile")
+                .and_then(Value::as_object_mut)
+            {
+                set_canonical_enum(body, "sizeClass", canonical_flora_size_class);
+                coerce_i32_field(body, "growthRate");
+            }
+            if let Some(resource) = entry_obj
+                .get_mut("resourceProfile")
+                .and_then(Value::as_object_mut)
+            {
+                for key in [
+                    "rarity",
+                    "yieldPerHarvest",
+                    "regrowthDays",
+                    "harvestDifficulty",
+                    "nutritionValue",
+                    "medicinalValue",
+                    "fuelValue",
+                    "structuralValue",
+                    "concealmentValue",
+                ] {
+                    coerce_i32_field(resource, key);
+                }
+            }
+            if let Some(hazard) = entry_obj
+                .get_mut("hazardProfile")
+                .and_then(Value::as_object_mut)
+            {
+                for key in [
+                    "toxicity",
+                    "irritation",
+                    "thorniness",
+                    "flammability",
+                    "resilience",
+                ] {
+                    coerce_i32_field(hazard, key);
+                }
+            }
+        }
+    }
+
+    value
+}
+
+fn normalize_fauna_batch_value(mut value: Value) -> Value {
+    let entry_template = value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(|_| value.clone());
+
+    if let Some(entry) = entry_template {
+        value = serde_json::json!({ "entries": [entry] });
+    }
+
+    if let Some(entries) = value.get_mut("entries").and_then(Value::as_array_mut) {
+        for entry in entries.iter_mut() {
+            let Some(entry_obj) = entry.as_object_mut() else {
+                continue;
+            };
+
+            set_canonical_enum(entry_obj, "category", canonical_fauna_category);
+            coerce_i32_field(entry_obj, "domesticationPotential");
+            coerce_i32_field(entry_obj, "dangerLevel");
+
+            if let Some(combat) = entry_obj
+                .get_mut("combatProfile")
+                .and_then(Value::as_object_mut)
+            {
+                for key in [
+                    "level",
+                    "strength",
+                    "agility",
+                    "intelligence",
+                    "wisdom",
+                    "endurance",
+                    "charisma",
+                    "baseEvasion",
+                    "baseDefense",
+                    "baseHpBonus",
+                    "baseApBonus",
+                    "baseMpBonus",
+                ] {
+                    coerce_i32_field(combat, key);
+                }
+            }
+            if let Some(body) = entry_obj
+                .get_mut("bodyProfile")
+                .and_then(Value::as_object_mut)
+            {
+                set_canonical_enum(body, "sizeClass", canonical_fauna_size_class);
+                set_canonical_enum(body, "locomotion", canonical_fauna_locomotion);
+                set_canonical_enum(body, "naturalWeapon", canonical_fauna_natural_weapon);
+                set_canonical_enum(body, "armorClass", canonical_fauna_armor_class);
+            }
+            if let Some(behavior) = entry_obj
+                .get_mut("behaviorProfile")
+                .and_then(Value::as_object_mut)
+            {
+                set_canonical_enum(behavior, "temperament", canonical_fauna_temperament);
+                set_canonical_enum(behavior, "activityCycle", canonical_activity_cycle);
+                for key in [
+                    "packSizeMin",
+                    "packSizeMax",
+                    "perception",
+                    "stealth",
+                    "trainability",
+                ] {
+                    coerce_i32_field(behavior, key);
+                }
+            }
+        }
+    }
+
+    value
+}
+
+fn parse_flora_batch_payload(raw: &str) -> Result<FloraBatchDraftResponse, String> {
+    let value = normalize_flora_batch_value(parse_json_value_payload(raw)?);
+    serde_json::from_value(value).map_err(|e| format!("Failed to parse model JSON payload: {}", e))
+}
+
+fn parse_fauna_batch_payload(raw: &str) -> Result<FaunaBatchDraftResponse, String> {
+    let value = normalize_fauna_batch_value(parse_json_value_payload(raw)?);
+    serde_json::from_value(value).map_err(|e| format!("Failed to parse model JSON payload: {}", e))
+}
+
+async fn generate_flora_batch_drafts(prompt: &str) -> Result<FloraBatchDraftResponse, String> {
+    let raw = gemini::generate_text(prompt)
+        .await
+        .map_err(|(_, err)| err)?;
+    parse_or_repair_flora_batch(&raw).await
+}
+
+async fn generate_fauna_batch_drafts(prompt: &str) -> Result<FaunaBatchDraftResponse, String> {
+    let raw = gemini::generate_text(prompt)
+        .await
+        .map_err(|(_, err)| err)?;
+    parse_or_repair_fauna_batch(&raw).await
+}
+
+async fn parse_or_repair_flora_batch(raw: &str) -> Result<FloraBatchDraftResponse, String> {
+    match parse_flora_batch_payload(raw) {
+        Ok(parsed) => Ok(parsed),
+        Err(parse_err) => {
+            warn!(
+                "Failed to parse flora batch Gemini response as strict JSON: {}. Raw excerpt: {}",
+                parse_err,
+                model_response_excerpt(raw)
+            );
+            let repair_prompt = format!(
+                "Rewrite the following content as STRICT JSON ONLY.\n\
+Do not add markdown fences, commentary, or explanations.\n\
+Required schema:\n{}\n\
+Additional constraints:\n\
+- Do not invent enum values.\n\
+- Every field that is marked integer must be an integer literal, never a float.\n\
+- Preserve the same entries and descriptions while mapping any non-canonical value to the closest allowed value.\n\
+Content to repair:\n{}\n",
+                FLORA_BATCH_SCHEMA_HINT, raw
+            );
+            let repaired = gemini::generate_text(&repair_prompt)
+                .await
+                .map_err(|(_, err)| {
+                    format!(
+                        "Failed to parse flora batch response and repair attempt failed: {}. Original parse error: {}",
+                        err, parse_err
+                    )
+                })?;
+            parse_flora_batch_payload(&repaired).map_err(|repair_err| {
+                format!(
+                    "Failed to parse flora batch response. Original parse error: {}. Repair parse error: {}. Raw excerpt: {}",
+                    parse_err,
+                    repair_err,
+                    model_response_excerpt(raw)
+                )
+            })
+        }
+    }
+}
+
+async fn parse_or_repair_fauna_batch(raw: &str) -> Result<FaunaBatchDraftResponse, String> {
+    match parse_fauna_batch_payload(raw) {
+        Ok(parsed) => Ok(parsed),
+        Err(parse_err) => {
+            warn!(
+                "Failed to parse fauna batch Gemini response as strict JSON: {}. Raw excerpt: {}",
+                parse_err,
+                model_response_excerpt(raw)
+            );
+            let repair_prompt = format!(
+                "Rewrite the following content as STRICT JSON ONLY.\n\
+Do not add markdown fences, commentary, or explanations.\n\
+Required schema:\n{}\n\
+Additional constraints:\n\
+- Do not invent enum values.\n\
+- Every field that is marked integer must be an integer literal, never a float.\n\
+- Map any non-canonical enum value to the closest allowed value.\n\
+Content to repair:\n{}\n",
+                FAUNA_BATCH_SCHEMA_HINT, raw
+            );
+            let repaired = gemini::generate_text(&repair_prompt)
+                .await
+                .map_err(|(_, err)| {
+                    format!(
+                        "Failed to parse fauna batch response and repair attempt failed: {}. Original parse error: {}",
+                        err, parse_err
+                    )
+                })?;
+            parse_fauna_batch_payload(&repaired).map_err(|repair_err| {
+                format!(
+                    "Failed to parse fauna batch response. Original parse error: {}. Repair parse error: {}. Raw excerpt: {}",
+                    parse_err,
+                    repair_err,
+                    model_response_excerpt(raw)
+                )
+            })
+        }
     }
 }
 
@@ -3736,6 +4331,15 @@ mod tests {
         }
     }
 
+    fn test_briefing_request() -> BiosphereBriefingRequest {
+        BiosphereBriefingRequest {
+            zone_title: "Travel Zone // Frontier Sector".to_string(),
+            biome_label: "Unknown biome".to_string(),
+            context: "Terrain summary: orbital telemetry only.".to_string(),
+            count: 3,
+        }
+    }
+
     fn test_flora_entry(id: &str, name: &str, category: FloraCategory) -> FloraEntry {
         let mut entry = FloraEntry {
             id: id.to_string(),
@@ -3796,6 +4400,155 @@ mod tests {
         let derived = derive_fauna_stats(&entry);
         apply_derived_fauna_stats(&mut entry, derived, EcologyStatSource::Backfilled);
         entry
+    }
+
+    #[test]
+    fn briefing_fauna_prompt_reuses_canonical_bulk_contract() {
+        let prompt = build_briefing_fauna_user_prompt(&test_briefing_request());
+
+        assert!(
+            prompt.contains("The output must match the canonical /ecology fauna payload exactly.")
+        );
+        assert!(prompt.contains("Travel Zone // Frontier Sector"));
+        assert!(prompt.contains("Terrain summary: orbital telemetry only."));
+        assert!(!prompt.contains("system message"));
+    }
+
+    #[test]
+    fn briefing_flora_prompt_reuses_canonical_bulk_contract() {
+        let prompt = build_briefing_flora_user_prompt(&test_briefing_request());
+
+        assert!(
+            prompt.contains("The output must match the canonical /ecology flora payload exactly.")
+        );
+        assert!(prompt.contains("Travel Zone // Frontier Sector"));
+        assert!(prompt.contains("Terrain summary: orbital telemetry only."));
+        assert!(!prompt.contains("system message"));
+    }
+
+    #[test]
+    fn flora_batch_parser_coerces_float_integer_fields() {
+        let parsed = parse_flora_batch_payload(
+            r#"{
+                "entries": [{
+                    "name": "Veilwood Sentry",
+                    "category": "tree",
+                    "description": "Anchor tree.",
+                    "ecologicalRoles": ["landmark"],
+                    "adaptations": ["abrasion resistant bark"],
+                    "edibility": "none",
+                    "agricultureValue": 12.4,
+                    "bodyProfile": {
+                        "sizeClass": "large",
+                        "heightMeters": 18.0,
+                        "spreadMeters": 7.5,
+                        "rootDepthMeters": 3.2,
+                        "biomassKg": 4000.0,
+                        "lifespanYears": 250.0,
+                        "growthRate": 54.9
+                    },
+                    "resourceProfile": {
+                        "rarity": 40.1,
+                        "yieldPerHarvest": 5.8,
+                        "regrowthDays": 33.2,
+                        "harvestDifficulty": 70.6,
+                        "nutritionValue": 0.0,
+                        "medicinalValue": 8.9,
+                        "fuelValue": 60.0,
+                        "structuralValue": 75.4,
+                        "concealmentValue": 44.6
+                    },
+                    "hazardProfile": {
+                        "toxicity": 0.1,
+                        "irritation": 1.2,
+                        "thorniness": 4.8,
+                        "flammability": 25.2,
+                        "resilience": 91.0
+                    }
+                }]
+            }"#,
+        )
+        .expect("flora batch should parse");
+
+        let entry = &parsed.entries[0];
+        assert_eq!(entry.agriculture_value, 12);
+        assert_eq!(entry.body_profile.as_ref().expect("body").growth_rate, 55);
+        assert_eq!(entry.hazard_profile.as_ref().expect("hazard").toxicity, 0);
+        assert_eq!(
+            entry
+                .resource_profile
+                .as_ref()
+                .expect("resource")
+                .regrowth_days,
+            33
+        );
+    }
+
+    #[test]
+    fn fauna_batch_parser_canonicalizes_nonstandard_enum_values() {
+        let parsed = parse_fauna_batch_payload(
+            r#"{
+                "entries": [{
+                    "name": "Rock-Tusk Forager",
+                    "category": "herbivore",
+                    "description": "Low-slung grazer.",
+                    "ecologicalRoles": ["grazer"],
+                    "adaptations": ["rugged feet"],
+                    "domesticationPotential": 35,
+                    "dangerLevel": 42,
+                    "earthAnalog": "boar",
+                    "ancestralStock": "ungulate",
+                    "evolutionaryPressures": ["rocky terrain"],
+                    "mutationSummary": "Compact tusk growth.",
+                    "divergenceSummary": "Short-range browsing specialist.",
+                    "combatProfile": {
+                        "level": 4,
+                        "strength": 12,
+                        "agility": 8,
+                        "intelligence": 5,
+                        "wisdom": 7,
+                        "endurance": 11,
+                        "charisma": 4,
+                        "critChance": 0.1,
+                        "resistance": 0.2,
+                        "socialBonus": 0.0,
+                        "baseEvasion": 4,
+                        "baseDefense": 5,
+                        "baseHpBonus": 8,
+                        "baseApBonus": 0,
+                        "baseMpBonus": 0
+                    },
+                    "bodyProfile": {
+                        "sizeClass": "large",
+                        "heightMeters": 1.2,
+                        "lengthMeters": 2.0,
+                        "weightKg": 280.0,
+                        "locomotion": "quadruped",
+                        "naturalWeapon": "tusk_goring",
+                        "armorClass": "armored"
+                    },
+                    "behaviorProfile": {
+                        "temperament": "loyal",
+                        "activityCycle": "daytime",
+                        "packSizeMin": 2,
+                        "packSizeMax": 6,
+                        "perception": 40,
+                        "stealth": 15,
+                        "trainability": 55
+                    }
+                }]
+            }"#,
+        )
+        .expect("fauna batch should parse");
+
+        let entry = &parsed.entries[0];
+        let body = entry.body_profile.as_ref().expect("body");
+        let behavior = entry.behavior_profile.as_ref().expect("behavior");
+        assert_eq!(body.locomotion, FaunaLocomotion::Walker);
+        assert_eq!(body.natural_weapon, FaunaNaturalWeapon::Horn);
+        assert_eq!(body.armor_class, FaunaArmorClass::Plated);
+        assert_eq!(behavior.temperament, FaunaTemperament::Docile);
+        assert_eq!(behavior.activity_cycle, ActivityCycle::Diurnal);
     }
 
     #[test]

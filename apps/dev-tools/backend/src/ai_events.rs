@@ -1,6 +1,6 @@
 use crate::gemini::generate_text;
-use crate::{build_text_output_ref, make_job_record, parse_tracked_job_meta, AppState};
 use crate::jobs::JobStatus;
+use crate::{build_text_output_ref, make_job_record, parse_tracked_job_meta, AppState};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -177,7 +177,11 @@ pub async fn generate_event_handler(
                 meta.title.as_deref().unwrap_or("Generate Event"),
                 meta.tool.as_deref().unwrap_or("gameplay-engine"),
                 "Queued",
-                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(serde_json::Value::as_str).map(str::to_string),
+                meta.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worldId"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
                 None,
             );
             if meta.restore.is_some() || meta.metadata.is_some() {
@@ -295,7 +299,9 @@ Output strictly in JSON format matching this schema:
 }}",
         gm_context_block,
         payload.event_description,
-        payload.character_alignment.unwrap_or_else(|| "Neutral".to_string()),
+        payload
+            .character_alignment
+            .unwrap_or_else(|| "Neutral".to_string()),
         traits_list.join(", "),
         payload.character_stats.strength,
         payload.character_stats.agility,
@@ -331,7 +337,11 @@ pub async fn resolve_event_handler(
                 meta.title.as_deref().unwrap_or("Resolve Event"),
                 meta.tool.as_deref().unwrap_or("gameplay-engine"),
                 "Queued",
-                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(serde_json::Value::as_str).map(str::to_string),
+                meta.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worldId"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
                 None,
             );
             if meta.restore.is_some() || meta.metadata.is_some() {
@@ -462,7 +472,11 @@ pub async fn rethink_event_handler(
                 meta.title.as_deref().unwrap_or("Rethink Event"),
                 meta.tool.as_deref().unwrap_or("gameplay-engine"),
                 "Queued",
-                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(serde_json::Value::as_str).map(str::to_string),
+                meta.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worldId"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
                 None,
             );
             if meta.restore.is_some() || meta.metadata.is_some() {

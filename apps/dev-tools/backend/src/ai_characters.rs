@@ -79,7 +79,11 @@ fn extract_character_preview(raw_json: &str) -> String {
             if names.is_empty() {
                 format!("Generated {} characters.", entries.len())
             } else {
-                format!("Generated {} characters: {}", entries.len(), names.join(", "))
+                format!(
+                    "Generated {} characters: {}",
+                    entries.len(),
+                    names.join(", ")
+                )
             }
         })
         .unwrap_or_else(|| raw_json.chars().take(220).collect())
@@ -177,13 +181,22 @@ pub async fn generate_character_handler(
     if let Some(meta) = parse_tracked_job_meta(&headers) {
         let job_id = uuid::Uuid::new_v4().to_string();
         {
-            let mut jobs = state.jobs.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()))?;
+            let mut jobs = state.jobs.lock().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "job store lock poisoned".to_string(),
+                )
+            })?;
             let mut job = make_job_record(
                 meta.kind.as_deref().unwrap_or("characters.generate"),
                 meta.title.as_deref().unwrap_or("Generate Characters"),
                 meta.tool.as_deref().unwrap_or("character-builder"),
                 "Queued",
-                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(Value::as_str).map(str::to_string),
+                meta.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worldId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 None,
             );
             if meta.restore.is_some() || meta.metadata.is_some() {
@@ -203,7 +216,11 @@ pub async fn generate_character_handler(
         tokio::spawn(async move {
             if let Ok(mut map) = jobs.lock() {
                 if let Some(job) = map.get_mut(&spawned_job_id) {
-                    job.transition(JobStatus::Running, 25.0, "Generating characters".to_string());
+                    job.transition(
+                        JobStatus::Running,
+                        25.0,
+                        "Generating characters".to_string(),
+                    );
                 }
             }
             match execute_generate_characters(req).await {
@@ -217,7 +234,9 @@ pub async fn generate_character_handler(
                         &preview,
                     );
                 }
-                Err((_status, message)) => fail_tracked_character_job(&jobs, &spawned_job_id, message),
+                Err((_status, message)) => {
+                    fail_tracked_character_job(&jobs, &spawned_job_id, message)
+                }
             }
         });
         return Ok((StatusCode::ACCEPTED, Json(json!({ "jobId": job_id }))).into_response());
@@ -324,13 +343,22 @@ pub async fn generate_story_handler(
     if let Some(meta) = parse_tracked_job_meta(&headers) {
         let job_id = uuid::Uuid::new_v4().to_string();
         {
-            let mut jobs = state.jobs.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "job store lock poisoned".to_string()))?;
+            let mut jobs = state.jobs.lock().map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "job store lock poisoned".to_string(),
+                )
+            })?;
             let mut job = make_job_record(
                 meta.kind.as_deref().unwrap_or("characters.story"),
                 meta.title.as_deref().unwrap_or("Generate Character Story"),
                 meta.tool.as_deref().unwrap_or("character-builder"),
                 "Queued",
-                meta.metadata.as_ref().and_then(|m| m.get("worldId")).and_then(Value::as_str).map(str::to_string),
+                meta.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("worldId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 None,
             );
             if meta.restore.is_some() || meta.metadata.is_some() {
@@ -361,7 +389,9 @@ pub async fn generate_story_handler(
                     "Character Story",
                     &response.story,
                 ),
-                Err((_status, message)) => fail_tracked_character_job(&jobs, &spawned_job_id, message),
+                Err((_status, message)) => {
+                    fail_tracked_character_job(&jobs, &spawned_job_id, message)
+                }
             }
         });
         return Ok((StatusCode::ACCEPTED, Json(json!({ "jobId": job_id }))).into_response());

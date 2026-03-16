@@ -1136,11 +1136,12 @@ pub fn ensure_test_exploration_location(
 ) -> Result<(), String> {
     let path = chunked_manifest_path(planets_dir, world_id, TEST_EXPLORATION_LOCATION_ID);
     if path.exists() {
-        let existing_version = load_manifest_descriptor(planets_dir, world_id, TEST_EXPLORATION_LOCATION_ID)
-            .ok()
-            .and_then(|descriptor| descriptor.metadata)
-            .and_then(|metadata| metadata.get("testLayoutVersion").and_then(Value::as_u64))
-            .unwrap_or(0);
+        let existing_version =
+            load_manifest_descriptor(planets_dir, world_id, TEST_EXPLORATION_LOCATION_ID)
+                .ok()
+                .and_then(|descriptor| descriptor.metadata)
+                .and_then(|metadata| metadata.get("testLayoutVersion").and_then(Value::as_u64))
+                .unwrap_or(0);
         if existing_version >= TEST_EXPLORATION_LAYOUT_VERSION {
             return Ok(());
         }
@@ -1950,7 +1951,9 @@ fn carve_river(
                 continue;
             }
             let idx = tile_index(width, x, y as u32);
-            if !can_overwrite_outdoor_tile(&tiles[idx]) || object_occupies_cell(objects, x, y as u32) {
+            if !can_overwrite_outdoor_tile(&tiles[idx])
+                || object_occupies_cell(objects, x, y as u32)
+            {
                 continue;
             }
             if offset.abs() <= 1 {
@@ -1966,7 +1969,9 @@ fn carve_river(
                 continue;
             }
             let idx = tile_index(width, x, y as u32);
-            if !can_overwrite_outdoor_tile(&tiles[idx]) || object_occupies_cell(objects, x, y as u32) {
+            if !can_overwrite_outdoor_tile(&tiles[idx])
+                || object_occupies_cell(objects, x, y as u32)
+            {
                 continue;
             }
             if tiles[idx].r#type == "floor" && bank_offset.abs() >= 2 {
@@ -2003,7 +2008,10 @@ fn carve_river(
 
 fn object_occupies_cell(objects: &[ExplorationObject], x: u32, y: u32) -> bool {
     objects.iter().any(|object| {
-        x >= object.x && x < object.x + object.width && y >= object.y && y < object.y + object.height
+        x >= object.x
+            && x < object.x + object.width
+            && y >= object.y
+            && y < object.y + object.height
     })
 }
 

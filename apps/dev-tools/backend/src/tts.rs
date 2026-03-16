@@ -113,10 +113,7 @@ pub async fn generate_tts_handler(
         )
     })?;
 
-    let voice = request
-        .voice_name
-        .as_deref()
-        .unwrap_or("Kore");
+    let voice = request.voice_name.as_deref().unwrap_or("Kore");
 
     let body = json!({
         "contents": [{
@@ -170,10 +167,7 @@ pub async fn generate_tts_handler(
     if !status.is_success() {
         return Err((
             StatusCode::BAD_REQUEST,
-            payload
-                .error
-                .map(|error| error.message)
-                .unwrap_or(raw),
+            payload.error.map(|error| error.message).unwrap_or(raw),
         ));
     }
 

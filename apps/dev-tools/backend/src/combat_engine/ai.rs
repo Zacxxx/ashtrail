@@ -253,7 +253,12 @@ fn format_search_entry_log(
 ) -> String {
     let seed = build_search_seed("intent", turn_number, caster_id, target_pos, None);
     let variant = select_search_phrase_variant(seed, SEARCH_INTENT_TEMPLATES.len());
-    render_search_template(SEARCH_INTENT_TEMPLATES[variant], actor_name, None, target_pos)
+    render_search_template(
+        SEARCH_INTENT_TEMPLATES[variant],
+        actor_name,
+        None,
+        target_pos,
+    )
 }
 
 fn format_search_cast_log(
@@ -779,7 +784,14 @@ mod tests {
         logs.iter().any(|entry| entry.message.contains(needle))
     }
 
-    fn message_from_pool(message: &str, pool: &[&str], actor: &str, skill: Option<&str>, row: usize, col: usize) -> bool {
+    fn message_from_pool(
+        message: &str,
+        pool: &[&str],
+        actor: &str,
+        skill: Option<&str>,
+        row: usize,
+        col: usize,
+    ) -> bool {
         pool.iter().any(|template| {
             render_search_template(template, actor, skill, &GridPos { row, col }) == message
         })
@@ -1050,7 +1062,8 @@ mod tests {
     #[test]
     fn test_search_cast_log_contains_actor_skill_and_cell() {
         let skill = make_search_aoe_skill("shockwave", 12, 2);
-        let message = format_search_cast_log(5, "intel-1", "Intel", &skill, &GridPos { row: 3, col: 6 });
+        let message =
+            format_search_cast_log(5, "intel-1", "Intel", &skill, &GridPos { row: 3, col: 6 });
 
         assert!(message.contains("Intel"));
         assert!(message.contains("shockwave"));
@@ -1068,7 +1081,14 @@ mod tests {
             &GridPos { row: 4, col: 7 },
         );
 
-        assert!(message_from_pool(&entry, &SEARCH_INTENT_TEMPLATES, "Intel", None, 4, 7));
+        assert!(message_from_pool(
+            &entry,
+            &SEARCH_INTENT_TEMPLATES,
+            "Intel",
+            None,
+            4,
+            7
+        ));
         assert!(message_from_pool(
             &cast,
             &SEARCH_CAST_TEMPLATES,

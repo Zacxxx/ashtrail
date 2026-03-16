@@ -18,8 +18,10 @@ interface PlanetGlobeProps {
   demoTravelEnabled?: boolean;
   demoTravelReplayToken?: string;
   demoTravelStartToken?: number;
+  demoTravelSeedHints?: { lon: number; lat: number }[];
   onDemoTravelDestinationReady?: (payload: DemoTravelFinalTriggerPayload) => void;
   onDemoTravelFinalTrigger?: (payload: DemoTravelFinalTriggerPayload) => void;
+  onDemoTravelNodeClick?: (payload: DemoTravelFinalTriggerPayload) => void;
   onDemoTravelUpdate?: (payload: { screenX: number; screenY: number; isVisibleOnScreen: boolean }) => void;
 }
 
@@ -693,9 +695,28 @@ function scorePath(
     - monotonyPenalty;
 }
 
-function buildTravelRoute(mask: TerrainMask): TravelRoute | null {
-  const regionMap = buildLandRegionMap(mask);
-  const candidates = collectTravelCandidates(mask, regionMap);
+function buildTravelRoute(
+  mask: TerrainMask,
+  seedHints?: { lon: number; lat: number }[]
+): TravelRoute | null {
+  const candidates = seedHints && seedHints.length > 0
+    ? seedHints.map((hint, i) => {
+      const x = clamp(Math.round(((hint.lon + Math.PI) / (Math.PI * 2)) * mask.width - 0.5), 0, mask.width - 1);
+      const y = clamp(Math.round(((Math.PI / 2 - hint.lat) / Math.PI) * mask.height - 0.5), 0, mask.height - 1);
+      const idx = y * mask.width + x;
+      return {
+        x,
+        y,
+        lon: hint.lon,
+        lat: hint.lat,
+        vec: lonLatToVec3(hint.lon, hint.lat, 1.0),
+        quality: mask.quality[idx] ?? 0,
+        inland: mask.distanceToWater[idx] ?? 0,
+        regionId: -1, // Seed hints don't belong to a specific region initially
+      };
+    })
+    : collectTravelCandidates(mask, buildLandRegionMap(mask));
+
   if (candidates.length < TRAVEL_NODE_COUNT) {
     return null;
   }
@@ -918,8 +939,10 @@ export function PlanetGlobe({
   demoTravelEnabled = false,
   demoTravelReplayToken = "",
   demoTravelStartToken = 0,
+  demoTravelSeedHints,
   onDemoTravelDestinationReady,
   onDemoTravelFinalTrigger,
+  onDemoTravelNodeClick,
   onDemoTravelUpdate,
 }: PlanetGlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1342,28 +1365,28 @@ export function PlanetGlobe({
       line.geometry.setDrawRange(0, Math.max(0, count));
     };
 
-    const buildRoutePayload = (route: TravelRoute): DemoTravelFinalTriggerPayload => {
-      const finalNode = route.nodes[route.nodes.length - 1];
-      const normalizedX = (finalNode.x + 0.5) / route.maskWidth;
-      const normalizedY = (finalNode.y + 0.5) / route.maskHeight;
+    const buildNodePayload = (route: TravelRoute, nodeIndex: number): DemoTravelFinalTriggerPayload => {
+      const targetNode = route.nodes[Math.min(nodeIndex, route.nodes.length - 1)];
+      const normalizedX = (targetNode.x + 0.5) / route.maskWidth;
+      const normalizedY = (targetNode.y + 0.5) / route.maskHeight;
       const projectedWorldX = clamp(Math.round(normalizedX * world.cols - 0.5), 0, Math.max(0, world.cols - 1));
       const projectedWorldY = clamp(Math.round(normalizedY * world.rows - 0.5), 0, Math.max(0, world.rows - 1));
-      const directWorldX = route.source === "cellData" && route.maskWidth === world.cols ? finalNode.x : null;
-      const directWorldY = route.source === "cellData" && route.maskHeight === world.rows ? finalNode.y : null;
+      const directWorldX = route.source === "cellData" && route.maskWidth === world.cols ? targetNode.x : null;
+      const directWorldY = route.source === "cellData" && route.maskHeight === world.rows ? targetNode.y : null;
       const hasCellData = Array.isArray(world.cellData) && world.cellData.length === world.cols * world.rows;
       const resolvedCell = hasCellData ? (world.cellData[projectedWorldY * world.cols + projectedWorldX] as TerrainCell | undefined) ?? null : null;
       let projectedPosition = new THREE.Vector3();
-      if (runtimeTravel && runtimeTravel.nodes[route.nodes.length - 1]) {
-        runtimeTravel.nodes[route.nodes.length - 1].core.getWorldPosition(projectedPosition);
+      if (runtimeTravel && runtimeTravel.nodes[nodeIndex]) {
+        runtimeTravel.nodes[nodeIndex].core.getWorldPosition(projectedPosition);
       } else {
-        projectedPosition.copy(finalNode.vec).multiplyScalar(TRAVEL_NODE_CORE_RADIUS);
+        projectedPosition.copy(targetNode.vec).multiplyScalar(TRAVEL_NODE_CORE_RADIUS);
         overlayGroup.localToWorld(projectedPosition);
       }
 
       // Force matrix updates for precise projection
       scene.updateMatrixWorld(true);
       camera.updateMatrixWorld(true);
-      
+
       const projectedScreen = projectedPosition.clone().project(camera);
       const viewportWidth = Math.max(1, container.clientWidth || renderer.domElement.clientWidth || 1);
       const viewportHeight = Math.max(1, container.clientHeight || renderer.domElement.clientHeight || 1);
@@ -1380,9 +1403,9 @@ export function PlanetGlobe({
         && surfaceNormal.dot(viewDirection) > 0.03;
 
       return {
-        nodeIndex: route.nodes.length - 1,
-        lon: finalNode.lon,
-        lat: finalNode.lat,
+        nodeIndex,
+        lon: targetNode.lon,
+        lat: targetNode.lat,
         normalizedX,
         normalizedY,
         worldX: directWorldX,
@@ -1394,6 +1417,10 @@ export function PlanetGlobe({
         screenY,
         isVisibleOnScreen,
       };
+    };
+
+    const buildRoutePayload = (route: TravelRoute): DemoTravelFinalTriggerPayload => {
+      return buildNodePayload(route, route.nodes.length - 1);
     };
 
     const animatingStateForSegment = (segmentIndex: number): DemoTravelSequenceState => {
@@ -1642,7 +1669,7 @@ export function PlanetGlobe({
 
     const maybeMountTravelOverlay = (mask: TerrainMask | null) => {
       if (!demoTravelEnabled || runtimeTravel || !mask) return;
-      const route = buildTravelRoute(mask);
+      const route = buildTravelRoute(mask, demoTravelSeedHints);
       if (route) {
         mountTravelOverlay(route);
       }
@@ -1716,6 +1743,28 @@ export function PlanetGlobe({
         return;
       }
 
+      // Check if pointer hovers over a travel node (for cursor feedback)
+      let hoveringNode = false;
+      if (demoTravelEnabled && runtimeTravel) {
+        raycaster.setFromCamera(pointer, camera);
+        const nodeHitThreshold = 0.045;
+        for (const node of runtimeTravel.nodes) {
+          node.core.getWorldPosition(tempWorldPosition);
+          tempSurfaceNormal.copy(tempWorldPosition).normalize();
+          tempViewDirection.copy(camera.position).sub(tempWorldPosition).normalize();
+          const facing = tempSurfaceNormal.dot(tempViewDirection);
+          if (facing <= 0.03) continue;
+          const projected = tempWorldPosition.clone().project(camera);
+          const dx = projected.x - pointer.x;
+          const dy = projected.y - pointer.y;
+          if (Math.sqrt(dx * dx + dy * dy) < nodeHitThreshold) {
+            hoveringNode = true;
+            break;
+          }
+        }
+      }
+      renderer.domElement.style.cursor = hoveringNode ? "pointer" : "";
+
       const ray = new THREE.Ray();
       raycaster.setFromCamera(pointer, camera);
       ray.copy(raycaster.ray);
@@ -1754,6 +1803,39 @@ export function PlanetGlobe({
 
     const onUp = () => {
       if (!hasDragged && dragging) {
+        // Check travel node click first
+        if (demoTravelEnabled && runtimeTravel && onDemoTravelNodeClick) {
+          raycaster.setFromCamera(pointer, camera);
+          const nodeHitThreshold = 0.045;
+          let clickedNodeIndex = -1;
+          let bestDistance = Infinity;
+          for (let i = 0; i < runtimeTravel.nodes.length; i++) {
+            const node = runtimeTravel.nodes[i];
+            node.core.getWorldPosition(tempWorldPosition);
+            tempSurfaceNormal.copy(tempWorldPosition).normalize();
+            tempViewDirection.copy(camera.position).sub(tempWorldPosition).normalize();
+            const facing = tempSurfaceNormal.dot(tempViewDirection);
+            if (facing <= 0.03) continue;
+            const projected = tempWorldPosition.clone().project(camera);
+            const dx = projected.x - pointer.x;
+            const dy = projected.y - pointer.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < nodeHitThreshold && dist < bestDistance) {
+              bestDistance = dist;
+              clickedNodeIndex = i;
+            }
+          }
+          if (clickedNodeIndex >= 0) {
+            onDemoTravelNodeClick({
+              ...buildNodePayload(runtimeTravel.route, clickedNodeIndex),
+              triggeredAt: performance.now(),
+            });
+            dragging = false;
+            hasDragged = false;
+            return;
+          }
+        }
+
         const ray = new THREE.Ray();
         raycaster.setFromCamera(pointer, camera);
         ray.copy(raycaster.ray);
@@ -1930,24 +2012,24 @@ export function PlanetGlobe({
               });
             }
           }
-          
+
           // Continuous position update for the panel tracer
           if (onDemoTravelUpdate && runtimeTravel.nodes.length > 0) {
             const finalNodeIndex = runtimeTravel.nodes.length - 1;
             const finalNodeMesh = runtimeTravel.nodes[finalNodeIndex].core;
             finalNodeMesh.getWorldPosition(tempWorldPosition);
-            
+
             // Re-project and update
             const projectedScreen = tempWorldPosition.clone().project(camera);
             const viewportWidth = Math.max(1, container.clientWidth || renderer.domElement.clientWidth || 1);
             const viewportHeight = Math.max(1, container.clientHeight || renderer.domElement.clientHeight || 1);
             const screenX = ((projectedScreen.x + 1) * 0.5) * viewportWidth;
             const screenY = ((1 - projectedScreen.y) * 0.5) * viewportHeight;
-            
+
             tempSurfaceNormal.copy(tempWorldPosition).normalize();
             tempViewDirection.copy(camera.position).sub(tempWorldPosition).normalize();
             const facing = tempSurfaceNormal.dot(tempViewDirection);
-            
+
             const isVisibleOnScreen = projectedScreen.z >= -1
               && projectedScreen.z <= 1
               && screenX >= 0
@@ -1955,7 +2037,7 @@ export function PlanetGlobe({
               && screenY >= 0
               && screenY <= viewportHeight
               && facing > 0.03;
-              
+
             onDemoTravelUpdate({ screenX, screenY, isVisibleOnScreen });
           }
         }
@@ -2112,10 +2194,10 @@ export function PlanetGlobe({
       }
       scene.clear();
     };
-  }, [world, tiling, onCellHover, onCellClick, demoTravelEnabled, demoTravelReplayToken, onDemoTravelDestinationReady, onDemoTravelFinalTrigger]);
+  }, [world, tiling, onCellHover, onCellClick, demoTravelEnabled, demoTravelReplayToken, onDemoTravelDestinationReady, onDemoTravelFinalTrigger, onDemoTravelNodeClick]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-black">
+    <div className="relative w-full h-full overflow-hidden bg-transparent">
       {isGeneratingGeometry && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm">
           <svg className="animate-spin w-12 h-12 text-purple-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
