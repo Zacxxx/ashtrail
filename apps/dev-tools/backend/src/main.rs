@@ -2480,15 +2480,37 @@ async fn generate_text_handler(
 async fn helper_chat_handler(
     Json(request): Json<HelperChatRequest>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
-    // Read the tutorial file
-    let tutorial_path = std::path::PathBuf::from("devtoolstutorial.md");
-    let tutorial_content = match tokio::fs::read_to_string(&tutorial_path).await {
-        Ok(content) => content,
-        Err(e) => {
-            warn!("Failed to read devtoolstutorial.md: {}", e);
-            String::from("Tutorial content not available.")
+    // Read the tutorial file - try multiple possible paths
+    let possible_paths = vec![
+        std::path::PathBuf::from("devtoolstutorial.md"),
+        std::path::PathBuf::from("../../../devtoolstutorial.md"),
+        std::path::PathBuf::from("../../devtoolstutorial.md"),
+    ];
+    
+    let mut tutorial_content = String::new();
+    let mut tutorial_found = false;
+    
+    for path in possible_paths {
+        if let Ok(content) = tokio::fs::read_to_string(&path).await {
+            info!("Successfully loaded tutorial from: {:?}", path);
+            tutorial_content = content;
+            tutorial_found = true;
+            break;
         }
-    };
+    }
+    
+    if !tutorial_found {
+        error!("Failed to read devtoolstutorial.md from any known location");
+        tutorial_content = String::from("Tutorial content not available. Please ensure devtoolstutorial.md exists at the project root.");
+    } else {
+        let char_count = tutorial_content.len();
+        info!("Tutorial loaded successfully: {} characters", char_count);
+        
+        // Sanity check: tutorial should be substantial (at least 50k chars)
+        if char_count < 50000 {
+            warn!("Tutorial seems too small ({} chars). Expected >50k chars. File might be incomplete.", char_count);
+        }
+    }
 
     let current_tool = request.current_tool.unwrap_or_else(|| "Dev Tools Hub".to_string());
     let route = request.route.unwrap_or_else(|| "/devtools".to_string());
@@ -2506,7 +2528,7 @@ TUTORIAL CONTENT (first 2000 chars):
 
 Respond with ONLY one of these:
 - "TUTORIAL_SUFFICIENT" if the tutorial has enough info
-- "NEED_CODE_SEARCH: <keywords>" if you need to search code files (provide 2-3 relevant keywords separated by commas)
+- "NEED_CODE_SEARCH: <keywords>" if you need to search implementation details (provide 2-3 relevant keywords separated by commas)
 
 Your response:"#,
         request.prompt,
@@ -2540,25 +2562,38 @@ KNOWLEDGE BASE (Dev-Tools Tutorial):
 
 {}
 
-GUIDELINES:
+CRITICAL GUIDELINES:
+- You are a USER-FACING assistant, not a developer documentation bot
+- NEVER mention backend code, Rust files, API endpoints, or technical implementation details
+- NEVER reference code structures like "SupabaseStorageConfig" or function names
+- Focus on HOW TO USE the tools from a user perspective, not how they're built
+- Explain features in terms of UI elements, buttons, workflows, and user actions
 - Be concise and practical
 - Provide step-by-step instructions when relevant
-- Reference specific UI elements when helpful
+- Reference specific UI elements when helpful (buttons, tabs, sections)
 - Suggest related tools or features when appropriate
 - If the user seems stuck, proactively offer troubleshooting tips
-- Use the tutorial content to provide accurate, detailed answers
-- When referencing code, use markdown code blocks with proper syntax highlighting
+- When showing code examples, use markdown code blocks with proper syntax highlighting
 - Focus on the current tool context when answering
+- If you don't have enough information, say so clearly and suggest where to look
+- DO NOT start responses with greetings like "Bonjour", "Hello", "Hi" - jump straight to the answer
+- This is a conversation, not a series of isolated messages - be natural and conversational
+
+CRITICAL: ONLY USE INFORMATION FROM THE TUTORIAL ABOVE
+- If the tutorial doesn't mention something (like "inventory" in Game Master), DO NOT INVENT IT
+- If you're unsure, say "I don't see that feature mentioned in the documentation"
+- NEVER make up features, buttons, or workflows that aren't in the tutorial
+- When in doubt, quote directly from the tutorial or admit you don't know
 
 USER QUESTION:
 {}
 
-Provide a helpful, contextual response:"#,
+Provide a helpful, user-friendly response focused on practical usage. If the tutorial doesn't cover this topic, be honest about it:"#,
         current_tool,
         route,
         tutorial_content,
         if !code_context.is_empty() {
-            format!("\nRELEVANT CODE CONTEXT:\n{}", code_context)
+            format!("\nADDITIONAL IMPLEMENTATION DETAILS (for understanding features, DO NOT mention these directly to users):\n{}", code_context)
         } else {
             String::new()
         },
