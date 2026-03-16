@@ -305,6 +305,14 @@ struct GenerateTextRequest {
     prompt: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HelperChatRequest {
+    prompt: String,
+    current_tool: Option<String>,
+    route: Option<String>,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TrackedJobMeta {
@@ -1036,6 +1044,7 @@ async fn main() {
         .route("/api/planet/saved/{cache_key}", get(load_saved_planet))
         .route("/api/planet/lore/query", post(query_lore_handler))
         .route("/api/text/generate", post(generate_text_handler))
+        .route("/api/helper/chat", post(helper_chat_handler))
         .route(
             "/api/events/generate",
             post(ai_events::generate_event_handler),
@@ -2466,6 +2475,220 @@ async fn generate_text_handler(
         Ok(text) => Ok((StatusCode::OK, Json(serde_json::json!({ "text": text }))).into_response()),
         Err((code, msg)) => Err((code, msg)),
     }
+}
+
+async fn helper_chat_handler(
+    Json(request): Json<HelperChatRequest>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    // Read the tutorial file
+    let tutorial_path = std::path::PathBuf::from("devtoolstutorial.md");
+    let tutorial_content = match tokio::fs::read_to_string(&tutorial_path).await {
+        Ok(content) => content,
+        Err(e) => {
+            warn!("Failed to read devtoolstutorial.md: {}", e);
+            String::from("Tutorial content not available.")
+        }
+    };
+
+    let current_tool = request.current_tool.unwrap_or_else(|| "Dev Tools Hub".to_string());
+    let route = request.route.unwrap_or_else(|| "/devtools".to_string());
+
+    // First pass: Check if tutorial has enough info
+    let analysis_prompt = format!(
+        r#"Analyze this user question and determine if the Dev-Tools Tutorial contains enough information to answer it.
+
+USER QUESTION: {}
+
+CURRENT CONTEXT: User is in {}
+
+TUTORIAL CONTENT (first 2000 chars):
+{}
+
+Respond with ONLY one of these:
+- "TUTORIAL_SUFFICIENT" if the tutorial has enough info
+- "NEED_CODE_SEARCH: <keywords>" if you need to search code files (provide 2-3 relevant keywords separated by commas)
+
+Your response:"#,
+        request.prompt,
+        current_tool,
+        tutorial_content.chars().take(2000).collect::<String>()
+    );
+
+    let analysis = match gemini::generate_text_with_options(&analysis_prompt, 0.3).await {
+        Ok(text) => text.trim().to_string(),
+        Err(_) => "TUTORIAL_SUFFICIENT".to_string(), // Fallback to tutorial only
+    };
+
+    // Gather code context if needed
+    let code_context = if analysis.starts_with("NEED_CODE_SEARCH") {
+        info!("Helper needs code search: {}", analysis);
+        gather_code_context(&current_tool, &route, &analysis).await
+    } else {
+        String::new()
+    };
+
+    // Build final enhanced prompt
+    let enhanced_prompt = format!(
+        r#"You are the Ashtrail Dev-Tools Helper Assistant. Your role is to help users understand and use the dev-tools effectively.
+
+CURRENT CONTEXT:
+- User is currently in: {}
+- Route: {}
+
+KNOWLEDGE BASE (Dev-Tools Tutorial):
+{}
+
+{}
+
+GUIDELINES:
+- Be concise and practical
+- Provide step-by-step instructions when relevant
+- Reference specific UI elements when helpful
+- Suggest related tools or features when appropriate
+- If the user seems stuck, proactively offer troubleshooting tips
+- Use the tutorial content to provide accurate, detailed answers
+- When referencing code, use markdown code blocks with proper syntax highlighting
+- Focus on the current tool context when answering
+
+USER QUESTION:
+{}
+
+Provide a helpful, contextual response:"#,
+        current_tool,
+        route,
+        tutorial_content,
+        if !code_context.is_empty() {
+            format!("\nRELEVANT CODE CONTEXT:\n{}", code_context)
+        } else {
+            String::new()
+        },
+        request.prompt
+    );
+
+    match gemini::generate_text_with_options(&enhanced_prompt, 0.7).await {
+        Ok(text) => Ok((StatusCode::OK, Json(serde_json::json!({ "text": text }))).into_response()),
+        Err((code, msg)) => Err((code, msg)),
+    }
+}
+
+async fn gather_code_context(current_tool: &str, route: &str, analysis: &str) -> String {
+    let mut context = String::new();
+    
+    // Extract keywords from analysis
+    let keywords: Vec<&str> = if let Some(keywords_part) = analysis.split(':').nth(1) {
+        keywords_part.split(',').map(|s| s.trim()).collect()
+    } else {
+        vec![]
+    };
+
+    // Map tool to relevant source files
+    let relevant_files = match current_tool {
+        "World Generator" => vec![
+            "src/worldgen/WorldgenPage.tsx",
+            "backend/src/generator.rs",
+            "backend/src/worldgen_pipeline.rs",
+        ],
+        "Asset Generator" => vec![
+            "src/assetgen/AssetGeneratorPage.tsx",
+            "backend/src/gemini.rs",
+        ],
+        "Game Master" => vec![
+            "src/gamemaster/GameMasterPage.tsx",
+            "backend/src/cms.rs",
+        ],
+        "Gallery" => vec![
+            "src/gallery/GalleryPage.tsx",
+        ],
+        "Gameplay Engine" => vec![
+            "src/gameplay/GameplayEnginePage.tsx",
+            "backend/src/game_rules.rs",
+            "backend/src/combat_engine/mod.rs",
+        ],
+        "Character Builder" => vec![
+            "src/characters/CharacterBuilderPage.tsx",
+            "backend/src/ai_characters.rs",
+        ],
+        "History" => vec![
+            "src/history/HistoryPage.tsx",
+            "backend/src/hierarchy.rs",
+        ],
+        "Ecology" => vec![
+            "src/ecology/EcologyPage.tsx",
+            "backend/src/ecology.rs",
+        ],
+        "Quests" => vec![
+            "src/quests/QuestsPage.tsx",
+            "backend/src/ai_quests.rs",
+            "backend/src/quest_ai.rs",
+        ],
+        _ => vec![
+            "src/App.tsx",
+            "backend/src/main.rs",
+        ],
+    };
+
+    // Read relevant files (limit to first 3 to avoid token overflow)
+    for (idx, file_path) in relevant_files.iter().take(3).enumerate() {
+        let full_path = std::path::PathBuf::from(file_path);
+        if let Ok(content) = tokio::fs::read_to_string(&full_path).await {
+            // Extract relevant sections based on keywords
+            let relevant_section = extract_relevant_section(&content, &keywords);
+            if !relevant_section.is_empty() {
+                context.push_str(&format!("\n--- File: {} ---\n", file_path));
+                context.push_str(&relevant_section);
+                context.push_str("\n");
+            }
+        }
+    }
+
+    if context.is_empty() {
+        context.push_str("(No additional code context found)");
+    }
+
+    context
+}
+
+fn extract_relevant_section(content: &str, keywords: &[&str]) -> String {
+    if keywords.is_empty() {
+        // Return first 1500 chars if no keywords
+        return content.chars().take(1500).collect();
+    }
+
+    let lines: Vec<&str> = content.lines().collect();
+    let mut relevant_lines = Vec::new();
+    let context_window = 10; // Lines before and after match
+
+    for (idx, line) in lines.iter().enumerate() {
+        let line_lower = line.to_lowercase();
+        if keywords.iter().any(|kw| line_lower.contains(&kw.to_lowercase())) {
+            // Add context window
+            let start = idx.saturating_sub(context_window);
+            let end = (idx + context_window + 1).min(lines.len());
+            
+            for i in start..end {
+                if !relevant_lines.contains(&i) {
+                    relevant_lines.push(i);
+                }
+            }
+        }
+    }
+
+    relevant_lines.sort_unstable();
+    
+    let mut result = String::new();
+    let mut last_idx = 0;
+    
+    for &idx in &relevant_lines {
+        if idx > last_idx + 1 {
+            result.push_str("\n...\n");
+        }
+        result.push_str(lines[idx]);
+        result.push('\n');
+        last_idx = idx;
+    }
+
+    // Limit to 2000 chars
+    result.chars().take(2000).collect()
 }
 
 async fn start_generate_media_audio_job(
