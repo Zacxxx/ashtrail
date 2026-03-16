@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { LoaderCircle, Headphones, Play, Pause } from "lucide-react";
 import type { QuestRunRecord } from "@ashtrail/core";
 import { CombatSimulator } from "../gameplay-engine/combat/CombatSimulator";
@@ -44,6 +45,8 @@ async function fetchWorldCharacter(worldId: string, characterId: string) {
 }
 
 export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerProps) {
+    const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { setActiveWorldId } = useActiveWorld();
     const [questRun, setQuestRun] = useState<QuestRunRecord | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -255,6 +258,7 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
     }, [questRun?.currentNode, faunaEntries.length, loadFaunaForCombat, questRun]);
 
     // Prepare combat: Load GameRegistry, set active world, and register demo character
+    // This must run BEFORE combat becomes active to ensure the character is available
     useEffect(() => {
         if (!isCombatActive || combatReady) return;
 
@@ -273,25 +277,78 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
                 await GameRegistry.fetchFromBackend("http://127.0.0.1:8787");
                 console.log("✓ Loaded GameRegistry from backend");
 
-                // Fetch and register the demo character
-                if (questRun?.partyCharacterIds?.[0]) {
-                    const charId = questRun.partyCharacterIds[0];
-                    console.log("📝 Fetching demo character:", charId);
+                // Fetch and register the demo character from the planet's characters folder
+                // CRITICAL: We need to find the actual character file in the folder, not rely on the quest's character ID
+                // because the quest might have been created with a different/old character ID
+                try {
+                    console.log("📝 Loading demo character from planet folder for world:", worldId);
 
-                    try {
-                        const response = await fetch(`/api/world/${worldId}/character/${charId}`);
-                        if (response.ok) {
-                            const demoChar = await response.json();
-                            console.log("✓ Fetched demo character:", demoChar.name);
+                    // Extract the short world ID (first 8 chars after "demo-")
+                    const shortWorldId = worldId.replace("demo-", "").slice(0, 8);
 
-                            // Add to GameRegistry
-                            const charactersMap = (GameRegistry as any).characters as Map<string, any>;
-                            charactersMap.set(charId, demoChar);
-                            console.log("✓ Demo character registered");
+                    // Try common demo character ID patterns
+                    const possibleCharIds = [
+                        `demo-char-john-${shortWorldId}`,
+                        `demo-char-jane-${shortWorldId}`,
+                        questRun?.partyCharacterIds?.[0], // Also try the quest's stored ID
+                    ].filter(Boolean);
+
+                    console.log("🔍 Trying character IDs:", possibleCharIds);
+
+                    let demoChar = null;
+                    for (const charId of possibleCharIds) {
+                        try {
+                            const response = await fetch(`/api/world/${worldId}/character/${charId}`);
+                            if (response.ok) {
+                                const rawChar = await response.json();
+                                console.log("✓ Found demo character:", rawChar.name, "with ID:", rawChar.id);
+
+                                // Ensure the character has all required fields for combat
+                                // Calculate maxHp based on endurance (using default rules: base 50 + endurance * 10)
+                                const endurance = rawChar.stats?.endurance || 10;
+                                const maxHp = 50 + endurance * 10;
+
+                                demoChar = {
+                                    ...rawChar,
+                                    appearancePrompt: rawChar.appearancePrompt || `A ${rawChar.age || 30} year old ${rawChar.gender || 'person'} named ${rawChar.name}`,
+                                    hp: rawChar.hp ?? maxHp,
+                                    maxHp: rawChar.maxHp ?? maxHp,
+                                    xp: rawChar.xp ?? 0,
+                                    inventory: rawChar.inventory || [],
+                                    equipped: rawChar.equipped || {},
+                                    skills: rawChar.skills || [],
+                                    traits: Array.isArray(rawChar.traits)
+                                        ? rawChar.traits.map((t: any) => typeof t === 'string' ? { id: t, name: t } : t)
+                                        : [],
+                                };
+                                break;
+                            }
+                        } catch (err) {
+                            console.log("⏭️ Character not found with ID:", charId);
                         }
-                    } catch (err) {
-                        console.error("❌ Failed to fetch demo character:", err);
                     }
+
+                    if (demoChar) {
+                        // CRITICAL: Add to GameRegistry with the exact ID from the character file
+                        // We'll add it now and also set a flag to re-add it after CombatSimulator loads
+                        const charactersMap = (GameRegistry as any).characters as Map<string, any>;
+                        charactersMap.set(demoChar.id, demoChar);
+                        console.log("✓ Demo character registered in GameRegistry with ID:", demoChar.id);
+                        console.log("✓ GameRegistry now has", charactersMap.size, "characters");
+
+                        // Store the demo character so we can re-add it if needed
+                        (window as any).__demoCharacter = demoChar;
+
+                        // Update the quest's partyCharacterIds to use the correct ID
+                        if (questRun && questRun.partyCharacterIds?.[0] !== demoChar.id) {
+                            console.log("🔄 Updating quest partyCharacterIds from", questRun.partyCharacterIds?.[0], "to", demoChar.id);
+                            questRun.partyCharacterIds = [demoChar.id];
+                        }
+                    } else {
+                        console.error("❌ Could not find demo character with any known ID pattern");
+                    }
+                } catch (err) {
+                    console.error("❌ Failed to load demo character:", err);
                 }
 
                 setCombatReady(true);
@@ -302,7 +359,7 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
         }
 
         void prepareCombat();
-    }, [isCombatActive, combatReady, questRun?.partyCharacterIds, worldId, setActiveWorldId]);
+    }, [isCombatActive, combatReady, questRun, worldId, setActiveWorldId]);
 
     const generateIllustrationForCurrentNode = useCallback(async (run: QuestRunRecord) => {
         if (!run.currentNode) return;
@@ -746,6 +803,19 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
         }
     }, [questRun, isAdvancing, worldId, runId, onComplete, selectedChoiceId, generateIllustrationForCurrentNode]);
 
+    // Memoize ecologyBundle so CombatSimulator doesn't re-render in a loop
+    // Cast to EcologyBundle — CombatSimulator only uses the fauna array
+    const combatEcologyBundle = useMemo(() => ({
+        fauna: faunaEntries,
+        flora: [],
+        biomes: [],
+        baselines: [],
+        archetypes: { archetypes: [] },
+        biomeModelSettings: { biomes: [] },
+        worldId,
+        updatedAt: new Date().toISOString(),
+    } as any), [faunaEntries, worldId]);
+
     if (isLoading) {
         return (
             <div className="flex h-full w-full items-center justify-center">
@@ -788,6 +858,7 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
                 ? "border-emerald-500/20"
                 : "border-amber-500/15";
 
+
     // If combat is active, show combat view
     if (hasPendingCombat && isCombatActive) {
         if (!combatReady || !combatFaunaReady) {
@@ -803,13 +874,6 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
             );
         }
 
-        console.log("🎮 Rendering combat view with:", {
-            playerIds: questRun.partyCharacterIds,
-            enemyIds: currentNode.pendingCombat?.enemyIds,
-            faunaEntriesCount: faunaEntries.length,
-            faunaEntries: faunaEntries.map(f => ({ id: f.id, name: f.name })),
-        });
-
         return (
             <div className="relative z-10 h-full w-full flex items-center justify-center">
                 <div className="w-full max-w-[1400px] h-[800px] rounded-[24px] border border-red-500/20 bg-black/90 backdrop-blur-xl overflow-hidden shadow-[0_32px_100px_rgba(0,0,0,0.6)]">
@@ -818,7 +882,7 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
                         initialPlayerIds={questRun.partyCharacterIds}
                         initialEnemyIds={currentNode.pendingCombat?.enemyIds || []}
                         initialCombatStarted={true}
-                        ecologyBundle={{ fauna: faunaEntries, flora: [], biomes: [], baselines: [], archetypes: { biomes: [] }, biomeModelSettings: { biomes: [] }, worldId, updatedAt: new Date().toISOString() }}
+                        ecologyBundle={combatEcologyBundle}
                         onCombatFinished={(summary) => {
                             console.log("✓ Combat finished with summary:", summary);
                             setIsCombatActive(false);
@@ -1056,69 +1120,17 @@ export function DemoQuestPlayer({ worldId, runId, onComplete }: DemoQuestPlayerP
 
                     {isEnding && (
                         <div className="border-t border-white/5 px-6 py-4">
-                            {hasPendingCombat ? (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        console.log("🥊 Ending Fight button clicked!");
-                                        console.log("Combat data:", { hasPendingCombat, enemyIds: currentNode.pendingCombat?.enemyIds, playerIds: questRun.partyCharacterIds, faunaCount: faunaEntries.length });
-                                        setIsCombatActive(true);
-                                    }}
-                                    className="w-full rounded-2xl border border-red-400/40 bg-gradient-to-br from-red-500/20 via-red-600/15 to-red-700/20 px-6 py-4 text-center font-black uppercase tracking-widest text-red-100 transition-all hover:bg-red-500/30 hover:border-red-400/60 hover:shadow-[0_12px_48px_rgba(239,68,68,0.25)]"
-                                >
-                                    Fight!
-                                </button>
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                        console.log("🎯 Proceeding to final combat...");
-                                        setIsAdvancing(true);
-                                        setAdvancingStatus("Preparing final encounter...");
-                                        setAdvancingProgress(10);
-
-                                        try {
-                                            // Generate combat encounter
-                                            await fetch("/api/demo/ensure-final-combat", {
-                                                method: "POST",
-                                                headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({ worldId, runId }),
-                                            });
-
-                                            setAdvancingProgress(50);
-                                            setAdvancingStatus("Generating enemies...");
-
-                                            // Reload quest to get combat node
-                                            const reloadResponse = await fetch(`/api/planet/quests/${worldId}/${runId}`);
-                                            if (reloadResponse.ok) {
-                                                const updatedRun = await reloadResponse.json();
-                                                setQuestRun(updatedRun);
-                                                setAdvancingProgress(100);
-                                                console.log("✓ Combat encounter ready");
-                                            }
-                                        } catch (err) {
-                                            console.error("Failed to prepare combat:", err);
-                                            setError("Failed to prepare combat encounter");
-                                        } finally {
-                                            await new Promise(resolve => setTimeout(resolve, 300));
-                                            setIsAdvancing(false);
-                                            setAdvancingStatus(null);
-                                            setAdvancingProgress(0);
-                                        }
-                                    }}
-                                    disabled={isAdvancing}
-                                    className="w-full rounded-2xl border border-emerald-400/30 bg-gradient-to-br from-emerald-500/20 via-emerald-600/15 to-emerald-700/20 px-6 py-4 text-center font-black uppercase tracking-widest text-emerald-100 transition-all hover:bg-emerald-500/30 hover:border-emerald-400/50 hover:shadow-[0_12px_48px_rgba(16,185,129,0.25)] disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                    {isAdvancing ? (
-                                        <div className="flex items-center justify-center gap-2">
-                                            <LoaderCircle className="h-4 w-4 animate-spin" />
-                                            <span className="text-xs">{advancingStatus}</span>
-                                        </div>
-                                    ) : (
-                                        "Proceed"
-                                    )}
-                                </button>
-                            )}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    console.log("🎯 Proceeding to step 5...");
+                                    // Navigate to step 5 with current search params
+                                    navigate(`/demo/5?${searchParams.toString()}`);
+                                }}
+                                className="w-full rounded-2xl border border-emerald-400/30 bg-gradient-to-br from-emerald-500/20 via-emerald-600/15 to-emerald-700/20 px-6 py-4 text-center font-black uppercase tracking-widest text-emerald-100 transition-all hover:bg-emerald-500/30 hover:border-emerald-400/50 hover:shadow-[0_12px_48px_rgba(16,185,129,0.25)]"
+                            >
+                                Continue
+                            </button>
                         </div>
                     )}
                 </div>

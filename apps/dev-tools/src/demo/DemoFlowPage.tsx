@@ -4,6 +4,7 @@ import { DemoPlanetScreen } from "./DemoPlanetScreen";
 import { DemoStepTwoPage } from "./DemoStepTwoPage";
 import { DemoStepThreePage } from "./DemoStepThreePage";
 import { DemoStepFourPage } from "./DemoStepFourPage";
+import { DemoStepFivePage } from "./DemoStepFivePage";
 import { DEMO_STEP_ONE_ROUTE } from "../lib/routes";
 import { DemoFlowContext, type DemoPlanetView } from "./DemoFlowContext";
 import { DemoPlanetStage } from "./DemoPlanetStage";
@@ -96,6 +97,15 @@ export function DemoFlowPage() {
                     <div className="relative h-screen w-full overflow-hidden bg-black">
                         <DemoPlanetStage textureUrl={planetTexture} view={planetView} locationMarkers={locationMarkers} />
                         <DemoStepFourPage />
+                    </div>
+                </DemoFlowContext.Provider>
+            );
+        case "5":
+            return (
+                <DemoFlowContext.Provider value={contextValue}>
+                    <div className="relative h-screen w-full overflow-hidden bg-black">
+                        <DemoPlanetStage textureUrl={planetTexture} view={planetView} locationMarkers={locationMarkers} />
+                        <DemoStepFivePage />
                     </div>
                 </DemoFlowContext.Provider>
             );
