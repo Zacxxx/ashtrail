@@ -145,9 +145,9 @@
 
   ---
 
- ## 📖 Deep Dive
+  ## 📖 Deep Dive
 
-<details>
+ <details>
 <summary><b>🛠 Dev-Tools</b></summary>
 
 - **World Generation (3D)**: Procedural generation and 3D visualization of planets, biomes, and tiles through coherent worldbuilding algorithms.
@@ -157,6 +157,7 @@
 - **Ecology Lab**: Assisted design of ecosystems, including flora, fauna, and resource distribution, to enrich biome diversity.
 - **Lyria Music Synth**: Adaptive music and immersive soundscape generation powered through Vertex AI.
 - **Job Center**: Monitoring and balancing tool used to simulate exploration tasks, progression loops, and economic systems.
+- **Story Loop Prototyper**: Testing environment for debugging multimodal narrative sequences across text, image, and audio.
 - **Generated Gallery**: Visual archive for browsing, reviewing, and reusing previously generated AI content.
 - **Helper**: AI-powered contextual assistant providing real-time guidance, troubleshooting support, and feature explanations based on tutorial documentation and intelligent code analysis.
 
@@ -184,7 +185,7 @@
 - **Styling**: Tailwind CSS v4 + PostCSS
 - **AI SDK**: Google Generative AI SDK (`@google/genai`)
 - **Backend Integration**: Direct REST/HTTP integration through Rust using `reqwest`
-- **Specialized Platform Access**: Vertex AI for music generation and advanced multimodal workflows
+- **Specialized Platform Access**: Lyria 2 for music generation
 - **State**: Centralized shared schemas and game logic in `@ashtrail/core`
 
 </details>
@@ -196,7 +197,7 @@
 
 - **Google Generative AI SDK (`@google/genai`)**: Used in the frontend and shared packages, especially `apps/dev-tools` and `packages/core`.
 - **Direct API (REST/HTTP)**: The Rust backend in `apps/dev-tools/backend` communicates directly with Google APIs via `reqwest` for fine-grained control over multimodal and interleaved generation flows.
-- **Vertex AI (GCP)**: Used for specialized generation workflows such as music synthesis.
+- **Vertex AI (GCP)**: Used for specialized generation workflows.
 
 ### 2. Gemini Models (Text & Reasoning)
 
